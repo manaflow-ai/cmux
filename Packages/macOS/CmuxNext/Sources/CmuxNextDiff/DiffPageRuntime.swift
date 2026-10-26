@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextSettings
 public import CmuxNextDaemonService
 public import Foundation
@@ -42,9 +42,17 @@ public final class DiffPageRuntime {
         return DiffRepository(status: status)
     }
 
+    /// The repository `folder` is in on another machine (#25581), from that machine's session
+    /// host through `git`: nil when it is in none; throws when the machine did not answer.
+    public static func repository(at folder: URL, git: any DiffGitRunning) async throws(AgentPaneGitFailure) -> DiffRepository? {
+        DiffRepository(status: try await git.status(folder.path))
+    }
+
     /// The tab's grant (for `repository`'s root) and config, with `turn` as its
-    /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
-    public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
+    /// Last turn. Fails with a ``DiffTabFailure`` the page shows. `onMachine`: the repository is
+    /// on another machine (``DiffPageConfig/make(repository:source:token:turn:onMachine:)``).
+    public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil,
+                        onMachine: Bool = false) -> Task<DiffTabReady, any Error> {
         let root = root, available = sidecar != nil
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
@@ -53,7 +61,9 @@ public final class DiffPageRuntime {
                 await Self.drop(grant)
                 throw CancellationError()
             }
-            return DiffTabReady(grant: grant, config: DiffPageConfig.make(repository: repository, source: source, token: grant.token, turn: turn),
+            return DiffTabReady(grant: grant,
+                                config: DiffPageConfig.make(repository: repository, source: source, token: grant.token, turn: turn,
+                                                            onMachine: onMachine),
                                 turn: turn)
         }
     }

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -27,6 +28,10 @@ public final class DiffPageProvider: PageProvider {
     static let chooseFolderOp = "cmux.diff.chooseFolder"
     static let openOp = "cmux.diff.open"
     static let notARepository = "cmux.diff.not_a_repo"
+    /// A repository on another machine that cannot answer now (the page shows the message).
+    static let machineOffline = "cmux.diff.machine_offline"
+    /// A request a repository on another machine cannot serve yet (the page shows the message).
+    static let machineUnsupported = "cmux.diff.machine_unsupported"
     /// The id the page closes before its first open has answered.
     static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
     static let maximumRequestBytes = 1024 * 1024
@@ -40,6 +45,10 @@ public final class DiffPageProvider: PageProvider {
     let stores: DiffPageStores?
     /// Stage, Commit and Push in the tab's repository (``DiffGitRunning``); nil serves no git op.
     let git: (any DiffGitRunning)?
+    /// The name of the machine the tab's repository is on (#25581, a Cloud workspace's); nil for
+    /// this Mac. Such a tab reads every diff from that machine (``DiffMachinePatch``, `git`) and
+    /// never asks this Mac's sidecar to read the repository's path.
+    public let machine: String?
     /// Asks before Revert throws work away (DiffPageProvider+Revert.swift); nil reverts no file.
     public var confirmRevert: DiffRevertConfirming?
     /// The hunks Undo can put back, and the gesture the last revert spent.
@@ -54,8 +63,9 @@ public final class DiffPageProvider: PageProvider {
     var spentOpenGesture: TimeInterval?
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
-         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
+         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil, machine: String? = nil) {
         self.ready = ready
+        self.machine = machine
         self.stores = stores
         self.git = git
         self.sidecar = sidecar
@@ -158,6 +168,10 @@ public final class DiffPageProvider: PageProvider {
         let grant = tab.grant
         var params = params
         params["capabilityToken"] = .string(grant.token)
+        // The sidecar would read these from this Mac's disk at the repository's path.
+        if machine != nil, ["fileContents", "branchList", "branchChange"].contains(method) {
+            throw PageError(code: Self.machineUnsupported, message: DiffPageStrings.machineUnsupported)
+        }
         switch method {
         case "protocolHandshake":
             return try await send(method, params: nil)
@@ -202,16 +216,28 @@ public final class DiffPageProvider: PageProvider {
         sessions.insert(id)
         // The chat's turn now (the header gives a tab a newer one), else the one the tab opened with.
         let turnPatch = DiffTurnPatch.opens(params), turn = host?.turn(for: grant.repository) ?? tab.turn
-        let task = Task { [self] in
+        // A repository on another machine: a git source opens as the machine's diff of its scope.
+        let asked = params["source"], scope = machine != nil && !turnPatch ? DiffMachinePatch.scope(asked) : nil
+        if machine != nil, !turnPatch, scope == nil { throw PageError.invalidParams("source is not one this tab opens") }
+        if scope != nil {
+            params["source"] = DiffMachinePatch.sidecarSource
+            params["ignoreWhitespace"] = nil
+        }
+        let task = Task { [self, params] in
             if turnPatch {
                 try await writeTurnPatch(turn, in: grant)
+                try Task.checkCancellation()
+            }
+            if let scope {
+                try await writeMachinePatch(scope, in: grant)
                 try Task.checkCancellation()
             }
             return try await send("sessionOpen", params: params)
         }
         opening = (id, task)
         defer { if opening?.session == id { opening = nil } }
-        let result = try await task.value
+        var result = try await task.value
+        if scope != nil { result = DiffMachinePatch.reporting(asked, in: result) }
         // A patch session (Last turn) gets the sidecar's own id, which the page then closes.
         if let opened = Self.openedSession(result) { sessions.insert(opened) }
         return result
@@ -233,6 +259,30 @@ public final class DiffPageProvider: PageProvider {
     /// The patch can be megabytes: built and written off the main actor.
     @concurrent private static func write(_ diff: JSONValue, to grant: DiffSessionGrant) async throws {
         try grant.writeTurnPatch(DiffTurnPatch.make(diff))
+    }
+
+    /// Writes the tab's machine patch (``DiffMachinePatch``) from the session host's `git.diff` of
+    /// `scope` on the repository's machine, every file's patch included.
+    private func writeMachinePatch(_ scope: AgentPaneGitScope, in grant: DiffSessionGrant) async throws {
+        guard let git, let machine else { throw PageError(code: "notAllowed", message: "This diff tab has no machine") }
+        let diff: JSONValue
+        do {
+            diff = try await git.diff(grant.repository, scope: scope, includePatch: true)
+        } catch {
+            throw Self.machineError(error, machine: machine)
+        }
+        try await Self.writeMachine(diff, to: grant)
+    }
+
+    @concurrent private static func writeMachine(_ diff: JSONValue, to grant: DiffSessionGrant) async throws {
+        try grant.writeMachinePatch(DiffTurnPatch.make(diff))
+    }
+
+    /// A read of another machine that got no answer says so, naming the machine; the session
+    /// host's own refusals keep their code.
+    static func machineError(_ failure: AgentPaneGitFailure, machine: String) -> PageError {
+        guard failure == .notConnected || failure == .timedOut else { return pageError(failure) }
+        return PageError(code: machineOffline, message: DiffPageStrings.machineOffline(machine), retryable: true)
     }
 
     /// Stops the open in flight and closes its session once it settles (it may

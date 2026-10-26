@@ -35,7 +35,14 @@ enum ViewerHandlers {
             // change the view, as a person's click on the chat header's Changes may; an agent or
             // the CLI without focus gets needsFocus).
             registry.track(Task { @MainActor in
-                do { try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created) } catch {
+                // The folder is the pane's (or one named for it), so it is on the pane's machine.
+                do {
+                    try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, onPaneMachine: true,
+                                               created: created)
+                } catch {
+                    // This Mac's picker cannot choose a folder of another machine (#25581): say why
+                    // the pane's folder did not open (no repository, the machine is offline).
+                    guard pane.daemon.isLocal else { return ActionWorkFailure("open diff", ActionFailure(message: ViewerService.reason(error))) }
                     guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
                     // The header's pick still opens beside the chat, as its diff would have.
                     let page = invocation.besideCaller

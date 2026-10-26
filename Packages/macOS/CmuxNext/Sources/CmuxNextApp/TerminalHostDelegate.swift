@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -75,6 +76,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
+        if let services, let machine = fileMachine(session, services: services) {
+            // task-owner: one Cmd-click's lookup on the terminal's machine; ends when its file opens or nothing does
+            Task { @MainActor [weak self] in await self?.openMachineLink(text, cwd: cwd, on: machine, request) }
+            return true
+        }
         let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         Task { @MainActor [weak self] in
             let target = await Task.detached(priority: .userInitiated) {
@@ -95,6 +101,35 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// A Cmd-click in a terminal of another machine (#25581, a Cloud workspace): the first path the
+    /// text may name (``TerminalLinkResolver/remoteCandidates(_:cwd:)``) that the machine says is a
+    /// file opens in its page, read from that machine; else a web link opens as anywhere. Nothing of
+    /// this Mac's disk is read, and a folder opens nothing (Finder shows this Mac).
+    private func openMachineLink(_ text: String, cwd: String?, on machine: DaemonService,
+                                 _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) async {
+        guard let services else { return }
+        let files = services.agentGit.link(for: machine)
+        for path in TerminalLinkResolver.remoteCandidates(text, cwd: cwd) {
+            guard let stat = try? await files.stat(path) else { continue }
+            guard stat.kind == "file" || stat.kind == "symlink" else { return }
+            let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+            services.linkOpener.openFile(URL(fileURLWithPath: path), on: machine, from: services.linkOpener.source(tab: request.tab?.id),
+                                         at: position)
+            return
+        }
+        if case .url(let url)? = TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) { openWeb(url, request) }
+    }
+
+    /// The daemon of the machine whose files `session`'s output names, when that is not this Mac: a
+    /// terminal of a Cloud workspace (the machine's daemon serves its files, `fs-v1`). Nil for this
+    /// Mac's terminals, a remote-terminal projection, and machines that serve no files.
+    private func fileMachine(_ session: TerminalSession, services: AppServices) -> DaemonService? {
+        guard let ref = target(of: session, in: services), let tab = services.cache.tabModel(ref.id),
+              tab.kind != .remoteTerminal else { return nil }
+        let daemon = services.machines.daemon(forTab: tab)
+        return daemon.isLocal || daemon.identity?.supports(FileSystemReadRequest.requiredCapability ?? "") != true ? nil : daemon
+    }
+
     /// The terminal's folder, else its tab's: where a relative path in its output starts.
     private func cwd(of session: TerminalSession) -> String? {
         session.model.workingDirectory ?? services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
@@ -105,6 +140,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
         let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
+        // Another machine's paths cannot be checked from here while the pointer moves: a path the
+        // text may name there is underlined, and the click asks the machine (``openMachineLink``).
+        if let services, fileMachine(session, services: services) != nil {
+            return { text, cwd in
+                !TerminalLinkResolver.remoteCandidates(text, cwd: cwd ?? start).isEmpty
+                    || TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) != nil
+            }
+        }
         return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: canOpenLocalFiles) != nil }
     }
 

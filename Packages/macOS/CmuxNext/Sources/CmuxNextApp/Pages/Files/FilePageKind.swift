@@ -99,6 +99,34 @@ nonisolated enum FilePageStrings {
         String(localized: "filePages.noFilePage", defaultValue: "No file page has the keyboard.", table: "FilePages", bundle: .module)
     }
 
+    /// A file of another machine (#25581) whose machine did not answer.
+    static func remoteOffline(_ machine: String) -> String {
+        String(format: String(localized: "filePages.remote.offline",
+                              defaultValue: "“%@” is not connected. The file shows again when it reconnects.",
+                              table: "FilePages", bundle: .module), machine)
+    }
+
+    /// A machine whose cmux does not serve its files (an older daemon, a machine that is no Cloud VM).
+    static func remoteNoFiles(_ machine: String) -> String {
+        String(format: String(localized: "filePages.remote.noFiles",
+                              defaultValue: "“%@” does not share its files with this Mac. Update cmux on it to open its files here.",
+                              table: "FilePages", bundle: .module), machine)
+    }
+
+    /// A path the machine refuses: outside its home folder, or not readable there.
+    static func remoteDenied(_ machine: String) -> String {
+        String(format: String(localized: "filePages.remote.denied",
+                              defaultValue: "“%@” did not allow reading this file. Files in its home folder open here.",
+                              table: "FilePages", bundle: .module), machine)
+    }
+
+    /// An image, PDF or media file of another machine: this Mac previews only its own files.
+    static func remotePreview(_ name: String) -> String {
+        String(format: String(localized: "filePages.remote.preview",
+                              defaultValue: "“%@” is on another machine. cmux opens text files from there.",
+                              table: "FilePages", bundle: .module), name)
+    }
+
     static var notAFile: String {
         String(localized: "filePages.notAFile", defaultValue: "That file cannot be opened.", table: "FilePages", bundle: .module)
     }

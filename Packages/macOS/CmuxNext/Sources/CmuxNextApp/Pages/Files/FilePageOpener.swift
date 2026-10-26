@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextFiles
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -98,6 +99,29 @@ final class FilePageOpener: FileOpening {
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)
+        }
+        return nil
+    }
+
+    /// A file of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in its
+    /// page: the markdown page for Markdown, else the code editor, both reading, saving and
+    /// watching the file on that machine through its daemon. This Mac never renders, previews or
+    /// reads another machine's file, so a web page shows its source and an image or PDF does not
+    /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
+    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+        guard !machine.isLocal else { return open(file, in: pane, userChose: userChose, at: position, placed: placed) }
+        guard file.path.hasPrefix("/"), !file.path.contains("\u{0}") else { return FilePageStrings.notAFile }
+        guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
+        let url = file.standardizedFileURL
+        switch Self.kind(for: url) {
+        case .markdown?:
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, placed: placed)
+        case .editor?:
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
+                                              placed: placed)
+        case nil:
+            return FilePageStrings.remotePreview(url.lastPathComponent)
         }
         return nil
     }

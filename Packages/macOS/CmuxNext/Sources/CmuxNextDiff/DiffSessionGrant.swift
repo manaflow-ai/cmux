@@ -9,8 +9,9 @@ import CmuxNextCompat
 ///   token may open sessions for exactly this repository;
 /// - `.manifest-<token>.json`: the files the token may read. The sidecar adds
 ///   each session's patch; it never creates a manifest, so this one starts with
-///   a placeholder entry, and the tab's turn patch (``turnPatchURL``, written
-///   when the page opens Last turn);
+///   a placeholder entry, the tab's turn patch (``turnPatchURL``, written
+///   when the page opens Last turn) and its machine patch (``machinePatchURL``,
+///   written for each open of a tab whose repository is on another machine);
 /// - `.session-lease-<token>.lock`, held (flock) while the tab lives, so the
 ///   sidecar's orphan sweep never removes a live tab's patches.
 ///
@@ -53,6 +54,8 @@ nonisolated final class DiffSessionGrant: Sendable {
                 "files": [["request_path": placeholderPath, "file_path": placeholder.path, "mime_type": "text/html",
                            "remote_url": NSNull()],
                           ["request_path": DiffTurnPatch.requestPath, "file_path": grant.turnPatchURL.path,
+                           "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()],
+                          ["request_path": DiffMachinePatch.requestPath, "file_path": grant.machinePatchURL.path,
                            "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()]],
             ]
             try write(JSONSerialization.data(withJSONObject: manifest), to: grant.manifestURL)
@@ -69,12 +72,24 @@ nonisolated final class DiffSessionGrant: Sendable {
     /// The tab's turn patch (``DiffTurnPatch``); the manifest lists it from the start.
     var turnPatchURL: URL { root.appending(path: ".turn-\(token).patch") }
 
+    /// The tab's machine patch (``DiffMachinePatch``); the manifest lists it from the start.
+    var machinePatchURL: URL { root.appending(path: ".machine-\(token).patch") }
+
     /// Replaces the turn patch with `text` (a temporary file of its own, then a rename, so two
     /// writes never share one). Blocking file IO.
     func writeTurnPatch(_ text: String) throws {
+        try writePatch(text, to: turnPatchURL)
+    }
+
+    /// Replaces the machine patch with `text`, as ``writeTurnPatch(_:)``. Blocking file IO.
+    func writeMachinePatch(_ text: String) throws {
+        try writePatch(text, to: machinePatchURL)
+    }
+
+    private func writePatch(_ text: String, to target: URL) throws {
         let temporary = root.appending(path: "\(Self.turnTemporaryPrefix(token))\(Self.randomHex(bytes: 8))")
         try Self.write(Data(text.utf8), to: temporary)
-        guard Darwin.rename(temporary.path, turnPatchURL.path) == 0 else {
+        guard Darwin.rename(temporary.path, target.path) == 0 else {
             try? FileManager.default.removeItem(at: temporary)
             throw CocoaError(.fileWriteUnknown)
         }

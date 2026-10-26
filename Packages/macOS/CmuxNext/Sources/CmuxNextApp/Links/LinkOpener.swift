@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
@@ -188,6 +189,15 @@ final class LinkOpener {
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { pane, placed in
             pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed)
+        }
+    }
+
+    /// A file of `machine` (#25581, a Cloud workspace's path): its page, read from that machine,
+    /// placed as ``openFile(_:from:markdown:asText:at:)`` places a file of this Mac.
+    @discardableResult
+    func openFile(_ file: URL, on machine: DaemonService, from source: PaneController?, at position: FilePosition? = nil) -> Bool {
+        open(from: source) { pane, placed in
+            pane.services.viewers.openFile(file, on: machine, in: pane, at: position, placed: placed)
         }
     }
 

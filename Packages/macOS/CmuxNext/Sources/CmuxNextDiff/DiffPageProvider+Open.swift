@@ -97,8 +97,19 @@ extension DiffPageProvider {
         } catch let failure as DiffTabFailure {
             throw PageError(code: "sidecarUnavailable", message: failure.message)
         }
-        guard let file = await Self.repositoryFile(request.path, in: repository) else {
-            throw PageError(code: Self.openFileNotFound, message: request.path)
+        let file: URL
+        if machine != nil {
+            // A repository on another machine (#25581): its file tab reads the file there, and says
+            // so when it is gone. The editor app and Finder would open a path of this Mac.
+            guard request.target == .tab else {
+                throw PageError(code: Self.machineUnsupported, message: DiffPageStrings.machineUnsupported)
+            }
+            file = URL(fileURLWithPath: repository, isDirectory: true).appending(path: request.path).standardizedFileURL
+        } else {
+            guard let found = await Self.repositoryFile(request.path, in: repository) else {
+                throw PageError(code: Self.openFileNotFound, message: request.path)
+            }
+            file = found
         }
         guard !isClosed, host.openFile(file, line: request.line, target: request.target) else {
             throw PageError(code: Self.openFileFailed, message: request.path)

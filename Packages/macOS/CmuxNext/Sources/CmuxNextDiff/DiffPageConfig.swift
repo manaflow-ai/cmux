@@ -89,9 +89,11 @@ nonisolated enum DiffPageConfig {
     /// `source` with the daemon's base for a branch with none named; a
     /// repository with no base at all starts on the unstaged changes. With a
     /// `turn`, the scope menu offers Last turn (the patch at
-    /// ``DiffTurnPatch/requestPath``); `.turn` opens on it, at the turn's file.
+    /// ``DiffTurnPatch/requestPath``); `.turn` opens on it, at the turn's file. `onMachine`: the
+    /// repository is on another machine (#25581), whose files this Mac's sidecar cannot read, so
+    /// the page offers neither Load full files nor Hide white space.
     static func make(repository: DiffRepository, source: DiffOpenSource = .default, token: String,
-                     turn: DiffTurn? = nil) -> JSONValue {
+                     turn: DiffTurn? = nil, onMachine: Bool = false) -> JSONValue {
         var payload: [String: JSONValue] = [
             "title": .string(repository.name),
             "transport": ["kind": "page", "endpoint": "cmux.diff", "protocolVersion": 1],
@@ -100,7 +102,7 @@ nonisolated enum DiffPageConfig {
             "headRef": .string(repository.branch ?? "HEAD"),
             "layout": "auto",
             "layoutSource": "default",
-            "sessionCapabilities": .array(sessionCapabilities.map(JSONValue.string)),
+            "sessionCapabilities": .array(onMachine ? [] : sessionCapabilities.map(JSONValue.string)),
         ]
         let root = JSONValue.string(repository.root)
         // A turn scope with no turn (a restored tab) shows the default scope.

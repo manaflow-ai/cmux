@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextDaemonService
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextIcons
@@ -37,6 +38,10 @@ final class FilePageService: InternalPageProvider {
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
         var bar: MarkdownOmnibarBar?
+        /// Where the file lives: the machine of the pane the tab opened in (#25581).
+        var files: any FilePageFiles = LocalFilePageFiles.shared
+        /// That machine's id (`local` for this Mac): a tab shows one machine's file of a path.
+        var machine = "local"
     }
 
     let kind: FilePageKind
@@ -132,17 +137,22 @@ final class FilePageService: InternalPageProvider {
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
     /// the file (a chat transcript); every other markdown file opens writable. `position` (the code
     /// editor only, a Find result): the cursor goes there, in a new tab after its load
-    /// (``revealAt(_:in:)``).
+    /// (``revealAt(_:in:)``). `machine`: the daemon of the machine `file` is on (#25581, a path a
+    /// Cloud terminal or diff named); nil is this Mac, whatever machine `pane` shows.
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil, at position: FilePosition? = nil,
+              recoveredText: String? = nil, at position: FilePosition? = nil, on machine: DaemonService? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
-        let real = file.standardizedFileURL.resolvingSymlinksInPath()
-        if userChose { services.viewers.recents.record(real, as: kind.recents) }
+        let files = machineFiles(on: machine)
+        let real = files.canonical(file)
+        // The viewers' recents are files of this Mac.
+        if userChose, files.isLocal { services.viewers.recents.record(real, as: kind.recents) }
         let reveal = kind == .editor ? position : nil
-        let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText, reveal: reveal)
+        let machineID = files.isLocal ? "local" : machine?.machineID ?? "local"
+        let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
+                      reveal: reveal, files: files, machine: machineID)
         let key = show(in: pane, focus: focus, placed: placed, tab) { key in
-            self.file(key) == real
+            self.file(key) == real && self.tabs[key]?.machine == machineID
         }
         if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -156,6 +166,14 @@ final class FilePageService: InternalPageProvider {
             tabs[key]?.page?.reload()
         }
         return key
+    }
+
+    /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the
+    /// machine's daemon over its own read link, so a tab in a Cloud workspace shows the VM's file.
+    func machineFiles(on machine: DaemonService?) -> any FilePageFiles {
+        guard let daemon = machine, !daemon.isLocal else { return LocalFilePageFiles.shared }
+        return RemoteFilePageFiles(client: services.agentGit.link(for: daemon),
+                                   machine: services.machines.machineName(daemon.machineID) ?? daemon.machineID)
     }
 
     /// Puts tab `key`'s cursor at `position`: a tab whose page is up gets the `reveal` page command;
@@ -235,7 +253,8 @@ final class FilePageService: InternalPageProvider {
                 return shown
             }
             // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
-            if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
+            // Store tabs hold files of this Mac only.
+            if tab.files.isLocal, let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
                 $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
             }) {
                 if revealsExisting {
@@ -352,7 +371,7 @@ final class FilePageService: InternalPageProvider {
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
                                         libraries: libraries, images: images, tableWidths: tableWidths,
-                                        comments: comments)
+                                        comments: comments, files: tab.files)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
         tab.reveal = nil
@@ -381,7 +400,9 @@ final class FilePageService: InternalPageProvider {
     /// The Markdown omnibar above a markdown tab's page (plans/cmux-next/markdown-omnibar-DESIGN.md):
     /// the browser's omnibar row showing the file's path, its git state and the Share menu.
     func makeTopBar(for key: String) -> NSView? {
-        guard kind == .markdown, let tab = tabs[key], let page = tab.page else { return nil }
+        // Its repo chip, Share menu and live links read and serve this Mac's file: none for a file of
+        // another machine (the page then names its file itself).
+        guard kind == .markdown, let tab = tabs[key], tab.files.isLocal, let page = tab.page else { return nil }
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
             returnFocus: { [weak page] in
@@ -493,7 +514,7 @@ final class FilePageTabHost: FilePageHosting {
     func recents() -> JSONValue { service?.recents() ?? ["items": []] }
     func record(_ url: URL) {
         guard let service else { return }
-        service.servicesRecord(url)
+        service.servicesRecord(url, from: key)
     }
     func chooseFile(start: URL?) async -> URL? { await service?.chooseFile(start: start, for: key) }
     func look() -> JSONValue { service?.look.current() ?? .object([:]) }
@@ -509,14 +530,20 @@ final class FilePageTabHost: FilePageHosting {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
-    var showsOmnibar: Bool { service?.kind == .markdown }
+    var showsOmnibar: Bool { service?.showsOmnibar(key) ?? false }
     func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }
 
 extension FilePageService {
-    fileprivate func servicesRecord(_ url: URL) {
+    fileprivate func servicesRecord(_ url: URL, from key: String) {
+        guard tabs[key]?.files.isLocal ?? true else { return }
         services.viewers.recents.record(url, as: kind.recents)
+    }
+
+    /// Markdown tabs of this Mac's files show the omnibar (``makeTopBar(for:)``).
+    fileprivate func showsOmnibar(_ key: String) -> Bool {
+        kind == .markdown && tabs[key]?.files.isLocal ?? true
     }
 }

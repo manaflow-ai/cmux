@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
@@ -74,9 +75,11 @@ final class ViewerService {
 
     /// A diff tab for `directory` in `pane`; the diff host records the
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
+    /// `onPaneMachine`: `directory` is a folder of `pane`'s machine (``DiffViewerOpening``).
     func openDiff(_ directory: String, turn: DiffTurn? = nil, showTurn: Bool = false, in pane: PaneController, focus: Bool,
-                  created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
-        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
+                  onPaneMachine: Bool = false, created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
+        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus,
+                                      onPaneMachine: onPaneMachine, created: created)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside
@@ -131,6 +134,21 @@ final class ViewerService {
         }
         let kind: ViewerRecents.Kind = !asText && (markdown || PickerFilter.markdown.accepts(file.lastPathComponent)) ? .markdown : .file
         recents.record(file, as: kind)
+        return true
+    }
+
+    /// Opens `file` of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in
+    /// its page, read from that machine (``FilePageOpener/open(_:on:in:userChose:at:placed:)``),
+    /// placed as ``openFile(_:in:markdown:asText:at:placed:)`` places it. False when it did not
+    /// open (the refusal shows). The recents are this Mac's files, so it records none.
+    @discardableResult
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, at position: FilePosition? = nil,
+                  placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+        guard let opener = fileOpener as? FilePageOpener else { return false }
+        if let reason = opener.open(file, on: machine, in: pane, userChose: true, at: position, placed: placed) {
+            showRefusal(reason)
+            return false
+        }
         return true
     }
 

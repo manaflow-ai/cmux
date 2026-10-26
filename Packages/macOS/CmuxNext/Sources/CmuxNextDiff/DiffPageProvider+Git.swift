@@ -43,6 +43,9 @@ extension DiffPageProvider {
         "cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint", "cmux.diff.git.commit", "cmux.diff.git.push",
         "cmux.diff.git.stage", "cmux.diff.git.unstage", "cmux.diff.git.stageHunk", "cmux.diff.git.unstageHunk",
     ]
+    /// The ops of a tab whose repository is on another machine (#25581): the reads only. Stage and
+    /// Revert run git on this Mac, so the page shows no git controls there, only fresh diffs.
+    static let machineGitOps: Set<String> = ["cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint"]
     /// The session the writes name: the diff tab has no chat, and the session host keys only on
     /// the page's idempotency key.
     static let gitSession = "diff-tab"
@@ -62,8 +65,9 @@ extension DiffPageProvider {
             default: break
             }
         } catch {
-            throw Self.pageError(error)
+            throw machine.map { Self.machineError(error, machine: $0) } ?? Self.pageError(error)
         }
+        guard machine == nil else { throw PageError(code: Self.machineUnsupported, message: DiffPageStrings.machineUnsupported) }
         guard context.userGesture else {
             throw PageError(code: "transport.gesture_required", message: AgentPaneGitStage.needsGestureMessage)
         }
@@ -94,7 +98,7 @@ extension DiffPageProvider {
     /// `config` listing the git ops, when this tab serves them.
     func withGit(_ config: JSONValue) -> JSONValue {
         guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
-        let ops = Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
+        let ops = machine != nil ? Self.machineGitOps : Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + ops.sorted().map(JSONValue.string))
         return .object(members)
     }
@@ -158,5 +162,35 @@ public final class DiffAgentGit: DiffGitRunning {
     private static func parse(_ data: Data) throws(AgentPaneGitFailure) -> JSONValue {
         guard let value = try? JSONValue.parse(data) else { throw AgentPaneGitFailure.failed }
         return value
+    }
+}
+
+/// A diff tab's git on another machine (#25581, a Cloud workspace): reads and Last turn through
+/// that machine's session host. It stages and reverts nothing: both run git on this Mac.
+public final class DiffMachineGit: DiffGitRunning {
+    private let reads: DiffAgentGit
+
+    public init(link: AgentPaneGitLink) {
+        reads = DiffAgentGit(link: link)
+    }
+
+    public func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        try await reads.status(repository)
+    }
+
+    public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
+        try await reads.diff(repository, scope: scope, includePatch: includePatch)
+    }
+
+    public func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        throw AgentPaneGitFailure.failed
+    }
+
+    public func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
+        DiffPageStrings.machineUnsupported
+    }
+
+    public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        try await reads.checkpointDiff(repository, from: from, to: to)
     }
 }

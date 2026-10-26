@@ -7,6 +7,9 @@ nonisolated enum FileOpenFailure: Error, Sendable, Equatable {
     /// A folder, a package or another non-regular file.
     case notFile
     case tooLarge
+    /// The file's machine cannot answer now (offline, signed out, a daemon too old to serve files,
+    /// a path it refuses): the reason, as the page shows it.
+    case unavailable(String)
 }
 
 nonisolated enum FileSaveFailure: Error, Sendable, Equatable {

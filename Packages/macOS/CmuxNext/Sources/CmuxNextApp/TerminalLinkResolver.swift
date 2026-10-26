@@ -45,6 +45,27 @@ nonisolated enum TerminalLinkResolver {
         return safeWebURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
     }
 
+    /// The paths `text` may name on another machine (#25581, a Cloud workspace's terminal), best
+    /// first: an absolute path as printed, else the path under `cwd` (the shell's folder there, a
+    /// `file://` URL of any host). Empty for a URL, `~` (that machine's home is not known here) or
+    /// text that is no path. Reads nothing: the machine says which exists.
+    static func remoteCandidates(_ text: String, cwd: String?) -> [String] {
+        let trimmed = trim(text)
+        guard safeTerminalText(trimmed), !hasScheme(trimmed) else { return [] }
+        let path = withoutLocation(trimmed)
+        guard !path.isEmpty, !path.hasPrefix("~"), !path.contains("\u{0}") else { return [] }
+        if path.hasPrefix("/") { return [(path as NSString).standardizingPath] }
+        let folder: String? = if let cwd, cwd.hasPrefix("/") {
+            cwd
+        } else if let cwd, let url = URL(string: cwd), url.isFileURL, url.path.hasPrefix("/") {
+            url.path
+        } else {
+            nil
+        }
+        guard let folder else { return [] }
+        return [((folder as NSString).appendingPathComponent(path) as NSString).standardizingPath]
+    }
+
     private static let openers: Set<Character> = ["\"", "'", "`", "“", "‘", "<", "[", "{", "("]
     private static let closers: Set<Character> = ["\"", "'", "`", "”", "’", ">", "]", "}", ".", ",", ";", ":", "!", "?"]
 
