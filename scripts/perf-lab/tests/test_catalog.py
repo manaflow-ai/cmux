@@ -241,7 +241,7 @@ class CheckoutCatalogTests(unittest.TestCase):
         printed = {line.split("\t")[1] for line in expected}
         self.assertNotIn("motion-dropped", printed)  # pane-stress and chat-anim claim both of its checks
         self.assertNotIn("launch.warm", printed)
-        self.assertIn("launch.cold", printed)
+        self.assertNotIn("launch.cold", printed)  # launch-cold and launch-after-reboot claim it (task 033)
 
     def test_lab_py_command_module_protocol(self) -> None:
         tree = ast.parse(CATALOG_PY.read_text())

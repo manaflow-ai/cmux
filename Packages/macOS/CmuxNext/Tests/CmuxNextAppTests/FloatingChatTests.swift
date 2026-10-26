@@ -77,14 +77,12 @@ struct FloatingChatTests {
     }
 
     static func rig(floating: Bool, suite: String? = nil) throws -> (Rig, QuickComposerController) {
-        let page = FileManager.default.temporaryDirectory.appending(path: "floating-chat-\(UUID().uuidString)/index.html")
-        try FileManager.default.createDirectory(at: page.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("<html></html>".utf8).write(to: page)
+        let page = try #require(AgentPageAppTestRoot.page)
         let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
-                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page))
+                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page), webUI: .agentTabsTestHost())
             },
             makeWindow: { rig.window },
             openInWindow: { session in

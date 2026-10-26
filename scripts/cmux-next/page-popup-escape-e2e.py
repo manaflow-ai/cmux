@@ -16,8 +16,8 @@ under ~/Projects made before the app starts (the app scans them once at launch):
 
   page-popup-escape-e2e.py --socket /tmp/cmux-debug-<tag>.sock [--surface Location --surface /] [--out DIR]
 
-With --page-host the chat runs on the shared page host, so the same checks go through its
-popup ops (cmux.app.popup.*, PageRouter) instead of the agent pane's own bridge.
+The chat runs on the shared page host, so the checks go through its popup ops
+(cmux.app.popup.*, PageRouter), in the engine the page host picks for it.
 
 Prints a PASS/FAIL row per check and the replies it read. Exit status 0 when every check passes.
 """
@@ -28,8 +28,6 @@ parser.add_argument("--socket", required=True, help="the tagged app's debug sock
 parser.add_argument("--surface", action="append",
                     help='a composer menu to open, by its label; "/" for the commands list; "@query" for '
                          'the file list (repeatable; default: Location)')
-parser.add_argument("--page-host", action="store_true",
-                    help="open the chat on the shared page host (agent.pageHost), whose popup ops are PageRouter's")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 opts.surface = opts.surface or ["Location"]
@@ -106,9 +104,6 @@ def check_surface(label):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    if opts.page_host:
-        print("agent.pageHost:", json.dumps(rpc("debug.tunables", {"action": "set", "key": "agent.pageHost", "value": True})),
-              flush=True)
     rpc("debug.key", {"key": "i", "modifiers": ["command"]})
     ready = wait(lambda: "error" not in (rpc("debug.agent_pane", {"action": "readiness"}) or {"error": 1}), 30)
     time.sleep(2)  # test harness: the new chat's composer mounts
@@ -120,8 +115,6 @@ def main():
     time.sleep(1)  # test harness: the page lays out at the new size
     for surface in opts.surface:
         check_surface(surface)
-    if opts.page_host:
-        rpc("debug.tunables", {"action": "set", "key": "agent.pageHost", "value": None})
     print(f"{sum(ROWS)}/{len(ROWS)} passed", flush=True)
     sys.exit(0 if all(ROWS) else 1)
 

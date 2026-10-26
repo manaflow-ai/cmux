@@ -65,6 +65,6 @@ extension AgentPaneHeaderState {
     /// Pushes `state` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).
     @MainActor public static func push(_ state: AgentPaneHeaderState, to view: AgentPaneView) {
         let event = AgentPageEvent.headerState(state)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyHeaderState?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 }

@@ -94,6 +94,7 @@ final class AppControl {
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
+        registerOracleSettle(service.router, services: services)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
