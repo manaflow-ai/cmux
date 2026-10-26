@@ -25,7 +25,8 @@ public struct FileOperator: FileOperating {
         // A case-only rename on a case-insensitive volume is the same item.
         let caseOnly = target.path.lowercased() == url.path.lowercased()
         if !caseOnly, FileManager.default.fileExists(atPath: target.path) { throw FileBrowserError.exists(target) }
-        guard Darwin.rename(url.path, target.path) == 0 else { throw FileBrowserError.failed(String(cString: strerror(errno))) }
+        // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
+        guard unsafe Darwin.rename(url.path, target.path) == 0 else { throw FileBrowserError.posix(errno) }
         return target
     }
 
@@ -62,7 +63,9 @@ public struct FileOperator: FileOperating {
         for url in urls {
             var result: NSURL?
             do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: &result)
+                // SAFETY: `result` is a local that outlives the call; Foundation stores at most one autoreleased NSURL
+                // through the pointer and keeps no reference to it.
+                try unsafe FileManager.default.trashItem(at: url, resultingItemURL: &result)
             } catch {
                 throw FileBrowserError.failed(error.localizedDescription)
             }
@@ -143,17 +146,21 @@ public struct FileOperator: FileOperating {
     static func copy(_ source: URL, to target: URL, progress: (Int64) -> Bool) throws {
         try withoutActuallyEscaping(progress) { progress in
             let context = CopyProgressContext(progress: progress)
-            let state = copyfile_state_alloc()
-            defer { copyfile_state_free(state) }
-            let unmanaged = Unmanaged.passRetained(context)
-            defer { unmanaged.release() }
-            copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), unmanaged.toOpaque())
-            // copyfile keeps the function pointer itself (copyfile.c: `s->statuscb = thing`).
-            copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB), unsafeBitCast(copyProgressCallback, to: UnsafeRawPointer.self))
+            // SAFETY: `state` is this call's own copyfile state, freed once on return, and copyfile runs the callback
+            // only inside the copyfile call below, on this thread. The callback's context is `context`, retained here
+            // and released on return, so it is live whenever the callback runs. copyfile_state_set takes the callback
+            // as a raw pointer and keeps the C function itself (copyfile.c: `s->statuscb = thing`), a global that
+            // lives for the process; copyfile reads the NUL-terminated copies of both paths made for the call.
+            let state = unsafe copyfile_state_alloc()
+            defer { unsafe copyfile_state_free(state) }
+            let unmanaged = unsafe Unmanaged.passRetained(context)
+            defer { unsafe unmanaged.release() }
+            unsafe copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), unmanaged.toOpaque())
+            unsafe copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB), unsafeBitCast(copyProgressCallback, to: UnsafeRawPointer.self))
             let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_CLONE | COPYFILE_EXCL | COPYFILE_NOFOLLOW_SRC)
-            if copyfile(source.path, target.path, state, flags) != 0 {
+            if unsafe copyfile(source.path, target.path, state, flags) != 0 {
                 if context.stopped { throw FileBrowserError.cancelled }
-                throw FileBrowserError.failed(String(cString: strerror(errno)))
+                throw FileBrowserError.posix(errno)
             }
         }
     }
@@ -169,11 +176,14 @@ final class CopyProgressContext: @unchecked Sendable { // crash-allow: one copy'
 }
 
 private let copyProgressCallback: copyfile_callback_t = { what, stage, state, _, _, ctx in
-    guard let ctx else { return COPYFILE_CONTINUE }
-    let context = Unmanaged<CopyProgressContext>.fromOpaque(ctx).takeUnretainedValue()
+    // SAFETY: `ctx` is the CopyProgressContext FileOperator.copy retained for the copyfile call this callback runs
+    // inside (see there), so it is live; `state` is that call's copyfile state, and copyfile_state_get writes one
+    // off_t into `copied`, a local live for the call.
+    guard let ctx = unsafe ctx else { return COPYFILE_CONTINUE }
+    let context = unsafe Unmanaged<CopyProgressContext>.fromOpaque(ctx).takeUnretainedValue()
     if what == COPYFILE_COPY_DATA, stage == COPYFILE_PROGRESS {
         var copied: off_t = 0
-        copyfile_state_get(state, UInt32(COPYFILE_STATE_COPIED), &copied)
+        unsafe copyfile_state_get(state, UInt32(COPYFILE_STATE_COPIED), &copied)
         if !context.progress(Int64(copied)) {
             context.stopped = true
             return COPYFILE_QUIT

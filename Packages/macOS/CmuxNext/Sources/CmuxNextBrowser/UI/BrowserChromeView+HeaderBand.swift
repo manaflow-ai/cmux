@@ -16,6 +16,7 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     /// Lays out first: a browser outside a window (a tab switched away)
     /// gets no layout pass of its own, so the guide's frame would be stale.
     public var paneHeaderBandRect: CGRect {
+        // sync-layout: the getter returns the guide's laid-out frame.
         layoutSubtreeIfNeeded()
         return headerBand.guide.frame
     }

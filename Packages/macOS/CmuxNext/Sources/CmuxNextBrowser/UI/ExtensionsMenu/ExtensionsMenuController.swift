@@ -146,7 +146,7 @@ final class ExtensionsMenuController {
         guard !isShown else { return }
         self.host = host
         render()
-        content.layoutSubtreeIfNeeded()
+        // sync-layout: the first open's layout, done here ahead of the click (u2426): the open only orders the panel in.
         card.layoutSubtreeIfNeeded()
         warmPanel()
     }
@@ -165,6 +165,7 @@ final class ExtensionsMenuController {
         let card = NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size)
         panel.setFrame(PopupStyle.standard.windowFrame(forCard: card), display: false)
         panel.orderFront(nil)
+        // sync-layout: the warm-up's draw: the window server builds the backing store and glass now, not on the first click.
         panel.displayIfNeeded()
         panel.orderOut(nil)
         panel.alphaValue = alpha
@@ -191,6 +192,7 @@ final class ExtensionsMenuController {
                 tooltip: builtInAdBlocker && info.id == CEFBuiltInExtensions.adBlockerID ? Strings.builtInAdBlocker : nil
             )
         }, site: Self.site(of: url))
+        // sync-layout: content.frame.size below sizes an open bubble.
         content.layoutSubtreeIfNeeded()
         if isShown, content.frame.size != before, let window = panel.parent {
             popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchorView?.toolbarPopupSide ?? .below, trailing: true)

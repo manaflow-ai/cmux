@@ -4,7 +4,9 @@ import Foundation
 /// The FSEventStream behind one ``FolderWatcher`` stream.
 // FSEvents has no async API; the stream is created, scheduled, and stopped on
 // `queue`, and its callback runs there too, so every mutation happens on `queue`.
-final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` changes only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
+// SAFETY: `stream` is the FSEventStreamRef this object created and alone releases (stop()), so it is live
+// whenever it is non-nil.
+@safe final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` changes only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
     private let folderPath: String
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
@@ -19,29 +21,34 @@ final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` ch
 
     func start() {
         queue.async { [self] in
-            var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
-                                               retain: nil, release: nil, copyDescription: nil)
+            // SAFETY: the context's `info` is this object, retained once below before the stream can call back
+            // and released only in stop() after the stream is invalidated, so the callback's info is always live;
+            // FSEventStreamCreate copies the context struct, a local live for the call.
+            var context = unsafe FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
+                                                      retain: nil, release: nil, copyDescription: nil)
             let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
                 | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagUseCFTypes)
-            guard let created = FSEventStreamCreate(nil, folderWatchCallback, &context, [folderPath] as CFArray,
-                                                    FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
+            guard let created = unsafe FSEventStreamCreate(nil, folderWatchCallback, &context, [folderPath] as CFArray,
+                                                           FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
             else { continuation.finish(); return }
-            stream = created
+            unsafe stream = created
             // Keeps self alive while the stream may call back; released in stop().
-            _ = Unmanaged.passRetained(self)
-            FSEventStreamSetDispatchQueue(created, queue)
-            FSEventStreamStart(created)
+            _ = unsafe Unmanaged.passRetained(self)
+            unsafe FSEventStreamSetDispatchQueue(created, queue)
+            unsafe FSEventStreamStart(created)
         }
     }
 
     func stop() {
         queue.async { [self] in
-            guard let stream else { return }
-            FSEventStreamStop(stream)
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            self.stream = nil
-            Unmanaged.passUnretained(self).release()
+            // SAFETY: `stream` is the live stream start() created; after FSEventStreamInvalidate on its own queue
+            // no callback can run, so the retain start() took on self is released last.
+            guard let stream = unsafe stream else { return }
+            unsafe FSEventStreamStop(stream)
+            unsafe FSEventStreamInvalidate(stream)
+            unsafe FSEventStreamRelease(stream)
+            unsafe self.stream = nil
+            unsafe Unmanaged.passUnretained(self).release()
         }
     }
 
@@ -71,8 +78,11 @@ private func folderWatchCallback(
     _ paths: UnsafeMutableRawPointer, _ flags: UnsafePointer<FSEventStreamEventFlags>,
     _ ids: UnsafePointer<FSEventStreamEventId>
 ) {
-    guard let info else { return }
-    let watcher = Unmanaged<FolderWatchStream>.fromOpaque(info).takeUnretainedValue()
-    let list = (Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String]) ?? []
-    watcher.deliver(paths: list, flags: Array(UnsafeBufferPointer(start: flags, count: count)))
+    // SAFETY: `info` is the FolderWatchStream start() retained, live until stop() (see there); with
+    // kFSEventStreamCreateFlagUseCFTypes `paths` is a CFArray of CFStrings the stream owns for the callback, and
+    // `flags` holds `count` event flags, copied into an array before the callback returns.
+    guard let info = unsafe info else { return }
+    let watcher = unsafe Unmanaged<FolderWatchStream>.fromOpaque(info).takeUnretainedValue()
+    let list = unsafe (Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String]) ?? []
+    watcher.deliver(paths: list, flags: unsafe Array(UnsafeBufferPointer(start: flags, count: count)))
 }

@@ -106,6 +106,7 @@ final class PageFloatingOverlays {
                 if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift) }
             }
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
+            // sync-layout: view.frame below is the solved card frame the host's anchor takes.
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
             handle.update(anchor: NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY,
