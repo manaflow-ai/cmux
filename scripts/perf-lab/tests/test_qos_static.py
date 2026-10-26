@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import plistlib
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 LAB = HERE.parent
+ROOT = LAB.parent.parent
 
 _SPEC = importlib.util.spec_from_file_location("perf_lab_qos_static_under_test", LAB / "stories" / "qos_static.py")
 qos_static = importlib.util.module_from_spec(_SPEC)
@@ -128,6 +130,66 @@ class QosStaticTest(unittest.TestCase):
         [metric] = story["metrics"]
         self.assertRegex(qos_static.METRIC, "^" + metric["name"] + "$")
         self.assertEqual(metric["target_ref"], {"target": qos_static.TARGET_ROW})
+
+    def test_matches_the_threading_inventory_line_for_line(self) -> None:
+        self.fixture()
+        tree = qos_static.inventory.read_tree(self.repo, "HEAD")
+        lines = {(rule, hit.path, hit.number) for rule, hit in qos_static.inventory.judge(tree, qos_static.RULE_IDS,
+                                                                                          lambda path: True)}
+        report = qos_static.count(self.repo)
+        self.assertEqual({(rule, s.path, s.line) for s in report.sites for rule in s.rules}, lines)
+
+    def runner_env(self, **extra: str) -> dict[str, str]:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PERF_LAB_")}
+        return {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", **extra}
+
+    def run_as_runner(self, env: dict[str, str], *extra: str) -> tuple[subprocess.CompletedProcess, Path]:
+        """The story's catalog command with the runner's `--app --tag --out` (run_story.story_argv), in the checkout."""
+        story = json.loads((LAB / "stories.d" / "qos-static.json").read_text(encoding="utf-8"))
+        out = Path(self.tmp.name) / "run-out"
+        app = Path(self.tmp.name) / "cmux DEV t.app"
+        argv = [sys.executable, str(ROOT / story["command"][0]), *story["command"][1:],
+                "--app", str(app), "--tag", "t", "--out", str(out), *extra]
+        done = subprocess.run(argv, cwd=self.repo, env=env, capture_output=True, text=True)
+        return done, out
+
+    def results(self, out: Path) -> list:
+        return [r for path in sorted(out.glob("*.ndjson")) for r in qos_static.perf_result.read_file(path)]
+
+    def test_runs_with_the_runner_argv_and_counts_the_measured_sha_not_head(self) -> None:
+        measured = self.fixture()
+        head = self.commit({SOURCES + "CmuxNextFoo/Worker.swift": "import Foundation\n"})
+        self.assertNotEqual(head, measured)
+        done, out = self.run_as_runner(self.runner_env(PERF_LAB_SHA=measured, PERF_LAB_SESSION="light"), "light")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        [result] = self.results(out)
+        self.assertEqual((result.build.sha, result.samples, result.session), (measured, [2], "light"))
+
+    def test_takes_the_measured_sha_from_the_app_when_the_runner_sets_none(self) -> None:
+        measured = self.fixture()
+        self.commit({SOURCES + "CmuxNextFoo/Worker.swift": "import Foundation\n"})
+        contents = Path(self.tmp.name) / "cmux DEV t.app" / "Contents"
+        contents.mkdir(parents=True)
+        (contents / "Info.plist").write_bytes(plistlib.dumps({"CMUXCommit": measured}))
+        done, out = self.run_as_runner(self.runner_env(), "--session", "light")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        [result] = self.results(out)
+        self.assertEqual((result.build.sha, result.samples), (measured, [2]))
+
+    def test_refuses_an_app_with_no_commit_and_another_session(self) -> None:
+        self.fixture()
+        done, out = self.run_as_runner(self.runner_env())
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("Info.plist", done.stderr)
+        self.assertFalse(out.exists())
+        done, out = self.run_as_runner(self.runner_env(PERF_LAB_SHA="HEAD", PERF_LAB_SESSION="stress"))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("stress", done.stderr)
+
+    def test_a_manual_run_counts_head(self) -> None:
+        self.assertEqual(qos_static.measured_rev(None, None, {}), "HEAD")
+        self.assertEqual(qos_static.measured_rev("abc", None, {"PERF_LAB_SHA": "def"}), "abc")
+        self.assertEqual(qos_static.measured_rev(None, None, {"PERF_LAB_SHA": "def"}), "def")
 
 
 if __name__ == "__main__":
