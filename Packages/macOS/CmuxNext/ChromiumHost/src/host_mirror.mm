@@ -38,7 +38,6 @@ constexpr Producer kProducers[] = {
     {kOpWindowCount, Key::kHost},
     {kOpLiveBrowserCount, Key::kHost},
     {kOpForeignBrowserCount, Key::kHost},
-    {kOpNavigationRestoreSupported, Key::kHost},
     {kOpSidePanelState, Key::kTab},
     {kOpExtActions, Key::kTabIcon},
     {kOpExtList, Key::kTab},
@@ -264,7 +263,7 @@ bool HostMirrors::Produce(HostContext& ctx, uint16_t op, const MirrorEvent& even
     key.I32(browser);
     if (producer->key == Key::kTabIcon) key.I32(kExtActionIconPixels);
     if (event.kind == CMUX_SHIM_BEFORE_CLOSE) {
-      ctx.PushMirror(op, key, TlvWriter());  // no value: cmux's cache forgets the key
+      ctx.ForgetMirror(op, key);
       continue;
     }
     int64_t reported = 0;

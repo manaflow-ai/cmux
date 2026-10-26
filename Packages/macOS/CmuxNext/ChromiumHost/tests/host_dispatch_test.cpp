@@ -1,7 +1,8 @@
 // Checks the Chromium Host's dispatcher (src/host_dispatch.mm) against a
-// recording fake of the shim and a subset of the generated host_dispatch.inc
-// (chromium-host-dispatch-subset.py): cmux's hello comes first and must
-// match, the attach mirrors and the host's hello come first; preinit ops run before
+// recording fake of the shim and the generated cases
+// (generated/host_dispatch.inc, written by gen-chromium-host-wire.py): cmux's
+// HELLO of this wire comes first; the attach mirrors, then the host's HELLO
+// with the optional exports its shim has; preinit ops run before
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
@@ -10,7 +11,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,27 +21,13 @@
 
 namespace {
 
+using namespace cmux_host;  // the generated op ids
 using cmux_host::HostContext;
 using cmux_host::control::Field;
 using cmux_host::control::Message;
 using Reader = cmux_host::control::TlvReader;
 using Writer = cmux_host::control::TlvWriter;
-using cmux_host::control::kOpHello;
-// The generated ids (host_dispatch.inc).
-using cmux_host::kOpAck;
-using cmux_host::kOpCreateWindow;
-using cmux_host::kOpDevtoolsCall;
-using cmux_host::kOpEvent;
-using cmux_host::kOpForkApiVersion;
-using cmux_host::kOpInitialize;
-using cmux_host::kOpLoadUrl;
-using cmux_host::kOpMirror;
-using cmux_host::kOpSetFocus;
-using cmux_host::kOpSetNewTabPageUrl;
-using cmux_host::kOpShutdown;
-using cmux_host::kOpTabAdd;
-using cmux_host::kOpPopupWindowBounds;
-using cmux_host::kOpTabNavigationState;
+
 constexpr int32_t kMinted = 1 << 20;
 
 int failures = 0;
@@ -83,6 +69,10 @@ int cmux_shim_create_window(int request, void* parent_view, int, int, const char
   Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
   return 1;
 }
+int TabSetFrozen(int browser_id, int frozen) {
+  shim.calls.push_back("frozen " + std::to_string(browser_id) + " " + std::to_string(frozen));
+  return 1;
+}
 int cmux_shim_tab_add(int window_browser_id, const char*, int, int) {
   shim.calls.push_back("tab_add " + std::to_string(window_browser_id));
   ++shim.live;
@@ -107,19 +97,6 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
 }
 void cmux_shim_free(char* s) { std::free(s); }
 int cmux_shim_live_browser_count(void) { return shim.live; }
-// The other mirrors of the fixture (host_mirror_test.cpp checks their values).
-char* cmux_shim_tab_navigation_entries(int) { return nullptr; }
-int cmux_shim_tab_window_id(int) { return 0; }
-int cmux_shim_navigation_restore_supported(void) { return 1; }
-int cmux_shim_foreign_browser_count(void) { return 0; }
-int cmux_shim_window_count(void) { return 0; }
-int cmux_shim_tab_duplicate(int, int, int) { return 0; }
-char* cmux_shim_side_panel_state(int) { return nullptr; }
-char* cmux_shim_ext_actions(int, int) { return nullptr; }
-char* cmux_shim_ext_list(int) { return nullptr; }
-char* cmux_shim_ext_commands(int) { return nullptr; }
-char* cmux_shim_omnibox_keywords(int) { return nullptr; }
-int cmux_shim_popup_window_bounds(int, int*, int*, int*, int*) { return 0; }
 }
 
 namespace {
@@ -146,6 +123,11 @@ struct Views : cmux_host::PageViews {
   void Close(uint64_t token) override { calls.push_back("close " + std::to_string(token)); }
 };
 
+// The host's shim has one optional export.
+void* Resolve(const char* name) {
+  return std::strcmp(name, "cmux_shim_tab_set_frozen") == 0 ? reinterpret_cast<void*>(&TabSetFrozen) : nullptr;
+}
+
 Message Op(uint16_t op, uint32_t token, const Writer& w) {
   Message m;
   m.op = op;
@@ -154,15 +136,16 @@ Message Op(uint16_t op, uint32_t token, const Writer& w) {
   return m;
 }
 
-// cmux's first message on a connection.
-Message Hello(const char* wire = cmux_host::kWireID, const char* abi = cmux_host::kShimAbiID) {
+// cmux's first frame (remote_shim.mm Attach).
+Message Hello(const char* wire = kWireID, const char* abi = kShimAbiID) {
   Writer w;
   w.Str(wire);
   w.Str(abi);
-  return Op(kOpHello, 0, w);
+  return Op(control::kOpHello, 0, w);
 }
 
-// "event <kind> <browser> <request>", "mirror <op> [key]", "ack <token>", "hello".
+// "event <kind> <browser> <request>", "mirror <op> [key]" ("forget <op> [key]"
+// with no value), "hello [exports]", "ack <token>", "reply <token> <i32>".
 std::string Describe(const Message& m) {
   Reader r(m.fields);
   if (m.op == kOpEvent) {
@@ -172,13 +155,23 @@ std::string Describe(const Message& m) {
   if (m.op == kOpMirror) {
     const int op = r.I32();
     std::vector<Field> key;
-    cmux_host::control::DecodeFields(r.Bytes(), &key);
-    std::string text = "mirror " + std::to_string(op);
+    const bool key_ok = control::DecodeFields(r.Bytes(), &key);
+    const bool forget = r.AtEnd();
+    std::vector<Field> value;
+    if (!forget && !control::DecodeFields(r.Bytes(), &value)) return "malformed value";
+    if (!key_ok || !r.ok() || !r.AtEnd()) return "malformed mirror";
+    std::string text = (forget ? "forget " : "mirror ") + std::to_string(op);
     for (const Field& field : key) text += " " + std::to_string(field.integer);
     return text;
   }
+  if (m.op == control::kOpHello) {
+    const std::optional<std::string> wire = r.Str();
+    std::string text = wire == std::optional<std::string>(kWireID) ? "hello" : "hello of another wire";
+    for (const std::string& name : r.StrList()) text += " " + name;
+    return r.ok() && r.AtEnd() ? text : "malformed hello";
+  }
   if (m.op == kOpAck) return "ack " + std::to_string(m.token);
-  if (m.op == kOpHello) return "hello";
+  if (m.op == kOpReply) return "reply " + std::to_string(m.token) + " " + std::to_string(r.I32());
   return "op " + std::to_string(m.op);
 }
 
@@ -186,13 +179,11 @@ struct Fixture {
   std::vector<Message> sent;
   Delegate delegate;
   Views views;
-  std::vector<Field> host_hello;
   HostContext host{[this](const Message& m) {
                      sent.push_back(m);
-                     if (m.op == kOpHello) host_hello = m.fields;
                      return true;
                    },
-                   delegate, views, [](const char*) -> void* { return nullptr; }};
+                   delegate, views, &Resolve};
   Fixture() {
     shim = Shim();
     shim.host = &host;
@@ -233,51 +224,43 @@ void Expect(const std::vector<std::string>& got, const std::vector<std::string>&
   Check(got == want, std::string(what) + ": got [" + Join(got) + "], want [" + Join(want) + "]");
 }
 
-// What AFTER_CREATED and BEFORE_CLOSE push for tab `id`, in kMirrorRefreshes'
-// order (ops JSON order), then `rest`: navigation entries, window, toolbar
-// actions at cmux's icon size, navigation state, extensions, shortcuts, side
-// panel, omnibox keywords, then the counts.
-std::vector<std::string> TabMirrors(const std::string& id, std::vector<std::string> rest) {
-  std::vector<std::string> out = {"mirror 32 " + id, "mirror 34 " + id, "mirror 60 " + id + " 56", "mirror 65 " + id,
-                                  "mirror 68 " + id, "mirror 76 " + id, "mirror 85 " + id, "mirror 88 " + id,
-                                  "mirror 97", "mirror 98"};
-  out.insert(out.end(), rest.begin(), rest.end());
-  return out;
-}
-
 void HelloFirst() {
   Fixture f;
   f.host.Attach();
-  Expect(f.Sent(), {"mirror 3", "mirror 67", "hello"}, "attach-only mirrors, then the hello");
-  Reader hello(f.host_hello);
-  Check(hello.Str() == std::optional<std::string>(cmux_host::kWireID) && hello.StrList().empty() && hello.AtEnd(),
-        "the host's hello: the wire id and no optional export in this shim");
+  auto mirror = [](uint16_t op) { return "mirror " + std::to_string(op); };
+  Expect(f.Sent(),
+         {mirror(kOpForkApiVersion), mirror(kOpNavigationRestoreSupported), mirror(kOpPasswordImportAvailable),
+          mirror(kOpPasswordReplaceAvailable), mirror(kOpPasskeysAvailable), mirror(kOpPasswordCoreAvailable),
+          "hello cmux_shim_tab_set_frozen"},
+         "attach-only mirrors, then the hello with the optional exports the shim has");
   Check(f.delegate.calls.empty(), "no initialize before INITIALIZE");
+  f.host.OnMessages({Hello()});
+  Check(f.delegate.calls.empty(), "cmux's hello of this wire is accepted");
 }
 
-void CmuxHelloMustMatch() {
+void HelloOfAnotherWire() {
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello("another wire")});
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}),
+          "a hello of another generation of the op table is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello(kWireID, "another header")});
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}),
+          "a hello of another shim header is bad");
+  }
   {
     Fixture f;
     f.host.Attach();
     Writer ntp;
     ntp.Str("cmux-page://home/");
     f.host.OnMessages({Op(kOpSetNewTabPageUrl, 1, ntp)});
-    Check(f.delegate.calls == std::vector<std::string>({"bad an op before the hello"}), "an op before the hello is bad");
-    Check(shim.calls.empty(), "and does not run");
-  }
-  {
-    Fixture f;
-    f.host.Attach();
-    f.host.OnMessages({Hello("another generation")});
-    Check(f.delegate.calls.size() == 1 && f.delegate.calls[0].rfind("bad a hello of another", 0) == 0,
-          "a hello of another op table is bad");
-  }
-  {
-    Fixture f;
-    f.host.Attach();
-    f.host.OnMessages({Hello(cmux_host::kWireID, "another header")});
-    Check(f.delegate.calls.size() == 1 && f.delegate.calls[0].rfind("bad a hello of another", 0) == 0,
-          "a hello of another shim header is bad");
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}) && shim.calls.empty(),
+          "an op before the hello is bad and does not run");
   }
   {
     Fixture f;
@@ -285,6 +268,22 @@ void CmuxHelloMustMatch() {
     f.host.OnMessages({Hello()});
     Check(f.delegate.calls.back() == "bad a second hello", "a second hello is bad");
   }
+}
+
+void OptionalExports() {
+  Fixture f;
+  f.Start();
+  Writer frozen;
+  frozen.I32(3);
+  frozen.I32(1);
+  f.host.OnMessages({Op(kOpTabSetFrozen, 80, frozen)});
+  Expect(shim.calls, {"frozen 3 1"}, "an optional op calls the host shim's function");
+  Expect(f.Sent(), {"reply 80 1"}, "and answers its result");
+  Writer scheme;
+  scheme.I32(3);
+  scheme.I32(1);
+  f.host.OnMessages({Op(kOpTabSetColorScheme, 81, scheme)});
+  Expect(f.Sent(), {"ack 81"}, "an optional op the shim does not have runs nothing and is acked");
 }
 
 void PreinitBeforeInitialize() {
@@ -326,6 +325,22 @@ void PreinitBeforeInitialize() {
   Check(shim.focus != nullptr && shim.window != nullptr, "the host's policies are installed after initialize");
 }
 
+// What AFTER_CREATED (`verb` "mirror") or BEFORE_CLOSE ("forget") sends for
+// tab `id`, in kMirrorRefreshes' order (the ops JSON's): the navigation
+// entries, the window, the toolbar actions at cmux's icon size, the
+// navigation state, the extensions, the shortcuts, the side panel and the
+// omnibox keywords, then `rest`.
+std::vector<std::string> TabKeys(const std::string& verb, const std::string& id, std::vector<std::string> rest) {
+  const std::string px = std::to_string(cmux_host::kExtActionIconPixels);
+  std::vector<std::string> out;
+  for (const std::string& key : {"32 " + id, "34 " + id, "60 " + id + " " + px, "65 " + id, "68 " + id, "76 " + id,
+                                 "85 " + id, "88 " + id}) {
+    out.push_back(verb + " " + key);
+  }
+  out.insert(out.end(), rest.begin(), rest.end());
+  return out;
+}
+
 void MintedWindow() {
   Fixture f;
   f.Start();
@@ -342,7 +357,8 @@ void MintedWindow() {
          "create_window with the host's view; the new tab's navigation state is read at AFTER_CREATED");
   Expect(f.views.calls, {"open 9"}, "the page view token opens a view");
   const std::string minted = std::to_string(kMinted);
-  Expect(f.Sent(), TabMirrors(minted, {"event 2 " + minted + " 42", "ack 20"}),
+  Expect(f.Sent(),
+         TabKeys("mirror", minted, {"mirror 97", "mirror 98", "event 2 " + minted + " 42", "ack 20"}),
          "AFTER_CREATED carries the minted id; its mirrors first, the ack last");
 
   Writer watch;
@@ -360,7 +376,9 @@ void MintedWindow() {
 
   shim.live = 0;
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
-  Expect(f.Sent(), TabMirrors(minted, {"event 3 " + minted + " 0"}), "BEFORE_CLOSE: last mirrors, then the event");
+  Expect(f.Sent(),
+         TabKeys("forget", minted, {"mirror 97", "mirror 98", "event 3 " + minted + " 0"}),
+         "BEFORE_CLOSE: the tab's keys forgotten, the counts refreshed, then the event");
   Expect(f.views.calls, {"open 9", "close 9"}, "the browser's page view closes with it");
   Expect(f.delegate.calls, {"initialize /root", "closed"}, "the delegate hears of the close");
   Emit(CMUX_SHIM_TITLE, 3, 0);
@@ -378,7 +396,8 @@ void MintedTab() {
   add.I32(1);
   f.host.OnMessages({Op(kOpTabAdd, 30, add)});
   const std::string minted = std::to_string(kMinted + 1);
-  Expect(f.Sent(), TabMirrors(minted, {"event 2 " + minted + " 0", "ack 30"}),
+  Expect(f.Sent(),
+         TabKeys("mirror", minted, {"mirror 97", "mirror 98", "event 2 " + minted + " 0", "ack 30"}),
          "an AFTER_CREATED inside tab_add already carries the minted id");
 }
 
@@ -499,7 +518,8 @@ void WipeZeroes() {
 
 int main() {
   HelloFirst();
-  CmuxHelloMustMatch();
+  HelloOfAnotherWire();
+  OptionalExports();
   PreinitBeforeInitialize();
   MintedWindow();
   MintedTab();

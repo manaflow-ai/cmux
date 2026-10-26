@@ -1,18 +1,25 @@
 // The Chromium Host's producers of the tab and host mirrors
 // (plans/cmux-next/chrome-parity/p01-process.md 3.2, tasks p01-process-016
 // and 017): tab_navigation_entries, tab_navigation_state, tab_window_id,
-// window_count, live_browser_count, foreign_browser_count and
-// navigation_restore_supported (016); side_panel_state, ext_actions,
-// ext_list, ext_commands and omnibox_keywords (017). Each export's
-// refresh_events in plans/cmux-next/chromium-host-ops.json say which events
-// push it (kMirrorRefreshes in the generated host_dispatch.inc).
+// window_count, live_browser_count and foreign_browser_count (016);
+// side_panel_state, ext_actions, ext_list, ext_commands and omnibox_keywords
+// (017). Each export's refresh_events in plans/cmux-next/chromium-host-ops.json
+// say which events push it (kMirrorRefreshes in the generated host_dispatch.inc).
+// navigation_restore_supported is a fork capability: host_dispatch.mm pushes
+// it once, before the hello (ProduceAttach).
 //
 // The host pushes every open tab's keys before each event that changes them,
 // with no watch from cmux: the remote shim's cache (remote_shim_mirror.h)
 // holds tab_navigation_state's new entry in the same main-thread batch as
-// the LOAD_START that made it. Chrome's browser process pushes session
-// history the same way, from NavigationEntryCommitted to the session service
-// (components/sessions/content/session_tab_helper.cc); nobody asks for it.
+// the LOAD_START that made it. The history (with page state) and the
+// Back/Forward entries are read only at the events that change the
+// committed history: AFTER_CREATED, ADDRESS (a commit, same-document ones
+// too) and LOAD_START, never at TITLE, LOAD_END or LOADING_STATE. Chrome's
+// SessionTabHelper does the same: it records a tab's history at
+// NavigationEntryCommitted (components/sessions/content/session_tab_helper.cc),
+// and page state after the load is task 093's (at idle or hide). A value over
+// the frame bound goes out as a forget (HostContext::PushMirror), so the cache
+// never keeps an older history.
 //
 // Which tabs a refresh names depends on the mirror and the event, as Chrome
 // scopes each observer to its owner: most refreshes name the event's tab

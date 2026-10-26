@@ -10,8 +10,8 @@
 //
 // Launched by cmux with the control socket on fd 3:
 //   <host> --framework=<CEF framework dir>
-// Order on the wire: the fork capabilities (attach mirrors), then the hellos;
-// cmux's queued preinit ops, applied in order; INITIALIZE, which runs
+// Order on the wire: each side's HELLO (the host's after the fork
+// capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
 // event; then every other op. The channel's end (cmux quit or crashed), or
 // a shutdown op, closes every browser and ends the loop; a host that has
@@ -21,6 +21,7 @@
 #import <AppKit/AppKit.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -136,6 +137,11 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
+// A symbol of the shim linked into this executable (an optional export), or nullptr.
+void* ResolveShimSymbol(const char* name) {
+  return dlsym(RTLD_DEFAULT, name);
+}
+
 // The host's main thread state: what HostContext asks for (HostDelegate).
 // Main thread only.
 class HostMain : public cmux_host::HostDelegate {
@@ -249,7 +255,7 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<cmux_host::control::Channel> channel;
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
-      host_main, page_views);
+      host_main, page_views, &ResolveShimSymbol);
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,

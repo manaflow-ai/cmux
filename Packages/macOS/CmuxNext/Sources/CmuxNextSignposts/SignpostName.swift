@@ -164,7 +164,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case launchProcessToMain = 36
     /// Reserved (task 034, Performance Lead). The process start to the first window ordered front.
     case launchFirstWindow = 37
-    /// Reserved (task 034, Performance Lead). The process start to the first window's first frame (`FirstFrameGate`).
+    /// Reserved (task 034, Performance Lead). The process start to the first window's first frame (`StartupScheduler.firstFrameCommitted`).
     case launchFirstFrame = 38
     /// Reserved (task 034, Performance Lead). The process start to the daemon connection's handshake.
     case launchDaemonReady = 39

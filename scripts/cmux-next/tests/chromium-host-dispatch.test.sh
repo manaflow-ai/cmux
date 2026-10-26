@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Compiles the Chromium Host's dispatcher (ChromiumHost/src/host_dispatch.mm,
-# no AppKit in it, so as C++) and its mirror producers (host_mirror.mm) with
-# a subset of the generated host_dispatch.inc, rendered from the current
-# cmux_cef_shim.h and plans/cmux-next/chromium-host-ops.json as the test runs
-# (chromium-host-dispatch-subset.py: real op ids, case bodies and refresh
-# rows), and a recording fake of the shim, then runs
-# ChromiumHost/tests/host_dispatch_test.cpp and host_mirror_test.cpp. No CEF;
-# runs on Linux and macOS.
+# Compiles the Chromium Host's dispatcher (ChromiumHost/src/host_dispatch.mm
+# and host_mirror.mm, no AppKit in them, so as C++) against the generated
+# cases gen-chromium-host-wire.py writes for this header and ops JSON (into a
+# scratch root, never the checkout), and runs:
+#   host_dispatch_test.cpp  the dispatcher alone, frame by frame
+#   host_mirror_test.cpp    the dispatcher and the real remote shim
+#                           (ChromiumHost/client, built as a shared library
+#                           from the committed client/generated/remote_shim.inc)
+#                           on a socket pair: what cmux's shim reads
+# Every test links a fake of the shim: the test's own functions, and a weak
+# zero stub for each other export of cmux_cef_shim.h (the generated cases call
+# them all). First, both sources compile alone with -Werror against the same
+# generated file, as build-chromium-host.sh compiles them. No CEF; runs on
+# Linux and macOS.
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
-# host_dispatch.{h,mm}, host_mirror.{h,mm}, the mirror rows of the ops JSON
-# or the shape of the generated host cases.
+# host_dispatch.{h,mm}, host_mirror.{h,mm}, the generator's host output or
+# the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -18,27 +24,71 @@ trap 'rm -rf "$work"' EXIT
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
 host="$root/Packages/macOS/CmuxNext/ChromiumHost"
-shim_header="$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
-# The dispatcher includes generated/host_dispatch.inc next to itself: a copy
-# of src with the subset in that place.
-mkdir -p "$work/src/generated"
-cp "$host/src/host_dispatch.mm" "$host/src/host_dispatch.h" "$host/src/host_mirror.mm" "$host/src/host_mirror.h" \
-  "$host/src/chromium_host_tlv.h" \
-  "$host/src/chromium_host_control.h" "$host/src/chromium_host_control.cc" "$work/src/"
-python3 "$root/scripts/cmux-next/tests/chromium-host-dispatch-subset.py" "$work/src/generated/host_dispatch.inc"
-# host_mirror.h's kExtActionIconPixels is CEFExtensionAction.iconPixels:
-# OmnibarStyle.buttonSize * 2.
-button="$(sed -n 's/.*static var buttonSize: CGFloat { \([0-9.]*\) }.*/\1/p' \
-  "$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift")"
+header="$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
+ops="$root/plans/cmux-next/chromium-host-ops.json"
+shim_header="$(dirname "$header")"
+
+# host_mirror.h's kExtActionIconPixels is CEFExtensionAction.iconPixels
+# (OmnibarStyle.buttonSize * 2), the only icon_px cmux reads ext_actions at.
 grep -q 'iconPixels: Int32 { Int32((OmnibarStyle.buttonSize \* 2).rounded()) }' \
   "$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionAction.swift" ||
   { echo "FAIL: CEFExtensionAction.iconPixels is no longer OmnibarStyle.buttonSize * 2" >&2; exit 1; }
+button="$(sed -n 's/.*static var buttonSize: CGFloat { \([0-9.]*\) }.*/\1/p' \
+  "$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift")"
 pixels="$(python3 -c 'import sys; print(round(float(sys.argv[1]) * 2))' "$button")"
 grep -q "kExtActionIconPixels = $pixels;" "$host/src/host_mirror.h" ||
   { echo "FAIL: kExtActionIconPixels is not CEFExtensionAction.iconPixels ($pixels)" >&2; exit 1; }
-for test in host_dispatch_test host_mirror_test; do
-  "${cxx[@]}" -std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$work/src" -I"$shim_header" \
-    -o "$work/$test" "$host/tests/$test.cpp" -x c++ "$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" \
-    "$work/src/chromium_host_control.cc"
-  "$work/$test"
+
+# The generator's output for this header and ops, in a scratch root.
+gen="$work/root"
+mkdir -p "$gen/$(dirname "${header#"$root/"}")" "$gen/$(dirname "${ops#"$root/"}")"
+cp "$header" "$gen/${header#"$root/"}"
+cp "$ops" "$gen/${ops#"$root/"}"
+python3 "$root/scripts/cmux-next/gen-chromium-host-wire.py" --root "$gen" >/dev/null
+# The dispatcher includes generated/host_dispatch.inc next to itself.
+mkdir -p "$work/src/generated"
+cp "$host"/src/*.h "$host"/src/*.mm "$host"/src/*.cc "$work/src/"
+cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "$work/src/generated/"
+
+flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header")
+for src in host_dispatch.mm host_mirror.mm; do
+  "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
+
+# A weak stub for every export: a test's own definition replaces it.
+python3 "$root/scripts/cmux-next/gen-chromium-host-wire.py" --root "$gen" --dump-header > "$work/header.json"
+python3 -I - "$work/header.json" > "$work/shim_stubs.cpp" <<'PY'
+import json, sys
+exports = json.load(open(sys.argv[1]))["exports"]
+print('#include "cmux_cef_shim.h"')
+print('extern "C" {')
+for e in exports:
+    args = ", ".join(a["type"] for a in e["args"]) or "void"
+    body = "" if e["returns"] == "void" else " return {};"
+    print(f'__attribute__((weak)) {e["returns"]} {e["name"]}({args}) {{{body} }}')
+print("}")
+PY
+
+sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/shim_stubs.cpp")
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_dispatch_test" "$host/tests/host_dispatch_test.cpp" \
+  -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
+"$work/host_dispatch_test"
+
+# The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
+client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"
+  -I"$host/src" -I"$host/client")
+test_libs=()
+if [[ "$(uname)" == Darwin ]]; then
+  client="$work/libcmux_cef_shim_remote.dylib"
+  "${cxx[@]}" "${client_flags[@]}" -fvisibility=hidden -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
+    -o "$client" "$host"/client/*.mm "$host/src/chromium_host_control.cc" -lobjc
+else
+  client="$work/libcmux_cef_shim_remote.so"
+  "${cxx[@]}" "${client_flags[@]}" -fvisibility=hidden -fPIC -shared -o "$client" \
+    -x c++ "$host"/client/*.mm -x none "$host/src/chromium_host_control.cc"
+  test_libs+=(-ldl)
+fi
+"${cxx[@]}" "${flags[@]}" -I"$host/client" -O1 -DCMUX_REMOTE_SHIM_PATH="\"$client\"" -o "$work/host_mirror_test" \
+  "$host/tests/host_mirror_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
+  ${test_libs[@]+"${test_libs[@]}"}
+"$work/host_mirror_test"

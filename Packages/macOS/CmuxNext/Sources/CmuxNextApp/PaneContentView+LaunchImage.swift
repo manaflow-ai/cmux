@@ -2,18 +2,16 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextLaunch
 import CmuxNextPages
-
-extension LaunchImageHold {
-    /// The app's one hold, shared by the panes that show launch images and the work that waits for them.
-    static let shared = LaunchImageHold()
-}
+import CmuxNextWakeups
 
 extension PaneContentView {
     /// Draws `image` (an agent page's last frame, `AgentPaneLaunchImages`)
     /// under the content, top-left at its point size, until the live page
     /// paints: an agent page is transparent until then, so the pane never
-    /// shows empty at launch.
-    func showLaunchImage(_ image: NSImage) {
+    /// shows empty at launch. While it shows in the window, `hold` holds startup open.
+    func showLaunchImage(_ image: NSImage, hold: LaunchImageHold) {
+        // Before the old image goes, so a replaced image never ends the hold for a turn.
+        let share = hold.began()
         clearLaunchImage()
         let view = NSView(frame: contentHost.bounds)
         view.wantsLayer = true
@@ -23,24 +21,32 @@ extension PaneContentView {
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
-        LaunchImageHold.shared.began()
+        launchImageShare = share
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
-        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
+        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
-    func clearLaunchImage() {
+    ///
+    /// - Parameter reason: Why it goes, for the startup ref the last image ends.
+    func clearLaunchImage(_ reason: StartupInProgressRef.Reason = .visiblePaneLoadedIdle) {
         launchImageDeadline.cancel()
-        if launchImageView != nil { DebugTimings.markLaunch("agent_pane.launch_image_cleared") }
         if let launchImageView {
+            DebugTimings.markLaunch("agent_pane.launch_image_cleared")
             launchImageView.removeFromSuperview()
             self.launchImageView = nil
-            LaunchImageHold.shared.ended()
         }
+        endLaunchImageShare(reason)
         // A page that has not painted when the image goes (its limit) shows its loading state.
         let cleared = onLaunchImageCleared
         onLaunchImageCleared = nil
         cleared?()
+    }
+
+    /// Ends the launch image's share of the startup hold; the image itself stays until it goes.
+    func endLaunchImageShare(_ reason: StartupInProgressRef.Reason) {
+        launchImageShare?.end(reason)
+        launchImageShare = nil
     }
 }
 

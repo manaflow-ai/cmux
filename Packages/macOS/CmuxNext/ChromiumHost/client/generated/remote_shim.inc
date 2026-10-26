@@ -169,7 +169,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "a3e29cb6eb2ce901a5c43dad484a2211de664d2034b460ef1be69564bfa44b96";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "547a041823989ac9e176716a1b79f10f9758904acdce56d6cda103e7988907ae";
+inline constexpr char kWireID[] = "3432a58f1c5908e03620e504d8dee9f872b3a0fe7256d4ee7b8b0dd4dca3bef0";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {

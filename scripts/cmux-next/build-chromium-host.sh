@@ -6,8 +6,8 @@
 # against one single-arch shim build of build-cef-shim.sh (its
 # libcef_dll_wrapper.a) and that build's CEF artifact, and
 # libcmux_cef_shim_remote.dylib, the shim ABI cmux loads in host mode
-# (ChromiumHost/client, plans/cmux-next/chrome-parity/p01-process.md 3.2). The
-# remote shim links no CEF; its exports come from client/generated/remote_shim.inc
+# (ChromiumHost/client, p01-process.md 3.2). The remote shim links no CEF; its
+# exports come from client/generated/remote_shim.inc
 # (scripts/cmux-next/gen-chromium-host-wire.py), checked here against the
 # header's cmux_shim_abi_id. scripts/cmux-next/tests/remote-shim-abi.test.sh
 # builds it the same way on any machine.
@@ -24,9 +24,9 @@
 # two differ. The shim's sources get exactly the shim build's flags; the
 # host's own (ChromiumHost/src) also -Werror.
 #
-# ChromiumHost/src/generated/host_dispatch.inc comes from
-# scripts/cmux-next/gen-chromium-host-wire.py; a checkout without it builds
-# no host.
+# ChromiumHost/src/generated/host_dispatch.inc and client/generated/remote_shim.inc
+# come from scripts/cmux-next/gen-chromium-host-wire.py and are committed
+# (its --check fails when one is stale); a checkout with a stale one builds no host.
 #
 # Usage: build-chromium-host.sh <cef_dir> <shim_dir> <cache_dir>
 #   cef_dir:  the CEF artifact shim_dir was built from (one architecture).
@@ -51,8 +51,9 @@ HOST_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/ChromiumHost"
 SHIM_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/CEFShim"
 SHIM_SRC="$SHIM_DIR/src"
 SHIM_HEADER_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
-ABI_ID="$(shasum -a 256 "$SHIM_HEADER_DIR/cmux_cef_shim.h" | awk '{print $1}')"
+SHIM_HEADER="$SHIM_HEADER_DIR/cmux_cef_shim.h"
 REMOTE_INC="$HOST_DIR/client/generated/remote_shim.inc"
+ABI_ID="$(shasum -a 256 "$SHIM_HEADER" | awk '{print $1}')"
 
 ARCH="${CMUX_CEF_ARCH:-arm64}"
 MIN_OS="${CMUX_CEF_MIN_OS:-14.0}"
@@ -61,13 +62,17 @@ for need in .build-key libcef_dll_wrapper.a; do
   [[ -f "$SHIM_OUT/$need" ]] || { echo "error: $SHIM_OUT has no $need (not a single-arch shim build)" >&2; exit 1; }
 done
 [[ -d "$CEF_DIR/include" ]] || { echo "error: $CEF_DIR is not a CEF artifact (no include/)" >&2; exit 1; }
-# A stale remote_shim.inc carries another header's ABI id, which CEFShimLibrary refuses.
-grep -q "kShimAbiID\[\] = \"$ABI_ID\"" "$REMOTE_INC" 2>/dev/null || {
-  echo "error: $REMOTE_INC is missing or stale: run python3 scripts/cmux-next/gen-chromium-host-wire.py" >&2
-  exit 1
-}
-[[ -f "$HOST_DIR/src/generated/host_dispatch.inc" ]] || {
-  echo "error: no ChromiumHost/src/generated/host_dispatch.inc (python3 scripts/cmux-next/gen-chromium-host-wire.py writes it)" >&2
+# A stale generated file carries another header's ABI id: CEFShimLibrary refuses the remote
+# shim, and the host refuses the remote shim's HELLO. Both sides must also share one kWireID.
+HOST_INC="$HOST_DIR/src/generated/host_dispatch.inc"
+for inc in "$REMOTE_INC" "$HOST_INC"; do
+  grep -q "kShimAbiID\[\] = \"$ABI_ID\"" "$inc" 2>/dev/null || {
+    echo "error: $inc is missing or stale: run python3 scripts/cmux-next/gen-chromium-host-wire.py" >&2
+    exit 1
+  }
+done
+[[ "$(grep 'kWireID\[\] = ' "$REMOTE_INC")" == "$(grep 'kWireID\[\] = ' "$HOST_INC")" ]] || {
+  echo "error: the host and the remote shim are of different wire generations: run python3 scripts/cmux-next/gen-chromium-host-wire.py" >&2
   exit 1
 }
 
@@ -124,15 +129,15 @@ done
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-chromium-host" "${objects[@]}" \
   "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore -lobjc
-rm -rf "$OUT_DIR/obj"
 # The remote shim links neither CEF nor the wrapper, so it takes the flags of
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 \
   -std=c++20 -fno-exceptions -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Werror \
-  -I"$SHIM_HEADER_DIR" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
+  -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
   "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc" -lobjc
+rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
 if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$OUT_DIR" "$FINAL_DIR" 2>/dev/null; then
   complete "$FINAL_DIR" || { echo "error: $FINAL_DIR exists but is incomplete" >&2; exit 1; }
