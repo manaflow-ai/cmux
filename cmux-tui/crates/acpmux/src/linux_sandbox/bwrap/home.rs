@@ -246,6 +246,8 @@ pub(super) fn rebuild(
             Err(e) => Err(e),
         }
         .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
+        #[cfg(test)]
+        hook(dir, false);
         if children.len() > 512 {
             return Err(format!(
                 "HOME rebuild directory {} has more than 512 entries",

@@ -900,6 +900,35 @@ mod tests {
         check_home_enumeration_swap(true);
     }
 
+    #[test]
+    fn regression_home_child_identity_is_captured_at_enumeration() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let public = p.home.join("public");
+        let secret = p.home.join("secret");
+        fs::write(&public, "public").unwrap();
+        fs::write(&secret, "secret").unwrap();
+        let snapshot = denied_paths_pinned(&p.home, &[]).unwrap();
+        let mut swapped = false;
+        let mut restored = false;
+        let result =
+            home::rebuild(&p.home, &snapshot.inside, Some(&snapshot), &mut |path, before| {
+                if path == p.home && !before && !swapped {
+                    fs::rename(&public, f.0.join("public-held")).unwrap();
+                    fs::rename(&secret, &public).unwrap();
+                    fs::rename(f.0.join("public-held"), &secret).unwrap();
+                    swapped = true;
+                } else if path == public && !before && swapped && !restored {
+                    fs::rename(&public, f.0.join("public-held")).unwrap();
+                    fs::rename(&secret, &public).unwrap();
+                    fs::rename(f.0.join("public-held"), &secret).unwrap();
+                    restored = true;
+                }
+            });
+        assert!(swapped && restored, "enumeration swap hook was not reached");
+        assert!(result.is_err(), "child identity race was accepted");
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
