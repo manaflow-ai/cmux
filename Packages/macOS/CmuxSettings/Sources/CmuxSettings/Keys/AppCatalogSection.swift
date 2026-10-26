@@ -126,6 +126,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "equalizeSplitsOnCreate"
     )
 
+    /// Whether double-clicking a divider equalizes its containing row or column.
+    public let equalizeSplitsOnDividerDoubleClick = DefaultsKey<Bool>(
+        id: "app.equalizeSplitsOnDividerDoubleClick",
+        defaultValue: true,
+        userDefaultsKey: "equalizeSplitsOnDividerDoubleClick"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",

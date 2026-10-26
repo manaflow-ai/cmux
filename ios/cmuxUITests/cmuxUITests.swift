@@ -12,6 +12,66 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAppStoreCloudUIHasNoSystemVPN() {
+        let app = launchApp(mockData: true, launchArguments: [
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "complete",
+            "-mobile.cloud.onboarding.completed.v2", "NO",
+        ])
+        defer { app.terminate() }
+        app.activate()
+        let pairingCancel = app.buttons["MobilePairingCancelButton"]
+        if pairingCancel.waitForExistence(timeout: 3) {
+            pairingCancel.tap()
+        }
+        let cloudTab = app.tabBars.buttons["MobilePrimaryTabCloud"]
+        XCTAssertTrue(cloudTab.waitForExistence(timeout: 15))
+        XCTAssertTrue(cloudTab.isHittable)
+        cloudTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["CloudInlineOnboarding"].waitForExistence(timeout: 10))
+
+        let primary = app.buttons["CloudOnboardingPrimaryButton"]
+        func assertNoVPN() {
+            XCTAssertFalse(app.staticTexts["System VPN"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingVPNToggle"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["CloudOnboardingGraphic-vpn"].exists)
+        }
+        func capture(_ name: String) {
+            assertNoVPN()
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        XCTAssertEqual(primary.label, "Continue")
+        capture("appstore-cloud-page-1")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        XCTAssertEqual(primary.label, "Get started")
+        capture("appstore-cloud-page-2")
+        app.buttons["CloudOnboardingSecondaryButton"].tap()
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-back")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        primary.tap()
+        let basics = app.buttons["CloudBasicsButton"]
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        capture("appstore-cloud-settings")
+        basics.tap()
+        XCTAssertTrue(primary.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-basics-reopened")
+        primary.tap()
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
+        capture("appstore-cloud-basics-final-page")
+        primary.tap()
+        XCTAssertTrue(basics.waitForExistence(timeout: 5))
+        assertNoVPN()
+    }
+
+    @MainActor
     func testFeedStartsBelowToolbar() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
