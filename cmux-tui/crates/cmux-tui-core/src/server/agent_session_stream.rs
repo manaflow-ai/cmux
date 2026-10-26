@@ -175,9 +175,12 @@ fn is_draft(record: &Value) -> bool {
     record.get("kind").and_then(Value::as_str) == Some("composer")
 }
 
-/// A replay page for a proxied (teammate) attachment: no `composer` records, and the session's
-/// summary cut to [`TEAMMATE_SUMMARY`].
+/// A replay page for a proxied (teammate) attachment: no `composer` records, no `presence`, and
+/// the session's summary cut to [`TEAMMATE_SUMMARY`].
 pub(crate) fn without_drafts(mut page: Value) -> Value {
+    if let Some(object) = page.as_object_mut() {
+        object.remove("presence");
+    }
     if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
         events.retain(|record| !is_draft(record));
     }
@@ -290,6 +293,16 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
+        // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
+        // Not to a teammate yet: the set names who else has the chat open.
+        "_acpmux/presence"
+            if same_session && attachment.author.is_none() && attachment.wants_presence() =>
+        {
+            let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
+            if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
+                attachment.end(None);
+            }
+        }
         "_acpmux/prompt_accepted" if same_session => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
@@ -326,5 +339,8 @@ mod draft_tests {
             &json!({"sessionId": "s", "name": "chat", "status": "running", "turn": {"turnId": "t"}})
         );
         assert!(!is_draft(&json!({"kind": "user_message"})));
+        let page = json!({"events": [], "presence": {"sessionId": "s", "participants": [
+            {"id": "tailnet:other@example.com", "name": "Other"}]}});
+        assert_eq!(without_drafts(page), json!({"events": []}), "no one's presence");
     }
 }

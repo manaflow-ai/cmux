@@ -294,6 +294,10 @@ mod tests {
         let mut client = Client::connect(&mux, "proxy-private");
         let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
             "login":"person@example.com", "node":"laptop"});
+        // Even a proxy connection that asked for presence gets none.
+        let info = client.request(json!({"cmd":"set-client-info","name":"proxy",
+            "capabilities":[AGENT_SESSION_PRESENCE_CAPABILITY]}));
+        assert_eq!(info["ok"], json!(true), "{info}");
         assert_eq!(
             client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
             true
@@ -314,9 +318,13 @@ mod tests {
                 "session": {"sessionId": SESSION, "status": "idle", "cwd": "/Users/owner/secret",
                 "tags": {"lane": "x"}}}),
         );
+        fake.notify(
+            "_acpmux/presence",
+            json!({"sessionId": SESSION, "participants": [{"id": "owner", "name": "Owner"}]}),
+        );
         fake.notify("_acpmux/event", record(4, "user_message"));
         // Every event up to the prompt record, in order (the fake's own replies may come first):
-        // none is the draft, and none is a child's change.
+        // none is the draft, the chat's presence or a child's change.
         let mut own_change = None;
         loop {
             let event = client.event(WAIT).expect("the prompt record");
@@ -328,6 +336,7 @@ mod tests {
                 own_change = Some(event["change"].clone());
             }
             assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
+            assert_ne!(event["event"], "agent-session-presence", "no presence reaches a teammate");
             if event["event"] == "agent-session-record" && event["record"]["kind"] == "user_message"
             {
                 break;
@@ -348,6 +357,15 @@ mod tests {
         let answer = json!({"cmd":"agent-session-permission", "surface":surface,
             "permission_id":"perm_attach", "option_id":"allow", "_host_author":author, "_host_session":SESSION});
         assert_code(&client.request(answer), "agent_session.not_trusted");
+        // Its typing or view would count as the owner's: refused, and nothing reaches acpmux.
+        for frame in [
+            json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
+                "_host_author":author, "_host_session":SESSION}),
+            json!({"cmd":"agent-session-view", "surface":surface, "visible":true,
+                "_host_author":author, "_host_session":SESSION}),
+        ] {
+            assert_code(&client.request(frame), "agent_session.not_trusted");
+        }
     }
 
     /// A teammate that disconnects while acpmux answers the attach (the

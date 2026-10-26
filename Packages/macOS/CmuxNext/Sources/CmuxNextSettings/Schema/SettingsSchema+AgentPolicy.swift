@@ -97,6 +97,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -248,6 +249,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
+        "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -280,6 +283,8 @@ extension SettingsSchema {
         "browser.openLinksInCmuxBrowser": .privacy,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
+        // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
+        "browser.import.enabled": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
@@ -352,6 +357,9 @@ extension SettingsSchema {
         "agents.trust.autoTrust": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
+        // Which hosts an ssh:// link from another app connects to without asking: only the person
+        // trusts a host, so a page or an agent cannot add one and skip the confirmation.
+        "ssh.linkAllowedHosts": .network,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
