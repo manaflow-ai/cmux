@@ -96,7 +96,9 @@ AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|ap
 TOOLING_PATHS = re.compile(
     r"^(?:\.github/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
     r"|scripts/(?:measure|fuzz|gallery-matrix|git-hooks)/|scripts/(?:ci|cmux-next)/tests/|scripts/cmux-next/media/)"
-    r"|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
+    # Contributor documents by name: other Markdown can ship (THIRD_PARTY_LICENSES.md opens from About).
+    r"|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README(?:\.[\w-]+)?|STYLE|PLAN|TODO)\.md$"
+    r"|^(?:CLA|CODE_OF_CONDUCT|CONTRIBUTING|DESIGN|ORCHESTRATION-NOTES|PROJECTS|REPORT|REVIEW|SECURITY|[\w-]+\.report)\.md$"
     r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
     r"|^(?:webviews/)?scripts/(?:cmux-next/)?(?:check[-_]|lint[-_]|guardrails|bench[-_]|perf-(?:gate|cron)|prepush-gate"
     r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")

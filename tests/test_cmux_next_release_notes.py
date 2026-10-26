@@ -268,7 +268,7 @@ class ReleaseNotesTests(unittest.TestCase):
         spec.loader.exec_module(notes)
         for paths in (["webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts"],
                       [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
-                      ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"],
+                      ["docs/ci/runners.md", "AGENTS.md"], ["README.ja.md", "CONTRIBUTING.md", "PLAN.md"], ["scripts/cmux-next/perf-cron.py"],
                       ["scripts/install-git-hooks.sh"], ["scripts/cmux-next/guardrails.py"],
                       ["scripts/cmux-next/check-app-bundle.sh"], ["webviews/scripts/check-glass-never-opaque.ts"],
                       ["scripts/ci/tests/ensure-web-bundles.test.sh"], ["scripts/measure/split-spring.sh"],
@@ -284,7 +284,9 @@ class ReleaseNotesTests(unittest.TestCase):
                       ["scripts/cmux-next/fetch-ublock.sh"], ["scripts/cmux-next/merge-cef-universal.sh"],
                       ["scripts/cmux-next/cef-manifest.json"], ["scripts/ci/cmux-remote-browser-host-build.sh"],
                       ["scripts/ci/ensure-web-bundles.sh"], ["scripts/ci/macos-cross.sh"],
-                      ["scripts/ci/stage-agent-detector.sh"], ["scripts/whats-new/sync-app-bundle.py"]):
+                      ["scripts/ci/stage-agent-detector.sh"], ["scripts/whats-new/sync-app-bundle.py"],
+                      # The app bundles it: About opens Third-Party Licenses.
+                      ["THIRD_PARTY_LICENSES.md"], ["CHANGELOG.md"]):
             self.assertFalse(notes.tooling_only(paths), paths)
 
     def test_a_move_counts_at_both_ends(self):
