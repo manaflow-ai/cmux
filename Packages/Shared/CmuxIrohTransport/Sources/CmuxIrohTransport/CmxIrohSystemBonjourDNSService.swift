@@ -1,6 +1,7 @@
 import Dispatch
 import dnssd
 import Foundation
+import os
 
 typealias CmxIrohBonjourBrowseHandler = @Sendable (
     DNSServiceFlags,
@@ -57,7 +58,7 @@ struct CmxIrohBonjourDNSServiceError: Error, Sendable {
     let code: Int32
 }
 
-private final class CmxIrohBonjourBrowseCallbackBox: @unchecked Sendable {
+private final class CmxIrohBonjourBrowseCallbackBox: Sendable {
     let handler: CmxIrohBonjourBrowseHandler
 
     init(handler: @escaping CmxIrohBonjourBrowseHandler) {
@@ -83,11 +84,10 @@ struct CmxIrohBonjourRawBrowseEvent: Sendable {
 /// Validates and coalesces the synchronous DNS-SD callback before it reaches
 /// Swift concurrency. One bounded stream consumer replaces one unbounded Task
 /// per unauthenticated LAN record.
-final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
-    private let lock = NSLock()
+final class CmxIrohBonjourBrowseIngress: Sendable {
     private let continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation
     private let serviceNameAllowlist: Set<String>?
-    private var enqueuedKeys: Set<CmxIrohBonjourRawBrowseEvent.Key> = []
+    private let enqueuedKeys = OSAllocatedUnfairLock<Set<CmxIrohBonjourRawBrowseEvent.Key>>(initialState: [])
 
     init(
         continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation,
@@ -140,14 +140,13 @@ final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
             )
         }
 
-        let shouldYield = lock.withLock {
-            if case let .service(id, _) = event.key,
-               let serviceNameAllowlist,
-               !serviceNameAllowlist.contains(id.serviceName) {
-                return false
-            }
-            return enqueuedKeys.insert(event.key).inserted
+        if case let .service(id, _) = event.key,
+           let serviceNameAllowlist,
+           !serviceNameAllowlist.contains(id.serviceName) {
+            return
         }
+        let key = event.key
+        let shouldYield = enqueuedKeys.withLock { $0.insert(key).inserted }
         guard shouldYield else { return }
         if case .dropped = continuation.yield(event) {
             consumed(event.key)
@@ -155,16 +154,16 @@ final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
     }
 
     func consumed(_ key: CmxIrohBonjourRawBrowseEvent.Key) {
-        lock.withLock { _ = enqueuedKeys.remove(key) }
+        enqueuedKeys.withLock { _ = $0.remove(key) }
     }
 
     func finish() {
         continuation.finish()
-        lock.withLock { enqueuedKeys.removeAll(keepingCapacity: false) }
+        enqueuedKeys.withLock { $0.removeAll(keepingCapacity: false) }
     }
 }
 
-private final class CmxIrohBonjourResolveCallbackBox: @unchecked Sendable {
+private final class CmxIrohBonjourResolveCallbackBox: Sendable {
     let handler: CmxIrohBonjourResolveHandler
 
     init(handler: @escaping CmxIrohBonjourResolveHandler) {
@@ -207,40 +206,48 @@ private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
     }
 }
 
-private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation, @unchecked Sendable {
-    private struct State {
-        let ref: DNSServiceRef
-        let context: UnsafeMutableRawPointer
+/// A DNS-SD service reference (an `OpaquePointer` to the daemon connection).
+private struct CmxIrohDNSServiceHandle: @unchecked Sendable { // crash-allow: the ref is used only on the DNS-SD queue it was bound to (DNSServiceSetDispatchQueue) and CmxIrohBonjourSystemOperation hands it out of its lock exactly once, to deallocate it on that queue
+    let ref: DNSServiceRef
+}
+
+private final class CmxIrohBonjourSystemOperation: CmxIrohBonjourOperation {
+    private struct Registration: Sendable {
+        let handle: CmxIrohDNSServiceHandle
+        let releaseCallback: @Sendable () -> Void
     }
 
     private let queue: DispatchQueue
-    private let lock = NSLock()
-    private let releaseContext: (UnsafeMutableRawPointer) -> Void
-    private var state: State?
+    private let registration: OSAllocatedUnfairLock<Registration?>
 
+    /// - Parameter releaseCallback: Balances the retain that keeps the callback box alive as the
+    ///   C context; runs once, after the ref is deallocated, so no callback can still reach it.
     init(
         ref: DNSServiceRef,
-        context: UnsafeMutableRawPointer,
         queue: DispatchQueue,
-        releaseContext: @escaping (UnsafeMutableRawPointer) -> Void
+        releaseCallback: @escaping @Sendable () -> Void
     ) {
-        state = State(ref: ref, context: context)
         self.queue = queue
-        self.releaseContext = releaseContext
+        registration = OSAllocatedUnfairLock(
+            initialState: Registration(
+                handle: CmxIrohDNSServiceHandle(ref: ref),
+                releaseCallback: releaseCallback
+            )
+        )
     }
 
     func cancel() {
-        let current = lock.withLock {
-            defer { state = nil }
-            return state
+        let current = registration.withLock { registration in
+            defer { registration = nil }
+            return registration
         }
         guard let current else { return }
-        queue.sync { DNSServiceRefDeallocate(current.ref) }
-        releaseContext(current.context)
+        queue.sync { DNSServiceRefDeallocate(current.handle.ref) }
+        current.releaseCallback()
     }
 }
 
-final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked Sendable {
+final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService {
     private let queue: DispatchQueue
 
     init(queue: DispatchQueue) {
@@ -280,13 +287,8 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked
         }
         return CmxIrohBonjourSystemOperation(
             ref: ref,
-            context: context,
             queue: queue,
-            releaseContext: { context in
-                Unmanaged<CmxIrohBonjourBrowseCallbackBox>
-                    .fromOpaque(context)
-                    .release()
-            }
+            releaseCallback: { Unmanaged.passUnretained(callback).release() }
         )
     }
 
@@ -325,13 +327,8 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked
         }
         return CmxIrohBonjourSystemOperation(
             ref: ref,
-            context: context,
             queue: queue,
-            releaseContext: { context in
-                Unmanaged<CmxIrohBonjourResolveCallbackBox>
-                    .fromOpaque(context)
-                    .release()
-            }
+            releaseCallback: { Unmanaged.passUnretained(callback).release() }
         )
     }
 }

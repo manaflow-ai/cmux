@@ -78,7 +78,6 @@
    "CmuxAuthRuntime": 1,
    "CmuxHomeCore": 1,
    "CmuxHomeRender": 5,
-   "CmuxIrohTransport": 7,
    "CmuxIrxTransport": 14,
    "CmuxMobileRPC": 3,
    "CmuxMobileSSH": 7,
@@ -155,6 +154,7 @@
    "unchecked": {
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxIrohTransport": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 5,
     "CmuxNextApp": 5,
