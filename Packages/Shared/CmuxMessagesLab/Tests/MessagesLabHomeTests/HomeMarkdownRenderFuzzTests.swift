@@ -314,24 +314,6 @@ struct HomeMarkdownRenderFuzzTests {
         }
     }
 
-    /// `LongTextStore` matches a text to an index by its length and the hashes of its first and last KiB, so
-    /// an edit in the middle that keeps the length (a typo fixed in a long message) is drawn as the old text:
-    /// a measurement of one text drawn for another. Found by this suite's oracle (`check(_:of:)`); the fix is
-    /// a byte compare on a fingerprint hit in the vendored LongText.swift (a Patches/ change).
-    @Test func aSameLengthEditInTheMiddleOfALongTextGetsItsOwnLayout() {
-        let tag = UUID().uuidString
-        let original = (0..<400).map { "\(tag) line \($0) of a long message with some words in it" }.joined(separator: "\n")
-        var bytes = Array(original.utf8)
-        let middle = bytes.count / 2
-        bytes[middle] = bytes[middle] == UInt8(ascii: "x") ? UInt8(ascii: "y") : UInt8(ascii: "x")
-        let edited = String(decoding: bytes, as: UTF8.self)
-        _ = LongTextStore.shared.layout(original, width: 760)
-        let l = LongTextStore.shared.layout(edited, width: 760)
-        withKnownIssue("LongTextStore's fingerprint (length, first and last KiB) matches the unedited text") {
-            #expect(l.index.text.utf8.elementsEqual(edited.utf8))
-        }
-    }
-
     // MARK: - Time budget
 
     /// What a pane draws of a long text at a scroll position: the tiles of 900 pt (57 lines) from `first`.
@@ -348,25 +330,46 @@ struct HomeMarkdownRenderFuzzTests {
         }
     }
 
+    /// Budget attempts timed in this process; each one's widths come from it (``budgetWidths()``).
+    static var budgetAttemptSerial = 0
+
+    /// A short-path wrap width and a long-path pane width that no earlier call in this process gave and no
+    /// other test of the suite uses, so no block of a timed attempt comes from `MarkdownLayoutEngine`'s
+    /// process-wide cache (keyed by block content and width). The short width grows by 1/1024 pt per
+    /// attempt from 358.4 pt. The pane width steps 1/4 pt through [761, 1001) pt: its column (rounded to
+    /// 0.1 pt) moves 0.16 pt a step through [445.4, 602.4) pt, clear of ``columns`` and of the columns of
+    /// ``paneWidths``; when a pane width comes back, 960 attempts of at least 16 blocks (64 KiB in 4 KiB
+    /// blocks) have pushed its blocks out of the cache's 2048 entries.
+    static func budgetWidths() -> (short: CGFloat, pane: CGFloat) {
+        budgetAttemptSerial += 1
+        return (358.4 + CGFloat(budgetAttemptSerial) / 1024, 761 + CGFloat(budgetAttemptSerial % 960) / 4)
+    }
+
     /// One 64 KiB text of one shape: its index, every block measured and the tiles of its first and last
     /// screen, within the budget; or, one time in three, an 8 KiB text through the short Markdown path.
+    /// Every attempt lays out at widths of its own (``budgetWidths()``), so each one costs a first render.
     static func budgetStep(_ rng: inout FuzzRNG) throws {
         let outgoing = rng.bool()
         if rng.oneIn(3) {
             let source = FuzzText.sized(bytes: LongText.minBytes, &rng)
-            try budget.check("Home Markdown render", bytes: source.utf8.count) { attempt in
-                // A width no attempt used before: no block layout from MarkdownLayoutEngine's cache.
-                let md = MarkdownLayoutEngine.layout(Markdown.parse(source), source: source, maxWidth: 358.4 + CGFloat(attempt))
+            try budget.check("Home Markdown render", bytes: source.utf8.count) { _ in
+                let md = MarkdownLayoutEngine.layout(Markdown.parse(source), source: source, maxWidth: budgetWidths().short)
                 if let ctx = context() { MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing) }
             }
             return
         }
         let source = FuzzText.sized(bytes: 64 << 10, &rng)
         let markdown = rng.bool()
-        try budget.check("Home long text render", bytes: source.utf8.count) { attempt in
-            // A lineage and a width no attempt used before: no block layout from BlockLayoutCache.
+        // LongTextLayout.init queues every block on `measureQueue`; held while an attempt runs, those
+        // operations cannot fill BlockLayoutCache under the timed `measureNow`, and once the attempt's
+        // layout is retired they return without measuring.
+        let queue = LongTextLayout.measureQueue
+        queue.isSuspended = true
+        defer { queue.isSuspended = false }
+        try budget.check("Home long text render", bytes: source.utf8.count) { _ in
+            // A new lineage: no block layout from BlockLayoutCache (keyed by lineage and column).
             let l = LongTextLayout(index: LongTextIndex.build(source, lineage: nextLineage(), markdown: markdown),
-                                   width: 760 + CGFloat(attempt) * 8, markdown: markdown)
+                                   width: budgetWidths().pane, markdown: markdown)
             defer { l.retired = true }
             l.measureNow(0..<l.blockCount)
             let width = l.size(scale: 2).width

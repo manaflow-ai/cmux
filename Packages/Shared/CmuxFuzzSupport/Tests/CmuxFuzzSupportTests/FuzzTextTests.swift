@@ -57,19 +57,32 @@ import Testing
         #expect(FuzzBudget.milliseconds(budget.limit(bytes: 1 << 17)) == "100.0")
     }
 
-    @Test func anInputWithinTheLimitRunsOnceAndOneOverItFailsAfterEveryAttempt() throws {
-        var runs = 0
-        try FuzzBudget(perUnit: .seconds(60), unitBytes: 1).check("fast", bytes: 1) { _ in runs += 1 }
-        #expect(runs == 1)
+    @Test func everyAttemptRunsAndTheSlowestDecides() throws {
+        var runs: [Int] = []
+        let timings = try FuzzBudget(perUnit: .seconds(60), unitBytes: 1, attempts: 3).check("fast", bytes: 1) { runs.append($0) }
+        #expect(runs == [0, 1, 2])
+        #expect(timings.sorted.count == 3)
 
+        // Fast, then one attempt over the limit: the input fails (no best-of-N), naming the distribution.
         var attempts: [Int] = []
-        #expect(throws: FuzzError.self) {
-            try FuzzBudget(perUnit: .zero, unitBytes: 1, attempts: 3).check("slow", bytes: 1) { attempt in
+        do {
+            try FuzzBudget(perUnit: .milliseconds(5), unitBytes: 1, attempts: 3).check("slow", bytes: 1) { attempt in
                 attempts.append(attempt)
-                // Work that always takes measurable time.
-                _ = (0..<10_000).map { String($0) }.joined()
+                if attempt == 1 { _ = (0..<200_000).map { String($0) }.joined() } // work well past 5 ms
             }
+            Issue.record("an attempt over the limit passed")
+        } catch let error as FuzzError {
+            #expect(String(describing: error).contains("p50"))
+            #expect(String(describing: error).contains("max"))
         }
         #expect(attempts == [0, 1, 2])
+    }
+
+    @Test func timingsGiveNearestRankQuantiles() {
+        let t = FuzzBudget.Timings([.milliseconds(30), .milliseconds(10), .milliseconds(20)])
+        #expect(t.p50 == .milliseconds(20))
+        #expect(t.p95 == .milliseconds(30))
+        #expect(t.slowest == .milliseconds(30))
+        #expect(FuzzBudget.Timings([]).slowest == .zero)
     }
 }

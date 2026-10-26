@@ -16,8 +16,9 @@ import Testing
 /// Home budget.
 ///
 /// Properties: no trap (a trap ends the run, so a finished run is the proof); every layout covers its text
-/// with in-range lines; a kept layout (`TextLayout.isValid`) wraps as a new one would; a 64 KiB render
-/// (measure plus draw) takes under 50 ms in an optimized build.
+/// with in-range lines; a kept layout (`TextLayout.isValid`) wraps as a new one would; after an edit every
+/// text row is laid out from the edited text and mentions (no measurement kept from the old text); a 64 KiB
+/// render (measure plus draw) takes under 50 ms in an optimized build, on every timed attempt.
 ///
 /// It runs only with `CMUX_HOME_RENDER_FUZZ=1`; agents run it on the fleet, CI does not (Lawrence 2026-10-23):
 ///
@@ -156,8 +157,35 @@ struct HomeRenderFuzzTests {
         mentions((text as NSString).length, &rng).map { Mention(start: $0.location, length: $0.length, participant: Fixtures.chief) }
     }
 
-    /// Updates the transcript (its rows measured), edits some texts and maybe resizes, updates again, then
-    /// draws the first update's row specs (a render job started before the edit) and the second's.
+    /// Every shown text part of `items` has a row laid out from that part's own text and mentions, not a
+    /// measurement `MeasureCache` kept from the text before the edit, and a layout kept across a resize
+    /// (`TextLayout.isValid`) has the lines a fresh layout at the current column has.
+    static func checkRows(_ c: HomeController, of items: [TranscriptItem]) throws {
+        let specs = Dictionary(c.scene.model.rows.map { ($0.spec.key, $0.spec) }, uniquingKeysWith: { a, _ in a })
+        let column = c.scene.metrics.maxTextWidth
+        for item in items {
+            for (pi, part) in item.parts.enumerated() where RowBuilder.shows(part) {
+                guard case .text(let text, let mentions) = part else { continue }
+                let key = "part:\(item.key.rawValue):\(pi)"
+                guard let tl = specs[key]?.partRow?.text else {
+                    try FuzzRun.check(false, "no text row \(key) for a text of \(text.utf8.count) bytes")
+                    continue
+                }
+                try FuzzRun.check(tl.text.utf8.elementsEqual(text.utf8),
+                                  "row \(key) draws a text of \(tl.text.utf8.count) bytes for one of \(text.utf8.count)")
+                try FuzzRun.check(tl.bold == mentions.map { NSRange(location: $0.start, length: $0.length) },
+                                  "row \(key) bolds \(tl.bold), its mentions are \(mentions.map { ($0.start, $0.length) })")
+                try checkLayout(tl, of: text)
+                let fresh = TextLayout.make(text, bold: tl.bold, maxWidth: column, font: Style.bodyFont)
+                try FuzzRun.check(fresh.lines.map(\.range) == tl.lines.map(\.range),
+                                  "row \(key) keeps lines a fresh layout at the \(column) pt column does not have")
+            }
+        }
+    }
+
+    /// Updates the transcript (its rows measured), edits some texts and maybe resizes, updates again, checks
+    /// that the second update's rows were laid out from the edited texts, then draws the first update's row
+    /// specs (a render job started before the edit) and the second's.
     static func transcriptStep(_ c: HomeController, _ rng: inout FuzzRNG) throws {
         let count = 1 + rng.below(4)
         var texts = (0..<count).map { _ in transcriptText.text(&rng) }
@@ -171,7 +199,10 @@ struct HomeRenderFuzzTests {
             if rng.bool() { mentionSets[i] = wireMentions(texts[i], &rng) }
         }
         if rng.oneIn(3) { c.resize(to: viewports[rng.below(viewports.count)]) }
-        c.update(items: items(texts, mentionSets, mine: mine), summary: Fixtures.summary(), typing: [], hasOlder: false)
+        let edited = items(texts, mentionSets, mine: mine)
+        c.update(items: edited, summary: Fixtures.summary(), typing: [], hasOlder: false)
+        // A zero-width viewport lays nothing out (HomeController.update keeps the old rows until it has a width).
+        if c.scene.size.width > 0 { try checkRows(c, of: edited) }
         c.hostScrolled(to: CGFloat(rng.double(in: -2000...20000)))
         for spec in measured + c.scene.model.rows.map(\.spec) {
             let frame = RowArt.frame(spec, metrics: metrics)

@@ -141,12 +141,15 @@ public struct FuzzText: Sendable {
         case 4:
             while out.utf8.count < bytes { out += "\(words[rng.below(words.count)]) \(words[rng.below(words.count)])\r\n" }
         default:
+            // Every block names its section, so no two blocks are equal: a layout cache keyed by block
+            // content (Home's Markdown block cache) cannot serve one section from another.
             var section = 0
             while out.utf8.count < bytes {
                 section += 1
-                out += "## Step \(section)\n\nRebase on **main**, run `cmux-ci`, then *report*.\n\n"
-                out += "- item one\n- item [two](https://example.com)\n\n```swift\nlet value = \(section)\n```\n\n"
-                out += "| Suite | Result |\n|---|---|\n| one | passed |\n\n"
+                out += "## Step \(section)\n\nRebase step \(section) on **main**, run `cmux-ci`, then *report*.\n\n"
+                out += "- item \(section).1\n- item [\(section).2](https://example.com/\(section))\n\n"
+                out += "```swift\nlet value = \(section)\n```\n\n"
+                out += "| Suite \(section) | Result |\n|---|---|\n| one | passed \(section) |\n\n"
             }
         }
         // A replayed input that ran out leaves the loops above short; the text is what it built.
