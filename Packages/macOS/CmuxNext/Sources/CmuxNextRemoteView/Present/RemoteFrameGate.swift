@@ -2,39 +2,23 @@ import CmuxNextCompat
 
 /// Passes decoded frames to a presenter until closed: once `close()` returns, no frame reaches the
 /// presenter, even one whose decode was in flight (a hidden tab decodes and shows nothing). A
-/// frame is presented inside the lock, so `close()` waits for a present in progress. Each gate
-/// is one session of a pane: `deliver` says which frame is its first.
+/// frame is presented inside the lock, so `close()` waits for a present in progress. One gate
+/// per session of a pane.
 package nonisolated final class RemoteFrameGate: Sendable {
-    /// What happened to one frame.
-    package nonisolated enum Outcome: Sendable, Equatable {
-        /// The gate is closed: nothing was presented.
-        case dropped
-        /// The first frame this gate presented.
-        case first
-        case presented
-    }
-
-    private struct State {
-        var open = true
-        var presented = false
-    }
-
-    private let state = Mutex(State())
+    private let open = Mutex(true)
 
     package init() {}
 
-    /// Presents `frame` while the gate is open.
+    /// Presents `frame` while the gate is open; false when it is closed.
     @discardableResult
-    package func deliver(_ frame: RemoteDecodedFrame, to presenter: any RemoteFramePresenter) -> Outcome {
-        state.withLock { state in
-            guard state.open else { return .dropped }
-            presenter.present(frame)
-            defer { state.presented = true }
-            return state.presented ? .presented : .first
+    package func deliver(_ frame: RemoteDecodedFrame, to presenter: any RemoteFramePresenter) -> Bool {
+        open.withLock { open in
+            if open { presenter.present(frame) }
+            return open
         }
     }
 
     package func close() {
-        state.withLock { $0.open = false }
+        open.withLock { $0 = false }
     }
 }

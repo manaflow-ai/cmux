@@ -12,6 +12,7 @@ final class SampleBufferPresenter: RemoteFramePresenter {
     private let displayLayer = AVSampleBufferDisplayLayer()
     var layer: CALayer { displayLayer }
     var onFrameSize: ((CGSize) -> Void)?
+    var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private var frameSize: CGSize = .zero
     private(set) var shownFrame: RemoteDecodedFrame?
@@ -43,6 +44,7 @@ final class SampleBufferPresenter: RemoteFramePresenter {
             frameSize = frame.pixelSize
             onFrameSize?(frame.pixelSize)
         }
+        onFrameShown?()
     }
 
     /// A sample around the decoded picture, marked to display at once.

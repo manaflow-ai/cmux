@@ -14,6 +14,7 @@ final class MetalFramePresenter: RemoteFramePresenter {
     private let metalLayer = CAMetalLayer()
     var layer: CALayer { metalLayer }
     var onFrameSize: ((CGSize) -> Void)?
+    var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private nonisolated let renderer: MetalYUVRenderer
     private var frameSize: CGSize = .zero
@@ -49,6 +50,7 @@ final class MetalFramePresenter: RemoteFramePresenter {
     private func rendered(_ frame: RemoteDecodedFrame) {
         shownFrame = frame
         reportSize(frame.pixelSize)
+        onFrameShown?()
     }
 
     private func reportSize(_ size: CGSize) {

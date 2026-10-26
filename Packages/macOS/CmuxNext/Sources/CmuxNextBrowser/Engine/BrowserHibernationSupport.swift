@@ -130,6 +130,7 @@ extension BrowserAddressPage {
         cover.autoresizingMask = [.width, .height]
         host.addSubview(cover, positioned: .above, relativeTo: sibling)
         view = cover
+        // timer-class-allow: the cap runs on the clock BrowserWakeStandIn hands in (WebKitTab's cap does the same)
         let timer = DemandTimer(owner: "BrowserWakeCover", clock: clock)
         // Justified delay: the cap of a stand-in, not a poll; the first frame or a close cancels it.
         timer.schedule(after: cap) { @MainActor [weak self, weak cover] in

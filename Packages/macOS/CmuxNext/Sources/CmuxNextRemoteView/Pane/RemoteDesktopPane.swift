@@ -66,9 +66,10 @@ public final class RemoteDesktopPane {
     private var pipeline: RemoteDecodePipeline?
     /// The running session's frame gate: closed at `stop()`, so a hidden pane presents nothing.
     private var delivery: RemoteFrameGate?
-    /// Runs on the main actor when a started session presents its first frame (a woken tab's
-    /// picture then goes, `BrowserWakeCover`).
+    /// Runs when a started session's first frame went on screen (a woken tab's picture then goes,
+    /// `BrowserWakeCover`).
     public var onFirstFrame: (() -> Void)?
+    private var awaitsFirstFrame = false
     /// Armed while no frame was shown in this session; the first decoded
     /// frame consumes it and tells the reducer (`frameShown`).
     private let firstFrame = OneShotSignal()
@@ -95,6 +96,7 @@ public final class RemoteDesktopPane {
         self.presenter.onFrameSize = { [weak self] size in
             self?.view.video.setFramePixels(size)
         }
+        self.presenter.onFrameShown = { [weak self] in self?.frameShown() }
         wireChrome()
         view.render(state: state, settings: settings)
     }
@@ -106,16 +108,10 @@ public final class RemoteDesktopPane {
         let firstFrame = self.firstFrame
         let gate = RemoteFrameGate()
         delivery = gate
+        awaitsFirstFrame = true
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            let outcome = gate.deliver(frame, to: presenter)
-            guard outcome != .dropped else { return }
-            let first = outcome == .first
-            let shown = firstFrame.consume()
-            guard first || shown else { return }
-            Task { @MainActor in
-                if shown { self?.apply(.frameShown) }
-                if first { self?.onFirstFrame?() }
-            }
+            guard gate.deliver(frame, to: presenter), firstFrame.consume() else { return }
+            Task { @MainActor in self?.apply(.frameShown) }
         }
         if let frameSource = source as? any RemoteViewFrameSource {
             let frames = frameSource.decodedFrames()
@@ -159,6 +155,12 @@ public final class RemoteDesktopPane {
 
     /// The frame on screen, kept while the pane is stopped: a hidden tab's picture.
     public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
+
+    private func frameShown() {
+        guard awaitsFirstFrame else { return }
+        awaitsFirstFrame = false
+        onFirstFrame?()
+    }
 
     /// Frames replaced before display by the latest-frame-wins presenter.
     public var discardedFrames: Int { presenter.discardedFrames }

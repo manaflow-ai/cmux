@@ -11,6 +11,7 @@ final class LayerContentsPresenter: RemoteFramePresenter {
     let kind = RemotePresenterKind.layerContents
     let layer = CALayer()
     var onFrameSize: ((CGSize) -> Void)?
+    var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private var frameSize: CGSize = .zero
     private(set) var shownFrame: RemoteDecodedFrame?
@@ -41,6 +42,7 @@ final class LayerContentsPresenter: RemoteFramePresenter {
         CATransaction.commit()
         shownFrame = frame
         reportSize(frame.pixelSize)
+        onFrameShown?()
     }
 
     private func reportSize(_ size: CGSize) {

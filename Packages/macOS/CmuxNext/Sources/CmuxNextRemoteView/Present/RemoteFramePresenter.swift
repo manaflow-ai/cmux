@@ -32,6 +32,8 @@ public protocol RemoteFramePresenter: AnyObject, Sendable {
     var layer: CALayer { get }
     /// Called on the main actor when the decoded frame size changes.
     var onFrameSize: ((CGSize) -> Void)? { get set }
+    /// Called on the main actor after each frame went on screen (`shownFrame` is it).
+    var onFrameShown: (() -> Void)? { get set }
     nonisolated func present(_ frame: RemoteDecodedFrame)
     /// The pane's backing scale (layer `contentsScale`).
     func setBackingScale(_ scale: CGFloat)

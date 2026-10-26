@@ -121,6 +121,7 @@ public final class RemoteBrowserTab: BrowserTab {
     /// refused or hostless tab is never a blank tab (cx-erey).
     public func showFailure(_ failure: RemoteBrowserFailure, message: String) {
         self.failure = failure
+        wakeCover.remove()
         var next = state
         next.title = RemoteBrowserStrings.failureTitle
         next.phase = .finished

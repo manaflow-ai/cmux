@@ -72,7 +72,7 @@ import Testing
         try await rig.until("the tab was discarded") { rig.isHibernated(hidden.key) || rig.exemption(hidden.key) != nil }
         try #require(rig.isHibernated(hidden.key), "kept: \(String(describing: rig.exemption(hidden.key)))")
 
-        try await rig.until("the stream's tab, pane and decoder went") { hidden.tab.value == nil && hidden.pane.value == nil }
+        try await rig.until("the stream's tab, pane and decoder went") { hidden.tab == nil && hidden.pane == nil }
         let asleep = try #require(rig.services.cache.browsers[hidden.key]?.tab as? HibernatedBrowserTab)
         #expect(asleep.restoreState == .page(address))
         let picture = try #require(asleep.snapshotImage, "the hibernated tab has no last frame")
@@ -171,19 +171,22 @@ import Testing
         try await until("a frame shows") { stream.damage(); return stream.presenter.presented > 0 }
         rig.services.cache.withdraw(key, by: rig.pane)
         #expect(!stream.tab.pane.isDecoding, "the hidden tab still decodes")
-        return Hidden(key: key, tab: Weak(value: stream.tab), pane: Weak(value: stream.tab.pane), pump: stream.pump)
+        return Hidden(key: key, tab: stream.tab, pump: stream.pump)
     }
 
-    private struct Hidden {
+    /// A hidden tab, held weakly.
+    private final class Hidden {
         let key: String
-        let tab: Weak<RemoteBrowserTab>
-        let pane: Weak<RemoteBrowserPane>
+        weak var tab: RemoteBrowserTab?
+        weak var pane: RemoteBrowserPane?
         let pump: Task<Void, Never>
-    }
 
-    private final class Weak<Value: AnyObject> {
-        weak var value: Value?
-        init(value: Value) { self.value = value }
+        init(key: String, tab: RemoteBrowserTab, pump: Task<Void, Never>) {
+            self.key = key
+            self.tab = tab
+            pane = tab.pane
+            self.pump = pump
+        }
     }
 
     /// A remote browser tab on the mock desktop: a counting source, a recording presenter, a fake session.
@@ -263,24 +266,36 @@ import Testing
         func requestKeyframe() { host.requestKeyframe() }
     }
 
-    /// Records what the pipeline presents.
+    /// The layer-contents presenter, counting what the pipeline hands it.
     final class RecordingPresenter: RemoteFramePresenter {
-        let kind = RemotePresenterKind.layerContents
-        let layer = CALayer()
-        var onFrameSize: ((CGSize) -> Void)?
-        private nonisolated let frames = Mutex<(count: Int, last: RemoteDecodedFrame?)>((0, nil))
+        private nonisolated let shown: LayerContentsPresenter
+        private nonisolated let count = Mutex(0)
 
-        nonisolated func present(_ frame: RemoteDecodedFrame) {
-            frames.withLock { frames in
-                frames.count += 1
-                frames.last = frame
-            }
+        init() {
+            shown = LayerContentsPresenter()
         }
 
-        func setBackingScale(_ scale: CGFloat) {}
-        nonisolated var discardedFrames: Int { 0 }
-        var shownFrame: RemoteDecodedFrame? { frames.withLock { $0.last } }
-        nonisolated var presented: Int { frames.withLock { $0.count } }
+        var kind: RemotePresenterKind { shown.kind }
+        var layer: CALayer { shown.layer }
+        var onFrameSize: ((CGSize) -> Void)? {
+            get { shown.onFrameSize }
+            set { shown.onFrameSize = newValue }
+        }
+        var onFrameShown: (() -> Void)? {
+            get { shown.onFrameShown }
+            set { shown.onFrameShown = newValue }
+        }
+
+        nonisolated func present(_ frame: RemoteDecodedFrame) {
+            count.withLock { $0 += 1 }
+            shown.present(frame)
+        }
+
+        func setBackingScale(_ scale: CGFloat) { shown.setBackingScale(scale) }
+        nonisolated var discardedFrames: Int { shown.discardedFrames }
+        var shownFrame: RemoteDecodedFrame? { shown.shownFrame }
+        /// Frames handed to the presenter.
+        nonisolated var presented: Int { count.withLock { $0 } }
     }
 
     /// The rb/1 session, faked: it records what the tab tells the host.

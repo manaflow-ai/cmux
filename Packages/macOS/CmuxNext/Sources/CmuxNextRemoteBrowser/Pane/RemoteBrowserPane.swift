@@ -16,9 +16,10 @@ public final class RemoteBrowserPane {
     private var sizeContinuations: [AsyncStream<CGSize>.Continuation] = []
     /// The session ended (`stop()`): the pane never decodes again.
     private var ended = false
-    /// Runs on the main actor when a started pipeline presents its first frame (a woken tab's
-    /// picture then goes, `BrowserWakeCover`).
+    /// Runs when a started pipeline's first frame went on screen (a woken tab's picture then goes,
+    /// `BrowserWakeCover`).
     public var onFirstFrame: (() -> Void)?
+    private var awaitsFirstFrame = false
 
     public convenience init(source: any RemoteViewStreamSource, presenter: RemotePresenterKind = .layerContents) {
         self.init(source: source, presenter: RemoteFramePresenters().make(presenter))
@@ -30,6 +31,7 @@ public final class RemoteBrowserPane {
         self.presenter = presenter
         view.video.install(self.presenter)
         self.presenter.onFrameSize = { [weak self] size in self?.frameSizeChanged(size) }
+        self.presenter.onFrameShown = { [weak self] in self?.frameShown() }
     }
 
     /// Decodes and presents the source's frames. Idempotent; nothing after `stop()`. A new
@@ -39,10 +41,8 @@ public final class RemoteBrowserPane {
         let presenter = self.presenter
         let gate = RemoteFrameGate()
         delivery = gate
-        let pipeline = RemoteDecodePipeline(source: source) { [weak self] frame in
-            guard gate.deliver(frame, to: presenter) == .first else { return }
-            Task { @MainActor in self?.onFirstFrame?() }
-        }
+        awaitsFirstFrame = true
+        let pipeline = RemoteDecodePipeline(source: source) { frame in _ = gate.deliver(frame, to: presenter) }
         pipelineTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
     }
 
@@ -70,6 +70,12 @@ public final class RemoteBrowserPane {
 
     /// The frame on screen, kept while the pane is paused: a hidden tab's picture.
     public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
+
+    private func frameShown() {
+        guard awaitsFirstFrame else { return }
+        awaitsFirstFrame = false
+        onFirstFrame?()
+    }
 
     private func frameSizeChanged(_ size: CGSize) {
         view.video.setFramePixels(size)
