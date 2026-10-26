@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
 import CmuxNextOracle
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
@@ -15,6 +16,14 @@ extension AppServices: OracleHost {
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
             },
         ])
+    }
+
+    /// Every `debug.oracle.*` method over the app's one facet list, the router's topology (`snapshots`) and
+    /// the app's one turn recorder, ``oracleTurns``, the registry's perform-turn observer. `AppControl`
+    /// registers these.
+    @MainActor
+    func oracleControlMethods(snapshots: ControlSnapshotStore) -> [ControlMethod] {
+        OracleControl.methods(host: self, snapshots: snapshots, turns: oracleTurns)
     }
 }
 #endif
