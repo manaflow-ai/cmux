@@ -90,6 +90,14 @@ public final class MainTaskBoard: Sendable {
     private let budgetNanos = Atomic<UInt64>(0)
     /// When the running task's hang scope ends (``hangScopeEnd(_:startNanos:idleDeadlineNanos:)``).
     private let hangAtNanos = Atomic<UInt64>(0)
+    /// A sequence lock over `current`, `startNanos`, `budgetNanos` and `hangAtNanos`: odd while the main thread
+    /// writes them, one higher after each write. The budget publishes an outer task again with the same packed
+    /// identity after a nested one, so `current` alone cannot tell a reader that the fields beside it changed.
+    private let scopeGeneration = Atomic<UInt64>(0)
+    /// Action-span time charged to the task whose packed identity is in `spanCoveredFor`: kept on its hang scope
+    /// when the budget publishes it again after a nested task (``endSpan(_:nowNanos:)``).
+    private let spanCoveredFor = Atomic<UInt64>(0)
+    private let spanCoveredNanos = Atomic<UInt64>(0)
     /// Nested run loops running now, and when the newest one started running (``nestedLoops(running:startedAt:)``).
     private let nestedLoopCount = Atomic<Int>(0)
     private let nestedLoopStartNanos = Atomic<UInt64>(0)
@@ -150,11 +158,14 @@ public final class MainTaskBoard: Sendable {
     /// Publishes a task start (main thread): its identity, budget and the end of its hang scope.
     func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64,
                hangAtNanos hangAt: UInt64, notify: Bool = true) {
+        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
+        let covered = spanCoveredFor.load(ordering: .relaxed) == packed ? spanCoveredNanos.load(ordering: .relaxed) : 0
+        beginScopeWrite()
         startNanos.store(start, ordering: .relaxed)
         budgetNanos.store(budget, ordering: .relaxed)
-        hangAtNanos.store(hangAt, ordering: .relaxed)
-        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
+        hangAtNanos.store(hangAt &+ covered, ordering: .relaxed)
         current.store(packed, ordering: .releasing)
+        endScopeWrite()
         if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
@@ -233,8 +244,8 @@ public final class MainTaskBoard: Sendable {
     // MARK: Hang scopes
 
     /// The hang deadline of a task of `workClass` (Chrome's per-scope `WatchHangsInScope` timeout,
-    /// base/threading/hang_watcher.h): input 100 ms, frame and userBlocking 50 ms, the budgeted
-    /// classes one 60 Hz frame. An idle task's frame runs from its idle deadline
+    /// base/threading/hang_watcher.h): input 100 ms, frame and userBlocking 50 ms, visible, automation,
+    /// background and idle one 60 Hz frame. An idle task's frame runs from its idle deadline
     /// (``hangScopeEnd(_:startNanos:idleDeadlineNanos:)``).
     public static func hangScopeNanos(_ workClass: MainWorkClass) -> UInt64 {
         switch workClass {
@@ -251,9 +262,11 @@ public final class MainTaskBoard: Sendable {
         max(startNanos, idleDeadlineNanos) &+ hangScopeNanos(workClass)
     }
 
-    /// The running task's hang scope (``HangScope/noTask`` with no task). Atomics only, any thread:
-    /// the watchdog reads it while the main thread is suspended.
+    /// The running task's hang scope (``HangScope/noTask`` with no task, or when the main thread is writing
+    /// it). Atomics only, any thread: the watchdog reads it while the main thread is suspended.
     public var hangScope: HangScope {
+        let generation = scopeGeneration.load(ordering: .acquiring)
+        guard generation & 1 == 0 else { return .noTask }
         let packed = current.load(ordering: .acquiring)
         guard packed != 0 else { return .noTask }
         let start = startNanos.load(ordering: .relaxed)
@@ -264,8 +277,10 @@ public final class MainTaskBoard: Sendable {
         let siteOwner = postedFor.load(ordering: .acquiring)
         let file = postedFile.load(ordering: .acquiring)
         let lengthLine = postedLengthLine.load(ordering: .acquiring)
-        // A newer task replaced it between the loads: none is reported.
-        guard current.load(ordering: .acquiring) == packed else { return .noTask }
+        // The main thread wrote the scope between the loads (a newer task, or this one published again): none
+        // is reported. The fence keeps the loads above before the generation's second load.
+        atomicFence(ordering: .acquiring)
+        guard scopeGeneration.load(ordering: .relaxed) == generation, current.load(ordering: .relaxed) == packed else { return .noTask }
         let site = siteOwner == packed
         return HangScope(packed: packed, startNanos: start, budgetNanos: budget, deadlineNanos: deadline,
                          isValid: loops == 0 && start > loopStart, postedFile: site ? file : 0, postedLengthLine: site ? lengthLine : 0)
@@ -282,7 +297,23 @@ public final class MainTaskBoard: Sendable {
 
     /// The running task's hang scope ends at `hangAt` instead (main thread: an idle task's deadline).
     func extendHangScope(to hangAt: UInt64) {
-        hangAtNanos.store(hangAt, ordering: .relaxed)
+        let packed = current.load(ordering: .relaxed)
+        let covered = packed != 0 && spanCoveredFor.load(ordering: .relaxed) == packed ? spanCoveredNanos.load(ordering: .relaxed) : 0
+        beginScopeWrite()
+        hangAtNanos.store(hangAt &+ covered, ordering: .relaxed)
+        endScopeWrite()
+    }
+
+    /// Main thread, before it writes the scope's fields: readers that overlap the write see an odd generation
+    /// or a changed one (the releasing fence keeps the field stores after the odd one).
+    private func beginScopeWrite() {
+        scopeGeneration.store(scopeGeneration.load(ordering: .relaxed) &+ 1, ordering: .relaxed)
+        atomicFence(ordering: .releasing)
+    }
+
+    /// Main thread, after it wrote the scope's fields.
+    private func endScopeWrite() {
+        scopeGeneration.store(scopeGeneration.load(ordering: .relaxed) &+ 1, ordering: .releasing)
     }
 
     /// The number of nested run loops running now changed (main thread, ``MainFrameBudget``):
@@ -372,11 +403,21 @@ public final class MainTaskBoard: Sendable {
     /// - Parameter nowNanos: Its end (`CLOCK_UPTIME_RAW` nanoseconds; an action's commit end).
     public func endSpan(_ token: SpanToken, nowNanos: UInt64) {
         let previous = token.previous
+        let elapsed = nowNanos &- token.startNanos
+        // The span's time is not the covered task's, as a nested task's is not (MainFrameBudget's childNanos).
+        var hangAt = token.previousHangAt
+        if previous.packed != 0 {
+            hangAt &+= elapsed
+            let covered = spanCoveredFor.load(ordering: .relaxed) == previous.packed ? spanCoveredNanos.load(ordering: .relaxed) : 0
+            spanCoveredNanos.store(covered &+ elapsed, ordering: .relaxed)
+            spanCoveredFor.store(previous.packed, ordering: .relaxed)
+        }
+        beginScopeWrite()
         startNanos.store(previous.startNanos, ordering: .relaxed)
         budgetNanos.store(previous.budgetNanos, ordering: .relaxed)
-        hangAtNanos.store(token.previousHangAt, ordering: .relaxed)
+        hangAtNanos.store(hangAt, ordering: .relaxed)
         current.store(previous.packed, ordering: .releasing)
-        let elapsed = nowNanos &- token.startNanos
+        endScopeWrite()
         guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
               let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
         sink(task, elapsed)

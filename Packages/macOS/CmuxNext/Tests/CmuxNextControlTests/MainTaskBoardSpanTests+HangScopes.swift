@@ -73,14 +73,16 @@ extension MainTaskBoardSpanTests {
         #expect(watchdog.taskHangs.records().isEmpty)
     }
 
-    /// Each class has its deadline: input 100 ms, frame and userBlocking 50 ms, budgeted 16.7 ms, idle
-    /// its idle deadline plus 16.7 ms. Below it the watchdog waits for the deadline; at it, one record.
+    /// Each class has its deadline: input 100 ms, frame and userBlocking 50 ms, visible, automation and
+    /// background 16.7 ms, idle its idle deadline plus 16.7 ms. Below it the watchdog waits for the deadline; at it, one record.
     @MainActor
     @Test func eachClassHasItsOwnHangDeadline() throws {
         #expect(MainTaskBoard.hangScopeNanos(.input) == 100_000_000)
         #expect(MainTaskBoard.hangScopeNanos(.frame) == 50_000_000)
         #expect(MainTaskBoard.hangScopeNanos(.userBlocking) == 50_000_000)
-        for workClass in MainWorkClass.budgeted { #expect(MainTaskBoard.hangScopeNanos(workClass) == 16_666_667) }
+        for workClass: MainWorkClass in [.visible, .automation, .background, .idle] {
+            #expect(MainTaskBoard.hangScopeNanos(workClass) == 16_666_667, "\(workClass)")
+        }
         #expect(MainTaskBoard.hangScopeEnd(.idle, startNanos: 1_000, idleDeadlineNanos: 40_000_000) == 40_000_000 + 16_666_667)
         #expect(MainTaskBoard.hangScopeEnd(.idle, startNanos: 1_000) == 1_000 + 16_666_667, "a timed-out idle task: from its start")
         let clock = HangScopeClock()
@@ -120,6 +122,30 @@ extension MainTaskBoardSpanTests {
             #expect(watchdog.checkHangScope(now: clock.now, reported: &reported) != nil, "the batch's own 1 ms is under its deadline")
         }
         #expect(watchdog.taskHangs.records().map { $0.details["task_owner"] } == [.string("tab.focus")])
+    }
+
+    /// An action span inside a scheduled task (an action a control request runs) is not that task's time
+    /// either: after a 60 ms span, and after a nested task the budget publishes the batch again for, the
+    /// batch is judged on its own time and reported only once that passes its 16.7 ms deadline.
+    @MainActor
+    @Test func anActionSpanInsideATaskIsNotItsTasksHang() {
+        let clock = HangScopeClock()
+        let (budget, watchdog) = Self.hangScopeRig(clock)
+        let board = budget.board
+        var reported: UInt64 = 0
+        budget.run(.automation, owner: board.owner("Control.frames")) {
+            let token = board.beginSpan(.input, owner: board.internOwner("tab.close"), budgetNanos: 10_000_000, startNanos: clock.now)
+            clock.now += 60_000_000
+            board.endSpan(token, nowNanos: clock.now)
+            clock.now += 1_000_000
+            #expect(watchdog.checkHangScope(now: clock.now, reported: &reported) != nil, "after the span: the batch's own 1 ms")
+            budget.run(.automation, owner: board.owner("tab.focus")) { clock.now += 1_000_000 }
+            clock.now += 1_000_000
+            #expect(watchdog.checkHangScope(now: clock.now, reported: &reported) != nil, "after a nested task: the batch's own 2 ms")
+            clock.now += 20_000_000
+            #expect(watchdog.checkHangScope(now: clock.now, reported: &reported) == nil)
+        }
+        #expect(watchdog.taskHangs.records().map { $0.details["task_owner"] } == [.string("Control.frames")])
     }
 
     /// A hang no scheduled task covers (AppKit's own work, an unclassified job) is `unattributed`, with

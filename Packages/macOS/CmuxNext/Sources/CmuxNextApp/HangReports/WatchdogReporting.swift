@@ -29,7 +29,8 @@ enum WatchdogReporting {
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
-            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
+            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses,
+                                task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)

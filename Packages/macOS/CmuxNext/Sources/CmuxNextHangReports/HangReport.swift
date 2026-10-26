@@ -50,6 +50,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// server's schema 3 decode accepts them in the PL-telemetry web PR that lands before a build
         /// writes schema 3.
         public var carriesMainThread: Bool { self == .v3 }
+        /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
+        /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesTaskAttribution: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).

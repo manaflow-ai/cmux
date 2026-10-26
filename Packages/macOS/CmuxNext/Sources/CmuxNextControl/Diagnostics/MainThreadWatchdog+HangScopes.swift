@@ -63,18 +63,19 @@ extension MainThreadWatchdog {
         let scope = board.hangScope
         guard scope.packed != 0, scope.packed != reported, scope.isValid else { return nil }
         guard scope.isOverdue(at: now) else { return scope.deadlineNanos }
-        reported = scope.packed
-        var stillRunning = true
-        let addresses = taskSampler.withLock({ $0 })?.sample { _ in
-            let current = board.hangScope
-            stillRunning = current.packed == scope.packed && current.isValid
-        } ?? []
-        guard stillRunning, let task = board.task(scope) else { return nil }
+        // The read above ran beside the main thread; the one made while it is suspended decides, and the
+        // record is built from it.
+        var confirmed = scope
+        let addresses = taskSampler.withLock({ $0 })?.sample { _ in confirmed = board.hangScope } ?? []
+        guard confirmed.packed == scope.packed, confirmed.isValid else { return nil }
+        guard confirmed.isOverdue(at: now) else { return confirmed.deadlineNanos }
+        reported = confirmed.packed
+        guard let task = board.task(confirmed) else { return nil }
         let attribution = HangAttribution(task: task, turnNanos: turnNanos(at: now))
         var details = Self.details(of: task)
         details["turn_ms"] = .number(attribution.turnMilliseconds)
-        details["hang_deadline_ms"] = .number(Double(scope.deadlineNanos &- scope.startNanos) / 1_000_000)
-        let record = taskHangs.append(startUptimeNanos: scope.startNanos, duration: .nanoseconds(Int64(clamping: now &- scope.startNanos)),
+        details["hang_deadline_ms"] = .number(Double(confirmed.deadlineNanos &- confirmed.startNanos) / 1_000_000)
+        let record = taskHangs.append(startUptimeNanos: confirmed.startNanos, duration: .nanoseconds(Int64(clamping: now &- confirmed.startNanos)),
                                       addresses: addresses, kind: .taskHang, details: details)
         if configuration.logStalls {
             logger.error("main-thread task past its hang deadline: \(attribution.owner, privacy: .public) (\(attribution.taskClass, privacy: .public)) at \(attribution.location ?? "-", privacy: .public), \(record.duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms (debug.hangs task_hangs)")
