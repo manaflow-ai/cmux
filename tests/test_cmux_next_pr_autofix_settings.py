@@ -76,6 +76,23 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         for path in SETTINGS_EXPORTS:
             self.assertEqual((temp / "action-exports" / path).read_text(), "new\n", path)
 
+    def test_the_mac_job_has_a_failing_guard_for_missing_or_empty_exports(self):
+        guard = step(PR, "action-exports", "Require generated exports")
+        self.assertEqual(guard["if"], "always()")
+        self.assertIn("settings exports were requested but the exporter produced no files", guard["run"])
+        self.assertIn("action exports were requested but the exporter produced no files", guard["run"])
+        self.assertIn("find", guard["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_step(guard["run"], Path(tmp), {
+                "RUNNER_TEMP": tmp,
+                "ACTIONS_REQUESTED": "true",
+                "SETTINGS_REQUESTED": "true",
+                "ACTIONS_EXPORTS": "",
+                "SETTINGS_EXPORTS": "",
+            })
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("settings exports were requested but the exporter produced no files", result.stdout)
+
     def test_the_repair_copies_them_in_and_rewrites_the_defaults_snapshot(self):
         download = step(PR, "repair", "Download the regenerated action exports")
         self.assertIn("needs.action-exports.outputs.exports == 'true'", download["if"])
