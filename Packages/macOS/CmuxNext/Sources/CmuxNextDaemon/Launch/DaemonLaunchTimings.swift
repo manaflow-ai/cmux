@@ -70,12 +70,17 @@ public final class DaemonLaunchTimings: Sendable {
     }
 
     public func mark(_ name: String) {
+        mark(name, at: Date())
+    }
+
+    /// Marks `name` as having happened at `date` (a connect milestone kept until its connection was attached,
+    /// ``DaemonConnectMarks``); its ring event is recorded now.
+    public func mark(_ name: String, at date: Date) {
         signposter.event(.daemonStep, name, arg0: Step.traceCode(of: name))
-        let now = Date()
         let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
-            if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
+            if state.sink == nil, state.early.count < 64 { state.early.append((name, date)) }
             return state.sink
         }
-        receiver?(name, now)
+        receiver?(name, date)
     }
 }

@@ -15,9 +15,9 @@ import Foundation
 /// retried by the same loop.
 ///
 /// It records the launch's connect milestones (``DaemonConnectMarks``): `daemon.connect_started` when `main` begins
-/// it, `daemon.spawned` when its `server ensure` started a daemon (cold), `daemon.identified` after the handshake
-/// and `daemon.snapshot_received` when the prefetched snapshot arrives. The spawn runs on ``ProcessRunner``'s
-/// launcher queue, never the main thread.
+/// it and `daemon.spawned` when its `server ensure` started a daemon (cold); its `daemon.identified` (the handshake)
+/// and `daemon.snapshot_received` (the prefetched snapshot) are kept until the service attaches this connection.
+/// The spawn runs on ``ProcessRunner``'s launcher queue, never the main thread.
 public final class DaemonPrestart: Sendable {
     public typealias Outcome = Result<(DaemonConnection, DaemonIdentity), DaemonError>
 
@@ -25,7 +25,7 @@ public final class DaemonPrestart: Sendable {
     /// The connection's retry wake, which the owning service fires on app
     /// activation (the connection watches its socket through it too).
     public let wake: RetryWake
-    /// The launch's connect milestones, each sent once.
+    /// The launch's connect milestones, each sent once; the service attaches its connection through them.
     public let marks: DaemonConnectMarks
     private let attempt: Task<Outcome, Never>
     /// The bundled binary's build commit (`--version`), for the version
@@ -49,14 +49,13 @@ public final class DaemonPrestart: Sendable {
         bundledCommit = Task.detached(priority: .userInitiated) { try? await launcher.bundledBuildCommit() }
         // task-owner: one attempt per launch; its requests carry the connection's deadlines
         attempt = Task.detached(priority: .userInitiated) {
-            let endpoints = launcher.spawnObservingEndpointProvider(onSpawned: { marks.mark(.spawned) })
-            let connection = DaemonConnection(configuration: fixed, endpointProvider: endpoints)
+            let connection = DaemonConnection(configuration: fixed, endpointProvider: marks.endpointProvider(of: launcher))
             DaemonLaunchTimings.shared.mark("daemon.connect_start")
             do {
                 let identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
-                marks.mark(.identified)
-                await connection.prefetchSnapshot(onReceived: { marks.mark(.snapshotReceived) })
+                marks.mark(.identified, of: connection)
+                await connection.prefetchSnapshot(onReceived: { marks.mark(.snapshotReceived, of: connection) })
                 return .success((connection, identity))
             } catch {
                 await connection.close()

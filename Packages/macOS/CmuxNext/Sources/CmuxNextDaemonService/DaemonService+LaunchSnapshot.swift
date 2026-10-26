@@ -43,7 +43,8 @@ extension DaemonService {
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
     /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
-    /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each.
+    /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
+    /// service attaches.
     public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
@@ -59,7 +60,12 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            hangWatch: hangWatch), marks: DaemonConnectMarks { DaemonLaunchTimings.shared.mark($0) })
+            hangWatch: hangWatch), marks: launchConnectMarks())
+    }
+
+    /// The launch's connect milestones, sent to the launch timings at the time each happened.
+    nonisolated static func launchConnectMarks() -> DaemonConnectMarks {
+        DaemonConnectMarks { DaemonLaunchTimings.shared.mark($0, at: $1) }
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
