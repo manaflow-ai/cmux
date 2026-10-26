@@ -116,7 +116,7 @@ struct PageLifecycleCacheTests {
                                         uptime: { uptime.now }) { _ in RigWakeUpTimer() }
             lifecycle = PageLifecycle(deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()), queue: queue))
             AppMemoryConsumers(services: services).installPageLifecycle(lifecycle)
-            host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()))
+            host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry())
             folder = FileManager.default.temporaryDirectory.appending(path: "page-lifecycle-cache-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try Data("<!doctype html><title>Lifecycle</title>".utf8).write(to: folder.appending(path: "index.html"))
