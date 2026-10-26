@@ -891,12 +891,12 @@ nonisolated extension Feature {
         replaces: ["memory.discard.sidebarSections"]
     )
 
-    /// Files and Screenshots thumbnails and app bundle images join the memory coordinator: Files thumbnails are held to a share of the Mac's image cache budget, and at critical memory pressure these caches are emptied in short background slices; a thumbnail or image is drawn again when next shown.
+    /// Files and Screenshots thumbnails, app bundle images and Home diagrams join the memory coordinator: Files thumbnails keep to a share of the image cache budget; at critical pressure these caches empty in short slices and redraw when shown. Idle diagrams free their engine after 10 min.
     public static let memoryFileHomeCaches = Feature(
         index: 51,
         name: "memoryFileHomeCaches",
         owner: "PL-memory",
-        description: "Files and Screenshots thumbnails and app bundle images join the memory coordinator: Files thumbnails are held to a share of the Mac's image cache budget, and at critical memory pressure these caches are emptied in short background slices; a thumbnail or image is drawn again when next shown.",
+        description: "Files and Screenshots thumbnails, app bundle images and Home diagrams join the memory coordinator: Files thumbnails keep to a share of the image cache budget; at critical pressure these caches empty in short slices and redraw when shown. Idle diagrams free their engine after 10 min.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
