@@ -74,12 +74,12 @@ esac
 /// started (the reason goes to stderr). The same holds when the running user
 /// manager has either unit from anywhere else, or is masked, or cannot say
 /// ([`MANAGER_HAS_UNIT`]): a file written here would shadow theirs. With [`NO_AUTO_UPDATE`] the timer is
-/// stopped instead. Nothing here fails the script it runs in.
+/// stopped instead, and only when it is acpmux's: a timer someone else wrote
+/// keeps running (review of #24232). Nothing here fails the script it runs in.
 pub(super) fn install_script() -> String {
     format!(
         r#"au_d=$HOME/.config/systemd/user
-if [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ]; then systemctl --user disable --now acpmux-update.timer >/dev/null 2>&1 || :
-elif au_t=$(mktemp -d); then
+if au_t=$(mktemp -d); then
 cat > "$au_t/acpmux-update.service" <<'ACPMUX_UPDATE_UNIT'
 {UPDATE_SERVICE}ACPMUX_UPDATE_UNIT
 cat > "$au_t/acpmux-update.timer" <<'ACPMUX_UPDATE_UNIT'
@@ -87,7 +87,8 @@ cat > "$au_t/acpmux-update.timer" <<'ACPMUX_UPDATE_UNIT'
 au_c=; au_w=
 for au_f in {UNITS}; do if [ -e "$au_d/$au_f" ] && ! cmp -s "$au_t/$au_f" "$au_d/$au_f"; then au_c=$au_d/$au_f; fi
 {MANAGER_HAS_UNIT}done
-if [ -n "$au_c" ]; then echo "$au_c is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again" >&2
+if [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ]; then [ -n "$au_c" ] || systemctl --user disable --now acpmux-update.timer >/dev/null 2>&1 || :
+elif [ -n "$au_c" ]; then echo "$au_c is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again" >&2
 else
 for au_f in {UNITS}; do if [ ! -e "$au_d/$au_f" ]; then mkdir -p "$au_d" && cp "$au_t/$au_f" "$au_d/$au_f" && au_w=1; fi; done
 if [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi

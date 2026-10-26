@@ -201,12 +201,16 @@ pub(super) struct Plan {
     pub(super) commit: String,
     pub(super) sha256: String,
     pub(super) step: Step,
+    /// `update/<sha256>/`, holding the checked `acpmux-<target>`.
+    dir: PathBuf,
     /// The host's update lease, held until the plan is dropped.
     lease: Lease,
 }
 
 pub(super) enum Step {
-    /// The installed binary is the channel's; the build it carries.
+    /// The installed binary is the channel's; the build it carries. The
+    /// daemon may still run another (an update stopped between the install
+    /// and the restart), so [`apply`] still checks it.
     Current(Option<String>),
     /// Install the checked binary in this folder (`acpmux-<target>`).
     Install(PathBuf),
@@ -237,8 +241,10 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
     let downloads = paths.home.join("update");
     prune(&downloads, &sha);
     let installed = std::fs::read(&paths.installed).ok();
+    let dir = downloads.join(&sha);
     let step = match installed {
         Some(bytes) if crate::sha256::sha256_hex(&bytes) == sha => {
+            keep(&dir, paths.target, &bytes)?;
             Step::Current(embedded_build(&bytes))
         }
         _ if downloads.join(&sha).join(ROLLED_BACK).exists() => {
@@ -246,7 +252,7 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
-    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, lease }))
+    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, dir, lease }))
 }
 
 /// Remove the download folders (`<sha256>/`) of builds other than `keep`,
@@ -293,40 +299,58 @@ async fn download(
     if got != sha {
         bail!("{url} has sha256 {got}, not the channel's {sha}, so it is not installed");
     }
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    keep(&dir, target, &bytes)?;
+    Ok(dir)
+}
+
+/// `dir/acpmux-<target>` holds `bytes` (already checked), written beside and
+/// renamed; a copy with these bytes already there is kept.
+fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
+    let path = dir.join(format!("acpmux-{target}"));
+    if std::fs::read(&path).is_ok_and(|have| have == bytes) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     let part = dir.join(format!(".acpmux-{target}.part"));
-    std::fs::write(&part, &bytes).with_context(|| format!("writing {}", part.display()))?;
+    std::fs::write(&part, bytes).with_context(|| format!("writing {}", part.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
     }
     std::fs::rename(&part, &path).with_context(|| format!("writing {}", path.display()))?;
-    Ok(dir)
+    Ok(())
 }
 
 /// Carry out `plan` on `remote` (this machine), every script fenced for its
-/// lease: the row `host update` prints for a peer. A build whose daemon was rolled back is marked, so the
-/// next run leaves it alone.
+/// lease: the row `host update` prints for a peer. Either step goes through
+/// [`update_peer`], which leaves a daemon already on the channel's build
+/// alone and restarts one that is not, so an update stopped between the
+/// install and the restart is finished by the next run (review of #24232). A
+/// build whose daemon was rolled back is marked, so the next run leaves it
+/// alone; when the mark cannot be written, the row says so.
 pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
-    let mut up = PeerUpdate::new();
-    up.target = Some(target);
-    match &plan.step {
-        Step::Current(build) => {
-            up.outcome = Outcome::Current;
-            up.build = build.clone();
-            up
-        }
-        Step::Install(dir) => {
-            let opts =
-                UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false, caller: None };
-            let up = update_peer(&plan.lease.fence(remote), &opts);
-            if up.outcome == Outcome::RolledBack {
-                let _ = std::fs::write(dir.join(ROLLED_BACK), up.error.as_deref().unwrap_or(""));
-            }
-            up
+    let (dir, installed) = match &plan.step {
+        Step::Current(build) => (&plan.dir, build.as_deref()),
+        Step::Install(dir) => (dir, None),
+    };
+    let opts = UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false, caller: None };
+    let mut up = update_peer(&plan.lease.fence(remote), &opts);
+    up.target.get_or_insert(target);
+    if up.outcome == Outcome::Current && up.build.is_none() {
+        up.build = installed.map(str::to_owned);
+    }
+    if up.outcome == Outcome::RolledBack {
+        let mark = dir.join(ROLLED_BACK);
+        if let Err(e) = std::fs::write(&mark, up.error.as_deref().unwrap_or("")) {
+            let why = up.error.take().unwrap_or_default();
+            up.error = Some(format!(
+                "{why}; marking the build rolled back failed ({}: {e}), so the next run tries it again",
+                mark.display()
+            ));
         }
     }
+    up
 }
 
 /// This machine as a [`Remote`]: a script runs under `sh -c` in the home
