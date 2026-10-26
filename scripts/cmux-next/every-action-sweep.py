@@ -20,7 +20,7 @@ again, changed settings are written back, focus returns. A docked column or grou
 Per action (one row of the JSON table):
   turn_ms          the handler's main-thread time: the always-on action.perform signpost (CmuxNextSignposts,
                    ActionRegistry.performNow, the path every key, menu, palette and CLI action takes; the same
-                   interval a Release build records), read live from `log stream --signpost` (OUT/signposts.ndjson)
+                   interval a Release build records), read live from `log stream --signpost` (OUT/signposts.log)
   wait_ms          input sent to action.perform's begin (the main thread's queue; both on CLOCK_UPTIME_RAW: machTimestamp)
   commit_ms        input sent to the end of action.commit: the end of the Core Animation commit after the handler
                    (CommitBoundary), so input to committed frame
@@ -54,11 +54,13 @@ Measurement validity: the report states the display refresh, the idle missed-fra
 whether every Chromium tab is a real Chromium page (`debug.cef` shows no unavailable or fallback state).
 
 Outputs: OUT/every-action.json (all rows, both sessions, environment), OUT/every-action.md (ranked misses:
-over 10 ms p95 to commit, any dropped frame, over 4 ms on the key's turn, any error or wrong result).
-With --story ID, also cmux-perf-result/v1 files in OUT (BenchApp.record), per session: `action.<id>.<session>.commit`
-(each sample's input to commit, ms, of every timed action row) and `actions.over_budget` (the count of rows over
-TARGET_COMMIT_MS p95 to commit; not for a failed session). The perf lab runs the sweep as T1 stories, one per shard
-and session: scripts/perf-lab/stories.d/action-sweep-<session>-<K>.json pass --shard K/4 and their --story.
+over 10 ms p95 to commit, over 4 ms on the key's turn, or a max over those with fewer than 20 samples, any dropped
+frame, any error or wrong result).
+With --story ID (one session, the story's), also cmux-perf-result/v1 files in OUT (BenchApp.record):
+`action.<id>.<session>.commit` (each sample's input to commit, ms, of every timed action row) and
+`actions.over_budget` (the count of rows with a commit miss; not for a failed session). The perf lab runs the sweep
+as T2 stories, one per shard and session: scripts/perf-lab/stories.d/action-sweep-<session>-<K>.json pass
+--sessions <session> --shard K/8 and their --story.
 
 Fleet (an owned mini's console; the allowlisted entry builds the tagged app at the ref):
   cmux-ci run --class exclusive --measurement --label measure [--label macos-26] \\
@@ -96,7 +98,7 @@ mid-session rebuild or tab restore) is such a failure: another layout is never m
 does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
 the next session runs on a fresh launch.
 """
-import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
+import argparse, base64, csv, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -153,6 +155,8 @@ WINDOW = (40, 40, 1600, 1000)
 
 TARGET_COMMIT_MS = 10.0
 TARGET_TURN_MS = 4.0
+# Below this many samples a row's max is judged against its target as well as its p95 (over_target).
+SMALL_SAMPLE_N = 20
 # result-v1: each action's commit series refers to the budget above (stories.d R4: a reference, never a copy). The
 # sweep's browser context is a Chromium page (check_validity), so its results are the chromium engine's.
 COMMIT_TARGET_REF = perf_result.TargetRef(path="scripts/cmux-next/every-action-sweep.py", key="TARGET_COMMIT_MS")
@@ -2090,7 +2094,7 @@ def mach_timebase():
 
 class SignpostStream:
     """`log stream --signpost` of the app's action category, read live on a thread: the sweep waits for each
-    action's commit and reads its intervals. Rows also keep wall-clock windows; OUT/signposts.ndjson keeps the stream."""
+    action's commit and reads its intervals. Rows also keep wall-clock windows; OUT/signposts.log keeps the stream."""
     PREDICATE = 'subsystem == "com.cmuxterm.app.next" AND category == "action"'
 
     def __init__(self, path):
@@ -2180,7 +2184,9 @@ class SignpostStream:
         return found
 
 
-SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.ndjson"))
+# Not .ndjson: the perf lab ingests every *.ndjson in OUT as result-v1 (ingest.py), and one bad file there rejects
+# every run beside it.
+SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.log"))
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -2191,25 +2197,16 @@ def misses(row):
     not the action's: it is listed apart (markdown), never in the target table."""
     if row.get("skipped") or row.get("refused"):
         return []
-    why = []
-    commit = commit_over_budget(row)
-    result = (row.get("result_ms") or {}).get("p95") if isinstance(row.get("result_ms"), dict) else None
-    if commit is not None:
-        why.append(f"commit p95 {commit} ms")
-    if isinstance(result, (int, float)) and result > TARGET_COMMIT_MS:
-        why.append(f"result p95 {result} ms")
-    turn = (row.get("turn_ms") or {}).get("p95")
-    if isinstance(turn, (int, float)) and turn > TARGET_TURN_MS:
-        why.append(f"turn p95 {turn} ms")
+    why = [miss for miss in (commit_miss(row), over_target(row.get("result_ms"), TARGET_COMMIT_MS, "result"),
+                             over_target(row.get("turn_ms"), TARGET_TURN_MS, "turn")) if miss]
     frames = row.get("frames") or {}
     if frames.get("missed"):
         main = frames.get("main_max_ms") or 0
         cause = f"main thread {main} ms" if main > (frames.get("refresh_ms") or 16.67) else "main thread under a frame"
         why.append(f"{frames['missed']} missed frames at {frames.get('refresh_ms')} ms ({cause})")
-    for key in ("key_to_frame_ms",):
-        p95 = (row.get(key) or {}).get("p95")
-        if isinstance(p95, (int, float)) and p95 > TARGET_COMMIT_MS:
-            why.append(f"key to frame p95 {p95} ms")
+    key_to_frame = over_target(row.get("key_to_frame_ms"), TARGET_COMMIT_MS, "key to frame")
+    if key_to_frame:
+        why.append(key_to_frame)
     errors = [e for e in row.get("errors") or [] if not refusal(e)]
     if errors:
         why.append("error: " + "; ".join(errors)[:160])
@@ -2220,16 +2217,28 @@ def misses(row):
     return why
 
 
-def commit_over_budget(row):
-    """The row's p95 input to commit when it is over TARGET_COMMIT_MS, else None."""
-    commit = (row.get("commit_ms") or {}).get("p95")
-    return commit if isinstance(commit, (int, float)) and commit > TARGET_COMMIT_MS else None
+def over_target(summary, target, label):
+    """Why a stat() summary is over `target`, or None. Under SMALL_SAMPLE_N samples the max is judged too: the
+    interpolated p95 of 3 repeats sits below the slowest, and one slow repeat stays a miss."""
+    if not isinstance(summary, dict):
+        return None
+    p95, peak, n = summary.get("p95"), summary.get("max"), summary.get("n")
+    if isinstance(p95, (int, float)) and p95 > target:
+        return f"{label} p95 {p95} ms"
+    if isinstance(peak, (int, float)) and peak > target and isinstance(n, int) and n < SMALL_SAMPLE_N:
+        return f"{label} max {peak} ms (n {n})"
+    return None
+
+
+def commit_miss(row):
+    """Why the row's input to commit is over TARGET_COMMIT_MS (over_target), or None."""
+    return over_target(row.get("commit_ms"), TARGET_COMMIT_MS, "commit")
 
 
 def over_budget(rows):
-    """How many timed rows (not skipped, not refused at every sample) are over TARGET_COMMIT_MS p95 to commit: the
-    rows every-action.md lists with a `commit p95` miss."""
-    return sum(1 for row in rows if not row.get("skipped") and not row.get("refused") and commit_over_budget(row) is not None)
+    """How many timed rows (not skipped, not refused at every sample) have a commit miss (commit_miss): the rows
+    every-action.md lists with a `commit` miss."""
+    return sum(1 for row in rows if not row.get("skipped") and not row.get("refused") and commit_miss(row) is not None)
 
 
 def record_results(app, entry, commit_samples):
@@ -2328,7 +2337,9 @@ def display_of(report):
 
 def markdown(report):
     lines = [f"# every-action sweep: {report['env']['host']} macOS {report['env']['macos']} build {report['env']['sha'][:12]}", ""]
-    lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms, 0 missed frames, no errors, right result.")
+    lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms (and the max, under "
+                 f"{SMALL_SAMPLE_N} samples), 0 missed frames, no errors, right result. Percentiles interpolate between "
+                 f"closest ranks (perf_stats.py).")
     failed = report.get("failed_sessions") or []
     if failed:
         lines += ["", f"## FAILED: {len(failed)} session(s) did not finish", ""] + [failure_line(f) for f in failed]
@@ -2392,15 +2403,45 @@ def markdown(report):
     return "\n".join(lines) + "\n"
 
 
+def action_shard(ident, count):
+    """The 0-based shard of action `ident` among `count`, from the id alone: adding or removing another action never
+    moves it, so its perf-lab series stays in one story and a bisect at an older commit measures it in the same shard.
+    Chrome binds a story to its shard by name the same way (tools/perf/core/shard_maps)."""
+    return int(hashlib.sha256(ident.encode()).hexdigest(), 16) % count
+
+
 def shard_actions(actions, spec):
-    """The actions of shard `spec` (`K/N` or `K1,K2/N`, 1-based) of the id-sorted catalog: every N-th from the K-th.
-    The perf lab's action-sweep stories run K = 1..4 of 4, one story per shard and session."""
+    """The actions of shard `spec` (`K/N` or `K1,K2/N`, 1-based): each action whose action_shard is one of the K.
+    The perf lab's action-sweep stories run K = 1..8 of 8, one story per shard and session."""
     ks, n = spec.split("/")
     picks = {int(k) - 1 for k in ks.split(",")}
-    return [a for index, a in enumerate(actions) if index % int(n) in picks]
+    return [a for a in actions if action_shard(a["id"], int(n)) in picks]
+
+
+def story_problem(story, sessions, shard, stories_dir=os.path.join(PERF_LAB, "stories.d")):
+    """Why --story cannot record this run, or None. A story has one session (stories.d R7), and its series hold only
+    that session's actions of its own shard; the story file's command says which."""
+    if len(sessions) != 1:
+        return f"--story {story} records one session, not {len(sessions)} ({','.join(sessions)}): run each session's story"
+    try:
+        with open(os.path.join(stories_dir, f"{story}.json")) as f:
+            spec = json.load(f)
+    except (OSError, ValueError) as error:
+        return f"--story {story}: no readable stories.d/{story}.json ({error})"
+    if spec.get("session") != sessions[0]:
+        return f"--story {story} is the {spec.get('session')} session's story, not {sessions[0]}'s"
+    command = spec.get("command") or []
+    wanted = command[command.index("--shard") + 1] if "--shard" in command[:-1] else ""
+    if wanted != (shard or ""):
+        return f"--story {story} measures shard {wanted or '(all)'}, not {shard or '(all)'}"
+    return None
 
 
 def main():
+    if opts.story:
+        problem = story_problem(opts.story, [s for s in opts.sessions.split(",") if s], opts.shard)
+        if problem:
+            raise SystemExit(f"every-action: {problem}")
     if opts.write_gaps and (opts.only or opts.limit or opts.shard or {s for s in opts.sessions.split(",") if s} != set(SESSIONS)):
         raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit, --shard or --sessions): "
                          "a partial run would shrink the baseline")

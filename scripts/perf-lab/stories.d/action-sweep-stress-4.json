@@ -1,13 +1,13 @@
 {
   "id": "action-sweep-stress-4",
-  "tier": "T1",
-  "description": "Every catalog action through its real entrypoint (effective shortcut via debug.key, else action.run), input to committed frame from the action.perform and action.commit signposts, STRESS session (perf-stress-session.py), shard 4 of 4 of the action ids (every-action-sweep.py --shard 4/4).",
+  "tier": "T2",
+  "description": "Every catalog action through its real entrypoint (effective shortcut via debug.key, else action.run), input to committed frame from the action.perform and action.commit signposts, STRESS session (perf-stress-session.py), shard 4 of 8 of the action ids by id hash (every-action-sweep.py --shard 4/8). Nightly (T2): the whole sweep is about 5 h of host time, more than T1's 2 h rounds hold.",
   "command": [
     "scripts/cmux-next/every-action-sweep.py",
     "--sessions",
     "stress",
     "--shard",
-    "4/4",
+    "4/8",
     "--story",
     "action-sweep-stress-4"
   ],
@@ -31,7 +31,7 @@
     }
   ],
   "repeats": 1,
-  "seconds": 2700,
+  "seconds": 1350,
   "needs": [
     "debug:debug.key",
     "debug:debug.frames",

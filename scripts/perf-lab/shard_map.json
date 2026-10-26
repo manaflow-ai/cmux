@@ -5,19 +5,11 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 29100,
-            "T2": 960
+            "T1": 11100,
+            "T2": 18960
           },
           "stories": {
             "T1": [
-              "action-sweep-light-1",
-              "action-sweep-light-2",
-              "action-sweep-light-3",
-              "action-sweep-light-4",
-              "action-sweep-stress-1",
-              "action-sweep-stress-2",
-              "action-sweep-stress-3",
-              "action-sweep-stress-4",
               "blocking-hangs",
               "chat-anim",
               "home-idle",
@@ -36,6 +28,22 @@
               "tab-switch"
             ],
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]
@@ -52,10 +60,26 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 960
+            "T2": 18960
           },
           "stories": {
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]
@@ -72,17 +96,13 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 14580
+            "T1": 5580
           },
           "stories": {
             "T0": [
               "new-surfaces"
             ],
             "T1": [
-              "action-sweep-light-1",
-              "action-sweep-light-3",
-              "action-sweep-stress-1",
-              "action-sweep-stress-3",
               "blocking-hangs",
               "home-idle",
               "launch-warm-realistic",
@@ -98,17 +118,13 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 14520
+            "T1": 5520
           },
           "stories": {
             "T0": [
               "launch-warm"
             ],
             "T1": [
-              "action-sweep-light-2",
-              "action-sweep-light-4",
-              "action-sweep-stress-2",
-              "action-sweep-stress-4",
               "chat-anim",
               "launch-cold",
               "launch-cold-realistic",
