@@ -636,6 +636,8 @@ impl Hub {
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
         Self::hold_stalled_count(session);
+        // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
+        session.unread_after_work.store(false, Ordering::SeqCst);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).

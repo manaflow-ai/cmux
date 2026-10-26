@@ -144,8 +144,14 @@ impl Mux {
         // while its child agents run is not done: its finish waits for them
         // (`agent_hook_children.rs`).
         let notification = agent_hook_notification(ingress);
-        let held =
-            self.hold_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
+        let gate =
+            self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
+        if let agent_hook_children::FinishGate::Release(held) = &gate
+            && self.post_held_agent_finish(&terminal_id, held).is_err()
+        {
+            self.report_internal_diagnostic("held agent finish could not post");
+        }
+        let held = matches!(gate, agent_hook_children::FinishGate::Hold);
         if let Some((title, body, level)) = notification.filter(|_| !held) {
             self.create_durable_notification(
                 &Actor::Daemon,
