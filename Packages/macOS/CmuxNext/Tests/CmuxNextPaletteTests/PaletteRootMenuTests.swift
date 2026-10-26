@@ -103,7 +103,8 @@ struct PaletteRootMenuTests {
         let hidden = root.filter { $0.actionID != nil && $0.hidesWhenQueryEmpty }
         #expect(hidden.count > 130)
         let families = root.filter { $0.id.hasPrefix("rootFamily:") }
-        #expect(families.allSatisfy(\.hidesWhenTyping))
+        let familiesHideWhenTyping = families.allSatisfy { $0.hidesWhenTyping }
+        #expect(familiesHideWhenTyping)
         let ranker = PaletteRanker()
         var index = PaletteSearchIndex(items: root)
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
