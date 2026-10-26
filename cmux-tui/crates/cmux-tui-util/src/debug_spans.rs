@@ -20,12 +20,15 @@
 //! - The process's trace ring (`cmux-trace`), while its `daemon` category is
 //!   on. A trace is an async slice named by its label, begun when it starts
 //!   and ended when it is dropped (by [`finish`] or on any other path, so no
-//!   return path leaves it open), and each [`mark`] is an instant on the
-//!   writing thread with the slice's id in arg1: Chrome's nestable async
-//!   events with scoped instants (`TRACE_EVENT_NESTABLE_ASYNC_BEGIN0`,
-//!   `TRACE_EVENT_INSTANT0`, `base/trace_event/common/trace_event_common.h`).
-//!   Ring names come only from `&'static str` names; a computed [`mark_with`]
-//!   name goes to the marks file only.
+//!   return path leaves it open), as Chrome's
+//!   `TRACE_EVENT_NESTABLE_ASYNC_BEGIN0`/`END0`
+//!   (`base/trace_event/common/trace_event_common.h`). Each [`mark`] is a
+//!   thread-scoped instant on the writing thread (`TRACE_EVENT_INSTANT0` with
+//!   `TRACE_EVENT_SCOPE_THREAD`): flags 0, arg0 the microseconds since the
+//!   request arrived, arg1 0. The ring format has no async-scoped instant
+//!   (Chrome's `TRACE_EVENT_NESTABLE_ASYNC_INSTANT0`), so a mark belongs to
+//!   its slice by time and thread. Ring names come only from `&'static str`
+//!   names; a computed [`mark_with`] name goes to the marks file only.
 //!
 //! A create that [`follow`]s its terminal also owes it [`FOLLOW_MARKS`],
 //! recorded once each by [`terminal_mark`] from the output paths, from the
@@ -126,6 +129,11 @@ pub(crate) fn enabled() -> bool {
 /// The next async slice id: unique in the process, as ids in one ring must be.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Some [`Trace`] started in this process, so a thread may hold one. It never
+/// goes back to false: a trace stays installed after the ring stops
+/// recording, and [`take`] must still move it.
+static STARTED: AtomicBool = AtomicBool::new(false);
+
 impl Trace {
     /// A trace for a request that arrived at `start`, or `None` when marks
     /// are off.
@@ -138,8 +146,9 @@ impl Trace {
         let since_start = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
         let start_uptime_ns = cmux_trace::clock::now_ns().saturating_sub(since_start);
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        STARTED.store(true, Ordering::Relaxed);
         if in_ring {
-            ring_write(label, Phase::AsyncBegin, id);
+            ring_write(label, Phase::AsyncBegin, FLAG_ID, 0, id);
         }
         Some(Self {
             label,
@@ -163,7 +172,7 @@ impl Drop for Trace {
     /// unfinished (an early return, a thread exiting with it installed).
     fn drop(&mut self) {
         if self.in_ring {
-            ring_write(self.label, Phase::AsyncEnd, self.id);
+            ring_write(self.label, Phase::AsyncEnd, FLAG_ID, 0, self.id);
         }
     }
 }
@@ -177,7 +186,7 @@ pub fn install(trace: Option<Trace>) {
 
 /// Remove and return the current thread's trace.
 pub fn take() -> Option<Trace> {
-    if !enabled() {
+    if !STARTED.load(Ordering::Relaxed) {
         return None;
     }
     CURRENT.with(|current| current.borrow_mut().take())
@@ -193,11 +202,11 @@ pub fn mark(name: &'static str) {
         if let Ok(mut current) = current.try_borrow_mut()
             && let Some(trace) = current.as_mut()
         {
+            let elapsed = trace.elapsed_us();
             if trace.in_ring {
-                ring_write(name, Phase::Instant, trace.id);
+                ring_write(name, Phase::Instant, 0, elapsed, 0);
             }
             if trace.in_file {
-                let elapsed = trace.elapsed_us();
                 trace.marks.push((Cow::Borrowed(name), elapsed));
             }
         }
@@ -273,10 +282,10 @@ fn ring_name(text: &'static str) -> &'static InternedName {
     &RING_NAME_OVERFLOW
 }
 
-/// Write `text` with `phase` and async id `id` to the ring, if it records.
-fn ring_write(text: &'static str, phase: Phase, id: u64) {
+/// Write `text` with `phase`, `flags` and its args to the ring, if it records.
+fn ring_write(text: &'static str, phase: Phase, flags: u8, arg0: u64, arg1: u64) {
     if ring_on() {
-        cmux_trace::write_interned(RING_CATEGORY, ring_name(text), phase, FLAG_ID, 0, id);
+        cmux_trace::write_interned(RING_CATEGORY, ring_name(text), phase, flags, arg0, arg1);
     }
 }
 
@@ -477,14 +486,14 @@ fn write_line(line: &serde_json::Value) {
 }
 
 /// Mark the start of every commit on a registry connection: the gap after
-/// `sqlite.commit` is the commit's write and sync.
+/// `sqlite.commit` is the commit's write and sync. Installed whatever the
+/// sinks are now, since the ring may start recording after the connection
+/// opens; [`mark`] checks them on each commit.
 pub fn traced(connection: rusqlite::Connection) -> rusqlite::Connection {
-    if enabled() {
-        let _ = connection.commit_hook(Some(|| {
-            mark("sqlite.commit");
-            false
-        }));
-    }
+    let _ = connection.commit_hook(Some(|| {
+        mark("sqlite.commit");
+        false
+    }));
     connection
 }
 
