@@ -30,6 +30,8 @@ SHARED_NIGHTLY_GROUPS = {
     "republish-nightly-deltas": "release-publish-",
     "publish-release-notes": "release-publish-",
     "publish-nightly-identity-legacy": "nightly-next-legacy-identity-publish",
+    # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
+    "publish-nightly-next-github-names": "nightly-next-github-names",
 }
 
 
