@@ -222,6 +222,8 @@ mod page_files;
 mod page_listener;
 pub use page_files::page_bundle_dir;
 pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
+/// Lock admission by class for the registry, connection and state locks.
+pub(crate) mod priority_gate;
 mod responses;
 mod rows;
 mod screen_json;

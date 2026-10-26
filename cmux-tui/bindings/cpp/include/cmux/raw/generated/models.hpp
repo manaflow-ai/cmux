@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675";
+inline constexpr std::string_view kProtocolIrSha256 = "2c0de467283984b00853f5cc9c69cb792324c0a4130aa0bf7e27b02af1840955";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -180,6 +180,9 @@ struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
 struct ServerStatsJournalWriter;
+struct ServerStatsLockClass;
+struct ServerStatsLockClassSet;
+struct ServerStatsLockClasses;
 struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
@@ -5270,6 +5273,29 @@ struct ServerStatsJournalWriter {
     friend bool operator==(const ServerStatsJournalWriter&, const ServerStatsJournalWriter&) = default;
 };
 
+struct ServerStatsLockClass {
+    ServerStatsHistogram hold_us{};
+    std::uint64_t wait_p95_us{};
+    ServerStatsHistogram wait_us{};
+    friend bool operator==(const ServerStatsLockClass&, const ServerStatsLockClass&) = default;
+};
+
+struct ServerStatsLockClassSet {
+    ServerStatsLockClass automation{};
+    std::uint64_t automation_due_admissions{};
+    std::uint64_t automation_yields{};
+    ServerStatsLockClass frontend{};
+    ServerStatsLockClass program{};
+    friend bool operator==(const ServerStatsLockClassSet&, const ServerStatsLockClassSet&) = default;
+};
+
+struct ServerStatsLockClasses {
+    ServerStatsLockClassSet registry{};
+    ServerStatsLockClassSet registry_connection{};
+    ServerStatsLockClassSet state{};
+    friend bool operator==(const ServerStatsLockClasses&, const ServerStatsLockClasses&) = default;
+};
+
 struct ServerStatsLockHolder {
     std::uint64_t held_for_us{};
     std::string site{};
@@ -5407,6 +5433,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
+    std::optional<ServerStatsLockClasses> lock_classes{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsRequestLatency> request_latency_us{};
     std::optional<ServerStatsRequestPathIo> request_path_io{};
@@ -7494,6 +7521,24 @@ template <>
 struct Codec<ServerStatsJournalWriter> {
     static Result<Json> encode(const ServerStatsJournalWriter& value);
     static Result<ServerStatsJournalWriter> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClass> {
+    static Result<Json> encode(const ServerStatsLockClass& value);
+    static Result<ServerStatsLockClass> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClassSet> {
+    static Result<Json> encode(const ServerStatsLockClassSet& value);
+    static Result<ServerStatsLockClassSet> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockClasses> {
+    static Result<Json> encode(const ServerStatsLockClasses& value);
+    static Result<ServerStatsLockClasses> decode(const Json& value);
 };
 
 template <>

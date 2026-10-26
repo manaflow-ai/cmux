@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
+/* cmux-tui mux protocol 12, IR 2c0de467283984b00853f5cc9c69cb792324c0a4130aa0bf7e27b02af1840955. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1179,6 +1179,26 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockClass = {
+  "hold_us": ServerStatsHistogram;
+  "wait_p95_us": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsLockClassSet = {
+  "automation": ServerStatsLockClass;
+  "automation_due_admissions": bigint;
+  "automation_yields": bigint;
+  "frontend": ServerStatsLockClass;
+  "program": ServerStatsLockClass;
+};
+
+export type ServerStatsLockClasses = {
+  "registry": ServerStatsLockClassSet;
+  "registry_connection": ServerStatsLockClassSet;
+  "state": ServerStatsLockClassSet;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1263,6 +1283,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;

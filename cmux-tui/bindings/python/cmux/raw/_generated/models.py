@@ -1716,6 +1716,32 @@ class ServerStatsJournalWriter:
 
 
 @dataclass(frozen=True)
+class ServerStatsLockClass:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockClass'
+    hold_us: ServerStatsHistogram
+    wait_p95_us: int
+    wait_us: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
+class ServerStatsLockClassSet:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockClassSet'
+    automation: ServerStatsLockClass
+    automation_due_admissions: int
+    automation_yields: int
+    frontend: ServerStatsLockClass
+    program: ServerStatsLockClass
+
+
+@dataclass(frozen=True)
+class ServerStatsLockClasses:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockClasses'
+    registry: ServerStatsLockClassSet
+    registry_connection: ServerStatsLockClassSet
+    state: ServerStatsLockClassSet
+
+
+@dataclass(frozen=True)
 class ServerStatsLockHolder:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockHolder'
     held_for_us: int
@@ -1820,6 +1846,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
@@ -6637,6 +6664,9 @@ __all__ = [
     'ServerStatsConnections',
     'ServerStatsHistogram',
     'ServerStatsJournalWriter',
+    'ServerStatsLockClass',
+    'ServerStatsLockClassSet',
+    'ServerStatsLockClasses',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',
     'ServerStatsLockStall',

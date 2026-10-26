@@ -8,7 +8,10 @@
 //! both locks, so every test, Testbox gate and debug dogfood build checks the
 //! order on every path it runs. `try_lock` cannot deadlock: it is recorded but
 //! not checked. In release builds the rank, the name and the thread-local
-//! stack are compiled out; [`RankedMutex`] is then a plain [`Mutex`].
+//! stack are compiled out; [`RankedMutex`] is then a plain [`Mutex`]. Holds
+//! of the ranks up to `Mux::state` are counted in every build: lock
+//! admission never makes a thread wait while it holds one
+//! ([`HeldRank::may_yield`]).
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
@@ -94,6 +97,23 @@ mod held {
         id
     }
 
+    /// Lock admission found no counted rank held (`free`): then no rank of
+    /// any kind may be held, or the thread would yield while holding a lock.
+    #[track_caller]
+    pub(super) fn assert_none_held_if(free: bool) {
+        if !free {
+            return;
+        }
+        let held_name = HELD.with(|held| held.borrow().first().map(|entry| entry.name));
+        if let Some(held_name) = held_name {
+            // crash-allow: the debug and test lock-order assertion; release builds compile it out.
+            panic!(
+                "lock admission would yield while this thread holds {held_name}: nothing \
+                 waits for another class while it holds a ranked lock"
+            );
+        }
+    }
+
     pub(super) fn pop(id: u64) {
         // Guards may drop out of order, and during thread teardown.
         let _ = HELD.try_with(|held| {
@@ -105,11 +125,24 @@ mod held {
     }
 }
 
-/// One rank this thread holds; dropping it releases the rank. A zero-sized
-/// no-op in release builds.
+/// The last rank whose holds are counted in every build: lock admission
+/// (`server::priority_gate`) gates the registry, connection and state locks,
+/// and the lock order allows a thread to hold only these ranks while it
+/// acquires one of them.
+const LAST_ADMISSION_RANK: LockRank = LockRank::MuxState;
+
+thread_local! {
+    /// Holds of ranks up to [`LAST_ADMISSION_RANK`] on this thread, counted
+    /// in release builds too.
+    static ADMISSION_RANK_HOLDS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// One rank this thread holds; dropping it releases the rank. In release
+/// builds it only counts the ranks lock admission reads.
 pub(crate) struct HeldRank {
     #[cfg(debug_assertions)]
     id: u64,
+    counted: bool,
 }
 
 impl HeldRank {
@@ -126,22 +159,43 @@ impl HeldRank {
     /// Record that this thread now holds `rank`.
     #[inline]
     pub(crate) fn record(rank: LockRank, name: &'static str) -> Self {
+        let counted = rank <= LAST_ADMISSION_RANK;
+        if counted {
+            ADMISSION_RANK_HOLDS.with(|holds| holds.set(holds.get() + 1));
+        }
         #[cfg(debug_assertions)]
         {
-            Self { id: held::push(rank, name) }
+            Self { id: held::push(rank, name), counted }
         }
         #[cfg(not(debug_assertions))]
         {
-            let _ = (rank, name);
-            Self {}
+            let _ = name;
+            Self { counted }
         }
+    }
+
+    /// True when this thread holds no ranked lock, so a lock admission may
+    /// make it wait (`server::priority_gate`): a thread that yields while it
+    /// holds a lock could hold up the very request it yields to. Debug and
+    /// test builds check the whole rank stack against the count.
+    #[inline]
+    pub(crate) fn may_yield() -> bool {
+        let free = ADMISSION_RANK_HOLDS.with(std::cell::Cell::get) == 0;
+        #[cfg(debug_assertions)]
+        held::assert_none_held_if(free);
+        free
     }
 }
 
-#[cfg(debug_assertions)]
 impl Drop for HeldRank {
+    #[inline]
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
         held::pop(self.id);
+        if self.counted {
+            // Guards may drop during thread teardown.
+            let _ = ADMISSION_RANK_HOLDS.try_with(|holds| holds.set(holds.get().saturating_sub(1)));
+        }
     }
 }
 

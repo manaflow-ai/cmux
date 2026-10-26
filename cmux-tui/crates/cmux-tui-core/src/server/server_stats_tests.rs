@@ -219,3 +219,28 @@ fn server_stats_include_reports_slow_requests() {
     assert!(section["watchdog_wakeups"].is_u64(), "{full}");
     assert_eq!(section["recent"], json!([]), "{full}");
 }
+
+#[test]
+fn signaled_mutex_class_server_stats_reports_lock_classes() {
+    let mux = Mux::new_for_test("server-stats-lock-classes", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("lock_classes").is_none(), "{plain}");
+
+    let full = stats(&mux, client, json!({"cmd":"server-stats","include":["lock_classes"]}));
+    let section = &full["lock_classes"];
+    for lock in ["registry", "registry_connection", "state"] {
+        for class in ["frontend", "program", "automation"] {
+            let entry = &section[lock][class];
+            assert!(entry["wait_p95_us"].is_u64(), "{lock}.{class}: {full}");
+            assert!(entry["wait_us"]["p99"].is_u64(), "{lock}.{class}: {full}");
+            assert!(entry["hold_us"]["count"].is_u64(), "{lock}.{class}: {full}");
+        }
+        assert!(section[lock]["automation_yields"].is_u64(), "{full}");
+        assert!(section[lock]["automation_due_admissions"].is_u64(), "{full}");
+    }
+    // Creating a workspace took the state lock outside any request scope.
+    assert!(section["state"]["program"]["wait_us"]["count"].as_u64().unwrap() >= 1, "{full}");
+}

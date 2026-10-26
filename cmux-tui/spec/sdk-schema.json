@@ -6182,6 +6182,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "lock_classes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClasses"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6193,7 +6201,124 @@
     "write_path is present only when the request names it in include.",
     "request_path_io is present only when the request names it in include.",
     "slow_requests is present only when the request names it in include.",
-    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
+    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+    "lock_classes is present only when the request names it in include."
+   ]
+  },
+  "ServerStatsLockClasses": {
+   "kind": "object",
+   "fields": {
+    "registry": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClassSet"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "registry_connection": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClassSet"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClassSet"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "One entry per lock that admits by class: the workspace registry lock, the registry connection lock (first acquisitions only) and the mux state lock."
+   ]
+  },
+  "ServerStatsLockClassSet": {
+   "kind": "object",
+   "fields": {
+    "frontend": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClass"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "program": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClass"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "automation": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockClass"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "automation_yields": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "automation_due_admissions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "frontend is the verified app's own requests, automation is agents, scripts, the CLI and pages, program is work no request started (terminal output, hooks, the journal writer).",
+    "An automation caller that holds no ranked lock waits while a frontend caller waits; one is let through at least every 4 ms. automation_yields counts the automation acquisitions that waited so; automation_due_admissions counts those let through while frontends still waited."
+   ]
+  },
+  "ServerStatsLockClass": {
+   "kind": "object",
+   "fields": {
+    "wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_p95_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "wait_p95_us is the 95th percentile of wait_us, a bucket upper bound like its other percentiles."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -18979,7 +19104,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, lock_classes); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

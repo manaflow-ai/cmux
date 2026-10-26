@@ -3,8 +3,8 @@
 //! The daemon should be able to say where its time goes without an operator
 //! sampling it from outside. This module holds the counters that
 //! `server-stats` reports: log-linear latency histograms, registry lock
-//! contention with holder attribution, journal writer batch metrics, and
-//! connection admission. Recording is lock-free except for the holder table,
+//! contention with holder attribution, per-class lock wait and hold (lock
+//! admission), journal writer batch metrics, and connection admission. Recording is lock-free except for the holder table,
 //! which is held for nanoseconds, so the overhead stays far below the
 //! millisecond-scale critical sections it measures.
 
@@ -107,6 +107,11 @@ impl LogLinearHistogram {
     }
 
     pub fn snapshot(&self) -> HistogramSnapshot {
+        self.snapshot_with_p95().0
+    }
+
+    /// [`Self::snapshot`] and the p95 from the same bucket counts.
+    pub fn snapshot_with_p95(&self) -> (HistogramSnapshot, u64) {
         let counts: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
         let count: u64 = counts.iter().sum();
         let percentile = |fraction: f64| -> u64 {
@@ -123,14 +128,15 @@ impl LogLinearHistogram {
             }
             Self::bucket_upper_bound(BUCKETS - 1)
         };
-        HistogramSnapshot {
+        let snapshot = HistogramSnapshot {
             count,
             mean: self.sum.load(Ordering::Relaxed).checked_div(count).unwrap_or(0),
             max: self.max.load(Ordering::Relaxed),
             p50: percentile(0.50),
             p90: percentile(0.90),
             p99: percentile(0.99),
-        }
+        };
+        (snapshot, percentile(0.95))
     }
 }
 
@@ -314,6 +320,103 @@ pub struct LockSiteSnapshot {
     pub acquisitions: u64,
     pub hold_total_us: u64,
     pub hold_max_us: u64,
+}
+
+/// Wait and hold of one class of callers on one lock.
+#[derive(Default)]
+struct LockClassHistograms {
+    wait: LogLinearHistogram,
+    hold: LogLinearHistogram,
+}
+
+impl LockClassHistograms {
+    fn snapshot(&self) -> LockClassSnapshot {
+        let (wait_us, wait_p95_us) = self.wait.snapshot_with_p95();
+        LockClassSnapshot { wait_us, wait_p95_us, hold_us: self.hold.snapshot() }
+    }
+}
+
+/// Per-class wait and hold of one lock that admits by class
+/// (`server::priority_gate`), plus how often automation yielded.
+#[derive(Default)]
+pub struct LockClassStats {
+    frontend: LockClassHistograms,
+    program: LockClassHistograms,
+    automation: LockClassHistograms,
+    automation_yields: AtomicU64,
+    automation_due_admissions: AtomicU64,
+}
+
+impl LockClassStats {
+    fn class(&self, cause: crate::event_cause::EventCause) -> &LockClassHistograms {
+        use crate::event_cause::EventCause;
+        match cause {
+            EventCause::Frontend => &self.frontend,
+            EventCause::Program => &self.program,
+            EventCause::Automation => &self.automation,
+        }
+    }
+
+    pub(crate) fn waited(&self, cause: crate::event_cause::EventCause, waited: Duration) {
+        self.class(cause).wait.record_duration(waited);
+    }
+
+    pub(crate) fn held(&self, cause: crate::event_cause::EventCause, held: Duration) {
+        self.class(cause).hold.record_duration(held);
+    }
+
+    /// An automation caller found a frontend caller waiting and yielded.
+    pub(crate) fn automation_yielded(&self) {
+        self.automation_yields.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A yielding automation caller's admission came due while frontend
+    /// callers still waited.
+    pub(crate) fn automation_admitted_while_yielding(&self) {
+        self.automation_due_admissions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> LockClassesSnapshot {
+        LockClassesSnapshot {
+            frontend: self.frontend.snapshot(),
+            program: self.program.snapshot(),
+            automation: self.automation.snapshot(),
+            automation_yields: self.automation_yields.load(Ordering::Relaxed),
+            automation_due_admissions: self.automation_due_admissions.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct LockClassSnapshot {
+    pub wait_us: HistogramSnapshot,
+    /// The p95 of `wait_us`, a bucket upper bound like the others.
+    pub wait_p95_us: u64,
+    pub hold_us: HistogramSnapshot,
+}
+
+/// One lock's acquisitions by class: `frontend` (the verified app for the
+/// person), `program` (terminal output, hooks, the journal writer) and
+/// `automation` (agents, scripts, the CLI, pages).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct LockClassesSnapshot {
+    pub frontend: LockClassSnapshot,
+    pub program: LockClassSnapshot,
+    pub automation: LockClassSnapshot,
+    /// Automation acquisitions that found a frontend caller waiting and
+    /// yielded to it.
+    pub automation_yields: u64,
+    /// Yielding automation callers let through because their admission
+    /// came due (at least one every 4 ms) while frontends still waited.
+    pub automation_due_admissions: u64,
+}
+
+/// The `lock_classes` section of `server-stats`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct DaemonLockClassesSnapshot {
+    pub registry: LockClassesSnapshot,
+    pub registry_connection: LockClassesSnapshot,
+    pub state: LockClassesSnapshot,
 }
 
 const WRITER_IDLE: u8 = 0;
@@ -569,6 +672,10 @@ pub struct ServerStatsSnapshot {
     /// present only when the request names `requests` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<HistogramSnapshot>,
+    /// Wait and hold by class on the registry, registry connection and
+    /// state locks; present only when the request names `lock_classes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock_classes: Option<DaemonLockClassesSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
