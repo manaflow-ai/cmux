@@ -163,9 +163,14 @@
   padding: 0;
   background: none;
 }
-.acpmux-md ul,
-.acpmux-md ol {
+.acpmux-md ul {
   padding-left: 22px;
+}
+/* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
+   editor scrolls and clips at its own edge, so this padding is all the room a number has: 22px
+   cut the left of "1." (Austin 2026-10-20). 3em holds "10." in SF and in DejaVu Sans (the gallery runner). */
+.acpmux-md ol {
+  padding-left: 3em;
 }
 .acpmux-md li > p {
   margin: 0;
@@ -268,6 +273,10 @@
   bottom: -2px;
   border: 2px solid var(--agent-accent);
   pointer-events: none;
+}
+/* A selected numbered item: around its number, inside the editor's edge. */
+.acpmux-md ol > li.ProseMirror-selectednode::after {
+  left: calc(2px - 3em);
 }
 .acpmux-md img.ProseMirror-separator {
   display: inline !important;

@@ -9,6 +9,7 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
+import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -69,6 +70,9 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
+  /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
+  /// the chat offers it now; undefined while the chat is not connected.
+  queuedMessages?: () => QueuedMessageActionsValue | undefined;
   /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
   /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
   unsteer?: (row: AcpmuxRow) => Promise<boolean>;

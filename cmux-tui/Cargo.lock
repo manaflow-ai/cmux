@@ -1479,6 +1479,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1572,6 +1573,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-build-identity",
  "cmux-config",
  "cmux-holder",

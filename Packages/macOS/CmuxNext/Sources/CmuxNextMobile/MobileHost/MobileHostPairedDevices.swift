@@ -108,7 +108,26 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
         devices.removeAll { $0.id == id }
     }
 
+    /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
+    /// Settings > Devices joins the phone's row to for its Full-access setting
+    /// (`DeviceDirectory.phoneRecordName`, kept equal by a test).
+    public static func acpmuxRecordName(_ id: String) -> String {
+        "phone-" + String(id.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(74))
+    }
+
     /// The approvers acpmux gets (`_acpmux/approvers_set`).
+    /// The pairing of `phone`, a phone of the account, if it is paired here (by its link id).
+    public func pairing(of phone: MobileHostKnownPhone) -> MobileHostPairedDevice? {
+        devices.first { phone.owns($0.id) }
+    }
+
+    /// The paired phones (link ids) that are among the account's `phones`: only these get an
+    /// acpmux credential, so a phone removed from the account while this Mac was not running
+    /// (still paired here, with no row in Settings > Devices) never holds Full access.
+    public func listed(in phones: [MobileHostKnownPhone]) -> Set<String> {
+        Set(devices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
+    }
+
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,
          "approvers": devices.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
