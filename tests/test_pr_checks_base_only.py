@@ -294,6 +294,15 @@ class WorkflowShapeTests(unittest.TestCase):
         for job_id in SKIPPED_ON_BASE_ONLY:
             self.assertNotIn("concurrency", JOBS[job_id])
 
+    def test_every_push_group_event_runs_every_advisory(self):
+        # A push-group run can cancel another, and a green one vouches for all three answers.
+        for job_id in ("link", "split"):
+            self.assertIn("github.event.action != 'edited'", str(JOBS[job_id]["if"]) + str(JOBS["split"]["if"]))
+        self.assertIn("github.event.action != 'edited'", str(JOBS["split"]["if"]))
+        for event in ("opened", "synchronize", "reopened", "ready_for_review"):
+            self.assertIn(event, str(JOBS["link"]["if"]))
+            self.assertIn(event, str(JOBS["size"]["if"]))
+
     def test_check_names_are_unchanged(self):
         names = {job_id: job.get("name", job_id) for job_id, job in JOBS.items()}
         self.assertEqual(names["link"], "link")
