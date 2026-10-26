@@ -35,7 +35,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting {
+        didSet { waiters.settle(.connection, in: self) }
+    }
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -60,7 +62,7 @@ public final class DaemonStore: StateResourceQueries {
     var notificationTexts: [NotificationID: String] = [:]
     var ledgerNotificationTexts: [SurfaceID: String] = [:]
     /// True once the first snapshot is applied.
-    public internal(set) var isLoaded = false
+    public internal(set) var isLoaded = false { didSet { if isLoaded { waiters.note(.loaded) } } }
     /// True while the tree is the daemon's launch snapshot (drawn before
     /// connecting) and no live snapshot has replaced it yet.
     public internal(set) var isProvisional = false
@@ -111,12 +113,14 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var notificationLimit = 200
 
     /// O(1) lookups kept in step with the records (StoreIndex.swift).
-    @ObservationIgnored var index = StoreIndex()
+    @ObservationIgnored var index: StoreIndex
     var tabsBySurface: [SurfaceID: TabModel] { index.tabsBySurface }
     var panesByHandle: [PaneID: PaneModel] { index.panesByHandle }
     var screensByHandle: [ScreenID: ScreenModel] { index.screensByHandle }
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
+    /// Keyed waits on the records (StoreWaiters.swift), resumed when an apply ends.
+    var waiters: StoreWaiters { index.waiters }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
@@ -196,7 +200,13 @@ public final class DaemonStore: StateResourceQueries {
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
-    public init() {}
+    /// - Parameter waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
+    ///   StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
+    ///   (tests, fixtures): a queue of the store's own.
+    public init(waitDeadlines: MainWakeUpQueue? = nil) {
+        let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+    }
 
     // MARK: Lookup (O(1))
 
@@ -437,9 +447,11 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
 
-    /// Publishes a tab list change once the visible state is complete.
+    /// Publishes a tab list change once the visible state is complete, and resumes the keyed
+    /// waiters whose keys the apply changed (StoreWaiters).
     func publishTabListChange() {
         if index.takeTabListChange() { tabListRevision &+= 1 }
+        waiters.settleTouched(in: self)
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace set differs from
