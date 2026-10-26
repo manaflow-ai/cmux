@@ -125,6 +125,9 @@ public final class DaemonStore: StateResourceQueries {
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     /// Keyed waits on the records (StoreWaiters.swift), resumed when an apply ends.
     var waiters: StoreWaiters { index.waiters }
+    /// The tab ids and tab resource ids this store lists, with the hook the index of tabs across
+    /// machines keeps itself by (StoreTabKeys.swift, `MachineTabIndex`).
+    public var tabKeys: StoreTabKeys { index.tabKeys }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
