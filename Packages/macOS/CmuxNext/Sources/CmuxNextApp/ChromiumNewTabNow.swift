@@ -18,7 +18,8 @@ struct ChromiumNewTabNow {
     func page(_ tab: TabModel, url: URL?) -> (any BrowserTab)? {
         guard let url, BrowserNewTabPage.isNewTabPage(url) || cache.browserTabs.wasOpenedHere(tab), cache.chromiumNow.runs() else { return nil }
         let key = tab.id, requests = cache.pageRequests
-        var configuration = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default, initialURL: url)
+        var configuration = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default, initialURL: url,
+                                                    origin: cache.pageOrigin(of: tab))
         guard requests.proxiedTabs.plan(for: key, url: url, base: configuration) == .notProxied else { return nil }
         if let services = requests.services {
             guard case .profile(let navigationGuard) = RemoteLocalhostStorePlan.plan(route: services.localhostRoute(for: tab, engine: .cef), url: url) else { return nil }

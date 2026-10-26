@@ -311,9 +311,7 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
-            return deferred(tab, url: url)
-        }
+        if let page = deferredPage(tab, url: url) { return page }  // after crashes, or hidden at launch (p08-startup-040)
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
@@ -376,8 +374,8 @@ final class TabContentCache {
     /// The Chromium configuration of `tab` showing `url`, with its
     /// remote-localhost store. A failed proxy start leaves the page blank.
     private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
-        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(
-            id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default, initialURL: url))
+        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default,
+                                                                            initialURL: url, origin: pageOrigin(of: tab)))
     }
 
     /// Re-creates Chromium page `key` in the other remote-localhost store
