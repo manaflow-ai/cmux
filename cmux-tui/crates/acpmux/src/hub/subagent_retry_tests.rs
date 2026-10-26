@@ -453,33 +453,7 @@ async fn a_person_retry_is_busy_behind_a_queued_prompt_the_count_misses() {
     let (hub, session, _conn) = chat(vec![60_000]).await;
     hub.observe_subagents(&session, &[failed("s/t1")]);
     settle().await;
-    let run = crate::hub::queue::PromptRun {
-        blocks: vec![json!({"type": "text", "text": "waits"})],
-        display_parts: None,
-        control: crate::hub::Control::Local,
-        trust_gate: false,
-        provenance: None,
-        agent: None,
-        supersede: None,
-        full_access_device: None,
-    };
-    let queued = crate::hub::queue::QueuedPrompt {
-        prompt_id: "p-waits".into(),
-        turn_id: "t-waits".into(),
-        client: "test".into(),
-        preview: "waits".into(),
-        queued_at: 0,
-        withdraw: Arc::new(Notify::new()),
-        run: Arc::new(run),
-        restored: false,
-        resume: false,
-        steer: false,
-        held: false,
-        sent_now: false,
-        joined: Arc::new(std::sync::Mutex::new(None)),
-        requeued: false,
-        retries: 0,
-    };
+    let queued = queued_prompt("p-waits", None);
     // Claimed with the queue empty; the prompt comes in before the retry's slot.
     let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
     session.queue.lock().unwrap().push(queued);
@@ -549,4 +523,63 @@ async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
     drop(slot);
     let v = hub.retry_subagent(&session, "s/t1", by()).await.unwrap();
     assert_eq!(v["kind"], "subagent", "{v}");
+}
+
+/// A queue entry as `enqueue` makes it, with `provenance`, that no task waits on.
+fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queue::QueuedPrompt {
+    let run = crate::hub::queue::PromptRun {
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: crate::hub::Control::Local,
+        trust_gate: false,
+        provenance,
+        agent: None,
+        supersede: None,
+        full_access_device: None,
+    };
+    crate::hub::queue::QueuedPrompt {
+        prompt_id: prompt_id.into(),
+        turn_id: format!("t-{prompt_id}"),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        held: false,
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    }
+}
+
+/// Stopping a sub-session takes out the retries its parent asked for that wait in its queue
+/// (for a run slot), as it takes out the parent's messages; the chat's own prompts stay.
+#[tokio::test]
+async fn stopping_a_sub_session_withdraws_the_retries_waiting_in_its_queue() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let retry = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "manual": true,
+        "from": "parent"});
+    let message = json!({"kind": crate::hub::subsessions::PROVENANCE_KIND, "from": "parent"});
+    for (id, provenance) in
+        [("p-retry", Some(retry)), ("p-message", Some(message)), ("p-own", None)]
+    {
+        session.queue.lock().unwrap().push(queued_prompt(id, provenance));
+        session.queued.fetch_add(1, Ordering::SeqCst);
+    }
+    hub.withdraw_family_prompts(&session, "stopped");
+    let left: Vec<String> = session.queue().into_iter().map(|q| q.prompt_id).collect();
+    assert_eq!(left, ["p-own"]);
+    let removed: Vec<Value> = hub
+        .events(&session.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "queue_removed")
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(removed.len(), 2, "{removed:?}");
+    assert!(removed.iter().all(|r| r["reason"] == "stopped"), "{removed:?}");
 }
