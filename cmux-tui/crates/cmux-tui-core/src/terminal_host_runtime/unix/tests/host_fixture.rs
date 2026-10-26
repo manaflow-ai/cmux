@@ -85,6 +85,7 @@ pub(super) fn test_host_shared_with_budget(
         group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
+        trace_control: shared::host_trace::HostTraceQueue::default(),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

@@ -57,6 +57,15 @@ pub(super) fn handle_command_with_cancellation(
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::TraceStart(params) => {
+            cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
+        }
+        Command::TraceStop => {
+            cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Stop))
+        }
+        Command::TraceStatus => {
+            cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
+        }
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
