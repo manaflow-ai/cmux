@@ -117,3 +117,19 @@ describe("memory import undo", () => {
     expect(await rows(`SELECT COUNT(*) AS n FROM oc_node WHERE (i + 1) * (1 << l) > 2`)).toEqual([{ n: 0 }])
   })
 })
+
+describe("memory import undo vs the compactor", () => {
+  it("drops a summary that was being built over rows the undo removed", async () => {
+    const { token, url, brain, rows } = await setup("undo-d")
+    await http("PUT", url, token, { mode: "append", dry_run: false, batch: "run-1", items: [await item("note", "x", "2026-10-21T10:00:00.000Z"), await item("note", "y", "2026-10-21T10:00:01.000Z")] })
+    // A model call started before the undo finishes after it.
+    const stale = await (runInDurableObject as (stub: unknown, fn: (instance: any) => Promise<boolean>) => Promise<boolean>)(brain, async (instance) => {
+      const generation = instance.memory.generation
+      const undone = await instance.memoryImport({ mode: "undo", batch: "run-1" }, false)
+      instance.memory.complete(1, 0, "summary of removed rows", generation)
+      return undone.ok
+    })
+    expect(stale).toBe(true)
+    expect(await rows(`SELECT COUNT(*) AS n FROM oc_node WHERE text = 'summary of removed rows'`)).toEqual([{ n: 0 }])
+  })
+})

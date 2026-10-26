@@ -377,7 +377,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       if (body.mode === "undo") {
         const u = undoBatch(this.sql, this.ctx.storage, body)
         if (u.ok) {
-          this.memory.reload()
+          this.memory.rewound()
           this.compactor.pump()
         }
         return u
