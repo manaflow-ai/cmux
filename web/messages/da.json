@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
       "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
-      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
+      "kindXaiApiKey": "xAI API-nøgle",
+      "xaiKeyHint": "Codex på dette teams maskiner sender anmodninger til Grok-modeller til xAI med denne nøgle. Anmodninger til andre modeller bruger den aldrig."
     },
     "cloud": {
       "title": "Cloud-maskiner og Mac-adgang",
@@ -3235,6 +3237,7 @@
       "accountChatgpt": "ChatGPT-abonnement (personligt eller team-arbejdsområde)",
       "accountOpenAiKey": "OpenAI API-nøgle",
       "accountOpenRouterKey": "OpenRouter API-nøgle",
+      "accountXaiKey": "xAI API-nøgle",
       "accountOpencodeGo": "OpenCode Go-abonnement",
       "accountClaudeSubscription": "Claude Max eller Pro (Claude Code-opsætningstoken)",
       "accountAnthropicKey": "Anthropic API-nøgle",

@@ -670826,6 +670826,478 @@
           }
         }
       }
+    },
+    "cli.coderouter.grok.addUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an xAI API key (xai-...) from XAI_API_KEY, --stdin, or a hidden prompt. Codex and Pi route Grok models (grok-*) through it. `cmux cr add grok` runs the same flow."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف مفتاح xAI API (xai-...) من XAI_API_KEY أو --stdin أو مطالبة مخفية. يوجّه Codex وPi نماذج Grok (grok-*) عبره. يشغّل `cmux cr add grok` الخطوات نفسها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügt einen xAI-API-Schlüssel (xai-...) aus XAI_API_KEY, --stdin oder einer verdeckten Eingabe hinzu. Codex und Pi leiten Grok-Modelle (grok-*) darüber. `cmux cr add grok` führt denselben Ablauf aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una clave de API de xAI (xai-...) desde XAI_API_KEY, --stdin o una solicitud oculta. Codex y Pi enrutan los modelos Grok (grok-*) a través de ella. `cmux cr add grok` ejecuta el mismo flujo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute une clé API xAI (xai-...) depuis XAI_API_KEY, --stdin ou une saisie masquée. Codex et Pi y font passer les modèles Grok (grok-*). `cmux cr add grok` exécute le même processus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XAI_API_KEY、--stdin、または非表示の入力から xAI API キー（xai-...）を追加します。Codex と Pi は Grok モデル（grok-*）をこのキー経由でルーティングします。`cmux cr add grok` も同じ手順を実行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XAI_API_KEY, --stdin 또는 숨김 입력에서 xAI API 키(xai-...)를 추가합니다. Codex와 Pi는 Grok 모델(grok-*)을 이 키로 라우팅합니다. `cmux cr add grok`도 같은 흐름을 실행합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 XAI_API_KEY、--stdin 或隐藏提示添加 xAI API 密钥（xai-...）。Codex 和 Pi 会通过它路由 Grok 模型（grok-*）。`cmux cr add grok` 运行相同流程。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 XAI_API_KEY、--stdin 或隱藏提示新增 xAI API 金鑰（xai-...）。Codex 和 Pi 會透過它路由 Grok 模型（grok-*）。`cmux cr add grok` 執行相同流程。"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.added": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK added Grok account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إضافة حساب Grok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK Grok-Konto hinzugefügt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK cuenta de Grok añadida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK compte Grok ajouté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok アカウントを追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok 계정을 추가했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 Grok 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 Grok 帳號"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.addedLabeled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK added Grok account: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إضافة حساب Grok: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK Grok-Konto hinzugefügt: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK cuenta de Grok añadida: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK compte Grok ajouté : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok アカウントを追加しました: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok 계정을 추가했습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 Grok 账号：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 Grok 帳號：%@"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.keyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create one at console.x.ai."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنشئ واحدًا على console.x.ai."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstelle einen unter console.x.ai."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea una en console.x.ai."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez-en une sur console.x.ai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "console.x.ai で作成してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "console.x.ai에서 만드세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 console.x.ai 创建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 console.x.ai 建立。"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.keyLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح xAI API"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI-API-Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave de API de xAI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé API xAI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API キー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API 키"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API 金鑰"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.notAnXaiKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is not an xAI API key (expected xai-...). Create one at console.x.ai."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا ليس مفتاح xAI API (المتوقع xai-...). أنشئ واحدًا على console.x.ai."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das ist kein xAI-API-Schlüssel (erwartet xai-...). Erstelle einen unter console.x.ai."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eso no es una clave de API de xAI (se esperaba xai-...). Crea una en console.x.ai."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas une clé API xAI (xai-... attendu). Créez-en une sur console.x.ai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは xAI API キーではありません（xai-... が必要です）。console.x.ai で作成してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI API 키가 아닙니다(xai-... 형식이어야 함). console.x.ai에서 만드세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这不是 xAI API 密钥（应为 xai-...）。请在 console.x.ai 创建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這不是 xAI API 金鑰（應為 xai-...）。請在 console.x.ai 建立。"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex and Pi now route Grok models (grok-*) through this xAI key."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجّه Codex وPi الآن نماذج Grok (grok-*) عبر مفتاح xAI هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex und Pi leiten Grok-Modelle (grok-*) jetzt über diesen xAI-Schlüssel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex y Pi ahora enrutan los modelos Grok (grok-*) a través de esta clave de xAI."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex et Pi font désormais passer les modèles Grok (grok-*) par cette clé xAI."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex と Pi は Grok モデル（grok-*）をこの xAI キー経由でルーティングするようになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 Codex와 Pi가 Grok 모델(grok-*)을 이 xAI 키로 라우팅합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 和 Pi 现在会通过此 xAI 密钥路由 Grok 模型（grok-*）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 和 Pi 現在會透過此 xAI 金鑰路由 Grok 模型（grok-*）。"
+          }
+        }
+      }
+    },
+    "cli.coderouter.grok.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown coderouter grok subcommand: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر فرعي غير معروف لـ coderouter grok: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter coderouter-grok-Unterbefehl: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de coderouter grok desconocido: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande coderouter grok inconnue : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な coderouter grok サブコマンド: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 coderouter grok 하위 명령: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 coderouter grok 子命令：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 coderouter grok 子命令：%@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

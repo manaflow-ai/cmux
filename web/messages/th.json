@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "เพิกถอนคีย์ API นี้หรือไม่",
       "apiKeyUsageDetail": "30 วันที่ผ่านมา: สำเร็จ {completions} ครั้ง · {tokens} โทเค็น ({input} เข้า / {output} ออก) · มูลค่าเทียบเท่า API {value}",
       "apiKeyUsageUnavailable": "ไม่มีข้อมูลการใช้งาน",
-      "revokeApiKeyConfirmBody": "ไคลเอนต์ที่ใช้คีย์นี้จะยืนยันตัวตนไม่ได้ทันที"
+      "revokeApiKeyConfirmBody": "ไคลเอนต์ที่ใช้คีย์นี้จะยืนยันตัวตนไม่ได้ทันที",
+      "kindXaiApiKey": "API key ของ xAI",
+      "xaiKeyHint": "Codex บนเครื่องของทีมนี้ส่งคำขอโมเดล Grok ไปยัง xAI ด้วย key นี้ คำขอสำหรับโมเดลอื่นจะไม่ใช้ key นี้เลย"
     },
     "cloud": {
       "title": "เครื่อง Cloud และการเข้าถึงจาก Mac",
@@ -3243,6 +3245,7 @@
       "accountChatgpt": "การสมัครใช้งาน ChatGPT (workspace ส่วนตัวหรือของทีม)",
       "accountOpenAiKey": "API key ของ OpenAI",
       "accountOpenRouterKey": "API key ของ OpenRouter",
+      "accountXaiKey": "API key ของ xAI",
       "accountOpencodeGo": "การสมัครใช้งาน OpenCode Go",
       "accountClaudeSubscription": "Claude Max หรือ Pro (setup token ของ Claude Code)",
       "accountAnthropicKey": "API key ของ Anthropic",

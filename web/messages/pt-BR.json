@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
       "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
-      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
+      "kindXaiApiKey": "Chave de API do xAI",
+      "xaiKeyHint": "O Codex nas máquinas desta equipe envia as solicitações de modelos Grok para a xAI com esta chave. Solicitações de outros modelos nunca a usam."
     },
     "cloud": {
       "title": "Máquinas do Cloud e acesso do Mac",
@@ -3238,6 +3240,7 @@
       "accountChatgpt": "Assinatura do ChatGPT (espaço de trabalho pessoal ou de equipe)",
       "accountOpenAiKey": "Chave de API da OpenAI",
       "accountOpenRouterKey": "Chave de API do OpenRouter",
+      "accountXaiKey": "Chave de API do xAI",
       "accountOpencodeGo": "Assinatura do OpenCode Go",
       "accountClaudeSubscription": "Claude Max ou Pro (setup token do Claude Code)",
       "accountAnthropicKey": "Chave de API da Anthropic",

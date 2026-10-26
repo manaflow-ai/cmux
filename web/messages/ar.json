@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "هل تريد إلغاء مفتاح API هذا؟",
       "apiKeyUsageDetail": "آخر 30 يومًا: {completions} إكمال · {tokens} رمز ({input} إدخال / {output} إخراج) · ما يعادل {value} من API",
       "apiKeyUsageUnavailable": "الاستخدام غير متاح",
-      "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا."
+      "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا.",
+      "kindXaiApiKey": "مفتاح xAI API",
+      "xaiKeyHint": "يرسل Codex على أجهزة هذا الفريق طلبات نماذج Grok إلى xAI باستخدام هذا المفتاح. لا تستخدمه الطلبات الخاصة بالنماذج الأخرى أبدًا."
     },
     "cloud": {
       "title": "أجهزة Cloud ووصول Mac",
@@ -3235,6 +3237,7 @@
       "accountChatgpt": "اشتراك ChatGPT (مساحة عمل شخصية أو مساحة عمل فريق)",
       "accountOpenAiKey": "مفتاح OpenAI API",
       "accountOpenRouterKey": "مفتاح OpenRouter API",
+      "accountXaiKey": "مفتاح xAI API",
       "accountOpencodeGo": "اشتراك OpenCode Go",
       "accountClaudeSubscription": "Claude Max أو Pro (رمز إعداد Claude Code)",
       "accountAnthropicKey": "مفتاح Anthropic API",

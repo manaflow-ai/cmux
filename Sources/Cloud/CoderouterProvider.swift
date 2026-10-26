@@ -10,11 +10,13 @@ struct CoderouterProvider: Hashable {
     static let opencodeGo = CoderouterProvider(id: "opencode-go")
     static let openaiAPIKey = CoderouterProvider(id: "openai-apikey")
     static let openrouterAPIKey = CoderouterProvider(id: "openrouter-apikey")
+    static let xaiAPIKey = CoderouterProvider(id: "xai-apikey")
 
-    /// The types `cr add <type>` adds, in sidebar order. Each keeps its group
-    /// and New Account row even before the team has an account of that type.
-    /// API-key types have no `cr add` flow yet; their accounts still list.
-    static let addable: [CoderouterProvider] = [.codex, .claude, .opencodeGo]
+    /// The types the sidebar adds, in sidebar order. Each keeps its group and
+    /// New Account row even before the team has an account of that type.
+    /// Grok's xAI key goes through cmux (`cmux coderouter grok add`); the other
+    /// API-key types have no add flow yet, and their accounts still list.
+    static let addable: [CoderouterProvider] = [.codex, .claude, .opencodeGo, .xaiAPIKey]
 
     var canAdd: Bool { Self.addable.contains(self) }
 
@@ -25,6 +27,7 @@ struct CoderouterProvider: Hashable {
         case "opencode-go": return "OpenCode"
         case "openai-apikey": return "OpenAI API Key"
         case "openrouter-apikey": return "OpenRouter API Key"
+        case "xai-apikey": return "Grok"
         default: return id.capitalized
         }
     }
@@ -38,6 +41,7 @@ struct CoderouterProvider: Hashable {
     var addCommand: String {
         switch id {
         case "opencode-go": return "cmux cr add opencode"
+        case "xai-apikey": return "cmux cr add grok"
         default: return "cmux cr add \(id)"
         }
     }
@@ -51,6 +55,16 @@ struct CoderouterProvider: Hashable {
         cmuxExecutable: String = "cmux"
     ) -> String {
         let cli = cmuxExecutable == "cmux" ? "cmux" : Self.shellQuote(cmuxExecutable)
+        if id == "xai-apikey" {
+            // cmux owns this flow and takes the team directly, so no older-CLI
+            // config isolation applies.
+            let grokAdd = "\(cli) coderouter grok add"
+            guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !organizationID.isEmpty else {
+                return grokAdd
+            }
+            return "\(grokAdd) --team \(Self.shellQuote(organizationID))"
+        }
         let provider = id == "opencode-go" ? "opencode" : id
         let addCommand = "\(cli) cr add \(provider)"
         guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),

@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "撤銷此 API 金鑰？",
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
-      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
+      "kindXaiApiKey": "xAI API 金鑰",
+      "xaiKeyHint": "此團隊機器上的 Codex 會使用此金鑰將 Grok 模型請求傳送至 xAI。其他模型的請求絕不會使用它。"
     },
     "cloud": {
       "title": "Cloud 機器與 Mac 存取",
@@ -3237,6 +3239,7 @@
       "accountChatgpt": "ChatGPT 訂閱（個人或團隊工作區）",
       "accountOpenAiKey": "OpenAI API 金鑰",
       "accountOpenRouterKey": "OpenRouter API 金鑰",
+      "accountXaiKey": "xAI API 金鑰",
       "accountOpencodeGo": "OpenCode Go 訂閱",
       "accountClaudeSubscription": "Claude Max 或 Pro（Claude Code 設定權杖）",
       "accountAnthropicKey": "Anthropic API 金鑰",

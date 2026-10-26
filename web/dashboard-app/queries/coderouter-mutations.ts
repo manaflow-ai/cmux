@@ -145,7 +145,7 @@ export function removeSharedAccountMutation(queryClient: QueryClient, teamId: st
 }
 
 export type ApiKeyAccountVariables = {
-  readonly provider: "openai-apikey" | "openrouter-apikey";
+  readonly provider: "openai-apikey" | "openrouter-apikey" | "xai-apikey";
   readonly apiKey: string;
   readonly label: string;
 };

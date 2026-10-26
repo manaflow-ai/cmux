@@ -6409,8 +6409,14 @@ struct CMUXCLI {
             )
         }
 
-        let command = args[index]
-        let rawCommandArgs = Array(args[(index + 1)...])
+        let invokedCommand = args[index]
+        let invokedCommandArgs = Array(args[(index + 1)...])
+        // `cr add grok` has no CodeRouter CLI flow; cmux owns it as `coderouter grok add`.
+        let crAddGrokArgs = invokedCommand == "cr" || invokedCommand == "coderouter"
+            ? Self.cmuxOwnedCrAddArguments(invokedCommandArgs)
+            : nil
+        let command = crAddGrokArgs == nil ? invokedCommand : "coderouter"
+        let rawCommandArgs = crAddGrokArgs ?? invokedCommandArgs
         if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
             exit(try supervisor.run())
         }

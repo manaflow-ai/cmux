@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
-      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
+      "kindXaiApiKey": "xAI API 密钥",
+      "xaiKeyHint": "此团队机器上的 Codex 会使用此密钥将 Grok 模型请求发送到 xAI。其他模型的请求从不使用它。"
     },
     "cloud": {
       "title": "Cloud 机器与 Mac 访问",
@@ -3238,6 +3240,7 @@
       "accountChatgpt": "ChatGPT 订阅（个人或团队工作区）",
       "accountOpenAiKey": "OpenAI API 密钥",
       "accountOpenRouterKey": "OpenRouter API 密钥",
+      "accountXaiKey": "xAI API 密钥",
       "accountOpencodeGo": "OpenCode Go 订阅",
       "accountClaudeSubscription": "Claude Max 或 Pro（Claude Code 设置令牌）",
       "accountAnthropicKey": "Anthropic API 密钥",

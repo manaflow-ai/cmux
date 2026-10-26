@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "ដកហូតសោ API នេះ?",
       "apiKeyUsageDetail": "30 ថ្ងៃចុងក្រោយ៖ បញ្ចប់ {completions} · ថូខឹន {tokens} ({input} ចូល / {output} ចេញ) · តម្លៃស្មើ API {value}",
       "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
-      "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។"
+      "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។",
+      "kindXaiApiKey": "API key របស់ xAI",
+      "xaiKeyHint": "Codex នៅលើម៉ាស៊ីនរបស់ក្រុមនេះ ផ្ញើសំណើម៉ូដែល Grok ទៅ xAI ដោយប្រើ key នេះ។ សំណើសម្រាប់ម៉ូដែលផ្សេងទៀតមិនដែលប្រើវាទេ។"
     },
     "cloud": {
       "title": "ម៉ាស៊ីន Cloud និងការចូលប្រើពី Mac",
@@ -3236,6 +3238,7 @@
       "accountChatgpt": "ការជាវ ChatGPT (workspace ផ្ទាល់ខ្លួន ឬរបស់ក្រុម)",
       "accountOpenAiKey": "API key របស់ OpenAI",
       "accountOpenRouterKey": "API key របស់ OpenRouter",
+      "accountXaiKey": "API key របស់ xAI",
       "accountOpencodeGo": "ការជាវ OpenCode Go",
       "accountClaudeSubscription": "Claude Max ឬ Pro (setup token របស់ Claude Code)",
       "accountAnthropicKey": "API key របស់ Anthropic",

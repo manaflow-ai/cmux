@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Відкликати цей ключ API?",
       "apiKeyUsageDetail": "Останні 30 днів: {completions} завершень · {tokens} токенів ({input} вхід / {output} вихід) · API-еквівалент {value}",
       "apiKeyUsageUnavailable": "Дані використання недоступні",
-      "revokeApiKeyConfirmBody": "Клієнти, які використовують цей ключ, одразу втратять автентифікацію."
+      "revokeApiKeyConfirmBody": "Клієнти, які використовують цей ключ, одразу втратять автентифікацію.",
+      "kindXaiApiKey": "API-ключ xAI",
+      "xaiKeyHint": "Codex на машинах цієї команди надсилає запити до моделей Grok до xAI з цим ключем. Запити до інших моделей ніколи його не використовують."
     },
     "cloud": {
       "title": "Машини Cloud і доступ із Mac",
@@ -3306,6 +3308,7 @@
       "accountChatgpt": "Підписка ChatGPT (особистий або командний робочий простір)",
       "accountOpenAiKey": "API-ключ OpenAI",
       "accountOpenRouterKey": "API-ключ OpenRouter",
+      "accountXaiKey": "API-ключ xAI",
       "accountOpencodeGo": "Підписка OpenCode Go",
       "accountClaudeSubscription": "Claude Max або Pro (токен налаштування Claude Code)",
       "accountAnthropicKey": "API-ключ Anthropic",

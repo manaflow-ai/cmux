@@ -50,6 +50,9 @@ extension CMUXCLI {
               shell environment. --region defaults to AWS_REGION or
               AWS_DEFAULT_REGION.
 
+          cmux coderouter grok add [--label <s>] [--stdin] [--team <id>] [--json]
+              \(String(localized: "cli.coderouter.grok.addUsage", defaultValue: "Add an xAI API key (xai-...) from XAI_API_KEY, --stdin, or a hidden prompt. Codex and Pi route Grok models (grok-*) through it. `cmux cr add grok` runs the same flow."))
+
           cmux coderouter claude remove <account> [--team <id>] [--json]
               Remove one account by id, label, or masked identifier.
 
@@ -73,11 +76,19 @@ extension CMUXCLI {
     /// else keeps the pre-existing passthrough into the installed CodeRouter CLI,
     /// so `cmux coderouter accounts`, `cmux coderouter login`, and a bare
     /// `cmux coderouter` behave exactly as before.
-    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "agent", "help", "--help", "-h"]
+    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "grok", "agent", "help", "--help", "-h"]
 
     static func isCmuxOwnedCoderouterInvocation(_ args: [String]) -> Bool {
         guard let first = args.first?.lowercased() else { return false }
         return cmuxOwnedCoderouterVerbs.contains(first)
+    }
+
+    /// `cr add grok`: the CodeRouter CLI has no Grok flow, so cmux owns this
+    /// one spelling and rewrites it to `coderouter grok add`. Every other
+    /// `cr` invocation still execs the CodeRouter CLI.
+    static func cmuxOwnedCrAddArguments(_ args: [String]) -> [String]? {
+        guard args.count >= 2, args[0].lowercased() == "add", args[1].lowercased() == "grok" else { return nil }
+        return ["grok", "add"] + args.dropFirst(2)
     }
 
     func runCoderouterCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
@@ -143,6 +154,9 @@ extension CMUXCLI {
 
         case "claude":
             try runCoderouterClaudeCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+
+        case "grok":
+            try runCoderouterGrokCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
         case "agent":
             try runCoderouterAgentCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
@@ -241,6 +255,61 @@ extension CMUXCLI {
                 \(Self.coderouterUsage)
                 """)
         }
+    }
+
+    private func runCoderouterGrokCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let sub = commandArgs.first?.lowercased() ?? "help"
+        guard sub == "add" else {
+            if ["help", "--help", "-h"].contains(sub) {
+                print(Self.coderouterUsage)
+                return
+            }
+            let unknown = String(
+                format: String(localized: "cli.coderouter.grok.unknownSubcommand", defaultValue: "Unknown coderouter grok subcommand: %@"),
+                Self.sanitizeForTerminal(sub)
+            )
+            throw CLIError(message: """
+                \(unknown)
+
+                \(Self.coderouterUsage)
+                """)
+        }
+        let (teamOpt, rem0) = parseOption(Array(commandArgs.dropFirst()), name: "--team")
+        let (labelOpt, rem1) = parseOption(rem0, name: "--label")
+        let forceStdin = rem1.contains("--stdin")
+        try rejectUnexpectedCoderouterArguments(rem1.filter { $0 != "--stdin" }, command: "coderouter grok add")
+        let apiKey = try readCoderouterSecret(
+            label: String(localized: "cli.coderouter.grok.keyLabel", defaultValue: "xAI API key"),
+            envVar: "XAI_API_KEY",
+            forceStdin: forceStdin,
+            hint: String(localized: "cli.coderouter.grok.keyHint", defaultValue: "Create one at console.x.ai.")
+        )
+        guard apiKey.hasPrefix("xai-") else {
+            throw CLIError(message: String(
+                localized: "cli.coderouter.grok.notAnXaiKey",
+                defaultValue: "That is not an xAI API key (expected xai-...). Create one at console.x.ai."
+            ))
+        }
+        var params = teamParams(teamOpt)
+        params["provider"] = "xai-apikey"
+        params["apiKey"] = apiKey
+        if let label = Self.nonEmpty(labelOpt) {
+            params["label"] = label
+        }
+        let response = try client.sendV2(method: "coderouter.api_key.add", params: params)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let account = response["account"] as? [String: Any]
+        let label = (account?["label"] as? String).map(Self.sanitizeForTerminal) ?? ""
+        print(label.isEmpty
+            ? String(localized: "cli.coderouter.grok.added", defaultValue: "OK added Grok account")
+            : String(
+                format: String(localized: "cli.coderouter.grok.addedLabeled", defaultValue: "OK added Grok account: %@"),
+                label
+            ))
+        print(String(localized: "cli.coderouter.grok.routing", defaultValue: "Codex and Pi now route Grok models (grok-*) through this xAI key."))
     }
 
     private func runCoderouterClaudeAdd(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
