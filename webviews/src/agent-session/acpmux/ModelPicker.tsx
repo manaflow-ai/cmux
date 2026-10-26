@@ -126,7 +126,7 @@ function quickSections(
       ...(tag ? { tag } : {}),
       ...(provider ? { provider } : {}),
       ...(count > offers.length ? { searchRows: count } : {}),
-      ...(offers.some((offer) => latestIds.has(offer.model.id)) ? { curated: true } : {}),
+      ...(ids.some((id) => latestIds.has(id)) ? { curated: true } : {}),
       ...(visible.length > 1 ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
     };
     return [{ choice: mappedChoice, group }];
@@ -754,32 +754,26 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter(Boolean)
         .join(" · ");
       const quick = quickRow(entry.id, model);
-      // Search can narrow a provider group to a plain radio row. Reserve the longest eligible
-      // effort/fast hint in that shape before any query is entered.
-      const searchHint = (choice: ModelChoice) =>
-        [
-          !harnessFixed ? entry.name : undefined,
-          (choice.efforts ?? [...vocabulary]).reduce(
-            (longest, next) => (next.length > longest.length ? next : longest),
-            "",
-          ),
-          choice.fast !== false ? fastText : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ");
+      // Each eligible effort gets a probe: text length does not determine rendered width.
+      const searchHints = (choice: ModelChoice) =>
+        (choice.efforts?.length ? choice.efforts : [...vocabulary]).map((effort) =>
+          [!harnessFixed ? entry.name : undefined, effort, choice.fast !== false ? fastText : undefined]
+            .filter(Boolean)
+            .join(" · "),
+        );
       const offers = model.offers?.map((offer) => {
         const ownEffort = modelEffort(offer, typed.effort);
         return {
           ...quickRow(entry.id, offer),
           provider: offer.provider,
-          searchHint: searchHint(offer),
+          searchHints: searchHints(offer),
           ...(ownEffort ? { effort: ownEffort } : {}),
           ...(typed.fast ? { fast: true } : {}),
         };
       });
       return {
         ...quick,
-        searchHint: searchHint(model),
+        searchHints: searchHints(model),
         ...(offers ? { offers } : {}),
         ...(hint ? { hint } : {}),
         ...(effort ? { effort } : {}),

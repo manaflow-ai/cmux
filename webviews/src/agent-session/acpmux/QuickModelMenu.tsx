@@ -80,8 +80,8 @@ export type QuickModel = {
   family: string;
   disabled?: boolean;
   hint?: string;
-  /** The widest eligible effort/fast search hint, used only for held width. */
-  searchHint?: string;
+  /** Every eligible effort/fast search hint, measured only for held width. */
+  searchHints?: string[];
   effort?: string;
   fast?: boolean;
   tag?: string;
@@ -545,7 +545,7 @@ export function QuickModelMenu({
       // A provider-specific query can leave one offer, rendered as a regular radio row even in
       // expanded/submenu mode. Its name, provider or query hint, and marker share one line.
       ...(model.offers ?? [model]).flatMap((offer): ProbeRow[] =>
-        [offer.provider, offer.searchHint]
+        [offer.provider, ...(offer.searchHints ?? [])]
           .filter((value) => value !== undefined)
           .map((value) => ({
             label: model.name,
@@ -962,7 +962,7 @@ export function QuickModelMenu({
         ) : (
           <div className="acpmux-quick-body acpmux-quick-fixed" ref={body}>
             <div className="acpmux-quick-list">{list}</div>
-            <QuickMenuSpacer {...tallest} widths={widths} />
+            <QuickMenuSpacer {...tallest} widths={widths} holdHeight={!newTab} />
           </div>
         )}
         {menu.update && (
