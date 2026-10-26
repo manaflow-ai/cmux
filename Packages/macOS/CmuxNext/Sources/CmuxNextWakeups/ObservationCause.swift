@@ -48,10 +48,11 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
 /// scheduler they already get.
 ///
 /// ```swift
-/// // The drain, per envelope:
-/// mainWork.causes.withCause(.automation) { store.apply(event) }
-/// // A local intent apply in the input's turn:
-/// mainWork.causes.withCause(.person) { model.title = newTitle }
+/// // The daemon store's drain, per envelope (`DaemonStore.applyBatch`):
+/// mainWork.causes.withCause(envelope.cause) { store.apply(envelope.event) }
+/// // An action run, by who started it (`ActionRegistry.runScoped`): a person's run is person,
+/// // the CLI's, MCP's or a script's automation; its local intents apply in that scope.
+/// mainWork.causes.withCause(invocation.origin.observationCause) { handler(invocation) }
 /// ```
 @MainActor
 public final class ObservationCauses {
