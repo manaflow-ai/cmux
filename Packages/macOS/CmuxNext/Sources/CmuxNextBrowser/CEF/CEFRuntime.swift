@@ -168,8 +168,8 @@ final class CEFRuntime {
     var pumpInput: CEFPumpInputSeams?
     /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
-    /// True when this Chromium started with the built-in uBlock Origin.
-    private(set) var builtInAdBlockerLoaded = false
+    private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
+    let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -503,13 +503,13 @@ final class CEFRuntime {
             chromiumFeatures: chromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
-            pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
+            environment: environment, builtInExtensions: builtInPlan.folders,
+            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
+            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)
-        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
+        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public) at_first_tab=\(switchSet.builtInExtensionsAtFirstTab, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Chrome enterprise policies (URLBlocklist, ExtensionInstallForcelist, proxy, ...) Chromium enforces itself.

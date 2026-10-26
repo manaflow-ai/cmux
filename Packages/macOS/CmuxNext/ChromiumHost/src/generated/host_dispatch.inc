@@ -183,31 +183,33 @@ enum Op : uint16_t {
   kOpPageResourceRespond = 173,
   kOpMemoryPressureVote = 174,
   kOpSetCursorEvents = 175,
-  kOpAddDocumentScript = 176,  // optional
-  kOpAddPageChannel = 177,  // optional
-  kOpTabEvaluate = 178,  // optional
-  kOpTabSetFrozen = 179,  // optional
-  kOpTabSendClick = 180,  // optional
-  kOpTabSetColorScheme = 181,  // optional
-  kOpPageSchemeSetGroup = 182,  // optional
-  kOpTabDiscard = 183,  // optional
-  kOpWidgetSetGeometry = 184,  // optional
-  kOpWidgetDismiss = 185,  // optional
-  kOpWidgetSendInput = 186,  // optional
-  kOpBrowserImeSetComposition = 187,  // optional
-  kOpBrowserImeCommitText = 188,  // optional
-  kOpBrowserImeFinishComposing = 189,  // optional
-  kOpBrowserImeCancelComposition = 190,  // optional
+  kOpExtLoadLaterSupported = 176,
+  kOpExtLoadCommandLine = 177,
+  kOpAddDocumentScript = 178,  // optional
+  kOpAddPageChannel = 179,  // optional
+  kOpTabEvaluate = 180,  // optional
+  kOpTabSetFrozen = 181,  // optional
+  kOpTabSendClick = 182,  // optional
+  kOpTabSetColorScheme = 183,  // optional
+  kOpPageSchemeSetGroup = 184,  // optional
+  kOpTabDiscard = 185,  // optional
+  kOpWidgetSetGeometry = 186,  // optional
+  kOpWidgetDismiss = 187,  // optional
+  kOpWidgetSendInput = 188,  // optional
+  kOpBrowserImeSetComposition = 189,  // optional
+  kOpBrowserImeCommitText = 190,  // optional
+  kOpBrowserImeFinishComposing = 191,  // optional
+  kOpBrowserImeCancelComposition = 192,  // optional
 };
-inline constexpr uint16_t kOpCount = 190;
+inline constexpr uint16_t kOpCount = 192;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 56;
-inline constexpr char kShimAbiID[] = "52a13c94af31ecf374603db94c7321806748d7068d1eaeabf0a0181f7fe0ab0c";
+inline constexpr char kShimAbiID[] = "c5e7332dcb6c43e60fd526f0ea9cd450ef42e3e19c2183401ae0056d1bdfe8b3";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "77ab0193034945a9ab69b51d526416d22b79bb87c4b7825b29c05fc377ae7d24";
+inline constexpr char kWireID[] = "e2ee4e5a725034c84bc8482e6f0da755c1975c27df2facc370564daf7fc3dc88";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1667,6 +1669,17 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.Ack(wire_token);
       return true;
     }
+    case kOpExtLoadCommandLine: {
+      const std::optional<std::string> arg_profile_cache_path = r.Str();
+      const auto arg_reply = r.I32();
+      const std::optional<std::string> arg_path = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_ext_load_command_line(arg_profile_cache_path ? arg_profile_cache_path->c_str() : nullptr, arg_reply, arg_path ? arg_path->c_str() : nullptr);
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
+      ctx.Reply(wire_token, reply_w);
+      return true;
+    }
     case kOpAddDocumentScript: {
       const std::optional<std::string> arg_world = r.Str();
       const std::optional<std::string> arg_source = r.Str();
@@ -2086,6 +2099,15 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       ctx.PushMirror(kOpPasswordCoreAvailable, key_w, value_w);
       return true;
     }
+    case kOpExtLoadLaterSupported: {
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_ext_load_later_supported();
+      TlvWriter key_w;
+      TlvWriter value_w;
+      value_w.I32(call_result);
+      ctx.PushMirror(kOpExtLoadLaterSupported, key_w, value_w);
+      return true;
+    }
     default:
       return false;
   }
@@ -2162,6 +2184,7 @@ inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {-1, -1, kOpPasswordReplaceAvailable},  // attach
     {-1, -1, kOpPasskeysAvailable},  // attach
     {-1, -1, kOpPasswordCoreAvailable},  // attach
+    {-1, -1, kOpExtLoadLaterSupported},  // attach
 };
 
 // Calls f(op) for each mirror the event refreshes, in table order.
