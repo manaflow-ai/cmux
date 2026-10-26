@@ -14,10 +14,17 @@ with a DevTools port, lets it settle, then with no input:
   4. CEF-IDLE-POSTED {"process","pid","thread","location","per_s"} for every posting location, highest per_s first
      (Q8, p14-energy-041); `--queue` keeps the ones at or above QUEUE_MIN_PER_S, the Q8 work list. Then
      CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
+  5. With --extension-timers [ID] (default the built-in uBlock Origin), the extension's background page over the
+     same window (extension_timers.py, p14-energy-108): CEF-IDLE-EXT-TIMER {"kind","event","where","count","per_s"}
+     per timer fire (`where` = the callback), arm (`where` = the stack that armed it) and alarm, then CEF-IDLE-EXT
+     with the totals and the alarm list.
 Writes OUT/cef-idle.json and prints CEF-IDLE lines.
 
-  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10] [--queue]   (--queue: window 100 s, >= 50 s)
+  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10] [--queue] [--extension-timers [ID]]
+                    (--queue: window 100 s, >= 50 s)
   cef-idle-probe.py --trace OUT/chromium-trace.json --seconds 10 [--queue]   (a recorded trace, no app; --queue: >= 50 s)
+  cef-idle-probe.py --cdp-port PORT [--extension-timers ID] [--window 120]   (a running browser's DevTools port, as
+                    Chrome in chrome-static: step 5 only, no app)
 """
 import argparse, collections, json, os, sys, time
 
@@ -42,6 +49,57 @@ PAGE_PROBE = r"""(async () => {
   return {visibility: document.visibilityState, hidden: document.hidden, focus: document.hasFocus(),
           url: location.href, animations: anims.slice(0, 20), animation_count: anims.length, raf_per_s: raf};
 })()"""
+
+
+# The built-in uBlock Origin (fetch-ublock.sh keeps its Web Store key, so the id is stable; idle-budget.py UBLOCK_ID).
+UBLOCK_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+# uBlock Origin 1.75's idle owners run every 30 s to 1 h (plans/cmux-next/idle-wakeups.md, the uBlock Origin row),
+# so its own window sees the 30 s owner four times.
+EXTENSION_WINDOW_S = 120.0
+
+
+def extension_profile(port, extension_id):
+    """A started ExtensionTimerProfile on the extension's background target and the target, or (None, None) when the
+    extension runs no background page or service worker."""
+    from ext_e2e import cdp
+    import extension_timers
+    target = extension_timers.background_target(cdp.targets(port), extension_id)
+    if target is None:
+        return None, None
+    profile = extension_timers.ExtensionTimerProfile(cdp.Session(target["webSocketDebuggerUrl"]), extension_id)
+    profile.start()
+    return profile, target
+
+
+def finish_extension(profile, target, t0):
+    """Stops the profile and prints its rows; returns the report."""
+    seconds = time.monotonic() - t0
+    profile.stop()
+    report = {"target": target.get("type"), **profile.report(seconds)}
+    for row in report["rows"]:
+        print("CEF-IDLE-EXT-TIMER " + json.dumps(row), flush=True)
+    print("CEF-IDLE-EXT " + json.dumps({k: v for k, v in report.items() if k != "rows"}), flush=True)
+    return report
+
+
+def main_cdp_port(opts, parser):
+    """--cdp-port: step 5 alone against a running browser."""
+    seconds = opts.window if opts.window is not None else EXTENSION_WINDOW_S
+    if seconds <= 0:
+        parser.error("--window needs a value > 0")
+    extension_id = opts.extension_timers or UBLOCK_ID
+    profile, target = extension_profile(opts.cdp_port, extension_id)
+    if profile is None:
+        print("CEF-IDLE-ERROR " + json.dumps({"extension": extension_id, "error": "no background target"}), flush=True)
+        sys.exit(1)
+    t0 = time.monotonic()
+    try:
+        profile.run_until(t0 + seconds)
+    finally:
+        report = finish_extension(profile, target, t0)
+    os.makedirs(opts.out, exist_ok=True)
+    with open(os.path.join(opts.out, "cef-idle-extension.json"), "w") as f:
+        json.dump(report, f, indent=1)
 
 
 # A posting location at or above this rate in an idle session is one Q8 item (p14-energy.md, section 6).
@@ -146,7 +204,16 @@ def main():
     parser.add_argument("--settle", type=float, default=60)
     parser.add_argument("--window", type=float,
                         help=f"idle window in seconds (default {IDLE_WINDOW_S:g}, {QUEUE_WINDOW_S:g} with --queue)")
+    parser.add_argument("--extension-timers", nargs="?", const=UBLOCK_ID, metavar="ID",
+                        help="also profile this extension's background timers over the window "
+                             f"(default {UBLOCK_ID}, the built-in uBlock Origin)")
+    parser.add_argument("--cdp-port", type=int,
+                        help="profile --extension-timers in the browser on this DevTools port (no app, no trace; "
+                             f"--window default {EXTENSION_WINDOW_S:g} s)")
     opts, _ = parser.parse_known_args()
+    if opts.cdp_port:
+        main_cdp_port(opts, parser)
+        return
     if opts.trace:
         if not opts.seconds or opts.seconds <= 0:
             parser.error("--trace needs --seconds > 0")
@@ -200,9 +267,17 @@ def main():
         tracer.start()
         windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
         report["window_start"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
+        profile, target = extension_profile(port, opts.extension_timers) if opts.extension_timers else (None, None)
+        if opts.extension_timers and profile is None:
+            report["extension"] = {"extension": opts.extension_timers, "error": "no background target"}
+            print("CEF-IDLE-ERROR " + json.dumps(report["extension"]), flush=True)
         before = app.rpc("debug.cef", timeout=10).get("pump") or {}
         t0 = time.monotonic()
-        time.sleep(opts.window)
+        if profile is None:
+            time.sleep(opts.window)
+        else:
+            profile.run_until(t0 + opts.window)
+            report["extension"] = finish_extension(profile, target, t0)
         after = app.rpc("debug.cef", timeout=10).get("pump") or {}
         windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
         report["window_end"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
