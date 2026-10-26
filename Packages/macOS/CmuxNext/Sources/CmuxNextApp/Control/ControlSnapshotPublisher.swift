@@ -52,7 +52,7 @@ final class ControlSnapshotPublisher {
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
         router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
-        router.snapshots.setRefresher { [weak self] in await self?.publishIfStale() }
+        router.snapshots.setRefresher { [weak self] in self?.publishIfStale() }
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
