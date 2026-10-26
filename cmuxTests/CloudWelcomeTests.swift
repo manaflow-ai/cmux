@@ -161,9 +161,9 @@ struct CloudWelcomeTests {
         #expect(playback.isPaused)
     }
 
-    @Test("the pager reads a cached playhead and never queries the player")
+    @Test("Playback.fraction(at:) reads the cached playhead and never queries the player")
     @MainActor
-    func pagerProgressDoesNotQueryPlayer() throws {
+    func playbackFractionDoesNotQueryPlayer() throws {
         let playback = CloudWelcomeMediaCarousel.Playback()
         let player = PlayheadCountingPlayer()
         playback.attach(player)
@@ -171,7 +171,8 @@ struct CloudWelcomeTests {
         playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
         player.playheadReads = 0
 
-        // One TimelineView frame per call, about two seconds of animation.
+        // One frame's worth of calls, about two seconds at 60 fps. This covers
+        // Playback only, not the carousel's progress wrapper or its TimelineView.
         var fractions: [Double] = []
         for frame in 0..<120 {
             fractions.append(try #require(playback.fraction(at: start.addingTimeInterval(Double(frame) / 60))))
