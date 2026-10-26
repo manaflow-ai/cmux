@@ -44,7 +44,7 @@ pub enum Command {
     /// --prompt-file, --report-to and --group it starts an agent on a task
     /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
-    New(NewArgs),
+    New(Box<NewArgs>),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
     /// ended, 2 when a permission is waiting, 3 on timeout.
@@ -94,6 +94,9 @@ pub enum Command {
         policy: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
+        /// Label the session when it is created (repeatable `key=value`).
+        #[arg(long = "tag", value_name = "K=V")]
+        tags: Vec<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -1068,6 +1071,9 @@ pub struct NewArgs {
     pub effort: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
+    /// Label the new session (repeatable `key=value`).
+    #[arg(long = "tag", value_name = "K=V")]
+    pub tags: Vec<String>,
     /// Do not open the TUI after creating.
     #[arg(long, short)]
     pub detach: bool,
@@ -1112,7 +1118,8 @@ pub struct NewArgs {
     #[arg(long, value_name = "SESSION")]
     pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
-    /// (made when missing). Runs `cmux agent open` on this machine.
+    /// (made when missing). Runs `cmux agent open` on this machine, including
+    /// with --host: the agent runs remotely, its workspace opens here.
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
     /// When a session named --name already exists, use it instead of failing;

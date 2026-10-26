@@ -28,6 +28,9 @@ import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
+import { callChipHost } from "../chips/host";
+import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
+import { VideoAttachmentTile } from "./VideoAttachmentTile";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -75,6 +78,9 @@ export type AttachmentIntakeOptions = {
   scope?: string;
   /// Keeps chips whose read ended after the composer left `scope` for that chat (keptAttachments.ts).
   elsewhere?(scope: string, attachments: ComposerAttachment[]): void;
+  /// A chat on this Mac, whose attached videos the host may read (composer/videoAttachments.ts);
+  /// `localPaths` says so too. Quick Chat has no `localPaths` but is on this Mac.
+  localChat?: boolean;
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
@@ -374,6 +380,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const loading = shown.filter((chip) => !chip.failed && !chip.uploading).length;
   /// The chips not yet a chip or a failure, uploads included (useSendWhenAttached's `unsettled`).
   const unsettled = shown.filter((chip) => !chip.failed).length;
+  /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
+  /// waits for them a few seconds at most (composer/videoAttachments.ts).
+  const videoReading = useVideoInfo(
+    attachments,
+    setAttachments,
+    Boolean(options.localPaths) || options.localChat === true,
+  );
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
@@ -382,6 +395,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     pending: shown,
     loading,
     unsettled,
+    videoReading,
     cancel,
     retry,
     attachError,
@@ -631,6 +645,7 @@ function AttachmentChip({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
+  const videoReading = useVideoReading(attachment.id);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -772,6 +787,15 @@ function AttachmentChip({
         remove={remove}
         codex={codex}
       />,
+    );
+  }
+  // A video goes as its path too, with its poster and length once the host read them; a click plays it.
+  if (isVideoAttachment(attachment) && (attachment.video || videoReading)) {
+    const play = () => void callChipHost("video.quickLook", { src: attachment.path });
+    return menu(
+      attachment.video ? play : undefined,
+      <VideoAttachmentTile name={attachment.name} video={attachment.video} remove={remove} onPlay={play} />,
+      t("media.play"),
     );
   }
   // A file that goes as its path (a saved copy, or a file or folder the panel chose) says so, with

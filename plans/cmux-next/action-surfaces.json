@@ -23021,6 +23021,62 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Memories…",
+      "title_key" : "action.chief.importMemories",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories-undo",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories.undo",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Undo Last Memory Import",
+      "title_key" : "action.chief.importMemories.undo",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action chief-open-usage",
       "context_menu" : "noObject",
       "context_menus" : [
