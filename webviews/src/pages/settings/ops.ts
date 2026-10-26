@@ -745,6 +745,8 @@ export type ChannelsState = {
   switch: ChannelSwitch | null;
   labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
   tracks: ChannelTrack[];
+  /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
+  daemon?: { title: string; value: string } | null;
 };
 
 /** Every op the page calls: params and result. */
