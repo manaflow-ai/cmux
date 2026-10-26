@@ -215,6 +215,71 @@ test("a send out holds a reload until its own answer, even once a read found the
   expect(restored).toEqual(["second"]);
 });
 
+test("only the receipt fields the chat shows are kept; a value that is no receipt is bad_response", async () => {
+  const done = await runSandbox(
+    async () => ({
+      receipt: {
+        runId: "run-7",
+        status: "succeeded",
+        exitCode: 0,
+        reply: "ok",
+        error: "vm-abc failed",
+        image: { id: "img" },
+        timings: { totalMs: 9, createdAt: "t" },
+        cost: { estimateUsd: 0.01, vcpus: 2 },
+        artifacts: [{ name: "a.md", digest: "sha256:x", sizeBytes: 3 }],
+      },
+    }),
+    "go",
+    undefined,
+    "k",
+  );
+  expect(done).toEqual({
+    task: "go",
+    state: "done",
+    receipt: {
+      status: "succeeded",
+      exitCode: 0,
+      reply: "ok",
+      timings: { totalMs: 9 },
+      cost: { estimateUsd: 0.01 },
+      artifacts: [{ name: "a.md", sizeBytes: 3 }],
+    },
+  });
+  expect(await runSandbox(async () => ({ receipt: ["x"] }), "go", undefined, "k")).toMatchObject({
+    code: "bad_response",
+  });
+});
+
+test("the Run API's request refusals are retryable, by their shape", async () => {
+  const { sandboxRetryable } = await import("../src/agent-session/acpmux/sandboxRun");
+  const failed = (code: string) => ({ task: "go", state: "failed" as const, code });
+  for (const code of ["run_task_invalid", "run_model_required", "run_invalid_request"]) {
+    expect(sandboxRetryable(failed(code))).toBe(true);
+  }
+  for (const code of ["run_vm1_invalid", "run_task_failed", "unavailable"]) {
+    expect(sandboxRetryable(failed(code))).toBe(false);
+  }
+});
+
+test("a send the host refuses as holding another stays spent until a read says what it holds", async () => {
+  const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
+  let read: (value: unknown) => void = () => undefined;
+  const tab = new SandboxTab(
+    (method) =>
+      method === "sandbox.run" ? Promise.reject({ code: "sandbox_busy" }) : new Promise((resolve) => (read = resolve)),
+    () => undefined,
+  );
+  tab.setMode("sandboxed");
+  tab.send("go", "claude");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.spent()).toBe(true);
+  expect(tab.send("again", "claude")).toBe(false);
+  read({});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(tab.spent()).toBe(false);
+});
+
 test("a bridge error or a malformed answer is unknown, with Check again", async () => {
   const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
   const failing = (answer: () => Promise<unknown>) => new SandboxTab(answer, () => undefined);

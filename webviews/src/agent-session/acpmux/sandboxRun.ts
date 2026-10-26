@@ -17,7 +17,6 @@ export type SandboxReceipt = {
   exitCode?: number | null;
   timedOut?: boolean;
   reply?: string | null;
-  error?: string | null;
   artifacts?: { name?: string; sizeBytes?: number }[];
   timings?: { totalMs?: number | null; bootMs?: number | null };
   cost?: { vmSeconds?: number | null; estimateUsd?: number | null };
@@ -57,9 +56,9 @@ export async function runSandbox(
     const value = (await Promise.race([call("sandbox.run", { task, key, ...(agent ? { agent } : {}) }), lost])) as {
       receipt?: unknown;
     } | null;
-    const receipt = value?.receipt;
-    if (!receipt || typeof receipt !== "object") return { task, state: "failed", code: "bad_response" };
-    return { task, state: "done", receipt: receipt as SandboxReceipt };
+    const receipt = pageReceipt(value?.receipt);
+    if (!receipt) return { task, state: "failed", code: "bad_response" };
+    return { task, state: "done", receipt };
   } catch (error) {
     const { code } = (error ?? {}) as { code?: unknown };
     return {
@@ -90,20 +89,20 @@ const DEFINITE_REFUSALS = new Set([
   "not_signed_in",
   "cloud_disabled",
   "run_sandbox_unavailable",
-  "run_task_required",
-  "run_agent_invalid",
-  "run_image_invalid",
-  "run_timeout_invalid",
-  "run_attempts_invalid",
-  "run_environment_invalid",
-  "run_invalid_request",
   "transport.gesture_required",
   "native.invalid_request",
   "unsupported",
 ]);
 
 export function sandboxRetryable(run: SandboxRun): boolean {
-  return run.state === "failed" && DEFINITE_REFUSALS.has(run.code);
+  return run.state === "failed" && (DEFINITE_REFUSALS.has(run.code) || isRunRequestRefusal(run.code));
+}
+
+/// The Run API's refusals of a request before it stores anything (`run_task_required`,
+/// `run_image_invalid`, `run_invalid_request`, …), as the host lets them through
+/// (AgentPaneReply.isRunRequestRefusal).
+function isRunRequestRefusal(code: string): boolean {
+  return code === "run_invalid_request" || /^run(_[a-z]+)+_(invalid|required)$/.test(code);
 }
 
 /// A refusal the page can tell before asking the host: attachments, or an agent a sandbox can't run.
@@ -225,6 +224,8 @@ export class SandboxTab {
       // The host already holds this tab's send (`sandbox_busy`, `sandbox_spent`), or the answer may
       // hide a live Run: read the host, so the tab's run or receipt shows.
       const holds = done.state === "failed" && HOST_HOLDS_SEND.has(done.code);
+      // The host holds another send of this tab: none goes until a read says what it is (or none).
+      if (holds) this.held ??= "";
       if (holds || (done.state !== "done" && !sandboxRetryable(done))) void this.read();
     });
     return true;
@@ -259,7 +260,9 @@ export class SandboxTab {
       this.refusal = undefined;
     }
     if (answer.kind !== "unknown") this.checked = true;
-    if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run))) this.held = answer.key;
+    if (answer.kind === "none") this.held = undefined;
+    else if (answer.kind === "running" || (answer.kind === "ended" && !sandboxRetryable(answer.run)))
+      this.held = answer.key;
     else if (answer.kind === "ended" && answer.key === this.held) this.held = undefined;
     if (!this.receipt) this.host = answer;
     this.emit();
@@ -298,10 +301,8 @@ export class SandboxTab {
 /// A host reply envelope (`{ok, value: {receipt}}` or `{ok: false, error: {code}}`) as a send.
 function fromReply(task: string, reply: unknown): SandboxRun {
   const envelope = (reply ?? {}) as { ok?: unknown; value?: { receipt?: unknown }; error?: { code?: unknown } };
-  const receipt = envelope.value?.receipt;
-  if (envelope.ok === true && receipt && typeof receipt === "object") {
-    return { task, state: "done", receipt: receipt as SandboxReceipt };
-  }
+  const receipt = envelope.ok === true ? pageReceipt(envelope.value?.receipt) : undefined;
+  if (receipt) return { task, state: "done", receipt };
   const code = envelope.error?.code;
   return { task, state: "failed", code: typeof code === "string" && code ? code : "unavailable" };
 }
@@ -335,4 +336,48 @@ export function sandboxFailureKey(code: string): StringKey | undefined {
     default:
       return undefined;
   }
+}
+
+/// The receipt's fields the chat shows, each of its own type (the host already sends no more); a
+/// value that is no receipt is undefined.
+function pageReceipt(value: unknown): SandboxReceipt | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const from = value as Record<string, unknown>;
+  const text = (key: string) => (typeof from[key] === "string" ? (from[key] as string) : undefined);
+  const number = (object: unknown, key: string) => {
+    const field = object && typeof object === "object" ? (object as Record<string, unknown>)[key] : undefined;
+    return typeof field === "number" && Number.isFinite(field) ? field : undefined;
+  };
+  const receipt: SandboxReceipt = {};
+  const status = text("status");
+  if (status !== undefined) receipt.status = status;
+  const exitCode = number(from, "exitCode");
+  if (exitCode !== undefined) receipt.exitCode = exitCode;
+  if (typeof from.timedOut === "boolean") receipt.timedOut = from.timedOut;
+  const reply = text("reply");
+  if (reply !== undefined) receipt.reply = reply;
+  const cleanup = text("cleanup");
+  if (cleanup !== undefined) receipt.cleanup = cleanup;
+  const totalMs = number(from.timings, "totalMs");
+  const bootMs = number(from.timings, "bootMs");
+  if (totalMs !== undefined || bootMs !== undefined) {
+    receipt.timings = { ...(totalMs !== undefined ? { totalMs } : {}), ...(bootMs !== undefined ? { bootMs } : {}) };
+  }
+  const vmSeconds = number(from.cost, "vmSeconds");
+  const estimateUsd = number(from.cost, "estimateUsd");
+  if (vmSeconds !== undefined || estimateUsd !== undefined) {
+    receipt.cost = {
+      ...(vmSeconds !== undefined ? { vmSeconds } : {}),
+      ...(estimateUsd !== undefined ? { estimateUsd } : {}),
+    };
+  }
+  if (Array.isArray(from.artifacts)) {
+    receipt.artifacts = from.artifacts.flatMap((artifact) => {
+      if (!artifact || typeof artifact !== "object") return [];
+      const name = (artifact as { name?: unknown }).name;
+      const sizeBytes = number(artifact, "sizeBytes");
+      return [{ ...(typeof name === "string" ? { name } : {}), ...(sizeBytes !== undefined ? { sizeBytes } : {}) }];
+    });
+  }
+  return receipt;
 }
