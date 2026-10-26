@@ -27,7 +27,8 @@ enum WatchdogReporting {
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
         watchdog.onHang = { hang in
-            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) }, phase: hang.phase)
+            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
+                                phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
