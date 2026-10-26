@@ -4032,7 +4032,71 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
-    @Test func testSSHShortPortConfiguresRemoteWorkspacePort() throws {
+    @Test(arguments: [
+        ["dev@example.invalid", "-p", "45221"],
+        ["-p", "45221", "dev@example.invalid"],
+        ["dev@example.invalid", "--port", "45221"],
+        ["--port", "45221", "dev@example.invalid"],
+    ], ["yes", "no"])
+    func testSSHShortPortConfiguresRemoteWorkspacePort(arguments: [String], requestTTY: String) throws {
+        let run = try runSSHPortRegressionCommand(
+            ["--ssh-option", "RequestTTY=\(requestTTY)"] + arguments
+        )
+        #expect(!run.result.timedOut, Comment(rawValue: run.result.diagnostics))
+        #expect(run.result.status == 0, Comment(rawValue: run.result.diagnostics))
+
+        // Interactive sessions use cmux-tui; non-TTY sessions retain the
+        // legacy daemon configuration path. Both must receive the same port.
+        let method = requestTTY == "yes" ? "workspace.ssh.open" : "workspace.remote.configure"
+        let request = try #require(run.requests.first { $0["method"] as? String == method })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["port"] as? Int == 45221)
+        #expect(params["destination"] as? String == "dev@example.invalid")
+        if requestTTY == "yes" {
+            #expect(params["initial_command"] == nil)
+        }
+    }
+
+    @Test func testSSHShortPortUsesDefaultInteractiveRoute() throws {
+        let run = try runSSHPortRegressionCommand(["dev@example.invalid", "-p", "45221"])
+        #expect(!run.result.timedOut, Comment(rawValue: run.result.diagnostics))
+        #expect(run.result.status == 0, Comment(rawValue: run.result.diagnostics))
+        let request = try #require(run.requests.first { $0["method"] as? String == "workspace.ssh.open" })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["port"] as? Int == 45221)
+    }
+
+    @Test(arguments: [[], ["0"], ["65536"], ["not-a-port"]])
+    func testSSHShortPortUsesLongPortValidation(values: [String]) throws {
+        let short = try runSSHPortRegressionCommand(["dev@example.invalid", "-p"] + values)
+        let long = try runSSHPortRegressionCommand(["dev@example.invalid", "--port"] + values)
+        for run in [short, long] {
+            #expect(!run.result.timedOut, Comment(rawValue: run.result.diagnostics))
+            #expect(run.result.status != 0, Comment(rawValue: run.result.diagnostics))
+            #expect(!run.result.stderr.isEmpty)
+            #expect(!run.requests.contains { ($0["method"] as? String)?.hasPrefix("workspace.") == true })
+        }
+        #expect(short.result.status == long.result.status)
+        #expect(short.result.stderr == long.result.stderr)
+    }
+
+    @Test(arguments: ["-p", "--port"])
+    func testSSHPortAfterDoubleDashRemainsRemoteCommand(flag: String) throws {
+        let run = try runSSHPortRegressionCommand([
+            "--ssh-option", "RequestTTY=yes",
+            "dev@example.invalid", "--", "printf", flag, "45221",
+        ])
+        #expect(!run.result.timedOut, Comment(rawValue: run.result.diagnostics))
+        #expect(run.result.status == 0, Comment(rawValue: run.result.diagnostics))
+        let request = try #require(run.requests.first { $0["method"] as? String == "workspace.ssh.open" })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["port"] == nil)
+        #expect(params["initial_command"] as? String == "printf \(flag) 45221")
+    }
+
+    private func runSSHPortRegressionCommand(
+        _ arguments: [String]
+    ) throws -> (result: ProcessRunResult, requests: [[String: Any]]) {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-ssh-short-port-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
