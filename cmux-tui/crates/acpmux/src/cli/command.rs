@@ -1339,6 +1339,9 @@ mod help_contract_tests {
         words: &[String],
         shapes: &HashMap<Vec<String>, HashSet<String>>,
     ) -> Option<Vec<String>> {
+        let has_subcommands = |path: &[String]| {
+            shapes.keys().any(|known| known.len() > path.len() && known.starts_with(path))
+        };
         let mut start = 1;
         while words.get(start).is_some_and(|word| {
             matches!(word.as_str(), "--json" | "--suppress-reads" | "--help" | "--version")
@@ -1368,6 +1371,12 @@ mod help_contract_tests {
                 next.push(candidate.to_owned());
                 shapes.keys().any(|known| known == &next)
             }) else {
+                // Once a command still has subcommands, an unknown word is a
+                // stale verb rather than a positional argument.  Positional
+                // values are allowed only after reaching a leaf command.
+                if has_subcommands(&path) {
+                    return None;
+                }
                 break;
             };
             let candidate = if path.is_empty() && candidate == "peer" { "host" } else { candidate };
@@ -1417,5 +1426,12 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    #[test]
+    fn stale_nested_command_is_rejected() {
+        let shapes = command_shapes();
+        let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(documented_shape(&words, &shapes).is_none());
     }
 }

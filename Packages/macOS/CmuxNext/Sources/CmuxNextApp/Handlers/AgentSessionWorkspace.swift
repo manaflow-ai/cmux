@@ -53,7 +53,7 @@ enum AgentSessionWorkspace {
     /// daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, focus: Bool = true, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, focus: Bool = false, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {

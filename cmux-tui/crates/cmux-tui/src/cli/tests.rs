@@ -137,6 +137,19 @@ mod remote_cli_docs {
             .find(|name| names.contains(name))
     }
 
+    fn action_flag_allowed(action: &str, flag: &str) -> bool {
+        let common =
+            matches!(flag, "--target" | "--wait" | "--no-wait" | "--interactive" | "--focus");
+        match action {
+            "agent open" => {
+                common || matches!(flag, "--name" | "--key" | "--cwd" | "--host" | "--group")
+            }
+            "agent open-tab" => common || matches!(flag, "--host"),
+            "cloud exec" => common || matches!(flag, "--command" | "--arg"),
+            _ => true,
+        }
+    }
+
     fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
         let mut missing = Vec::new();
         for words in command_lines(text, "cmux") {
@@ -155,6 +168,18 @@ mod remote_cli_docs {
                 parse(&parser_words, Surface::Cmux).is_ok() || builtin_command(&parser_words);
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
+            } else if let Some(action) = action {
+                let command_words = action.split_whitespace().count();
+                for flag in words
+                    .iter()
+                    .skip(1 + command_words)
+                    .filter(|word| word.starts_with("--"))
+                    .map(|word| word.split('=').next().unwrap_or(word))
+                {
+                    if !action_flag_allowed(&action, flag) {
+                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                    }
+                }
             }
             parser_words.clear();
         }
@@ -215,6 +240,17 @@ mod remote_cli_docs {
         assert!(super::super::CLOUD_HELP.contains("cloud <action>"));
         assert!(super::super::AGENT_HELP.contains("agent open-tab"));
         assert!(super::super::AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+    }
+
+    #[test]
+    fn documented_action_flag_typos_are_rejected() {
+        let names = action_names();
+        let missing =
+            missing_commands("cmux cloud exec --target machine:builder --comand uname", &names);
+        assert_eq!(
+            missing,
+            vec!["cmux cloud exec --target machine:builder --comand uname (flag --comand)"]
+        );
     }
 }
 
