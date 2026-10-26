@@ -3,13 +3,16 @@
 
 1. Release health: crash-free sessions and users (overall and per release), sessions by status, session-hours.
 2. Lag spikes per 1k session-hours by bucket; hangs >= 2 s split into own and other-owner; unclean exits per session.
-3. Top issues page through Sentry's Link cursor, carry their GitHub links, and the other-owner map claims issues by
-   GitHub issue, Sentry short id or title pattern; claimed issues form the other-owner row, not the hang check.
-4. Done check 21 targets: --check exits 1 on a miss and 0 when all are met; no unclean-exit data is a miss, not 0 %.
+3. Top issues page through Sentry's Link cursor, carry their GitHub links, and the other-owner map claims issues only
+   by GitHub issue or Sentry short id (a hang whose culprit names makeKeyWindow but has no link stays own); claimed
+   issues form the other-owner row, not the hang check. The owner map refuses an entry without an ETA or with a pattern.
+4. Done check 21 targets: --check exits 1 on a miss and 0 when all are met; no unclean-exit data is a miss, not 0 %;
+   a lag spike signature without a GitHub issue is a miss.
 5. JSON and table output.
 6. The token comes only from SENTRY_AUTH_TOKEN and is never printed: no token is exit 2; an HTTP error whose body
-   echoes the token is redacted; a redirect to another host and a non-HTTPS URL are refused; the token is sent
-   as a Bearer header to a loopback server.
+   echoes the token is redacted, also across the 300-byte cut; a redirect to another host and a non-HTTPS URL are
+   refused; the token is sent as a Bearer header to a loopback server.
+7. A cut-off body or a payload of an unexpected shape is a Sentry API error (exit 3), not a traceback (exit 1).
 
     python3 -I -m pytest scripts/cmux-next/tests/test_stability_health.py
     python3 -I -m unittest discover -s scripts/cmux-next/tests -p test_stability_health.py
@@ -60,9 +63,11 @@ SESSIONS_BY_RELEASE = {"groups": [
     {"by": {"release": "cmux-next@0.70.0+899"}, "totals": {
         "sum(session)": 5000, "count_unique(user)": 300, "crash_free_rate(session)": 0.9992,
         "crash_free_rate(user)": None}}]}
-LAG_BUCKETS = {"data": [{"tags[stall_bucket]": "250ms-500ms", "count()": 200},
-                        {"tags[stall_bucket]": "500ms-1s", "count()": 70},
-                        {"tags[stall_bucket]": "1s-2s", "count()": 30}]}
+# The stall_bucket values LagSpikeEvent.bucket sends.
+LAG_BUCKETS = {"data": [{"tags[stall_bucket]": "250-500ms", "count()": 200},
+                        {"tags[stall_bucket]": "500ms-1s", "count()": 60},
+                        {"tags[stall_bucket]": "1-2s", "count()": 30},
+                        {"tags[stall_bucket]": "2s+", "count()": 10}]}
 EXIT_OUTCOMES = {"data": [{"tags[exit_outcome]": "clean", "count()": 19000},
                           {"tags[exit_outcome]": "crash-caught", "count()": 10},
                           {"tags[exit_outcome]": "unclean-no-report", "count()": 8}]}
@@ -75,13 +80,26 @@ def raw_issue(n: int, title: str, events: int, culprit: str = "", annotations: l
             "filtered": {"count": str(events), "userCount": 5}, "annotations": annotations or []}
 
 
+
+def link(number: int) -> dict[str, str]:
+    return {"displayName": f"GitHub #{number}", "url": f"https://github.com/manaflow-ai/cmux/issues/{number}"}
+
+
+# Sentry takes a native event's culprit from its first in-app frame: a cmux Swift function, never the AppKit frame
+# -[NSWindow makeKeyWindow]. Hang C is claimed only because its Sentry issue links #24913.
 HANG_ISSUES = [
-    raw_issue(1, "MainThreadHang: main thread busy for 2 s and counting", 3, culprit="WorkspaceStore.apply"),
-    raw_issue(2, "MainThreadHang: main thread busy for 10 s and counting", 7, culprit="NSWindow makeKeyWindow"),
+    raw_issue(1, "MainThreadHang: main thread busy for 2 s and counting", 3, culprit="WorkspaceStore.apply(_:)"),
+    raw_issue(2, "MainThreadHang: main thread busy for 10 s and counting", 7, culprit="BrowserWindow.makeKey()",
+              annotations=[link(24913)]),
+]
+SPIKE_ISSUES = [
+    raw_issue(20, "MainThreadStall: main thread stalled 250-500ms", 200, culprit="SidebarModel.rebuild()",
+              annotations=[link(30010)]),
+    raw_issue(21, "MainThreadStall: main thread stalled 2s+", 10, culprit="BrowserWindow.makeKey()",
+              annotations=[link(24913)]),
 ]
 TOP_PAGE_1 = [
-    raw_issue(10, "EXC_BAD_ACCESS: TerminalSurface.draw", 50,
-              annotations=[{"displayName": "GitHub #30001", "url": "https://github.com/manaflow-ai/cmux/issues/30001"}]),
+    raw_issue(10, "EXC_BAD_ACCESS: TerminalSurface.draw", 50, annotations=[link(30001)]),
     raw_issue(11, "SIGABRT: CEF renderer", 30, annotations=['<a href="https://github.com/manaflow-ai/cmux/issues/24913">#24913</a>']),
 ]
 TOP_PAGE_2 = [raw_issue(12, "NSInternalInconsistencyException", 20)]
@@ -92,7 +110,7 @@ LINK_END = ('<https://sentry.io/api/0/organizations/manaflow/issues/?cursor=0:10
             'cursor="0:200:0"')
 
 OWNERS = [{"owner": "PL-cefhost", "github_issue": 24913, "eta": "2026-11-15", "why": "CEF API 30",
-           "sentry_issues": [], "pattern": "makeKeyWindow"}]
+           "sentry_issues": []}]
 
 
 class Recorded:
@@ -102,7 +120,7 @@ class Recorded:
         self.calls: list[tuple[str, list[tuple[str, str]]]] = []
         self.responses = {"totals": SESSIONS_TOTALS, "status": SESSIONS_BY_STATUS, "release": SESSIONS_BY_RELEASE,
                           "lag": LAG_BUCKETS, "exits": EXIT_OUTCOMES, "hangs": HANG_ISSUES,
-                          "top": [TOP_PAGE_1, TOP_PAGE_2]}
+                          "spikes": SPIKE_ISSUES, "top": [TOP_PAGE_1, TOP_PAGE_2]}
         self.responses.update(overrides)
 
     def __call__(self, path: str, params: list[tuple[str, str]]) -> tuple[Any, dict[str, str]]:
@@ -116,6 +134,8 @@ class Recorded:
         if path.endswith("/issues/"):
             if "main_thread_watchdog" in p["query"]:
                 return copy.deepcopy(self.responses["hangs"]), {}
+            if "main_thread_stall" in p["query"]:
+                return copy.deepcopy(self.responses["spikes"]), {}
             pages = self.responses["top"]
             page = 1 if p.get("cursor") == "0:100:0" else 0
             more = page + 1 < len(pages)
@@ -173,8 +193,13 @@ class RatesTests(unittest.TestCase):
     def test_lag_spikes_per_1k_session_hours(self) -> None:
         lag = report()["lag_spikes"]
         self.assertEqual(lag["total"], 300)
-        self.assertEqual(lag["by_bucket"]["1s-2s"], 30)
+        self.assertEqual(lag["by_bucket"], {"250-500ms": 200, "500ms-1s": 60, "1-2s": 30, "2s+": 10})
         self.assertEqual(lag["per_1k_session_hours"], 10.0)
+
+    def test_spike_signatures_carry_their_github_issues(self) -> None:
+        lag = report()["lag_spikes"]
+        self.assertEqual(lag["issues"], 2)
+        self.assertEqual(lag["issues_without_github"], [])
 
     def test_hangs_split_own_and_other_owner(self) -> None:
         hangs = report()["hangs"]
@@ -221,7 +246,7 @@ class IssuesTests(unittest.TestCase):
         self.assertEqual(top[1]["github"], [24913])
         self.assertEqual(top[2]["github"], [])
 
-    def test_other_owner_by_github_issue_pattern_and_short_id(self) -> None:
+    def test_other_owner_by_github_issue_and_short_id(self) -> None:
         r = report()
         self.assertEqual(r["top_issues"][1]["owner"]["owner"], "PL-cefhost")
         self.assertIsNone(r["top_issues"][0]["owner"])
@@ -239,26 +264,50 @@ class IssuesTests(unittest.TestCase):
         self.assertEqual(rows[0]["issue_events"], 30)
         self.assertEqual(rows[0]["issues"], ["CMUXTERM-MACOS-2", "CMUXTERM-MACOS-11"])
 
+    def test_an_own_hang_naming_make_key_window_without_the_link_stays_own(self) -> None:
+        hangs = [raw_issue(3, "MainThreadHang: main thread busy for 4 s and counting", 5,
+                           culprit="-[NSWindow makeKeyWindow]")]
+        r = report(hangs=hangs)
+        self.assertIsNone(r["hangs"]["issues"][0]["owner"])
+        self.assertEqual(r["hangs"]["own_events"], 5)
+        self.assertEqual(r["hangs"]["other_owner_events"], 0)
+
     def test_the_checked_in_owner_map_loads(self) -> None:
         owners = health.load_owners(health.DEFAULT_OWNERS)
-        self.assertTrue(all(o["owner"] for o in owners))
+        self.assertTrue(owners)
+        for owner in owners:
+            self.assertTrue(owner["owner"] and owner["eta"] and owner["github_issue"])
 
-    def test_a_bad_owner_pattern_is_exit_2(self) -> None:
+    def owners_exit(self, entry: dict[str, Any]) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "owners.json"
-            bad.write_text(json.dumps({"owners": [{"owner": "x", "pattern": "("}]}))
+            bad.write_text(json.dumps({"owners": [entry]}))
             err = io.StringIO()
             with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
                 code = health.main(["--owners", str(bad)], environ={}, fetch=Recorded())
+        return code, err.getvalue()
+
+    def test_an_owner_without_an_eta_is_exit_2(self) -> None:
+        code, err = self.owners_exit({"owner": "PL-x", "github_issue": 1, "eta": None})
         self.assertEqual(code, 2)
-        self.assertIn("bad owners file", err.getvalue())
+        self.assertIn("PL-x has no eta", err)
+
+    def test_an_owner_pattern_is_refused(self) -> None:
+        code, err = self.owners_exit({"owner": "PL-x", "github_issue": 1, "eta": "soon", "pattern": "makeKeyWindow"})
+        self.assertEqual(code, 2)
+        self.assertIn("pattern is not supported", err)
+
+    def test_an_owner_without_a_github_issue_is_exit_2(self) -> None:
+        code, err = self.owners_exit({"owner": "PL-x", "eta": "soon", "sentry_issues": ["CMUXTERM-MACOS-1"]})
+        self.assertEqual(code, 2)
+        self.assertIn("bad owners file", err)
 
 
 class CheckTests(unittest.TestCase):
     def test_all_targets_met_exits_0(self) -> None:
         code, out, _ = run(["--check"], fetch=Recorded())
         self.assertEqual(code, 1, "the recorded own hang (3 events) misses the 0-hang target")
-        hangs = [i for i in HANG_ISSUES if "makeKeyWindow" in i["culprit"]]
+        hangs = [i for i in HANG_ISSUES if i["annotations"]]
         code, out, _ = run(["--check", "--json"], fetch=Recorded(hangs=hangs))
         self.assertEqual(code, 0, out)
         self.assertTrue(all(c["ok"] for c in json.loads(out)["checks"]))
@@ -266,13 +315,25 @@ class CheckTests(unittest.TestCase):
     def test_each_target_misses(self) -> None:
         totals = copy.deepcopy(SESSIONS_TOTALS)
         totals["groups"][0]["totals"]["crash_free_rate(session)"] = 0.998
-        lag = {"data": [{"tags[stall_bucket]": "250ms-500ms", "count()": 301}]}
+        lag = {"data": [{"tags[stall_bucket]": "250-500ms", "count()": 301}]}
         exits = {"data": [{"tags[exit_outcome]": "unclean-no-report", "count()": 21}]}
         code, out, _ = run(["--check", "--json"], fetch=Recorded(totals=totals, lag=lag, exits=exits, hangs=[]))
         self.assertEqual(code, 1)
         missed = {c["name"] for c in json.loads(out)["checks"] if not c["ok"]}
         self.assertEqual(missed, {"crash_free_sessions_pct", "unclean_no_report_pct",
                                   "lag_spikes_per_1k_session_hours"})
+
+    def test_a_spike_signature_without_a_github_issue_is_a_miss(self) -> None:
+        spikes = SPIKE_ISSUES + [raw_issue(22, "MainThreadStall: main thread stalled 500ms-1s", 4,
+                                           culprit="TabStrip.layout()")]
+        code, out, _ = run(["--check", "--json"], fetch=Recorded(spikes=spikes, hangs=[]))
+        self.assertEqual(code, 1)
+        r = json.loads(out)
+        self.assertEqual({c["name"] for c in r["checks"] if not c["ok"]}, {"lag_spike_issues_without_github"})
+        self.assertEqual([i["short_id"] for i in r["lag_spikes"]["issues_without_github"]], ["CMUXTERM-MACOS-22"])
+        code, out, _ = run(["--top", "3"], fetch=Recorded(spikes=spikes, hangs=[]))
+        self.assertIn("lag spike signatures: 3, without a GitHub issue 1", out)
+        self.assertIn("MISS lag_spike_issues_without_github 1 <= 0", out)
 
     def test_no_unclean_exit_data_is_a_miss_not_zero(self) -> None:
         code, out, _ = run(["--check", "--json"], fetch=Recorded(exits={"data": []}, hangs=[]))
@@ -308,6 +369,16 @@ class OutputTests(unittest.TestCase):
         self.assertIn("MISS own_hang_events 3 <= 0", out)
         self.assertIn("#30001", out)
 
+    def test_an_unexpected_response_shape_is_exit_3(self) -> None:
+        shapes = {"status": {"groups": [{"totals": {}}]}, "release": [], "totals": {"detail": "x", "groups": [7]},
+                  "lag": {"data": [{"tags[stall_bucket]": "1-2s", "count()": "many"}]}, "hangs": [7]}
+        for key, value in shapes.items():
+            with self.subTest(key):
+                code, out, err = run(["--json"], fetch=Recorded(**{key: value}))
+                self.assertEqual(code, 3, err)
+                self.assertIn("unexpected response shape from /organizations/manaflow/", err)
+                self.assertEqual(out, "")
+
     def test_bad_days_is_an_argument_error(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
             health.parse_args(["--days", "91"])
@@ -325,8 +396,19 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "http://127.0.0.2:1/elsewhere")
             self.end_headers()
             return
+        if _Handler.mode == "truncated":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(b'{"groups": [')
+            return
         if _Handler.mode == "error":
             body = json.dumps({"detail": f"Invalid token {self.headers.get('Authorization')}"}).encode()
+            self.send_response(401)
+        elif _Handler.mode == "long_error":
+            # The echoed token starts before the 300-byte cut and ends after it.
+            body = ("bad token " + "x" * 250 + " " + self.headers.get("Authorization", "")).encode()
             self.send_response(401)
         else:
             body = json.dumps([] if "/issues/" in self.path else {"groups": []}).encode()
@@ -376,6 +458,21 @@ class TokenTests(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("HTTP 401", err)
         self.assertIn("[redacted]", err)
+        self.assertNotIn(TOKEN, err + out)
+
+    def test_a_token_echoed_across_the_cut_is_redacted(self) -> None:
+        _Handler.mode = "long_error"
+        code, out, err = run(["--base-url", self.base], environ={"SENTRY_AUTH_TOKEN": TOKEN})
+        self.assertEqual(code, 3)
+        self.assertIn("HTTP 401", err)
+        self.assertNotIn("sntrys_", err + out)
+        self.assertNotIn(TOKEN[:8], err + out)
+
+    def test_a_cut_off_body_is_exit_3(self) -> None:
+        _Handler.mode = "truncated"
+        code, out, err = run(["--base-url", self.base], environ={"SENTRY_AUTH_TOKEN": TOKEN})
+        self.assertEqual(code, 3, err)
+        self.assertIn("GET /organizations/manaflow/sessions/", err)
         self.assertNotIn(TOKEN, err + out)
 
     def test_a_redirect_to_another_host_is_refused(self) -> None:

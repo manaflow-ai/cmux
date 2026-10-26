@@ -11,7 +11,9 @@ reads, for one environment over the last --days days:
                   sessions by status (healthy, errored, crashed, abnormal)
   lag spikes      main-thread stalls >= 250 ms (LagSpikeEvent, tag hang_source:main_thread_stall) per
                   1k session-hours, by stall_bucket. The app rate-limits them (LagSpikeRateLimiter:
-                  10, then 1 per 2 min), so this is a lower bound.
+                  10, then 1 per 2 min), so this is a lower bound. Each spike signature (a Sentry
+                  issue: LagSpikeEvent groups by stack) must link a GitHub issue; the ones that do
+                  not are listed.
   hangs           main-thread hangs >= 2 s (MainThreadHangEvent, hang_source:main_thread_watchdog) per
                   issue, split into own and other-owner. Sentry's own 8 s AppHang events report the same
                   stalls again and are not counted.
@@ -19,8 +21,11 @@ reads, for one environment over the last --days days:
                   `unclean-no-report` share of sessions is the clean-exit-beacon number
   top issues      the --top unresolved cmux-next issues by events in the period
 
-Issues owned by another program (stability-other-owners.json: owner, ETA, GitHub issue, title or
-culprit pattern) are listed in a separate other-owner row and do not count against the hang check.
+Issues owned by another program (stability-other-owners.json: owner, ETA, GitHub issue, Sentry short
+ids) are listed in a separate other-owner row and do not count against the hang check. An owner claims
+a Sentry issue only by its identity: the issue links the owner's GitHub issue, or its short id is listed.
+A title or stack match is not used, because it cannot tell the owner's stall from an own stall in the
+same frames; an unclaimed issue counts as own until someone links it.
 
 The token comes only from SENTRY_AUTH_TOKEN. It is never printed: every error text is redacted, and a
 redirect to another host is refused so the Authorization header never leaves the API host.
@@ -29,12 +34,15 @@ redirect to another host is refused so the Authorization header never leaves the
     ... --top 50 --json          (Q17: every top issue without a GitHub issue is one task)
     ... --check                  (exit 1 unless every done-check-21 target is met)
 
-Exit codes: 0 report printed, 1 a --check target missed, 2 no token or bad arguments, 3 Sentry API error.
+Exit codes: 0 report printed, 1 a --check target missed, 2 no token, bad arguments or a bad owners file,
+3 Sentry API error (transport, HTTP status or an unexpected response shape).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import http.client
 import json
 import os
 import re
@@ -45,7 +53,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 TOKEN_ENV = "SENTRY_AUTH_TOKEN"
 BASE_URL_ENV = "SENTRY_URL"
@@ -66,15 +74,20 @@ UNCLEAN_NO_REPORT = "unclean-no-report"
 # Release health returns session.duration aggregates in milliseconds.
 DURATION_UNIT_MS = 1.0
 MAX_ISSUES = 500
+# An HTTP error body is redacted whole (up to this many bytes), then cut for the message.
+ERROR_BODY_READ = 65536
+ERROR_BODY_SHOWN = 300
 GITHUB_ISSUE = re.compile(r"github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 
 # Done check 21 (p10-stability.md): crash-free sessions >= 99.9 %, unclean exits without a crash report
-# <= 0.1 % of sessions, 0 own hangs >= 2 s, lag spikes >= 250 ms <= 1 per 100 session-hours.
+# <= 0.1 % of sessions, 0 own hangs >= 2 s, lag spikes >= 250 ms <= 1 per 100 session-hours, every spike
+# signature has an issue.
 TARGETS = {
     "crash_free_sessions_pct": (">=", 99.9),
     "unclean_no_report_pct": ("<=", 0.1),
     "own_hang_events": ("<=", 0),
     "lag_spikes_per_1k_session_hours": ("<=", 10.0),
+    "lag_spike_issues_without_github": ("<=", 0),
 }
 
 Fetch = Callable[[str, list[tuple[str, str]]], tuple[Any, dict[str, str]]]
@@ -115,9 +128,10 @@ def http_fetch(base_url: str, token: str, timeout: float = 30.0) -> Fetch:
                 headers = {k.lower(): v for k, v in response.headers.items()}
                 return json.loads(response.read().decode("utf-8")), headers
         except urllib.error.HTTPError as error:
-            body = error.read(300).decode("utf-8", "replace")
+            # Redact before the cut: a token echoed across the cut would leave an unmatched prefix.
+            body = redact(error.read(ERROR_BODY_READ).decode("utf-8", "replace"), token)[:ERROR_BODY_SHOWN]
             raise SentryError(redact(f"GET {path}: HTTP {error.code}: {body}", token)) from None
-        except (urllib.error.URLError, OSError, ValueError) as error:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as error:
             raise SentryError(redact(f"GET {path}: {error}", token)) from None
 
     return fetch
@@ -131,6 +145,15 @@ def next_cursor(headers: dict[str, str]) -> str | None:
             if match:
                 return match.group(1)
     return None
+
+
+@contextlib.contextmanager
+def response_shape(path: str) -> Iterator[None]:
+    """Turns a payload without the expected shape into a SentryError (exit 3), not a traceback (exit 1)."""
+    try:
+        yield
+    except (KeyError, IndexError, TypeError, AttributeError, ValueError) as error:
+        raise SentryError(f"unexpected response shape from {path} ({type(error).__name__})") from None
 
 
 @dataclass
@@ -174,20 +197,23 @@ def sessions(fetch: Fetch, cfg: Config) -> tuple[dict[str, Any], list[dict[str, 
     base = cfg.scope() + [("interval", "1d"), ("includeSeries", "0")]
     fields = [("field", f) for f in SESSION_FIELDS]
     totals_data, _ = fetch(path, base + fields)
-    groups = totals_data.get("groups") or [{}]
-    totals = groups[0].get("totals", {})
-    summary = session_row(totals)
-    duration = totals.get("avg(session.duration)")
-    summary["avg_duration_ms"] = None if duration is None else float(duration) * DURATION_UNIT_MS
-    summary["session_hours"] = (None if duration is None else
-                                round(summary["sessions"] * summary["avg_duration_ms"] / 3_600_000.0, 2))
+    with response_shape(path):
+        groups = totals_data.get("groups") or [{}]
+        totals = groups[0].get("totals", {})
+        summary = session_row(totals)
+        duration = totals.get("avg(session.duration)")
+        summary["avg_duration_ms"] = None if duration is None else float(duration) * DURATION_UNIT_MS
+        summary["session_hours"] = (None if duration is None else
+                                    round(summary["sessions"] * summary["avg_duration_ms"] / 3_600_000.0, 2))
     status_data, _ = fetch(path, base + [("field", "sum(session)"), ("groupBy", "session.status")])
-    summary["by_status"] = {g["by"]["session.status"]: int(g["totals"].get("sum(session)") or 0)
-                            for g in status_data.get("groups", [])}
+    with response_shape(path):
+        summary["by_status"] = {g["by"]["session.status"]: int(g["totals"].get("sum(session)") or 0)
+                                for g in status_data.get("groups", [])}
     release_data, _ = fetch(path, base + fields + [("groupBy", "release"), ("orderBy", "-sum(session)"),
                                                    ("per_page", str(cfg.releases))])
-    releases = [{"release": g["by"]["release"], **session_row(g.get("totals", {}))}
-                for g in release_data.get("groups", [])]
+    with response_shape(path):
+        releases = [{"release": g["by"]["release"], **session_row(g.get("totals", {}))}
+                    for g in release_data.get("groups", [])]
     return summary, releases
 
 
@@ -196,8 +222,10 @@ def tag_counts(fetch: Fetch, cfg: Config, query: str, tag: str) -> dict[str, int
     column = f"tags[{tag}]"
     params = cfg.scope() + [("dataset", "errors"), ("field", column), ("field", "count()"),
                             ("query", f"{APP_QUERY} has:{tag} {query}".strip()), ("per_page", "100")]
-    data, _ = fetch(f"/organizations/{cfg.org}/events/", params)
-    return {str(row.get(column)): int(row.get("count()") or 0) for row in data.get("data", [])}
+    path = f"/organizations/{cfg.org}/events/"
+    data, _ = fetch(path, params)
+    with response_shape(path):
+        return {str(row.get(column)): int(row.get("count()") or 0) for row in data.get("data", [])}
 
 
 def github_issues(issue: dict[str, Any]) -> list[int]:
@@ -210,12 +238,9 @@ def github_issues(issue: dict[str, Any]) -> list[int]:
 
 
 def other_owner(issue: dict[str, Any], owners: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The other-owner entry that claims `issue` (by GitHub link, Sentry short id, or title/culprit pattern)."""
-    text = f"{issue['title']}\n{issue['culprit']}"
+    """The other-owner entry that claims `issue`: the issue links its GitHub issue or has a listed short id."""
     for entry in owners:
-        if entry.get("github_issue") in issue["github"] or issue["short_id"] in entry.get("sentry_issues", []):
-            return entry
-        if entry.get("pattern") and re.search(entry["pattern"], text):
+        if entry["github_issue"] in issue["github"] or issue["short_id"] in entry.get("sentry_issues", []):
             return entry
     return None
 
@@ -249,10 +274,12 @@ def issues(fetch: Fetch, cfg: Config, query: str, limit: int) -> list[dict[str, 
                                 ("limit", str(min(100, limit - len(found))))]
         if cursor:
             params.append(("cursor", cursor))
-        data, headers = fetch(f"/organizations/{cfg.org}/issues/", params)
+        path = f"/organizations/{cfg.org}/issues/"
+        data, headers = fetch(path, params)
         if not isinstance(data, list):
-            raise SentryError(f"GET /organizations/{cfg.org}/issues/: expected a list, got {type(data).__name__}")
-        found += [normalize_issue(raw, cfg.owners) for raw in data]
+            raise SentryError(f"GET {path}: expected a list, got {type(data).__name__}")
+        with response_shape(path):
+            found += [normalize_issue(raw, cfg.owners) for raw in data]
         cursor = next_cursor(headers)
         if not data or cursor is None:
             break
@@ -288,6 +315,8 @@ def build_report(fetch: Fetch, cfg: Config) -> dict[str, Any]:
     hours, count = summary["session_hours"], summary["sessions"]
     lag = tag_counts(fetch, cfg, LAG_QUERY, "stall_bucket")
     lag_total = sum(lag.values())
+    spike_issues = issues(fetch, cfg, LAG_QUERY, MAX_ISSUES)
+    spikes_without_github = [i for i in spike_issues if not i["github"] and i["owner"] is None]
     hang_issues = issues(fetch, cfg, HANG_QUERY, MAX_ISSUES)
     own_hangs = sum(i["events"] for i in hang_issues if i["owner"] is None)
     other_hangs = sum(i["events"] for i in hang_issues if i["owner"] is not None)
@@ -301,7 +330,8 @@ def build_report(fetch: Fetch, cfg: Config) -> dict[str, Any]:
         "sessions": summary,
         "releases": releases,
         "lag_spikes": {"min_ms": 250, "total": lag_total, "by_bucket": lag,
-                       "per_1k_session_hours": per(lag_total, hours, 1000.0), "rate_limited": True},
+                       "per_1k_session_hours": per(lag_total, hours, 1000.0), "rate_limited": True,
+                       "issues": len(spike_issues), "issues_without_github": spikes_without_github},
         "hangs": {"min_seconds": HANG_MIN_SECONDS, "own_events": own_hangs, "other_owner_events": other_hangs,
                   "own_per_1k_session_hours": per(own_hangs, hours, 1000.0), "issues": hang_issues},
         "unclean_exits": {"by_outcome": exits, "no_report": no_report,
@@ -317,6 +347,7 @@ def build_report(fetch: Fetch, cfg: Config) -> dict[str, Any]:
         "unclean_no_report_pct": report["unclean_exits"]["no_report_pct_of_sessions"] if exits else None,
         "own_hang_events": own_hangs,
         "lag_spikes_per_1k_session_hours": report["lag_spikes"]["per_1k_session_hours"],
+        "lag_spike_issues_without_github": len(spikes_without_github),
     })
     return report
 
@@ -338,6 +369,8 @@ def table(report: dict[str, Any]) -> str:
     lag, hangs, exits = report["lag_spikes"], report["hangs"], report["unclean_exits"]
     lines += ["", f"lag spikes >= 250 ms: {lag['total']} ({fmt(lag['per_1k_session_hours'])} per 1k session-hours, "
                   "rate-limited) " + "  ".join(f"{k} {v}" for k, v in sorted(lag["by_bucket"].items())),
+              f"lag spike signatures: {lag['issues']}, without a GitHub issue {len(lag['issues_without_github'])}",
+              *[f"  {i['short_id']:<22} {i['events']:>7} {i['title'][:70]}" for i in lag["issues_without_github"]],
               f"hangs >= {hangs['min_seconds']} s: own {hangs['own_events']}, other-owner {hangs['other_owner_events']}",
               f"unclean exits without a crash report: {exits['no_report']} "
               f"({fmt(exits['no_report_pct_of_sessions'])} % of sessions); abnormal sessions {exits['abnormal_sessions']}",
@@ -348,7 +381,7 @@ def table(report: dict[str, Any]) -> str:
         lines.append(f"{i['short_id']:<22} {i['events']:>7} {i['users']:>6} {gh:<10} {owner:<12} {i['title'][:70]}")
     lines += ["", "other-owner (not counted against the hang check):"]
     lines += [f"  {r['owner']}: hangs {r['hang_events']}, issue events {r['issue_events']}, "
-              f"{'#' + str(r['github_issue']) if r.get('github_issue') else 'no issue'}, ETA {fmt(r.get('eta'))}, "
+              f"#{r['github_issue']}, ETA {r['eta']}, "
               f"{' '.join(r['issues'])}"
               for r in report["other_owner"]] or ["  none"]
     lines += ["", "done check 21:"]
@@ -358,12 +391,22 @@ def table(report: dict[str, Any]) -> str:
 
 
 def load_owners(path: Path) -> list[dict[str, Any]]:
+    """The other-owner map. Done checks 16 and 21 need an owner, an ETA and a GitHub issue on every entry."""
     if not path.exists():
         return []
     entries = json.loads(path.read_text())["owners"]
     for entry in entries:
-        if entry.get("pattern"):
-            re.compile(entry["pattern"])
+        name = entry.get("owner")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("an entry has no owner")
+        if not isinstance(entry.get("eta"), str) or not entry["eta"].strip():
+            raise ValueError(f"{name} has no eta")
+        if not isinstance(entry.get("github_issue"), int):
+            raise ValueError(f"{name} has no github_issue number")
+        if not all(isinstance(s, str) for s in entry.get("sentry_issues", [])):
+            raise ValueError(f"{name}: sentry_issues must be short id strings")
+        if "pattern" in entry:
+            raise ValueError(f"{name}: pattern is not supported; claim issues by github_issue or sentry_issues")
     return entries
 
 
@@ -399,7 +442,7 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None, f
     try:
         cfg = Config(env=args.env, days=args.days, top=max(1, args.top), releases=max(1, args.releases),
                      org=args.org, project_id=args.project_id, owners=load_owners(args.owners))
-    except (OSError, ValueError, KeyError, re.error) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"stability-health: bad owners file {args.owners}: {error}", file=sys.stderr)
         return 2
     try:
