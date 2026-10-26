@@ -57,8 +57,6 @@ pub struct TracerConfig {
     pub role: Role,
     /// Where the black-box and recording files go.
     pub dir: PathBuf,
-    /// The fixed names every ring of the process starts with.
-    pub catalog: &'static [CatalogName],
     pub blackbox: RingSizes,
     pub recording: RingSizes,
     /// The categories on while no recording runs.
@@ -74,15 +72,10 @@ pub struct TracerConfig {
 
 impl TracerConfig {
     /// This process as `role`: the role's sizes, the system clocks and identity.
-    pub fn for_process(
-        dir: impl Into<PathBuf>,
-        role: Role,
-        catalog: &'static [CatalogName],
-    ) -> TracerConfig {
+    pub fn for_process(dir: impl Into<PathBuf>, role: Role) -> TracerConfig {
         TracerConfig {
             role,
             dir: dir.into(),
-            catalog,
             blackbox: role.blackbox_sizes(),
             recording: role.recording_sizes(),
             blackbox_categories: crate::category::BLACKBOX,
@@ -184,6 +177,8 @@ impl WriterState {
 /// and tools make their own.
 pub struct Tracer {
     config: TracerConfig,
+    /// The fixed names every ring of the tracer starts with.
+    catalog: &'static [CatalogName],
     heap: Ring,
     file: OnceLock<Ring>,
     recording: OnceLock<Ring>,
@@ -200,12 +195,24 @@ pub struct Tracer {
 }
 
 impl Tracer {
-    /// A tracer whose heap ring is active at once. Makes no system call but the heap allocation.
+    /// A tracer whose heap ring is active at once, its rings naming the shared catalog
+    /// ([`crate::names::CATALOG`]) the trace macros resolve their ids from. Makes no system call
+    /// but the heap allocation.
     pub fn new(config: TracerConfig) -> Tracer {
-        Tracer::with_mirror(config, None)
+        Tracer::with_catalog(config, crate::names::CATALOG)
     }
 
-    pub(crate) fn with_mirror(config: TracerConfig, mirror: Option<&'static AtomicU64>) -> Tracer {
+    /// [`Tracer::new`] whose rings start with `catalog` instead: for a tracer the trace macros
+    /// never write to (the process's tracer always names the shared catalog).
+    pub fn with_catalog(config: TracerConfig, catalog: &'static [CatalogName]) -> Tracer {
+        Tracer::with_mirror(config, catalog, None)
+    }
+
+    pub(crate) fn with_mirror(
+        config: TracerConfig,
+        catalog: &'static [CatalogName],
+        mirror: Option<&'static AtomicU64>,
+    ) -> Tracer {
         let heap = Ring::on_heap(RingLayout::of(config.blackbox));
         let tracer = Tracer {
             heap,
@@ -221,9 +228,10 @@ impl Tracer {
             blackbox_path: OnceLock::new(),
             recording_path: OnceLock::new(),
             config,
+            catalog,
         };
         let fields = tracer.header_fields(RingKind::BlackBox, &tracer.config.identity);
-        tracer.heap.init(&fields, tracer.config.catalog);
+        tracer.heap.init(&fields, tracer.catalog);
         if let Some(mirror) = mirror {
             mirror.store(tracer.config.blackbox_categories, Ordering::Release);
         }
@@ -411,7 +419,7 @@ impl Tracer {
                     Ring::on_heap(layout)
                 }
             };
-            ring.init(&self.header_fields(RingKind::Recording, &identity), self.config.catalog);
+            ring.init(&self.header_fields(RingKind::Recording, &identity), self.catalog);
             ring
         })
     }

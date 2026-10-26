@@ -49,7 +49,9 @@ pub use layout::{
 };
 #[doc(hidden)]
 pub use macros::categories as __categories;
-pub use macros::{SCOPE_STACK_DEPTH, ScopeGuard, ScopeStack, TraceArg, TraceSite, scope_stack};
+pub use macros::{
+    SCOPE_SLOTS, SCOPE_STACK_DEPTH, ScopeGuard, ScopeStack, TraceArg, TraceSite, scope_stack,
+};
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
 use tracer::RingId;
@@ -262,18 +264,16 @@ impl BlackboxOpen {
 /// thread moves it into `<dir>/<role>-<pid>.blackbox.cmxtrace`. Call it first in `main`; it opens
 /// no file itself. None when the black box was already started.
 pub fn init_blackbox(dir: impl AsRef<Path>, role: Role) -> Option<BlackboxOpen> {
-    init_process(TracerConfig::for_process(dir.as_ref(), role, names::CATALOG))
+    init_process(TracerConfig::for_process(dir.as_ref(), role))
 }
 
-/// [`init_blackbox`] with every other input given. The process's rings always name the shared
-/// catalog ([`names::CATALOG`]), whatever `config.catalog` holds: the trace macros write the ids
-/// they resolved from it at compile time.
+/// [`init_blackbox`] with every other input given. The process's rings name the shared catalog
+/// ([`names::CATALOG`]): the trace macros write the ids they resolved from it at compile time.
 pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
-    let config = TracerConfig { catalog: names::CATALOG, ..config };
     let mut fresh = false;
     let tracer = PROCESS.get_or_init(|| {
         fresh = true;
-        Tracer::with_mirror(config, Some(&CATEGORIES))
+        Tracer::with_mirror(config, names::CATALOG, Some(&CATEGORIES))
     });
     if !fresh {
         return None;

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_trace::names::{CATALOG, catalog_id};
 use cmux_trace::{
-    CatalogName, Decoded, DecodedRecord, FLAG_ID, NameKind, Phase, Role, SCOPE_STACK_DEPTH,
+    Decoded, DecodedRecord, FLAG_ID, NameKind, Phase, Role, SCOPE_SLOTS, SCOPE_STACK_DEPTH,
     TracerConfig, category, decode, scope_stack, trace_async_begin, trace_async_end, trace_counter,
     trace_flow_in, trace_flow_out, trace_instant, trace_scope,
 };
@@ -301,10 +301,12 @@ fn child_async(dir: &Path) {
     trace_async_end!(cef, "cef.create_browser", 10u64);
 
     let decoded = snapshot();
-    let mut slices: HashMap<(String, u64), (Option<DecodedRecord>, Option<DecodedRecord>)> =
+    // Keyed by name id, as an exporter keys its async tracks: the begin and the end sites of one
+    // text share its id.
+    let mut slices: HashMap<(u16, u64), (Option<DecodedRecord>, Option<DecodedRecord>)> =
         HashMap::new();
     for record in &decoded.records {
-        let slot = slices.entry((text(&decoded, record), record.arg1)).or_default();
+        let slot = slices.entry((record.name, record.arg1)).or_default();
         assert_eq!(record.flags & FLAG_ID, FLAG_ID, "an async record carries its id flag");
         match Phase::from_raw(record.phase) {
             Some(Phase::AsyncBegin) => assert!(slot.0.replace(*record).is_none(), "two begins"),
@@ -314,6 +316,7 @@ fn child_async(dir: &Path) {
     }
     assert_eq!(slices.len(), 4, "every (name, id) is one slice");
     for ((name, id), (begin, end)) in &slices {
+        let name = decoded.name(*name).expect("a named slice");
         let (begin, end) = (begin.expect("a begin"), end.expect("an end"));
         assert!(end.t_ns >= begin.t_ns, "{name} {id} ended before it began");
         if name == "daemon.url_open" {
@@ -415,14 +418,14 @@ fn child_stack(dir: &Path) {
     assert!(names[1..].iter().all(|name| *name == "daemon.request.nested"));
     assert_eq!(scope_stack().depth(), 0, "the deep scopes popped");
 
-    // Deeper than the stack has slots: the innermost scope is still named first.
+    // Deeper than the stack has slots: it holds the scopes up to its last slot.
     let mut deepest = None;
-    nest(3 * SCOPE_STACK_DEPTH as u32, &mut deepest);
+    nest(SCOPE_SLOTS as u32 + 4, &mut deepest);
     let deepest = deepest.expect("reached the bottom");
-    assert_eq!(deepest.depth(), 3 * SCOPE_STACK_DEPTH as u32 + 1);
+    assert_eq!(deepest.depth(), SCOPE_SLOTS as u32);
     let names: Vec<&str> = deepest.names().collect();
     assert_eq!(names.len(), SCOPE_STACK_DEPTH);
-    assert_eq!(names[0], "action.perform", "the innermost scope is named first");
+    assert!(names.iter().all(|name| *name == "daemon.request.nested"));
     assert_eq!(scope_stack().depth(), 0, "the deeper scopes popped");
 
     // A guard dropped out of order takes the scopes above it off the stack.
@@ -447,6 +450,54 @@ fn child_stack(dir: &Path) {
     drop(y);
     assert_eq!(scope_stack().names().collect::<Vec<_>>(), ["action.perform"]);
     drop(x);
+    assert_eq!(scope_stack().depth(), 0);
+
+    child_stack_deep_out_of_order();
+}
+
+fn open_scopes(count: usize) -> Vec<cmux_trace::ScopeGuard> {
+    (0..count).map(|_| trace_scope!(daemon, "daemon.request.nested")).collect()
+}
+
+/// Out-of-order drops past 32 open scopes: a guard whose scope was already taken off the stack
+/// leaves alone the scopes opened at its depth since, at every depth the stack holds.
+fn child_stack_deep_out_of_order() {
+    let outer = open_scopes(31);
+    let w = trace_scope!(daemon, "daemon.w");
+    let y = trace_scope!(daemon, "daemon.y");
+    drop(w);
+    assert_eq!(scope_stack().depth(), 31, "w took y off the stack with it");
+    let z = trace_scope!(daemon, "daemon.z");
+    let z2 = trace_scope!(daemon, "daemon.z2");
+    let z3 = trace_scope!(daemon, "daemon.z3");
+    drop(y);
+    let stack = scope_stack();
+    assert_eq!(stack.depth(), 34, "y, already off the stack, cut the scopes opened since");
+    assert_eq!(
+        stack.names().take(4).collect::<Vec<_>>(),
+        ["daemon.z3", "daemon.z2", "daemon.z", "daemon.request.nested"]
+    );
+    drop(z3);
+    drop(z2);
+    drop(z);
+    assert_eq!(scope_stack().depth(), 31);
+    assert_eq!(scope_stack().names().next(), Some("daemon.request.nested"));
+    drop(outer);
+    assert_eq!(scope_stack().depth(), 0);
+
+    let mut first = open_scopes(32);
+    let x = trace_scope!(daemon, "daemon.x");
+    let mut above = open_scopes(1);
+    drop(first.remove(5));
+    assert_eq!(scope_stack().depth(), 5, "the out-of-order drop took the scopes above it off");
+    let refill = open_scopes(29);
+    assert_eq!(scope_stack().depth(), 34);
+    drop(x);
+    assert_eq!(scope_stack().depth(), 34, "x, already off the stack, cut the scopes opened since");
+    above.clear();
+    assert_eq!(scope_stack().depth(), 34);
+    drop(refill);
+    drop(first);
     assert_eq!(scope_stack().depth(), 0);
 }
 
@@ -483,20 +534,19 @@ fn a_recorded_trace_point_allocates_nothing() {
 // MARK: catalog
 
 fn child_catalog(dir: &Path) {
-    static OTHER: [CatalogName; 1] =
-        [CatalogName { id: 1, kind: NameKind::Catalog, category: 0, text: "action.dispatch" }];
-    cmux_trace::init_process(TracerConfig::for_process(dir, Role::Daemon, &OTHER))
+    cmux_trace::init_process(TracerConfig::for_process(dir, Role::Daemon))
         .expect("first init")
         .wait()
         .expect("the black box moved into its file");
     trace_instant!(action, "action.perform");
     let decoded = snapshot();
     let record = decoded.records.first().expect("the instant");
+    assert_eq!(record.name, catalog_id("action.perform"), "a catalog name keeps its id");
     assert_eq!(text(&decoded, record), "action.perform", "the process ring took another catalog");
 }
 
 #[test]
-fn the_process_ring_always_names_the_shared_catalog() {
+fn the_process_ring_names_the_shared_catalog() {
     run_child("catalog");
 }
 
@@ -577,35 +627,104 @@ fn the_catalog_is_swifts_signpost_name_table() {
     assert_eq!(catalog_id("daemon.request.parse"), 0, "an unknown name has no catalog id");
 }
 
-// MARK: expansion
+// MARK: off path
 
-/// The lines of `source` from `header` to the first line that is `}`.
-fn macro_block<'a>(source: &'a str, header: &str) -> Vec<&'a str> {
-    let lines: Vec<&str> = source.lines().collect();
-    let start = lines.iter().position(|line| *line == header).unwrap_or_else(|| panic!("{header}"));
+/// The newest `lib<name>-*.rlib` in `deps`: the one cargo built for this test binary.
+fn newest_rlib(deps: &Path, name: &str) -> PathBuf {
+    let prefix = format!("lib{name}-");
+    std::fs::read_dir(deps)
+        .expect("reads the deps dir")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let file = entry.file_name();
+            let file = file.to_string_lossy();
+            file.starts_with(&prefix) && file.ends_with(".rlib")
+        })
+        .max_by_key(|entry| entry.metadata().and_then(|meta| meta.modified()).ok())
+        .map(|entry| entry.path())
+        .unwrap_or_else(|| panic!("no {prefix}*.rlib in {}", deps.display()))
+}
+
+/// The lines of the LLVM IR function `name` in `ir`, from its `define` to its closing `}`.
+fn ir_function<'a>(ir: &'a str, name: &str) -> Vec<&'a str> {
+    let header = format!("@{name}(");
+    let lines: Vec<&str> = ir.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| line.starts_with("define") && line.contains(&header))
+        .unwrap_or_else(|| panic!("no {name} in the IR"));
     let end = start + lines[start..].iter().position(|line| *line == "}").expect("its end");
     lines[start..=end].to_vec()
 }
 
-/// The module doc shows `tests/snapshots/macro_expansion.txt` as the macros' templates; this keeps
-/// it the source's: the off path is the `if $crate::enabled(..)` with nothing evaluated before it.
+/// Chrome's `TRACE_EVENT*` off path is the `category_group_enabled` load and a branch. Each macro
+/// call site of `tests/fixtures/off_path.rs`, compiled with `-C opt-level=3` against this build of
+/// the crate, enters with one relaxed (LLVM `monotonic`) load and a conditional branch: no call, no
+/// other load and no argument work before it, and no other atomic load anywhere in it.
 #[test]
-fn the_documented_expansion_is_the_macros_source() {
+fn a_trace_point_that_is_off_is_one_relaxed_load_and_a_branch() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source = std::fs::read_to_string(root.join("src/macros.rs")).expect("reads macros.rs");
-    let mut expected = macro_block(&source, "macro_rules! __trace_emit {").join("\n");
-    expected.push_str("\n\n");
-    expected.push_str(&macro_block(&source, "macro_rules! trace_scope {").join("\n"));
-    expected.push('\n');
-    let snapshot = std::fs::read_to_string(root.join("tests/snapshots/macro_expansion.txt"))
-        .expect("reads the snapshot");
-    assert_eq!(
-        snapshot, expected,
-        "the macros changed: update tests/snapshots/macro_expansion.txt"
+    let exe = std::env::current_exe().expect("test binary");
+    let deps = exe.parent().expect("the deps dir");
+    let rustc =
+        Path::new(env!("CARGO")).with_file_name(format!("rustc{}", std::env::consts::EXE_SUFFIX));
+    let out = scratch_dir("off-path").join("off_path.ll");
+    let output = std::process::Command::new(&rustc)
+        .args(["--edition", "2024", "--crate-type", "lib", "-C", "opt-level=3"])
+        .args(["-C", "debuginfo=0", "--emit=llvm-ir", "-o"])
+        .arg(&out)
+        .arg("-L")
+        .arg(format!("dependency={}", deps.display()))
+        .arg("--extern")
+        .arg(format!("cmux_trace={}", newest_rlib(deps, "cmux_trace").display()))
+        .arg(root.join("tests/fixtures/off_path.rs"))
+        .output()
+        .unwrap_or_else(|error| panic!("runs {}: {error}", rustc.display()));
+    assert!(
+        output.status.success(),
+        "rustc failed on the fixture: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    // Each full arm's body: its consts and static, then the branch, then any argument.
-    for body in expected.split(") => {{").skip(1) {
-        let branch = body.find("if $crate::enabled(__CMUX_TRACE_CATEGORY) {").expect("the branch");
-        assert!(!body[..branch].contains("$arg"), "an argument is evaluated before the branch");
+    let ir = std::fs::read_to_string(&out).expect("reads the IR");
+    let _ = std::fs::remove_dir_all(out.parent().expect("its dir"));
+    let functions = [
+        "off_instant",
+        "off_async_begin",
+        "off_async_end",
+        "off_flow_out",
+        "off_counter",
+        "off_scope",
+    ];
+    for name in functions {
+        let body = ir_function(&ir, name);
+        let shown = body.join("\n");
+        let instructions: Vec<&str> = body[1..]
+            .iter()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty() && !line.ends_with(':') && !line.starts_with(';'))
+            .collect();
+        let branch = instructions
+            .iter()
+            .position(|line| line.starts_with("br "))
+            .unwrap_or_else(|| panic!("{name} has no branch:\n{shown}"));
+        let entry = &instructions[..branch];
+        let loads: Vec<&&str> = entry.iter().filter(|line| line.contains(" load ")).collect();
+        assert_eq!(loads.len(), 1, "{name} loads more than the category word first:\n{shown}");
+        assert!(
+            loads[0].contains("load atomic") && loads[0].contains("monotonic"),
+            "{name}'s first load is not one relaxed atomic load:\n{shown}"
+        );
+        assert!(
+            // The lifetime markers of a scope's guard are intrinsics, not code.
+            !entry.iter().any(|line| (line.contains("call ") || line.contains("invoke "))
+                && !line.contains("@llvm.lifetime.")),
+            "{name} calls before its branch:\n{shown}"
+        );
+        assert!(
+            instructions[branch].starts_with("br i1 "),
+            "{name}'s entry does not end in a conditional branch:\n{shown}"
+        );
+        let atomic_loads = instructions.iter().filter(|line| line.contains("load atomic")).count();
+        assert_eq!(atomic_loads, 1, "{name} reads the category word again:\n{shown}");
     }
 }

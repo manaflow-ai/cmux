@@ -18,13 +18,9 @@
 //! record. Arguments are numbers ([`TraceArg`]) and are evaluated only while the category records.
 //!
 //! A category that is off costs one relaxed load and one branch ([`crate::enabled`]), as Chrome's
-//! `category_group_enabled` read does. A [`trace_scope!`](crate::trace_scope) that is off adds one
-//! branch on its guard's own field when the guard drops, as Chrome's `ScopedTracer` destructor
-//! does. The macro templates, which `tests/macros.rs` checks against this file:
-//!
-//! ```text
-#![doc = include_str!("../tests/snapshots/macro_expansion.txt")]
-//! ```
+//! `category_group_enabled` read does; a [`trace_scope!`](crate::trace_scope) that is off returns a
+//! guard whose drop the optimizer folds away. `tests/macros.rs` compiles a call site of each macro
+//! (`tests/fixtures/off_path.rs`) with `-C opt-level=3` and checks that in its LLVM IR.
 //!
 //! [`trace_scope!`](crate::trace_scope) also keeps the thread's innermost open scopes on a fixed
 //! stack ([`scope_stack`]), for the panic lines (task 082) and the crash-key page (task 098).
@@ -208,21 +204,20 @@ trace_arg_bits!(usize, i8, i16, i32, i64, isize);
 /// [`ScopeStack::depth`]).
 pub const SCOPE_STACK_DEPTH: usize = 16;
 
-/// The slots of a thread's stack: a scope at depth `d` takes slot `d`, and every scope deeper than
-/// the last slot takes the last one, so the innermost scope is always held.
-const SCOPE_SLOTS: usize = 2 * SCOPE_STACK_DEPTH;
-const LAST_SLOT: usize = SCOPE_SLOTS - 1;
+/// The depths a thread's stack holds: a scope at depth `d` takes slot `d`, with the push that put
+/// it there, so a guard knows whether its scope is still on the stack. A scope opened deeper than
+/// the last slot is not held and leaves the stack alone (a thread that deep is a runaway
+/// recursion; the stack names the scopes up to it).
+pub const SCOPE_SLOTS: usize = 64;
 
 /// What a slot holds: a scope and the thread's push count when it went there.
 type Slot = (Option<&'static TraceSite>, u64);
 
-/// Where a scope went on its thread's stack: its depth, its push, and what its slot held before
-/// (a scope deeper than the last slot gives it back when it closes).
+/// Where a scope went on its thread's stack: its depth and its push.
 #[derive(Clone, Copy, Debug)]
 struct ScopePlace {
     index: u32,
     push: u64,
-    covered: Slot,
 }
 
 /// A thread's open scopes.
@@ -233,32 +228,24 @@ struct Scopes {
 }
 
 impl Scopes {
-    fn push(&self, site: &'static TraceSite) -> ScopePlace {
+    /// Puts `site` on top of the stack; None when the stack is full.
+    fn push(&self, site: &'static TraceSite) -> Option<ScopePlace> {
         let index = self.depth.get();
+        let slot = self.slots.get(index as usize)?;
         let push = self.pushed.get().wrapping_add(1);
-        let covered = self.slots[(index as usize).min(LAST_SLOT)].replace((Some(site), push));
+        slot.set((Some(site), push));
         self.pushed.set(push);
-        self.depth.set(index.saturating_add(1));
-        ScopePlace { index, push, covered }
+        self.depth.set(index + 1);
+        Some(ScopePlace { index, push })
     }
 
     /// Takes the scope at `place` and the ones above it off the stack, when it is still there: a
     /// scope dropped out of order took it off already, and another scope may hold its depth now.
     fn pop(&self, place: ScopePlace) {
-        let depth = self.depth.get();
-        if place.index >= depth {
-            return;
+        let index = place.index as usize;
+        if place.index < self.depth.get() && self.slots[index].get().1 == place.push {
+            self.depth.set(place.index);
         }
-        let slot = (place.index as usize).min(LAST_SLOT);
-        // The last slot holds only the innermost of the scopes that share it; one under it truncates.
-        let holds_it = slot < LAST_SLOT || place.index + 1 == depth;
-        if holds_it && self.slots[slot].get().1 != place.push {
-            return;
-        }
-        if place.index as usize > LAST_SLOT {
-            self.slots[LAST_SLOT].set(place.covered);
-        }
-        self.depth.set(place.index);
     }
 }
 
@@ -277,7 +264,7 @@ struct OpenScope {
     site: &'static TraceSite,
     /// The ring its begin went into; None when the begin was not written.
     ring: Option<RingId>,
-    /// None when the thread's TLS was already destroyed.
+    /// None when the thread's TLS was already destroyed or its stack was full.
     place: Option<ScopePlace>,
     end: (u64, u64),
 }
@@ -317,7 +304,7 @@ impl ScopeGuard {
     #[inline(never)]
     pub fn begin(site: &'static TraceSite, arg0: u64, arg1: u64) -> ScopeGuard {
         let ring = site.write(Phase::Begin, 0, arg0, arg1, None);
-        let place = SCOPES.try_with(|scopes| scopes.push(site)).ok();
+        let place = SCOPES.try_with(|scopes| scopes.push(site)).ok().flatten();
         ScopeGuard {
             open: Some(OpenScope { site, ring, place, end: (0, 0) }),
             not_send: PhantomData,
@@ -350,13 +337,13 @@ pub struct ScopeStack {
 }
 
 impl ScopeStack {
-    /// How many scopes are open, those past [`SCOPE_STACK_DEPTH`] too.
+    /// How many scopes are open, those past [`SCOPE_STACK_DEPTH`] too, up to [`SCOPE_SLOTS`].
     pub fn depth(&self) -> u32 {
         self.depth
     }
 
-    /// The named scopes, innermost first: the innermost [`SCOPE_STACK_DEPTH`] (past 32 open
-    /// scopes, the innermost one and the 15 below the 32nd).
+    /// The named scopes, innermost first: the innermost [`SCOPE_STACK_DEPTH`] of the
+    /// [`SCOPE_SLOTS`] the stack holds.
     pub fn sites(&self) -> impl Iterator<Item = &'static TraceSite> + '_ {
         self.sites.iter().filter_map(|site| *site)
     }
@@ -373,9 +360,8 @@ pub fn scope_stack() -> ScopeStack {
     SCOPES
         .try_with(|scopes| {
             let depth = scopes.depth.get();
-            let held = (depth as usize).min(SCOPE_SLOTS);
             let mut sites = [None; SCOPE_STACK_DEPTH];
-            for (site, slot) in sites.iter_mut().zip((0..held).rev()) {
+            for (site, slot) in sites.iter_mut().zip((0..depth as usize).rev()) {
                 *site = scopes.slots[slot].get().0;
             }
             ScopeStack { sites, depth }
