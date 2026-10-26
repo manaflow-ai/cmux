@@ -671709,6 +671709,72 @@
             "state": "translated",
             "value": "[cmux] 這次還原略過了較舊的終端機輸出。快照只保留最新的 4,000 行或 400,000 個字元。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Stariji izlaz terminala izostavljen je iz ovog vraćanja. Snimci stanja čuvaju posljednjih 4.000 redova ili 400.000 znakova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ældre terminaloutput blev udeladt fra denne gendannelse. Snapshots gemmer de seneste 4.000 linjer eller 400.000 tegn."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] L'output del terminale meno recente è stato omesso da questo ripristino. Le istantanee conservano le ultime 4.000 righe o 400.000 caratteri."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] លទ្ធផល terminal ចាស់ៗមិនត្រូវបានបញ្ចូលក្នុងការស្ដារនេះទេ។ Snapshot រក្សាទុកតែ 4,000 បន្ទាត់ ឬ 400,000 តួអក្សរចុងក្រោយប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eldre terminalutdata ble utelatt fra denne gjenopprettingen. Øyeblikksbilder beholder de siste 4 000 linjene eller 400 000 tegnene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Starsze dane wyjściowe terminala zostały pominięte w tym przywróceniu. Migawki przechowują ostatnie 4000 wierszy lub 400 000 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A saída mais antiga do terminal foi omitida desta restauração. Os snapshots mantêm as últimas 4.000 linhas ou 400.000 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Более старый вывод терминала не вошёл в это восстановление. Снимки хранят последние 4000 строк или 400 000 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืนครั้งนี้ไม่ได้รวมเอาต์พุตเทอร์มินัลที่เก่ากว่า สแนปช็อตจะเก็บเฉพาะ 4,000 บรรทัดหรือ 400,000 อักขระล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Daha eski terminal çıktısı bu geri yüklemeye dahil edilmedi. Anlık görüntüler en son 4.000 satırı veya 400.000 karakteri saklar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Старіший вивід термінала не ввійшов до цього відновлення. Знімки зберігають останні 4000 рядків або 400 000 символів."
+          }
         }
       }
     }
