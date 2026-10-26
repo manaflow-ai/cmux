@@ -27,6 +27,10 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
+# Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
+cmux-memory.workspace = true
+# The daemon's feature lists (CMUX_ENABLE_FEATURES): `memoryAcpmuxPressure`.
+cmux-features.workspace = true
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true

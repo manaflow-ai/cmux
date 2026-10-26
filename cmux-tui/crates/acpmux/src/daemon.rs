@@ -298,6 +298,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
+    // with the `memoryAcpmuxPressure` feature on.
+    hub.memory().watch_if_enabled();
     // Temporary folders of sessions this daemon no longer has, before the
     // socket serves (`agent/session_tmp.rs`).
     #[cfg(unix)]
