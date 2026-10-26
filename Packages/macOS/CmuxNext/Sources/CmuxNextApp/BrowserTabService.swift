@@ -120,8 +120,9 @@ final class BrowserTabService {
         let surface: SurfaceID
     }
 
-    init(daemon local: DaemonService, cef: CEFEngine) {
-        offTheRecord = cef.stores.offTheRecord
+    /// - Parameter chromium: The App's Chromium engine slot: its stores now; the engine at the first Chromium question.
+    init(daemon local: DaemonService, chromium: ChromiumEngineSlot) {
+        offTheRecord = chromium.stores.offTheRecord
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
@@ -163,11 +164,7 @@ final class BrowserTabService {
             return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { _ in nil }
-        cefUnavailable = { [weak cef] in
-            // `?? .notBundled` on the optional chain would turn "available" (nil) into notBundled.
-            guard let cef else { return .notBundled }
-            return cef.unavailableReason
-        }
+        cefUnavailable = { [chromium] in chromium.engine.unavailableReason }  // the cache owns both: no cycle
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
         // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
         // every tab here made those passes quadratic in the tabs (space-switch-fast).
