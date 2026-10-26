@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "build": "4032307340502",
+  "notes": "notes/4032307340502.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23393,
+      "title": "Chief Stop all toast: show subagents that could not be stopped and the starting note",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24228,
+      "title": "glass lints: native popup hosts and popup page roots must show the glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24341,
+      "title": "Close a sidebar selection as one batch: one pass, one question, one undo",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24341/cap-e5b00449-steps-4441620e5c.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 25454,
+      "title": "fix(acpmux): satisfy rustc 1.97 clippy in the harness transfer code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25414,
+      "title": "cmux NEXT Cloud: the agent ask and runs registry behind start-session (1/2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25436,
+      "title": "ci: fast gates and gallery writers skip drafts; CI_QUOTA_HOLD for review links",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25432,
+      "title": "test(cmux-next): the nightly-runner guard evaluates runs-on instead of comparing it to a list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25443,
+      "title": "acpmux: the sandbox init helper builds on musl, and the adopt lookup takes a poisoned lock instead of unwrapping (two base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25426,
+      "title": "Home: who else has a Chief chat open, as the agent chat's faces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24530,
+      "title": "cmux NEXT model menu: one row per model, its provider at the row's end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25388,
+      "title": "cmux NEXT daemon update: acpmux ssh peers as update targets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23008,
+      "title": "cmux NEXT: composer list numbers no longer cut off on the left",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25283,
+      "title": "cmux NEXT: automatic update download and install is opt-in on stable, with a quiet Update Available button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21992,
+      "title": "Confirm server network enrollment with the backend",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25424,
+      "title": "acpmux: a question answered in the pane counts on another machine under the person's proof (re-cut of #23869, daemon side)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25444,
+      "title": "cmux NEXT theme: Rust, web and harness ports take #23441's ink and popup rules, checked against the Swift vectors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23826,
+      "title": "Agent chat: a drag selects the words under the pointer, not the line above",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23695,
+      "title": "cmux NEXT: a window closed during the launch restore stays closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24742,
+      "title": "cmux NEXT: add fail-closed Labs GCP provider seam",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25438,
+      "title": "cmux NEXT theme: Swift ink and popup vectors for every bundled theme, written by the spec tool",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25210,
+      "title": "feat(acpmux): transfer cmux-harness durable sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21928,
+      "title": "Finish network enrollment in server pairing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25381,
+      "title": "acpmux: _acpmux/retry with subagentId resumes that failed subagent now, in the same session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25382,
+      "title": "cmux NEXT: restart the local cmux-tui by itself when it stays alive but never answers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25342,
+      "title": "cmux NEXT: a cmux://session link from another app asks before it opens a new agent tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25431,
+      "title": "acpmux: the queue list names a teammate's queued prompt's author (chat multiplayer)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24633,
+      "title": "feat(cmux-next): trim sidebar workspace row menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25428,
+      "title": "fix(composer): keep Fast mode available on New Tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25379,
+      "title": "cmux NEXT: restart this app's acpmux when it stays alive but stops answering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25375,
+      "title": "agent session attach: typing, view and presence for a chat of another machine (chat multiplayer)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25384,
+      "title": "acpmux: Linux sandbox D2/7: the in-sandbox init helper (listener handoff, proxy env, fd cleanup, filter, exec)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25425,
+      "title": "acpmux: host update --keep-newer never moves a peer back past its own self-update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25387,
+      "title": "cmux NEXT: one queue that brings other machines' daemons to the app's build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25316,
+      "title": "cmux NEXT composer: shared searchable destinations",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
