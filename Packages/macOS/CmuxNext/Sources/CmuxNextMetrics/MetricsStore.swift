@@ -17,11 +17,15 @@ import Darwin
 /// - An expired histogram (``HistogramID/Expiry``, by the profile's build day) and Chromium's own have no block
 ///   and record nothing.
 /// - Each block has a "logged" shadow of its counters. ``delta()`` reads current minus logged, and
-///   ``markLogged(_:)`` adds an uploaded delta to the shadow, so each sample is sent once.
+///   ``markLogged(_:)`` adds an uploaded delta to the shadow, so each sample is sent once. Both run under the
+///   store's shadow lock, as Chrome takes `StatisticsRecorder`'s snapshot lock around a delta
+///   (base/metrics/statistics_recorder.cc); records never take it.
 /// - ``adoptFile(directory:)`` (blocking file work, BackgroundWork `.files`) renames the spare or creates
-///   `metrics-<role>-<pid>.bin`, writes the header and directory, swaps the writers to it and adds the heap's
-///   counters into it. A record whose writer read the heap address before the swap and adds after the fold is
-///   lost. The file stays mapped while the store lives; an attached store lives as long as its process.
+///   `metrics-<role>-<pid>.bin` and writes the header and directory outside the lock. Under the lock it swaps
+///   the writers to the file and adds the heap's counters and logged shadow into it, so a delta or a mark sees
+///   the whole heap block or the whole file block, never one half-folded. A record whose writer read the heap
+///   address before the swap and adds after the fold is lost. The file stays mapped while the store lives; an
+///   attached store lives as long as its process.
 ///
 /// File layout (little-endian; the Rust writers of task 131 use the same):
 ///
@@ -73,6 +77,9 @@ public final class MetricsStore: Sendable {
     private let fileAddress = Atomic<UInt64>(0)
     /// 0 before adoption, 1 while it runs, 2 after it succeeded.
     private let adoption = Atomic<UInt64>(0)
+    /// The block whose logged shadow ``delta()`` and ``markLogged(_:)`` use: the heap, then the file. The adoption
+    /// changes it in the same critical section as its swap and fold.
+    private let shadow: Mutex<UInt>
 
     /// A store whose counters start on the heap; no file work. Attach it to the process's runtime with
     /// ``attach(to:)`` so every ``Metrics`` of the process records into it.
@@ -101,6 +108,7 @@ public final class MetricsStore: Sendable {
         histograms = layout.entries.map(\.id)
         slots = layout.slots
         heapAddress = UInt(bitPattern: heap)
+        shadow = Mutex(UInt(bitPattern: heap))
         activeAddress.store(UInt64(heapAddress), ordering: .releasing)
     }
 
@@ -142,20 +150,26 @@ public final class MetricsStore: Sendable {
     // MARK: delta upload
 
     /// What was recorded since the last ``markLogged(_:)``: current minus logged, per histogram with samples.
+    /// Waits while an adoption folds the heap into the file.
     public func delta() -> MetricsDelta {
-        activeImage?.delta() ?? MetricsDelta(profile: profile, histograms: [])
+        shadow.withLock { address in
+            shadowImage(at: address)?.delta() ?? MetricsDelta(profile: profile, histograms: [])
+        }
     }
 
     /// Adds an uploaded `delta` (from ``delta()``) to the logged shadow, so the next delta leaves its samples out.
-    /// One owner (the report uploader) calls it, once per delta, after the upload succeeded.
+    /// One owner (the report uploader) calls it, once per delta, after the upload succeeded. Waits while an
+    /// adoption folds the heap into the file.
     public func markLogged(_ delta: MetricsDelta) {
-        activeImage?.markLogged(delta)
+        shadow.withLock { address in
+            guard let image = shadowImage(at: address) else { return }
+            image.markLogged(delta)
+        }
     }
 
-    /// The active block, heap or file (always a valid image: this store wrote its header).
-    private var activeImage: MetricsImage? {
-        UnsafeMutableRawPointer(bitPattern: UInt(activeAddress.load(ordering: .acquiring)))
-            .flatMap { MetricsImage(validating: $0, byteCount: byteCount) }
+    /// The block at `address`, heap or file (always a valid image: this store wrote its header).
+    private func shadowImage(at address: UInt) -> MetricsImage? {
+        UnsafeMutableRawPointer(bitPattern: address).flatMap { MetricsImage(validating: $0, byteCount: byteCount) }
     }
 
     // MARK: file
@@ -174,9 +188,9 @@ public final class MetricsStore: Sendable {
     public var isFileBacked: Bool { adoption.load(ordering: .acquiring) == 2 }
 
     /// Moves the counters into `directory`/``fileName(role:pid:)``: renames the role's spare when it has this
-    /// store's size or creates the file, maps it `MAP_SHARED`, writes the header and directory, swaps the writers
-    /// to it, then adds the heap's counters into it. Blocking file work: BackgroundWork `.files`, never main.
-    /// One-shot: a second call returns nil.
+    /// store's size or creates the file, maps it `MAP_SHARED`, writes the header and directory, then, under the
+    /// shadow lock, swaps the writers to it and adds the heap's counters and logged shadow into it. Blocking file
+    /// work: BackgroundWork `.files`, never main. One-shot: a second call returns nil.
     ///
     /// - Returns: The file's path, or nil when the counters stay on the heap.
     @discardableResult
@@ -190,13 +204,18 @@ public final class MetricsStore: Sendable {
             return nil
         }
         file.copyMemory(from: image, byteCount: image.count)
-        fileAddress.store(UInt64(UInt(bitPattern: file)), ordering: .releasing)
-        activeAddress.store(UInt64(UInt(bitPattern: file)), ordering: .releasing)
+        let fileWord = UInt(bitPattern: file)
+        fileAddress.store(UInt64(fileWord), ordering: .releasing)
         let heap = UnsafeMutableRawPointer(bitPattern: heapAddress)?.assumingMemoryBound(to: UInt64.self)
         let words = file.assumingMemoryBound(to: UInt64.self)
-        for word in image.count / 8 ..< byteCount / 8 {
-            let value = heap.map { AtomicPointerSlot($0 + word).load(ordering: .relaxed) } ?? 0
-            if value != 0 { AtomicPointerSlot(words + word).add(value, ordering: .relaxed) }
+        let blockWords = image.count / 8 ..< byteCount / 8
+        shadow.withLock { address in
+            activeAddress.store(UInt64(fileWord), ordering: .releasing)
+            for word in blockWords {
+                let value = heap.map { AtomicPointerSlot($0 + word).load(ordering: .relaxed) } ?? 0
+                if value != 0 { AtomicPointerSlot(words + word).add(value, ordering: .relaxed) }
+            }
+            address = fileWord
         }
         adoption.store(2, ordering: .releasing)
         return path

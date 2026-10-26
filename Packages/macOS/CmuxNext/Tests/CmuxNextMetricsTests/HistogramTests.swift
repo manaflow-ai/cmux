@@ -165,6 +165,54 @@ struct HistogramTests {
         #expect(first.profile == Self.profile())
     }
 
+    /// What an uploader sent: the marked deltas' totals and the largest count one delta held.
+    private struct Uploads: Sendable {
+        var count: UInt64 = 0
+        var sum: UInt64 = 0
+        var largest: UInt64 = 0
+        var deltas = 0
+
+        /// Takes a delta of `.mainTurn` and marks it logged, as the report uploader does after an upload.
+        mutating func upload(from store: MetricsStore) {
+            let delta = store.delta()
+            guard let turn = delta.histograms.first(where: { $0.name == HistogramID.mainTurn.name }) else { return }
+            count += turn.count
+            sum += turn.sum
+            largest = max(largest, turn.count)
+            deltas += 1
+            store.markLogged(delta)
+        }
+
+        /// Uploads in a loop until `store` is file-backed.
+        static func untilAdopted(_ store: MetricsStore) -> Uploads {
+            var uploads = Uploads()
+            while !store.isFileBacked { uploads.upload(from: store) }
+            return uploads
+        }
+    }
+
+    /// The adoption folds the heap's counters and logged shadow into the file while an uploader takes and marks
+    /// deltas on another thread: a delta must never see the file half folded (a count of about 2^64 from current 0
+    /// minus logged 10) and a mark must never land in the heap after the fold read it (its samples sent again).
+    @Test("Deltas marked while the adoption folds the heap into the file send each sample once")
+    func deltasDuringAdoptionSendEachSampleOnce() async throws {
+        let records = 2_000
+        let expectedSum = (0 ..< records).reduce(UInt64(0)) { $0 + UInt64($1) }
+        for _ in 0 ..< 50 {
+            let directory = Self.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(atPath: directory) }
+            let (metrics, store) = Self.attachedStore()
+            async let uploading = Uploads.untilAdopted(store)
+            for index in 0 ..< records { metrics.record(.mainTurn, Int64(index)) }
+            _ = try #require(store.adoptFile(directory: directory))
+            var uploads = await uploading
+            uploads.upload(from: store)
+            #expect(uploads.largest <= UInt64(records), "a delta never holds more samples than were recorded")
+            #expect(uploads.count == UInt64(records) && uploads.sum == expectedSum, "each sample is sent once")
+            #expect(store.delta().isEmpty)
+        }
+    }
+
     // MARK: record path
 
     @Test("A thousand records make no heap allocation")
