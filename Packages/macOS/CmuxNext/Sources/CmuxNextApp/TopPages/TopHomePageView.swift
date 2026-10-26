@@ -41,9 +41,9 @@ final class TopHomePageView: NSView {
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
     /// The conversation the page opened by itself, which a later Chief replaces (``followUp``).
-    /// What the person picked is never this, so it is never taken off them. Both observations set
-    /// it: the list's first fallback opens one too.
-    private var followedChief: String?
+    /// What the person picked is never this, so it is never taken off them: ``show(_:)`` clears it
+    /// and only the two observations that open one themselves set it again.
+    private(set) var followedChief: String?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
@@ -240,8 +240,9 @@ final class TopHomePageView: NSView {
                 }
                 let next = Self.followUp(chief: chief, shown: shown, followed: followedChief,
                                          composing: isComposingNewMessage, rows: rows, home: home)
-                followedChief = next.followed
+                // After the open, which clears it: every other ``show(_:)`` is the person's.
                 if let open = next.open { show(open) }
+                followedChief = next.followed
             }
         }
         let auth = home.services.cloud.auth
@@ -383,6 +384,11 @@ final class TopHomePageView: NSView {
     /// Shows `id` in the transcript column and selects it in the list (the
     /// New Message row shows the New Message page).
     func show(_ id: ConversationID) {
+        // Whatever the page was following, it is not following it now. The two observations that
+        // open a conversation by themselves set ``followedChief`` again right after this call, so
+        // every other way in here (the list, the palette, an action, a close's neighbour) is the
+        // person's choice and a Chief that arrives later leaves it alone.
+        followedChief = nil
         guard id != HomeSidebarView.draftRowID else { return presentNewMessage() }
         list.select(id)
         let leftNewMessage = leaveNewMessage()

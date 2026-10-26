@@ -297,6 +297,48 @@ import Testing
     }
 
     /// Watches a stand-in brain, ends it and counts the watch's restarts.
+    /// A watch the keeper replaces (an ask after a launch that printed no pid) is stopped first. A
+    /// watch that is only dropped runs no cancel handler, so the descriptors its lock sources hold
+    /// would live until the app quits, one pair per retry (review of #23984).
+    ///
+    /// `connection` is nil here, so the ask's start returns before any work: reaching the
+    /// replacement through a real start would run `HomeBrainHost.start`, which adopts this Mac's
+    /// build homes and moves its acpmux, which no test may do.
+    @Test func anAskStopsTheWatchItReplaces() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-keeper-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        // A lock an earlier host left, naming a pid that is no host: both lock sources arm and no
+        // host is watched, which is what a launch that printed no pid leaves behind.
+        try Data("999999\n".utf8).write(to: state.appendingPathComponent("host.lock"))
+        let replaced = ChiefBrainWatch(home: home, restart: { nil }, isChiefHost: { _ in false })
+        replaced.watch(nil)
+        #expect(replaced.lockSourceOpens == 2, "the folder and the stale lock are watched")
+        #expect(!replaced.isWatching, "and no host is watched, so an ask replaces this watch")
+
+        // `canStart` needs an executable to find and the agent kill switch off; otherwise the ask
+        // returns before the replacement and this test would pass without watching anything.
+        let launch = ProcessInfo.processInfo.environment["ACPMUX_AGENT_LAUNCH"]
+        let disabled = ProcessInfo.processInfo.environment["CMUX_AGENTS_DISABLED"]
+        setenv("CMUX_NEXT_MUX_HOST", "/usr/bin/true", 1)
+        unsetenv("ACPMUX_AGENT_LAUNCH")
+        unsetenv("CMUX_AGENTS_DISABLED")
+        defer {
+            unsetenv("CMUX_NEXT_MUX_HOST")
+            if let launch { setenv("ACPMUX_AGENT_LAUNCH", launch, 1) }
+            if let disabled { setenv("CMUX_AGENTS_DISABLED", disabled, 1) }
+        }
+        #expect(HomeBrainHost.canStart(), "the ask reaches the replacement")
+        let keeper = ChiefBrainKeeper(home: home, connection: { nil }, resolveHost: { _ in nil },
+                                      mint: { _ in "" }, watch: replaced)
+        #expect(!keeper.ensure(asked: true), "no connection: the start does nothing")
+        #expect(keeper.watch == nil, "the watch is replaced")
+        #expect(replaced.isStopped, "and stopped on its way out, so its descriptors are closed")
+    }
+
     private func restartsAfterExit(shutdown: Bool) async throws -> Int {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)

@@ -28,16 +28,22 @@ public final class ChiefBrainKeeper {
     private let hostChanged: HostChanged?
     /// A start is in flight.
     private var starting = false
-    private var watch: ChiefBrainWatch?
+    /// The watch of the host this app keeps. Readable inside the package so the replacement path
+    /// below is under test: reaching it through a real start would run `HomeBrainHost.start`,
+    /// which adopts this Mac's build homes and moves its acpmux.
+    private(set) var watch: ChiefBrainWatch?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
+    /// - Parameter watch: the watch to start from, in place of the one a start would make. Only a
+    ///   test passes one; the app always starts with none.
     public init(home: ChiefHome, connection: @escaping Connection, resolveHost: @escaping ResolveHost,
-                mint: @escaping MintToken, hostChanged: HostChanged? = nil) {
+                mint: @escaping MintToken, hostChanged: HostChanged? = nil, watch: ChiefBrainWatch? = nil) {
         self.home = home
         self.connection = connection
         self.resolveHost = resolveHost
         self.mint = mint
         self.hostChanged = hostChanged
+        self.watch = watch
     }
 
     /// Starts the brain when none runs and none is starting; whether a host

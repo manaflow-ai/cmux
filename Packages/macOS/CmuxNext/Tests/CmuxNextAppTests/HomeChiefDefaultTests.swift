@@ -191,6 +191,18 @@ struct HomeChiefDefaultTests {
             == .init(open: nil, followed: "conv_hosted"))
     }
 
+    /// A conversation the person opens is not one the page follows, so a Chief that arrives later
+    /// never takes them off it — not even the conversation the page's own first fallback had
+    /// opened, which they may come back to (review of #23984, finding 1).
+    @Test func openingAConversationEndsWhatThePageFollows() async throws {
+        let services = Self.services()
+        services.home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted))
+        let page = TopHomePageView(services: services, windowKey: { "chief-follow" })
+        #expect(page.followedChief == "conv_hosted", "the page follows the Chief it would open itself")
+        page.show(CmuxHomeCore.ConversationID("conv_ada"))
+        #expect(page.followedChief == nil, "the person opened one: the page follows nothing now")
+    }
+
     /// The Engine row is watched, not only the preferred Chief's id: before the cloud read lands
     /// and with this Mac's Chief not listed, there is no Chief to open either side of the change,
     /// so a page that watched the id alone would never reconcile what it had opened by itself
