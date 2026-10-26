@@ -85,7 +85,7 @@ public final class AgentPageWarmup {
 
     /// - Parameter chromiumChat: Whether the agent chat may run in Chromium (the app passes
     ///   `AgentPaneTunables.chromium`'s value). Every engine decision of the warm-up
-    ///   (``agentPagesShowInWebKit(webUI:)``) reads this one seam.
+    ///   (each ``start(webUI:)``) reads this one seam.
     public init(chromiumChat: @escaping @MainActor () -> Bool) {
         self.chromiumChat = chromiumChat
     }

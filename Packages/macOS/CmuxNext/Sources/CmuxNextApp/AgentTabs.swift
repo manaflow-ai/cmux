@@ -105,7 +105,7 @@ final class AgentTabStore {
     /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
     /// (`HomeService.postLaunchFeeds`, p08-startup-027).
     var pageShown: @MainActor () -> Void = {}
-    /// Agent tabs whose view waits for the launch's first frame (`deferAtLaunch`).
+    /// Agent tabs whose view waits for its launch post (`deferAtLaunch`).
     let launchDeferred = LaunchViewQueue()
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
