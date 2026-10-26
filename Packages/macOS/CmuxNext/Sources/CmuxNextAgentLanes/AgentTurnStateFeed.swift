@@ -93,8 +93,8 @@ public final class AgentTurnStateFeed {
         // line (MainActorLineBatch). The main actor only sets the states that changed.
         connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
-            let started = ContinuousClock.now
-            defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
+            let started = SuspendingClock.now
+            defer { Self.drained?(drain.values.count, SuspendingClock.now - started) }
             for message in drain.values { handle(message) }
             // Dropped lines leave the states incomplete: reconnect for a fresh page.
             if drain.overflowed, !drain.closed { connection.cancel() }

@@ -23,7 +23,7 @@ enum DebugFrameStrip {
         let dir = params["dir"]?.stringValue ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("frame-strip-\(UUID().uuidString)")
         // The app's bench marks around the key come back with the frames (`spans`, ms from the key).
         BenchSpans.begin()
-        let start = ContinuousClock.now
+        let start = SuspendingClock.now
         // `crop: "strip"`: only the focused pane's tab strip is kept (full scale stays cheap); the report
         // then measures the strip alone.
         let cropsStrip = params["crop"]?.stringValue == "strip"

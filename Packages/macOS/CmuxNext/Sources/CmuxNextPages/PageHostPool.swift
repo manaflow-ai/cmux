@@ -54,7 +54,7 @@ public final class PageHostPool {
     /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
     ///   source it drives); a warning or critical level drops the parked spare.
     public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
-                clock: any Clock<Duration> = ContinuousClock(),
+                clock: any Clock<Duration> = SuspendingClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
         self.memoryPressure = memoryPressure
@@ -91,7 +91,7 @@ public final class PageHostPool {
             scheduleBuild()
             return nil
         }
-        let start = ContinuousClock.now
+        let start = SuspendingClock.now
         spare = nil
         spareReady = false
         claimed[ObjectIdentifier(host)] = WeakHost(host)
@@ -153,8 +153,8 @@ public final class PageHostPool {
         if claims.count > Self.maximumRecords { claims.removeFirst(claims.count - Self.maximumRecords) }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+    static func milliseconds(since start: SuspendingClock.Instant) -> Double {
+        let (seconds, attoseconds) = (SuspendingClock.now - start).components
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 }

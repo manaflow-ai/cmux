@@ -248,7 +248,7 @@ public final class NewTerminalTrace: Sendable {
     /// The timeout is the command's own deadline, not a poll.
     public func waitForPrompt(timeout: Duration) async -> Bool {
         let deadline = Task { [self] in
-            guard (try? await ContinuousClock().sleep(for: timeout)) != nil else { return }
+            guard (try? await SuspendingClock().sleep(for: timeout)) != nil else { return }
             expire()
         }
         defer { deadline.cancel() }

@@ -38,7 +38,7 @@ public nonisolated struct WindowFrame: Sendable {
 
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
     /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
+    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: SuspendingClock.Instant,
                                          until: Double) async -> [WindowFrame] {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
@@ -118,8 +118,8 @@ public nonisolated struct WindowFrame: Sendable {
         return Double(near) / Double(total)
     }
 
-    static func elapsed(since start: ContinuousClock.Instant) -> Double {
-        let elapsed = ContinuousClock.now - start
+    static func elapsed(since start: SuspendingClock.Instant) -> Double {
+        let elapsed = SuspendingClock.now - start
         return Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
     }
 

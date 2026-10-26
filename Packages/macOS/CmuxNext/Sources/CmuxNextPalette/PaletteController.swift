@@ -39,9 +39,9 @@ public final class PaletteController {
     /// at the start of each open so ``PaletteOpenTiming/input`` covers the key
     /// router's time before the palette runs.
     public var openingEventTimestamp: (() -> TimeInterval?)?
-    private var openStarted: ContinuousClock.Instant?
+    private var openStarted: SuspendingClock.Instant?
     private var openInput: Duration = .zero
-    private var modelReady: ContinuousClock.Instant?
+    private var modelReady: SuspendingClock.Instant?
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []
@@ -275,7 +275,7 @@ public final class PaletteController {
         var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
         while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
-        let panelDone = ContinuousClock.now
+        let panelDone = SuspendingClock.now
         presentationGeneration += 1
         registry.context.insert(.paletteOpen)
         if isVisible {
@@ -300,9 +300,9 @@ public final class PaletteController {
         contentView?.focusField()
         contentView?.animateIn()
         if let onPresented {
-            let presented = ContinuousClock.now
+            let presented = SuspendingClock.now
             CATransaction.setMainCompletion {
-                let committed = ContinuousClock.now
+                let committed = SuspendingClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
                     present: panelDone.duration(to: presented), commit: presented.duration(to: committed),

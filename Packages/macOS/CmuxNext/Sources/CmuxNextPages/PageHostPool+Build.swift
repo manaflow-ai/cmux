@@ -60,7 +60,7 @@ extension PageHostPool {
     }
 
     private func measure<T>(_ name: String, _ body: () -> T) -> T {
-        let start = ContinuousClock.now
+        let start = SuspendingClock.now
         let value = body()
         let milliseconds = Self.milliseconds(since: start)
         spans.append((name, milliseconds))

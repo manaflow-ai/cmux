@@ -148,7 +148,7 @@ public final class TerminalSurfaceView: NSView {
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
     private func createSurface(mode: ghostty_surface_io_mode_e) {
-        let started = ContinuousClock.now
+        let started = SuspendingClock.now
         let signpost = TerminalTimings.signposter.beginInterval("createSurface")
         defer {
             TerminalTimings.signposter.endInterval("createSurface", signpost)

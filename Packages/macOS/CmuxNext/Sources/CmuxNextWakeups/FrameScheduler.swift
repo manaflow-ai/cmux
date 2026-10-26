@@ -95,6 +95,9 @@ public final class FrameScheduler: NSObject {
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
+    /// The stall timer's clock. `SuspendingClock` by default: it is `CLOCK_UPTIME_RAW`, the clock of
+    /// `CACurrentMediaTime` and frame timestamps, so a stall deadline never counts system sleep
+    /// (Chromium's `base::TimeTicks`, base/time/time_mac.mm).
     private let clock: any Clock<Duration>
     private var madeInput: FrameInputCoalescer?
     private let stall: DemandTimer
@@ -116,7 +119,7 @@ public final class FrameScheduler: NSObject {
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
 
-    init(name: String, host: Host, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+    init(name: String, host: Host, clock: any Clock<Duration> = SuspendingClock(), ledger: WakeupLedger = .shared,
          mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
          makeLink: LinkFactory? = nil, budget: MainFrameBudget?) {
         self.budget = budget
@@ -137,7 +140,7 @@ public final class FrameScheduler: NSObject {
 
     /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``).
     /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
-    public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+    public static func testing(clock: any Clock<Duration> = SuspendingClock(), ledger: WakeupLedger = .shared,
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
         FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, mediaTime: mediaTime, makeLink: makeLink, budget: nil)

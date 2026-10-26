@@ -13,7 +13,7 @@ enum BenchSpans {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    private static var origin: ContinuousClock.Instant?
+    private static var origin: SuspendingClock.Instant?
     private(set) static var spans: [Span] = []
     static let capacity = 512
     #endif
@@ -40,7 +40,7 @@ enum BenchSpans {
     static func measure<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard let origin else { return try body() }
-        let start = ContinuousClock.now
+        let start = SuspendingClock.now
         defer {
             if spans.count < capacity {
                 spans.append(Span(name: name, start: Self.ms(start - origin), milliseconds: Self.ms(.now - start)))

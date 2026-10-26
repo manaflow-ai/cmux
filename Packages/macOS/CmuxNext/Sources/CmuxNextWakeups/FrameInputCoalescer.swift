@@ -70,7 +70,7 @@ public final class FrameInputCoalescer {
     public private(set) var frameFlushes = 0
 
     /// A coalescer on `scheduler` (a window's is ``FrameScheduler/input``). `clock` runs the fallback.
-    public init(scheduler: FrameScheduler, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
+    public init(scheduler: FrameScheduler, clock: any Clock<Duration> = SuspendingClock(), ledger: WakeupLedger = .shared) {
         self.scheduler = scheduler
         fallback = DemandTimer(owner: "FrameInputCoalescer.fallback", clock: clock, ledger: ledger)
     }

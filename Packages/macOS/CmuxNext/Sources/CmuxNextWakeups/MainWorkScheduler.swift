@@ -60,7 +60,7 @@ public final class MainWorkScheduler {
     ///   - clock: The stall deadline's clock.
     ///   - ledger: Where frames are recorded.
     ///   - makeLink: Makes the fake link.
-    public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
+    public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = SuspendingClock(),
                                ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),

@@ -64,9 +64,9 @@ public final class GhosttyRuntime {
     private var appearanceObservation: NSKeyValueObservation?
 
     private init() {
-        var phase = ContinuousClock.now
+        var phase = SuspendingClock.now
         func mark(_ name: String) {
-            let now = ContinuousClock.now
+            let now = SuspendingClock.now
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
