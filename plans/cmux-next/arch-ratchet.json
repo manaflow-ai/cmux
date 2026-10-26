@@ -585,6 +585,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helperPrototype) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextFeatures Feature.renderStarvationGuard (Features.generated.swift, p06-scheduler-004): an immutable Feature descriptor, not a stateful singleton. The installed hook copy of arch_counts.py resolves its `process: Feature.Process` field to Foundation's Process; this push's arch_counts.py makes a type the file declares shadow the system name, and the in-tree scripts/cmux-next/arch-ratchet.py --base origin/perf/chrome-parity reports no count rise. Drop this allowance once the hook copies include that fix."
     }
   ],
   "observer_wrappers": [
