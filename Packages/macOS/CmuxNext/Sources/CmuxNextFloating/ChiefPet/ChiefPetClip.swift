@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 import CoreGraphics
 import Foundation
 import ImageIO
