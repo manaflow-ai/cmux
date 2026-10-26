@@ -60,11 +60,18 @@ public struct CloudAPIClient: Sendable {
     /// `onSent` runs once the request goes on the wire (sign-in token and
     /// team resolved), so a caller can tell its request stage from the
     /// server's create.
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, idempotencyKey: String = UUID().uuidString,
+    /// `idlePauseMinutes`: the machine's idle auto-pause from its create (0 is Off, a persistent
+    /// machine); a server that does not store it answers without it (or with its default).
+    public func createMachine(displayName: String?, memoryMb: Int? = nil, idlePauseMinutes: Int? = nil,
+                              idempotencyKey: String = UUID().uuidString,
                               onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
         var body: [String: any Sendable] = [:]
         if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
         if let memoryMb { body["memoryMb"] = memoryMb }
+        if let idlePauseMinutes {
+            let value: any Sendable = idlePauseMinutes == 0 ? "off" : idlePauseMinutes
+            body["idlePauseMinutes"] = value
+        }
         return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
                               onSent: onSent, as: CloudMachine.self)
     }

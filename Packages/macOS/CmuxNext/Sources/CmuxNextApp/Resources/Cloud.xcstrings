@@ -15604,6 +15604,81 @@
           }
         }
       }
+    },
+    "cloud.cli.bootstrapScriptRequired": {
+      "comment": "cmux cloud new-machine: a bootstrap was asked for without its script file. Keep the flags as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A bootstrap needs its script: pass --bootstrap-script FILE with --bootstrap lane or none."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップにはスクリプトが必要です。--bootstrap lane または none と一緒に --bootstrap-script FILE を指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Bootstrap braucht sein Skript: Gib --bootstrap-script FILE zusammen mit --bootstrap lane oder none an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un bootstrap a besoin de son script : passez --bootstrap-script FILE avec --bootstrap lane ou none."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un bootstrap necesita su script: pasa --bootstrap-script FILE con --bootstrap lane o none."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يحتاج التمهيد إلى نصه البرمجي: مرّر ‎--bootstrap-script FILE مع ‎--bootstrap lane أو none."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩에는 스크립트가 필요합니다. --bootstrap lane 또는 none과 함께 --bootstrap-script FILE을 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导需要脚本：请将 --bootstrap-script FILE 与 --bootstrap lane 或 none 一起传入。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導需要腳本：請將 --bootstrap-script FILE 與 --bootstrap lane 或 none 一起傳入。"}}
+      }
+    },
+    "cloud.cli.bootstrapScriptUnreadable": {
+      "comment": "cmux cloud new-machine: the bootstrap script file can't be used. %@ is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Can't use the bootstrap script %@: it must be a readable file of at most 1 MB."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップスクリプト %@ を使用できません。1 MB 以下の読み取り可能なファイルである必要があります。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Das Bootstrap-Skript %@ kann nicht verwendet werden: Es muss eine lesbare Datei von höchstens 1 MB sein."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d’utiliser le script de bootstrap %@ : il doit s’agir d’un fichier lisible de 1 Mo au plus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se puede usar el script de bootstrap %@: debe ser un archivo legible de 1 MB como máximo."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام نص التمهيد %@: يجب أن يكون ملفًا قابلًا للقراءة لا يزيد حجمه على 1 ميغابايت."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩 스크립트 %@을(를) 사용할 수 없습니다. 1MB 이하의 읽을 수 있는 파일이어야 합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用引导脚本 %@：它必须是不超过 1 MB 的可读文件。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用引導腳本 %@：它必須是不超過 1 MB 的可讀檔案。"}}
+      }
+    },
+    "cloud.cli.laneNeedsName": {
+      "comment": "cmux cloud new-machine --bootstrap lane without --name. Keep the flag as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The lane bootstrap needs the machine's name: pass --name lane-vm-N."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "lane ブートストラップにはマシン名が必要です。--name lane-vm-N を指定してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Lane-Bootstrap braucht den Namen der Maschine: Gib --name lane-vm-N an."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bootstrap lane a besoin du nom de la machine : passez --name lane-vm-N."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El bootstrap lane necesita el nombre de la máquina: pasa --name lane-vm-N."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يحتاج تمهيد lane إلى اسم الجهاز: مرّر ‎--name lane-vm-N."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "lane 부트스트랩에는 머신 이름이 필요합니다. --name lane-vm-N을 지정하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "lane 引导需要机器名称：请传入 --name lane-vm-N。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "lane 引導需要機器名稱：請傳入 --name lane-vm-N。"}}
+      }
+    },
+    "cloud.cli.machineOptionsUnavailable": {
+      "comment": "cmux cloud new-machine --size or --persistent on a backend that can't take them. Keep the command names as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This Cloud backend can't set a new machine's size or idle pause yet. Create it without them, then use cloud resize-machine and cloud set-idle-pause."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud バックエンドでは、新しいマシンのサイズやアイドル時の一時停止をまだ設定できません。これらを指定せずに作成してから、cloud resize-machine と cloud set-idle-pause を使用してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dieses Cloud-Backend kann Größe und Pause bei Inaktivität einer neuen Maschine noch nicht festlegen. Erstelle sie ohne diese Angaben und verwende dann cloud resize-machine und cloud set-idle-pause."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce backend Cloud ne peut pas encore définir la taille ni la pause en cas d’inactivité d’une nouvelle machine. Créez-la sans, puis utilisez cloud resize-machine et cloud set-idle-pause."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Este backend de Cloud aún no puede fijar el tamaño ni la pausa por inactividad de una máquina nueva. Créala sin ellos y luego usa cloud resize-machine y cloud set-idle-pause."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا تستطيع خلفية Cloud هذه بعدُ ضبط حجم جهاز جديد أو إيقافه المؤقت عند الخمول. أنشئه بدونهما، ثم استخدم cloud resize-machine وcloud set-idle-pause."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 백엔드는 아직 새 머신의 크기나 유휴 시 일시 정지를 설정할 수 없습니다. 이 옵션 없이 만든 다음 cloud resize-machine과 cloud set-idle-pause를 사용하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 后端暂时无法设置新机器的大小或空闲暂停。请先不带这些选项创建，再使用 cloud resize-machine 和 cloud set-idle-pause。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 後端暫時無法設定新機器的大小或閒置暫停。請先不帶這些選項建立，再使用 cloud resize-machine 和 cloud set-idle-pause。"}}
+      }
+    },
+    "cloud.cli.machineNameInvalid": {
+      "comment": "cmux cloud new-machine: the --name value is not a plain name. Keep lane-vm-1 as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The machine's name must be 1 to 64 letters, digits, dots, dashes or underscores, such as lane-vm-1."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン名は英数字、ドット、ハイフン、アンダースコアの 1〜64 文字にしてください（例: lane-vm-1）。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Name der Maschine muss aus 1 bis 64 Buchstaben, Ziffern, Punkten, Bindestrichen oder Unterstrichen bestehen, etwa lane-vm-1."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le nom de la machine doit comporter de 1 à 64 lettres, chiffres, points, tirets ou traits de soulignement, par exemple lane-vm-1."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El nombre de la máquina debe tener de 1 a 64 letras, dígitos, puntos, guiones o guiones bajos, por ejemplo lane-vm-1."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يجب أن يتكوّن اسم الجهاز من 1 إلى 64 حرفًا أو رقمًا أو نقطة أو شرطة أو شرطة سفلية، مثل lane-vm-1."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 이름은 영문자, 숫자, 점, 하이픈, 밑줄로 된 1~64자여야 합니다(예: lane-vm-1)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器名称必须是 1 到 64 个字母、数字、点、连字符或下划线，例如 lane-vm-1。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器名稱必須是 1 到 64 個字母、數字、點、連字號或底線，例如 lane-vm-1。"}}
+      }
     }
   },
   "version": "1.0"
