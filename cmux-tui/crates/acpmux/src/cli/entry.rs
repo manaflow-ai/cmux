@@ -52,7 +52,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
-        return crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
+        crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
     }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);

@@ -1,6 +1,7 @@
 //! Initialize the Linux sandbox inside bubblewrap before the child execs.
 //! This process is single-threaded and runs before acpmux builds a tokio
-//! runtime. Every error exits 125, which is the spawn-refused status.
+//! runtime. Setup errors exit 125; a failed execv exits 127.
+//! Collection loops consume finite arguments, fd listings or environment keys.
 
 use std::ffi::{CString, OsString};
 use std::io;
@@ -24,6 +25,7 @@ fn fail(error: impl std::fmt::Display) -> ! {
     std::process::exit(125)
 }
 
+/// The argument loop stops at --, exhausted input, or the first parse error.
 fn parse(args: Vec<OsString>) -> Result<Options, String> {
     let values: Result<Vec<String>, _> = args.into_iter().map(|arg| arg.into_string()).collect();
     let values = values.map_err(|_| "arguments must be UTF-8".to_owned())?;
@@ -86,28 +88,27 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
     };
     let mut iov =
         libc::iovec { iov_base: payload.as_ptr() as *mut libc::c_void, iov_len: payload.len() };
-    let control_len = unsafe {
-        libc::CMSG_SPACE((std::mem::size_of::<RawFd>() * listeners.len()) as u32) as usize
-    };
-    let mut control = vec![0u8; control_len];
-    // SAFETY: control is CMSG_SPACE-sized and remains alive through sendmsg.
+    let fd_bytes = std::mem::size_of_val(listeners);
+    let control_len = unsafe { libc::CMSG_SPACE(fd_bytes as u32) as usize };
+    // usize storage provides cmsghdr alignment as well as enough space.
+    let mut control = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
+    // SAFETY: control is aligned, CMSG_SPACE-sized and lives through sendmsg.
     unsafe {
         let header = control.as_mut_ptr().cast::<libc::cmsghdr>();
         (*header).cmsg_level = libc::SOL_SOCKET;
         (*header).cmsg_type = libc::SCM_RIGHTS;
-        (*header).cmsg_len =
-            libc::CMSG_LEN((std::mem::size_of::<RawFd>() * listeners.len()) as u32) as usize;
+        (*header).cmsg_len = libc::CMSG_LEN(fd_bytes as u32) as usize;
         ptr::copy_nonoverlapping(
             listeners.as_ptr().cast::<u8>(),
             libc::CMSG_DATA(header),
-            std::mem::size_of::<RawFd>() * listeners.len(),
+            fd_bytes,
         );
         let mut message: libc::msghdr = std::mem::zeroed();
         message.msg_iov = &mut iov;
         message.msg_iovlen = 1;
         message.msg_control = control.as_mut_ptr().cast();
-        message.msg_controllen = control.len();
-        let sent = libc::sendmsg(fd, &message, libc::MSG_NOSIGNAL);
+        message.msg_controllen = control_len;
+        let sent = libc::sendmsg(fd, &message, libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT);
         if sent < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -118,10 +119,10 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
     Ok(())
 }
 
+/// A single poll stops on readiness, error, signal or its ten-second timeout.
+/// The following nonblocking recv cannot extend that timeout.
 fn wait_ack(fd: RawFd) -> Result<(), String> {
     let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-    // Stop condition: this single poll returns on one ack, hangup/error, or
-    // the ten-second deadline; it never waits indefinitely for the parent.
     let result = unsafe { libc::poll(&mut pollfd, 1, 10_000) };
     if result < 0 {
         return Err(format!("handoff poll: {}", io::Error::last_os_error()));
@@ -135,7 +136,7 @@ fn wait_ack(fd: RawFd) -> Result<(), String> {
         return Err("handoff closed before acknowledgement".into());
     }
     let mut byte = [0u8; 1];
-    let received = unsafe { libc::recv(fd, byte.as_mut_ptr().cast(), 1, 0) };
+    let received = unsafe { libc::recv(fd, byte.as_mut_ptr().cast(), 1, libc::MSG_DONTWAIT) };
     if received == 1 {
         Ok(())
     } else if received == 0 {
@@ -159,10 +160,10 @@ fn close_extra_fds() -> io::Result<()> {
     let mut descriptors = Vec::new();
     for entry in entries {
         let name = entry?.file_name();
-        if let Ok(fd) = name.to_string_lossy().parse::<RawFd>() {
-            if fd > 2 {
-                descriptors.push(fd);
-            }
+        if let Ok(fd) = name.to_string_lossy().parse::<RawFd>()
+            && fd > 2
+        {
+            descriptors.push(fd);
         }
     }
     for fd in descriptors {
@@ -192,15 +193,15 @@ fn set_proxy_environment(proxy: u16) {
     }
 }
 
-fn exec_program(program: String, args: Vec<String>) -> Result<(), String> {
+fn exec_program(program: String, args: Vec<String>) -> ! {
     if !Path::new(&program).is_absolute() {
-        return Err("program path must be absolute".into());
+        fail("program path must be absolute");
     }
-    let program = CString::new(program).map_err(|_| "program contains NUL")?;
+    let program = CString::new(program).unwrap_or_else(|_| fail("program contains NUL"));
     let mut argv = Vec::with_capacity(args.len() + 2);
     argv.push(program.clone());
     for arg in args {
-        argv.push(CString::new(arg).map_err(|_| "argument contains NUL")?);
+        argv.push(CString::new(arg).unwrap_or_else(|_| fail("argument contains NUL")));
     }
     let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
     pointers.push(ptr::null());
@@ -209,7 +210,8 @@ fn exec_program(program: String, args: Vec<String>) -> Result<(), String> {
     unsafe {
         libc::execv(program.as_ptr(), pointers.as_ptr());
     }
-    Err(format!("execv: {}", io::Error::last_os_error()))
+    eprintln!("remote sandbox init: execv: {}", io::Error::last_os_error());
+    std::process::exit(127)
 }
 
 pub(crate) fn main(args: Vec<OsString>) -> ! {
@@ -260,11 +262,5 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     if let Err(error) = seccomp::install(&filter) {
         fail(format!("install seccomp: {error}"));
     }
-    match exec_program(options.program, options.args) {
-        Ok(()) => fail("execv returned unexpectedly"),
-        Err(error) => {
-            eprintln!("remote sandbox init: {error}");
-            std::process::exit(127)
-        }
-    }
+    exec_program(options.program, options.args)
 }

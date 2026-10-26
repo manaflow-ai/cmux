@@ -1,9 +1,12 @@
+//! Table loops consume finite arrays. Handoff reads have a fifteen-second
+//! timeout; each child has a twenty-second alarm that bounds waits.
 #![cfg(target_os = "linux")]
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 fn python() -> Option<&'static str> {
     if Command::new("python3").arg("--version").output().is_ok_and(|o| o.status.success()) {
@@ -19,7 +22,14 @@ fn socketpair() -> (std::os::unix::net::UnixStream, std::os::unix::net::UnixStre
     // SAFETY: fds points to two writable integers and the call has no Rust
     // references that outlive this function.
     assert_eq!(
-        unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) },
+        unsafe {
+            libc::socketpair(
+                libc::AF_UNIX,
+                libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
+                0,
+                fds.as_mut_ptr(),
+            )
+        },
         0
     );
     // SAFETY: each descriptor is owned exactly once by the returned streams.
@@ -31,27 +41,41 @@ fn socketpair() -> (std::os::unix::net::UnixStream, std::os::unix::net::UnixStre
     }
 }
 
+/// The child alarm terminates init or its executed program after twenty seconds.
 fn spawn(args: &[&str], fd: RawFd) -> Child {
     let exe = env!("CARGO_BIN_EXE_acpmux");
     let mut command = Command::new(exe);
-    command.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-    // SAFETY: this pre_exec only clears CLOEXEC on the already-open handoff
-    // descriptor; it allocates nothing and runs between fork and exec.
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.env("NO_PROXY", "*").env("no_proxy", "*");
+    // SAFETY: pre_exec only calls libc, allocates nothing, and runs between
+    // fork and exec. The deliberate high fd leak verifies init's fd cleanup.
+    // SIGALRM bounds the helper and executed program to twenty seconds.
     unsafe {
         command.pre_exec(move || {
             if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
+            if libc::fcntl(fd, libc::F_DUPFD, 200) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            libc::signal(libc::SIGALRM, libc::SIG_DFL);
+            libc::alarm(20);
             Ok(())
         });
     }
     command.spawn().expect("spawn acpmux init")
 }
 
-fn recv_handoff(stream: &std::os::unix::net::UnixStream) -> (serde_json::Value, Vec<RawFd>) {
+/// Ancillary traversal ends at the control buffer's end; each fd loop has a
+/// finite payload length. Reads time out after fifteen seconds.
+fn recv_handoff(
+    stream: &std::os::unix::net::UnixStream,
+) -> (serde_json::Value, Vec<std::net::TcpListener>) {
+    stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     let mut bytes = vec![0u8; 4096];
-    let mut cmsg =
-        vec![0u8; unsafe { libc::CMSG_SPACE((2 * std::mem::size_of::<RawFd>()) as u32) as usize }];
+    let control_len =
+        unsafe { libc::CMSG_SPACE((2 * std::mem::size_of::<RawFd>()) as u32) as usize };
+    let mut cmsg = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
     let mut iov = libc::iovec { iov_base: bytes.as_mut_ptr().cast(), iov_len: bytes.len() };
     // SAFETY: all pointers refer to writable buffers for recvmsg's duration.
     let (n, msg) = unsafe {
@@ -59,13 +83,12 @@ fn recv_handoff(stream: &std::os::unix::net::UnixStream) -> (serde_json::Value, 
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = cmsg.as_mut_ptr().cast();
-        msg.msg_controllen = cmsg.len();
-        let n = libc::recvmsg(stream.as_raw_fd(), &mut msg, 0);
+        msg.msg_controllen = control_len;
+        let n = libc::recvmsg(stream.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
         (n, msg)
     };
     assert!(n > 0, "handoff recv failed: {}", std::io::Error::last_os_error());
-    let text = String::from_utf8_lossy(&bytes[..n as usize]);
-    let line = text.lines().next().expect("handoff JSON line");
+    assert_eq!(msg.msg_flags & libc::MSG_CTRUNC, 0, "truncated handoff fds");
     let mut fds = Vec::new();
     // SAFETY: msg was filled by recvmsg; CMSG_FIRSTHDR/NXTHDR traverse its
     // bounded control buffer and the payload is copied before this function returns.
@@ -73,21 +96,31 @@ fn recv_handoff(stream: &std::os::unix::net::UnixStream) -> (serde_json::Value, 
         let mut hdr = libc::CMSG_FIRSTHDR(&msg);
         while !hdr.is_null() {
             if (*hdr).cmsg_level == libc::SOL_SOCKET && (*hdr).cmsg_type == libc::SCM_RIGHTS {
-                let payload = (*hdr).cmsg_len as usize - libc::CMSG_LEN(0) as usize;
+                let payload = (*hdr).cmsg_len - libc::CMSG_LEN(0) as usize;
                 let count = payload / std::mem::size_of::<RawFd>();
                 let data = libc::CMSG_DATA(hdr).cast::<RawFd>();
                 for index in 0..count {
-                    fds.push(*data.add(index));
+                    fds.push(std::net::TcpListener::from_raw_fd(*data.add(index)));
                 }
             }
             hdr = libc::CMSG_NXTHDR(&msg, hdr);
         }
     }
-    (serde_json::from_str(line).expect("handoff JSON"), fds)
+    bytes.truncate(n as usize);
+    // A Unix stream may split the JSON line; stop at newline, EOF, timeout,
+    // or the fixed message-size bound instead of assuming one recvmsg.
+    let mut reader = stream;
+    while !bytes.ends_with(b"\n") {
+        assert!(bytes.len() < 4096, "oversized handoff JSON");
+        let mut byte = [0];
+        reader.read_exact(&mut byte).expect("complete handoff JSON line");
+        bytes.push(byte[0]);
+    }
+    (serde_json::from_slice(&bytes).expect("handoff JSON"), fds)
 }
 
 fn ack(stream: &std::os::unix::net::UnixStream) {
-    stream.try_clone().expect("clone handoff").write_all(&[b'1']).expect("ack");
+    stream.try_clone().expect("clone handoff").write_all(b"1").expect("ack");
 }
 
 #[test]
@@ -108,10 +141,25 @@ fn helper_hands_off_listener_sets_env_and_closes_leaked_fds() {
             "/usr/bin/env",
             py,
             "-c",
-            "import os,socket; assert os.environ['HTTP_PROXY'].endswith(':'+os.environ['HTTP_PROXY'].rsplit(':',1)[1]); assert 'NO_PROXY' not in os.environ and 'no_proxy' not in os.environ;
-try: socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); raise SystemExit(4)
-except PermissionError: pass
-d=os.open('/proc/self/fd',os.O_RDONLY|os.O_DIRECTORY); f=[int(x) for x in os.listdir(d)]; os.close(d); assert all(x <= 2 or x == d for x in f)",
+            r#"import errno,json,os,socket
+assert 'NO_PROXY' not in os.environ and 'no_proxy' not in os.environ
+try:
+    socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    raise AssertionError('AF_UNIX allowed')
+except OSError as error:
+    assert error.errno == errno.EPERM, error
+# listdir closes its temporary directory fd before fstat probes the names.
+for fd in map(int, os.listdir('/proc/self/fd')):
+    if fd <= 2:
+        continue
+    try:
+        os.fstat(fd)
+    except OSError as error:
+        assert error.errno == errno.EBADF, error
+    else:
+        raise AssertionError('leaked fd: ' + str(fd))
+keys = ['HTTPS_PROXY','HTTP_PROXY','ALL_PROXY','https_proxy','http_proxy','all_proxy']
+print(json.dumps({key: os.environ[key] for key in keys}))"#,
         ],
         fd,
     );
@@ -121,13 +169,11 @@ d=os.open('/proc/self/fd',os.O_RDONLY|os.O_DIRECTORY); f=[int(x) for x in os.lis
     let api = json["api"].as_u64().expect("api port") as u16;
     assert!(proxy > 0 && api > 0);
     assert_eq!(fds.len(), 2);
-    // SAFETY: recvmsg transferred ownership of this listener fd to the test.
-    let listener = unsafe { std::net::TcpListener::from_raw_fd(fds[0]) };
+    let listener = &fds[0];
     let address = listener.local_addr().unwrap();
     assert_eq!(address.port(), proxy);
     let _connection = std::net::TcpStream::connect(address).expect("proxy listener");
-    // SAFETY: recvmsg transferred the second listener fd to this test.
-    let api_listener = unsafe { std::net::TcpListener::from_raw_fd(fds[1]) };
+    let api_listener = &fds[1];
     let _api_connection =
         std::net::TcpStream::connect(api_listener.local_addr().unwrap()).expect("api listener");
     assert_eq!(api_listener.local_addr().unwrap().port(), api);
@@ -136,12 +182,17 @@ d=os.open('/proc/self/fd',os.O_RDONLY|os.O_DIRECTORY); f=[int(x) for x in os.lis
     assert!(
         status.success(),
         "helper failed: {:?}",
-        child.stderr.take().and_then(|mut e| {
+        child.stderr.take().map(|mut e| {
             let mut s = String::new();
             let _ = e.read_to_string(&mut s);
-            Some(s)
+            s
         })
     );
+    let env: serde_json::Value = serde_json::from_reader(child.stdout.take().unwrap()).unwrap();
+    for key in ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"]
+    {
+        assert_eq!(env[key], format!("http://127.0.0.1:{proxy}"));
+    }
 }
 
 #[test]
