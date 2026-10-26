@@ -93,8 +93,8 @@ export default agentPaneEntry({
       note: "A new chat on another machine: its computer chip in that machine's color; no private folder there.",
       ready: { newSession: true, cwd: "/home/dev/src/relay" },
       snapshot: fresh(
-        { cwd: "/home/dev/src/relay", peer: "cosmic-gray", host: "cosmic-gray" },
-        { peers: ["cosmic-gray"], peerKinds: { "cosmic-gray": "ssh" } },
+        { cwd: "/home/dev/src/relay", peer: "studio-mac", host: "studio-mac" },
+        { peers: ["studio-mac"], peerKinds: { "studio-mac": "ssh" } },
       ),
     },
     "folder-menu": {
