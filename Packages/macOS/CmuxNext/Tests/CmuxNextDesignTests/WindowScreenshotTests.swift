@@ -172,7 +172,7 @@ import CmuxNextWakeups
     func theWindowServerImageShowsMetalPixels() async throws {
         let fixture = try fixture()
         defer { fixture.close() }
-        let image = try await settledImage(fixture) { fixture.window.compositedSnapshot() }
+        let image = try await settledImage(fixture) { await fixture.window.compositedImage(on: BackgroundWork(label: "test.screenshot")) }
         try expectWindowPixels(image, fixture, path: "CGWindowListCreateImage", exactSize: false)
     }
 

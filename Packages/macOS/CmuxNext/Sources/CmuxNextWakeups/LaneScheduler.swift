@@ -11,11 +11,13 @@ import Dispatch
 /// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
 /// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
-/// highest-priority pending item first; `reserved` of them run only ``WorkPriority/userBlocking`` items, so
-/// lower work that hangs never holds the last slot a person waits for. An item of a ``LaneCap`` class runs only
-/// while fewer than the class's cap run, so one hung kind (a resolver) leaves the lane's other slots to the
-/// rest. Chrome's `PrioritizedDispatcher` (net/base/prioritized_dispatcher.h, `Limits::reserved_slots`), which
-/// `HostResolverManager` runs its system DNS tasks through.
+/// highest-priority pending item first. `reserved` of them run only ``WorkPriority/userBlocking`` items of no
+/// ``LaneCap`` class: any other item starts only while fewer than `width - reserved` slots are busy, whatever
+/// the busy slots run, so neither hung lower work nor hung capped work (a resolver at user-blocking) holds the
+/// last slot a person waits for. Chrome's `PrioritizedDispatcher` (net/base/prioritized_dispatcher.cc), which
+/// counts every running job against `max_running_jobs_[priority]` (`Limits::reserved_slots`). An item of a
+/// ``LaneCap`` class also runs only while fewer than the class's cap run, so one hung kind leaves the lane's
+/// other slots to the rest.
 ///
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
@@ -26,7 +28,8 @@ import Dispatch
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
-        /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items only.
+        /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items of no
+        /// capped class only.
         case shared(width: Int, reserved: Int = 0)
     }
 
@@ -48,7 +51,7 @@ final class LaneScheduler: Sendable {
         var pending: [[Entry]] = Array(repeating: [], count: WorkPriority.allCases.count)
         /// Per slot: what it runs, nil while it is free.
         var running: [Running?]
-        /// Slots only a ``WorkPriority/userBlocking`` item may take.
+        /// Slots only a ``WorkPriority/userBlocking`` item of no capped class may take.
         let reserved: Int
         /// How many items of each capped class may run at once.
         let caps: [LaneCap: Int]
@@ -67,26 +70,31 @@ final class LaneScheduler: Sendable {
             return Set(caps.compactMap { cap, limit in counts[cap, default: 0] >= limit ? cap : nil })
         }
 
-        /// Whether an item below ``WorkPriority/userBlocking`` may take a slot: the reserved ones stay free.
-        var lowerMayStart: Bool {
-            running.lazy.filter { $0.map { $0.priority < .userBlocking } ?? false }.count < running.count - reserved
+        /// Whether a slot outside the reserve is free. Every busy slot counts, whatever it runs: Chrome's
+        /// `PrioritizedDispatcher::Limits` compare all running jobs with the limit of the job's priority.
+        var unreservedFree: Bool {
+            running.lazy.compactMap { $0 }.count < running.count - reserved
         }
 
-        /// The index of the first item at `level` that may start now, skipping the `full` capped classes.
-        func next(at level: WorkPriority, full: Set<LaneCap>) -> Int? {
+        /// The index of the first item at `level` that may start now, skipping the `full` capped classes, and
+        /// every capped item when `uncappedOnly`.
+        func next(at level: WorkPriority, full: Set<LaneCap>, uncappedOnly: Bool = false) -> Int? {
             let holdsPosted = fenced && level <= .bestEffort
             return pending[level.rawValue].firstIndex { entry in
-                !(holdsPosted && entry.posted) && !(entry.cap.map { full.contains($0) } ?? false)
+                guard !(holdsPosted && entry.posted) else { return false }
+                guard let cap = entry.cap else { return true }
+                return !uncappedOnly && !full.contains(cap)
             }
         }
 
-        /// The highest level with an item that may start now, and that item's index.
+        /// The highest level with an item that may start now, and that item's index. With only the reserve
+        /// free, that is a user-blocking item of no capped class.
         func highest() -> (level: WorkPriority, index: Int)? {
             let full = fullCaps
-            let lower = lowerMayStart
+            let open = unreservedFree
             for level in WorkPriority.allCases.reversed() {
-                if level < .userBlocking && !lower { return nil }
-                if let index = next(at: level, full: full) { return (level, index) }
+                if level < .userBlocking && !open { return nil }
+                if let index = next(at: level, full: full, uncappedOnly: !open) { return (level, index) }
             }
             return nil
         }

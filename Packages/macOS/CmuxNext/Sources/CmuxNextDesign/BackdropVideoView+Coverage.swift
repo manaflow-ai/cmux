@@ -4,23 +4,28 @@ import CmuxNextDesignTokens
 extension BackdropVideoView {
     /// Samples how much of the window other windows hide, and rests or resumes the video on it. The
     /// window server's list (a synchronous call that waits for it) runs on the system lane of
-    /// ``BackdropVideoPlayers/lanes`` at best effort, never on the main thread; the answer applies on main.
+    /// ``BackdropVideoPlayers/lanes`` at best effort, never on the main thread; the answer applies on main
+    /// against the window frame read with it. At most one list is pending per view: a deadline that comes
+    /// while one is pending samples nothing, so a slow window server never queues more.
     public func sampleCoverage() {
         guard let window else { return }
-        if let windowsAboveOverride { return applyCoverage(windowsAboveOverride(), in: window) }
-        guard let lanes = players.lanes else { return }
-        let number = window.windowNumber
-        // task-owner: one window list per coverage deadline; a view that stopped sampling drops the answer.
-        Task(priority: .utility) { [weak self] in
+        if let windowsAboveOverride { return applyCoverage(windowsAboveOverride(), frame: window.frame, in: window) }
+        guard coverageSample == nil, let lanes = players.lanes else { return }
+        let number = window.windowNumber, frame = window.frame
+        // task-owner: this view (`coverageSample`); one window list, cancelled by stopCoverage, which also drops a queued one.
+        coverageSample = Task(priority: .utility) { [weak self] in
             let above = try? await lanes.runSystem(.bestEffort, { BackdropCoverage.windows(above: number) })
-            guard let above, let self, self.coverageTimer.isScheduled, let window = self.window else { return }
-            self.applyCoverage(above, in: window)
+            // A cancelled sample was already let go by stopCoverage, which may have started a new one since.
+            guard let self, !Task.isCancelled else { return }
+            self.coverageSample = nil
+            guard let above, let window = self.window, window.windowNumber == number else { return }
+            self.applyCoverage(above, frame: frame, in: window)
         }
     }
 
-    private func applyCoverage(_ above: [BackdropCoverage.Window], in window: NSWindow) {
+    private func applyCoverage(_ above: [BackdropCoverage.Window], frame: NSRect, in window: NSWindow) {
         let resting = coverage.resting
-        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
+        coverage.sample(BackdropCoverage.covered(Self.screenFrame(frame), by: above, ignoring: Self.descendants(of: window)))
         if coverage.resting != resting { update() }
     }
 

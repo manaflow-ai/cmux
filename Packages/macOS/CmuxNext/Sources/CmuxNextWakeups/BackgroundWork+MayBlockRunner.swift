@@ -16,8 +16,8 @@ extension BackgroundWork: MayBlockRunner {
 
     public func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                                                _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await runHostResolution(WorkPriority(priority), shutdown: ShutdownBehavior(shutdown),
-                                    fileID: site.fileID, line: site.line, body)
+        try await resolveHost(WorkPriority(priority), shutdown: ShutdownBehavior(shutdown),
+                              fileID: site.fileID, line: site.line, body)
     }
 
     public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,

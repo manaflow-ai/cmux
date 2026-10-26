@@ -85,8 +85,8 @@ public protocol MayBlockRunner: Sendable {
                                 _ body: @escaping @Sendable () throws -> T) async throws -> T
 
     /// Runs a host name resolution (`blockingGetaddrinfo`) on the system lane and returns its result. At most
-    /// four run at once there, so a hung resolver never holds the slots keychain or Accessibility work needs
-    /// (Chrome's `kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc).
+    /// four run at once there, never on its reserved slot, so a hung resolver never holds the slots keychain or
+    /// Accessibility work needs. The cap is cmux's: Chrome gives DNS a pool of its own (net/dns/host_resolver_manager.cc).
     ///
     /// - Throws: as ``runFiles(_:shutdown:site:_:)``.
     func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,

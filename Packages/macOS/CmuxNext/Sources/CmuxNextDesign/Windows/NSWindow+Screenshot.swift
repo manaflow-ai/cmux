@@ -8,7 +8,7 @@ public import CmuxNextDesignTokens
 /// activates the app or raises the window, and both read a window that is in
 /// the background or covered by other apps' windows.
 ///
-/// 1. The window server's composited image (``compositedSnapshot(includeChild:)``,
+/// 1. The window server's composited image (``compositedImage(on:adding:includeChild:)``,
 ///    the window-list image call looked up at run time). It shows Metal layers
 ///    (Ghostty terminal surfaces), WebKit pages, vibrancy and glass as on
 ///    screen, plus the child windows `includeChild` accepts.

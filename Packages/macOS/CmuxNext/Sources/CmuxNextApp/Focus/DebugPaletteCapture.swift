@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 
 /// `debug.palette.capture {path}` (DEBUG builds): writes the open palette
@@ -13,24 +14,30 @@ import Darwin
 /// tree left the views' content out, a flat gray image. Also answers the palette's `query` and its
 /// `selected` row's title, so a real-key proof checks what Return will run before it presses it.
 enum DebugPaletteCapture {
-    static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
         guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
-        guard case .object(var result) = capture(panel, to: path) else { return capture(panel, to: path) }
+        // The window server's image waits for it: on the system lane, never on main.
+        let work = services.work
+        let captured = await capture(panel, to: path) { id in
+            try? await work.run(.userVisible, mayBlock: .system) { DebugPaletteCapture.windowImage(id) }
+        }
+        guard case .object(var result) = captured else { return captured }
         let model = services.palette.model
         result["query"] = .string(model.query)
         result["selected"] = model.selectedItem.map { .string($0.title) } ?? .null
         return .object(result)
     }
 
-    /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any.
-    static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) -> CGImage? = windowImage) -> JSONValue {
+    /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any (it runs
+    /// the window server call off the main thread).
+    static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) async -> CGImage?) async -> JSONValue {
         guard let view = panel.contentView else { return .object(["error": .string("the palette is not open")]) }
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         // The composited window (glass included). A process may capture its
         // own windows without a Screen Recording grant.
-        if let image = windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {
+        if let image = await windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {
             return write(image, to: path, source: "window")
         }
         guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
@@ -50,7 +57,8 @@ enum DebugPaletteCapture {
     }
 
     /// The window-list capture (``blockingWindowListCreateImage(_:_:_:_:fileID:line:)``): ScreenCaptureKit
-    /// needs a Screen Recording grant even for the app's own windows. DEBUG evidence only.
+    /// needs a Screen Recording grant even for the app's own windows. DEBUG evidence only; it waits for the
+    /// window server, so it runs on the system lane.
     nonisolated static func windowImage(_ id: CGWindowID) -> CGImage? {
         blockingWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution])
     }

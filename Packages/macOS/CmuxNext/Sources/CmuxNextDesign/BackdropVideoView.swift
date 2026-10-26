@@ -38,6 +38,8 @@ public final class BackdropVideoView: NSView {
     private var sessionInactive = false
     var coverage = BackdropCoverage()
     let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    /// The window list a coverage sample waits for: at most one at a time, cancelled when sampling stops.
+    var coverageSample: Task<Void, Never>?
 
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
         self.players = players
@@ -177,6 +179,8 @@ public final class BackdropVideoView: NSView {
     /// Stops sampling; coverage seen before the window was hidden or closed is stale.
     private func stopCoverage() {
         coverageTimer.cancel()
+        coverageSample?.cancel()
+        coverageSample = nil
         coverage.reset()
     }
 
