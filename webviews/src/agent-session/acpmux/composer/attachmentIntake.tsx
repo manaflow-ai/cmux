@@ -351,17 +351,23 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 }
 
 /// Backspace with the caret at the prompt's start (`atStart`: nothing for the key to delete or
-/// lift there) takes back the last staged chip, as a chat composer's Backspace does, so a pasted
-/// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
-/// clear the prompt stops at its start.
-export function backspacedAttachment(
+/// lift there) takes back the last chip the strip shows, as a chat composer's Backspace does, so a
+/// pasted image goes without reaching for its ×. The strip draws the files still loading (or that
+/// failed) after the staged chips, so a screenshot still loading goes first, at once: nothing waits
+/// for it to load (Austin, 2026-10-25). `pending` names a tile to cancel, `staged` a chip to remove.
+/// A held key's repeat does not: holding Backspace to clear the prompt stops at its start.
+export function backspacedChip(
   event: { key: string; repeat: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean },
   atStart: boolean,
   attachments: readonly ComposerAttachment[],
-): ComposerAttachment | undefined {
+  pending: readonly PendingAttachment[] = [],
+): { pending: string } | { staged: string } | undefined {
   if (event.key !== "Backspace" || event.repeat || !atStart) return undefined;
   if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return undefined;
-  return attachments[attachments.length - 1];
+  const tile = pending[pending.length - 1];
+  if (tile) return { pending: tile.id };
+  const chip = attachments[attachments.length - 1];
+  return chip && { staged: chip.id };
 }
 
 /// The staged attachments' chips over the prompt, with a refusal's note.

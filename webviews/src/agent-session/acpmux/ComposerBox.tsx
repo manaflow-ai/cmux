@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedChip, type PendingAttachment } from "./composer/attachmentIntake";
 import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
@@ -192,13 +192,18 @@ export function ComposerBox({
               // Every key belongs to the input method while it composes.
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              // Backspace at the prompt's start takes back the last chip, a loading one too (backspacedChip).
               const backspaced = composing
                 ? undefined
-                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
-              if (backspaced) {
+                : backspacedChip(event, prompt.current?.atStart() ?? false, attachments, pending);
+              if (backspaced && "staged" in backspaced) {
                 event.preventDefault();
-                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                setAttachments((current) => current.filter((item) => item.id !== backspaced.staged));
+                return;
+              }
+              if (backspaced && onCancelAttachment) {
+                event.preventDefault();
+                onCancelAttachment(backspaced.pending);
                 return;
               }
               onKeyDown?.(event);
