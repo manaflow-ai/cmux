@@ -2071,6 +2071,167 @@
           "descriptionKey": "schemaDescriptions.automation.claudeAccountAutoSwitch",
           "description": "When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves it to the next account in `agents.claudeAccounts` and continues the same conversation. Accounts still at their limit are skipped until they reset."
         },
+        "sessionPriority": {
+          "type": "object",
+          "additionalProperties": false,
+          "descriptionKey": "schemaDescriptions.automation.sessionPriority",
+          "description": "Choose the reasoning effort, and optionally the model, of each Claude Code session cmux launches, based on its priority and difficulty.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.automation.sessionPriorityEnabled",
+              "description": "When on, cmux starts each Claude Code session with an effort (and optional model) from the matrix, based on whether the session is urgent or slow and how hard its task is. Off by default."
+            },
+            "urgentCount": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 3,
+              "descriptionKey": "schemaDescriptions.automation.sessionPriorityUrgentCount",
+              "description": "How many of the highest-priority sessions count as urgent. All other sessions count as slow."
+            },
+            "matrix": {
+              "type": "object",
+              "additionalProperties": false,
+              "descriptionKey": "schemaDescriptions.automation.sessionPriorityMatrix",
+              "description": "Overrides for the effort and model chosen per priority and difficulty. Keys are `urgent` or `slow`, then `easy`, `normal` or `hard`, each with an optional `effort` and `model`. Cells you leave out keep cmux's defaults.",
+              "properties": {
+                "urgent": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "easy": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    },
+                    "normal": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    },
+                    "hard": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    }
+                  }
+                },
+                "slow": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "easy": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    },
+                    "normal": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    },
+                    "hard": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "effort": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "model": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "ampIntegration": {
           "type": "boolean",
           "default": true,

@@ -2180,6 +2180,10 @@
           "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje.",
           "agentAutoResume": "Wysyła `continue`, z narastającym opóźnieniem, do agenta uruchomionego przez cmux, którego tura zakończyła się błędem po stronie usługi, który można ponowić (brak przepustowości modelu, przeciążenie lub utrata połączenia). Tury czekające na człowieka nigdy nie są wznawiane.",
           "claudeAccountAutoSwitch": "Gdy sesja Claude Code uruchomiona przez cmux zatrzyma się, bo jej konto osiągnęło limit użycia, cmux przenosi ją na następne konto z `agents.claudeAccounts` i kontynuuje tę samą rozmowę. Konta, które nadal są na limicie, są pomijane do czasu jego zresetowania.",
+          "sessionPriority": "Wybiera wysiłek rozumowania, a opcjonalnie model, dla każdej sesji Claude Code uruchamianej przez cmux, na podstawie jej priorytetu i trudności.",
+          "sessionPriorityEnabled": "Gdy włączone, cmux uruchamia każdą sesję Claude Code z wysiłkiem (i opcjonalnym modelem) z macierzy, zależnie od tego, czy sesja jest pilna czy wolna oraz jak trudne jest jej zadanie. Domyślnie wyłączone.",
+          "sessionPriorityUrgentCount": "Ile sesji o najwyższym priorytecie jest uznawanych za pilne. Wszystkie pozostałe sesje są uznawane za wolne.",
+          "sessionPriorityMatrix": "Nadpisania wysiłku i modelu wybieranych według priorytetu i trudności. Kluczami są `urgent` lub `slow`, a następnie `easy`, `normal` lub `hard`, każdy z opcjonalnymi `effort` i `model`. Pominięte komórki zachowują domyślne wartości cmux.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

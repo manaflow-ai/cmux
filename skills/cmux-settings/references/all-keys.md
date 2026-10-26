@@ -210,6 +210,9 @@ Socket control and automation settings from Settings > Automation.
 | `automation.suppressSubagentNotifications` | boolean | `true` | Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry. |
 | `automation.agentAutoResume` | boolean | `true` | Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed. |
 | `automation.claudeAccountAutoSwitch` | boolean | `false` | When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves it to the next account in `agents.claudeAccounts` and continues the same conversation. Accounts still at their limit are skipped until they reset. |
+| `automation.sessionPriority.enabled` | boolean | `false` | When on, cmux starts each Claude Code session with an effort (and optional model) from the matrix, based on whether the session is urgent or slow and how hard its task is. Off by default. |
+| `automation.sessionPriority.urgentCount` | integer | `3` | How many of the highest-priority sessions count as urgent. All other sessions count as slow. |
+| `automation.sessionPriority.matrix` | object | `{}` | Overrides for the effort and model chosen per priority and difficulty. Keys are `urgent` or `slow`, then `easy`, `normal` or `hard`, each with an optional `effort` and `model`. Cells you leave out keep cmux's defaults. |
 | `automation.ampIntegration` | boolean | `true` | Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed. |
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
