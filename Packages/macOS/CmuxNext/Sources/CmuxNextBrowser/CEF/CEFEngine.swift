@@ -345,6 +345,17 @@ public final class CEFEngine: BrowserEngine {
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
+    /// The in-process pump holds its passes while a person's input is pending and runs one at once
+    /// after input to a Chromium page (feature `cefPumpInputPolicy`). Call before Chromium starts.
+    public func holdPumpForInput(tap: InputEventTap) {
+        CEFRuntime.shared.pumpInputTap = tap
+    }
+
+    /// Starts the pump's input-policy counters over (`debug.input` action `reset`).
+    public func resetPumpInputCounters() {
+        CEFRuntime.shared.pump?.resetInputCounters()
+    }
+
     /// What the fork's page tracker read from host views (for `debug.cef`).
     public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
 

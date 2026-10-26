@@ -1,3 +1,4 @@
+public import CmuxNextInputCore
 import Foundation
 
 /// Counters of the external message pump since `CefInitialize` (`debug.cef`
@@ -32,6 +33,40 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// its one pass for that frame (`RenderStarvationGuard`); each runs after
     /// the late link's tick.
     public var lateFrameHolds = 0
+    /// Passes that ran while a person's input was pending, by where the input went
+    /// (``CEFPumpInputPolicy``). For other targets this stays 0 but for passes held one refresh.
+    public var passesWhileInputPending = PassesByTarget()
+    /// Passes the input policy held until an input's dispatch ended (one per hold).
+    public var deferredForInput = 0
+    /// Each pass's main-thread time while the input policy runs.
+    public var passTimes = InputLatencyHistogram()
+
+    /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
+    public var passMillisecondsP99: Double {
+        passTimes.percentileNanos(0.99).map { Double($0) / 1_000_000 } ?? 0
+    }
 
     public init() {}
+
+    /// Pass counts per input target.
+    public nonisolated struct PassesByTarget: Equatable, Sendable {
+        /// After input to a Chromium page: expected, Chromium acks input inside the pump.
+        public var chromiumPage = 0
+        /// While input for anything else was pending.
+        public var other = 0
+
+        public init() {}
+
+        /// The counts by target name (`debug.cef`, `debug.input`).
+        public var byName: [String: UInt64] {
+            ["chromiumPage": UInt64(clamping: chromiumPage), "other": UInt64(clamping: other)]
+        }
+
+        mutating func add(_ target: CEFPumpInputPolicy.Target) {
+            switch target {
+            case .chromiumPage: chromiumPage += 1
+            case .other: other += 1
+            }
+        }
+    }
 }

@@ -157,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
+        // The in-process CEF pump yields to the person's input (p04-input-024), before Chromium starts.
+        if services.features.isEnabled(.cefPumpInputPolicy) { services.cache.cef.holdPumpForInput(tap: inputTap) }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.
