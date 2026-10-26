@@ -18,7 +18,7 @@ public import Foundation
 /// block (base/files/file_path_watcher_kqueue.cc).
 public final class ConfigFileWatcher: @unchecked Sendable {
     public let url: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility)
+    private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void
     /// Which start is current: set by the caller's start and stop, read on the queue.
     private let run = Mutex(Run())
@@ -34,8 +34,15 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         var running = false
     }
 
-    public init(url: URL, onChange: @escaping @Sendable () -> Void) {
+    public convenience init(url: URL, onChange: @escaping @Sendable () -> Void) {
+        self.init(url: url, queue: DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility), onChange: onChange)
+    }
+
+    /// A watcher whose arm, events and `onChange` run on `queue`, a serial queue (tests hold it to
+    /// order a save before the arm).
+    init(url: URL, queue: DispatchQueue, onChange: @escaping @Sendable () -> Void) {
         self.url = url
+        self.queue = queue
         self.onChange = onChange
     }
 
@@ -70,8 +77,9 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         start(reportInitialChange: reportInitialChange)
     }
 
-    /// Ends the watch and returns at once: no change is reported after it returns, and the queue
-    /// closes the sources.
+    /// Ends the watch and returns at once; the queue closes the sources. Not a fence: a report
+    /// that already started on the queue may still call `onChange` once after this returns, but no
+    /// later event is reported. Consumers hop to their own actor and drop a late call there.
     public func stop() {
         run.withLock { run in
             run.generation &+= 1
@@ -101,6 +109,8 @@ public final class ConfigFileWatcher: @unchecked Sendable {
         fileIdentity = nil
     }
 
+    /// Calls `onChange` while a start is current (a ``stop()`` between the check and the call does
+    /// not stop that one call).
     private func report() {
         if run.withLock({ $0.running }) { onChange() }
     }

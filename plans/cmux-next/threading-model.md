@@ -249,3 +249,4 @@ holds the allowance back while a nested run of the main run loop runs other work
 | Reason | Why the wait cannot move off the main thread |
 |---|---|
 | `terminate` | `applicationWillTerminate(_:)` runs on the main thread and the process exits right after it: a bounded final flush there cannot delay a frame (Chrome allows blocking during shutdown the same way). |
+| `surfaceTeardown` | `ghostty_surface_free` runs on the main thread in the terminal view's deinit, and its output lane must not be parsing into the surface then: the fence (`TerminalOutputLane.close`) waits for at most the one chunk in flight, since queued work is skipped once the lane closes, on a lane of the main thread's own QoS (user-interactive). Chrome allows bounded teardown waits with `ScopedAllowBaseSyncPrimitivesOutsideBlockingScope`. |

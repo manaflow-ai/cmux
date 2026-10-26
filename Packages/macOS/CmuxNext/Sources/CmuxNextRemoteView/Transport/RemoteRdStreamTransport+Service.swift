@@ -21,11 +21,18 @@ extension RemoteRdStreamTransport {
 
     /// Sends one control message of the session's service (`body` is an
     /// rb/1 message such as `rb.navigate`). Dropped after the session ended.
+    /// It joins the caller's outbox, so it reaches the host in call order
+    /// with the input events (``send(_:)``, ``sendServiceInput(_:mustDeliver:)``):
+    /// a key sent after `rb.history` applies to the page it opens.
     public func sendService(_ body: RemoteRdJSON) {
-        queue.async { [self] in
-            guard !engine.handshake.isEnded else { return }
-            sendControl(.service(service: hello.service, body: body))
+        guard let json = try? RemoteRdControl.service(service: hello.service, body: body).json(),
+              let frame = try? RemoteRdCore.streamFrame(json, control: true) else { return }
+        let posted = inputChannel.withLock { channel -> Bool in
+            guard !channel.ended else { return false }
+            channel.outbox.append(frame)
+            return true
         }
+        if posted { sendOutbox() }
     }
 
     /// Queues one service input event (opaque bytes, tag 0x80) and returns
@@ -33,15 +40,19 @@ extension RemoteRdStreamTransport {
     /// `rb.key_unhandled {input_seq}`). Nil before the welcome, after the
     /// end, when the host's welcome does not list `input.service`, or for
     /// bytes the core refuses. Never waits for the transport queue: the
-    /// number comes from the input channel's lock, and the queue sends the
-    /// event's packet after it.
+    /// number comes from the input channel's lock, and the event's packets
+    /// join the caller's outbox, in call order with ``sendService(_:)`` and
+    /// ``send(_:)``.
     public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
+        let now = nowMicros()
         let seq = inputChannel.withLock { channel -> UInt32? in
-            guard channel.acceptsService else { return nil }
-            return try? channel.input.sendService(bytes, mustDeliver: mustDeliver)
+            guard channel.acceptsService,
+                  let seq = try? channel.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
+            channel.outbox += (try? channel.input.packets(nowMicros: now)) ?? []
+            return seq
         }
         guard let seq else { return nil }
-        queue.async { [self] in pump() }
+        sendOutbox()
         return seq
     }
 

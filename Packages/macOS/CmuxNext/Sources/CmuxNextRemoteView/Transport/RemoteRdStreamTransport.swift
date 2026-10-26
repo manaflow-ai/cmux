@@ -20,7 +20,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     let hello: RemoteRdHello
     private let startKey: String
     private let control: Bool
-    private let nowMicros: @Sendable () -> UInt64
+    // internal for the +Service extension file
+    let nowMicros: @Sendable () -> UInt64
     // internal for the +Service extension file
     let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
@@ -41,15 +42,33 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var status = RemoteViewStatus(state: .connecting)
     }
 
-    /// The input channel, which a key's turn on the main thread reaches: a service input event takes
-    /// its sequence number under this lock (``sendServiceInput(_:mustDeliver:)``), never by waiting for
-    /// the queue; the queue takes it for each send, packet and acknowledgement (core calls, no I/O).
+    /// The input channel and the caller's outbox, which a key's turn on the main thread reaches without
+    /// waiting for the queue: an input event takes its sequence number here
+    /// (``sendServiceInput(_:mustDeliver:)``), and every frame the caller sends (input packets, service
+    /// controls) joins the outbox in call order, which ``pump()`` sends before anything newer. Core calls
+    /// and copies only, no I/O.
     // internal for the +Service extension file
     let inputChannel: Mutex<InputChannel>
     struct InputChannel {
         let input: RemoteRdInput
-        /// The welcome lists `input.service` and the session has not ended (set on the queue).
-        var acceptsService = false
+        /// The session ended (set on the queue): the caller's frames are dropped.
+        var ended = false
+        /// The welcome lists `input.service` (set on the queue).
+        var serviceInputCap = false
+        /// Frames from the caller's thread in call order: service controls and each input event's
+        /// first packets (``RemoteRdInput`` sends packets after every event).
+        var outbox: [Data] = []
+        var acceptsService: Bool { !ended && serviceInputCap }
+
+        /// Queues `events` and puts their packets in the outbox; false after the end.
+        mutating func post(_ events: [RemoteInputEvent], nowMicros: UInt64) -> Bool {
+            guard !ended else { return false }
+            for event in events {
+                _ = try? input.send(event)
+            }
+            outbox += (try? input.packets(nowMicros: nowMicros)) ?? []
+            return true
+        }
     }
 
     /// Queue-confined session state: the Rust core, the handshake and whether
@@ -133,16 +152,21 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         }
     }
 
-    /// Queues one input event (long text is split on character boundaries).
+    /// Queues one input event (long text is split on character boundaries), in call order with the
+    /// service controls and service input events (``sendService(_:)``,
+    /// ``sendServiceInput(_:mustDeliver:)``). Never waits for the queue.
     public func send(_ event: RemoteInputEvent) {
+        let events: [RemoteInputEvent] = if case let .text(text) = event { RemoteInputEvent.textEvents(text) } else { [event] }
+        let now = nowMicros()
+        guard inputChannel.withLock({ $0.post(events, nowMicros: now) }) else { return }
+        sendOutbox()
+    }
+
+    /// Has the queue send the outbox (``InputChannel/outbox``); nothing after the session's end.
+    // internal for the +Service extension file
+    func sendOutbox() {
         queue.async { [self] in
             guard !engine.handshake.isEnded else { return }
-            let events: [RemoteInputEvent] = if case let .text(text) = event { RemoteInputEvent.textEvents(text) } else { [event] }
-            inputChannel.withLock { channel in
-                for event in events {
-                    _ = try? channel.input.send(event)
-                }
-            }
             pump()
         }
     }
@@ -277,7 +301,11 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             return
         }
         var out: [Data] = (try? engine.core.feedback(nowMicros: now)) ?? []
-        out += inputChannel.withLock { (try? $0.input.packets(nowMicros: now)) ?? [] }
+        // The caller's frames first, in its call order; then input packets due now (repeats of unacknowledged events).
+        out += inputChannel.withLock { channel in
+            defer { channel.outbox = [] }
+            return channel.outbox + ((try? channel.input.packets(nowMicros: now)) ?? [])
+        }
         for sender in engine.upstream?.activeSenders ?? [] {
             out += (try? sender.datagrams()) ?? []
         }
@@ -365,12 +393,17 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         finish()
     }
 
-    /// Publishes the handshake outside the queue: the pane's status, and whether service input is
-    /// accepted (``sendServiceInput(_:mustDeliver:)``). Runs after every handshake change.
+    /// Publishes the handshake outside the queue: the pane's status, and whether the caller's input and
+    /// service frames are taken (``send(_:)``, ``sendServiceInput(_:mustDeliver:)``). Runs after every
+    /// handshake change.
     private func publishStatus() {
-        let acceptsService = !engine.handshake.isEnded
-            && engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true
-        inputChannel.withLock { $0.acceptsService = acceptsService }
+        let ended = engine.handshake.isEnded
+        let serviceInputCap = engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true
+        inputChannel.withLock { channel in
+            channel.ended = ended
+            channel.serviceInputCap = serviceInputCap
+            if ended { channel.outbox = [] }
+        }
         var upstream = RemoteUpstreamStatus()
         if let consent = engine.upstream, case .streaming = engine.handshake.phase {
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
