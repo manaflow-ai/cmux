@@ -410,12 +410,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Sentry starts at launch with its crash handlers but without URLSession network breadcrumbs (no swizzle at start), its app-hang reports stay paused until startup completes, and the helper crash and panic forwarders start after startup.
+    /// Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.
     public static let sentryHandlersFirst = Feature(
         index: 24,
         name: "sentryHandlersFirst",
         owner: "Performance Lead",
-        description: "Sentry starts at launch with its crash handlers but without URLSession network breadcrumbs (no swizzle at start), its app-hang reports stay paused until startup completes, and the helper crash and panic forwarders start after startup.",
+        description: "Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
