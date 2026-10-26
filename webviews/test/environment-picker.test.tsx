@@ -529,7 +529,10 @@ test("previews off: New Worktree stays in the folder menu only", async () => {
   expect(worktreeButton()).toBeUndefined();
 });
 
-async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | undefined>) {
+async function mountNewTab(
+  onNewWorktree: (cwd: string) => Promise<string | undefined>,
+  extra: Partial<Parameters<typeof import("../src/agent-session/acpmux/newtab/NewTabScreen").NewTabScreen>[0]> = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const noop = () => {};
@@ -551,6 +554,7 @@ async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | unde
         onJump={noop}
         onOpenSession={noop}
         onShowAll={noop}
+        {...extra}
       />,
     ),
   );
@@ -589,6 +593,88 @@ test("New Tab, previews on: a slower worktree reply doesn't replace a newer choi
   await act(async () => replies[1]!("/Users/you/wt/app-blue-fox"));
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(folderName()).toContain("fox");
+});
+
+test("New Tab machine chips are buttons that select the exact machine", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AmbientWidgets } = await import("../src/agent-session/acpmux/newtab/AmbientWidgets");
+  const picked: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <AmbientWidgets
+        machines
+        snapshot={{ sessions: [], peers: ["gpu-box"], peerConnected: { "gpu-box": true } }}
+        localName="This Mac"
+        now={0}
+        onPickMachine={(machine) => picked.push(machine.id)}
+      />,
+    ),
+  );
+  const machine = Array.from(host.querySelectorAll<HTMLButtonElement>("button.nt-ambient-machine")).find((button) =>
+    button.textContent?.includes("gpu-box"),
+  );
+  expect(machine).toBeDefined();
+  await act(async () => machine!.click());
+  expect(picked).toEqual(["gpu-box"]);
+});
+
+const ambientButton = (name: string) =>
+  Array.from(host.querySelectorAll<HTMLButtonElement>("button.nt-ambient-machine")).find((button) =>
+    button.textContent?.includes(name),
+  );
+
+test("New Tab machine choice clears the previous saved environment before submitting", async () => {
+  const saved = {
+    id: "saved",
+    name: "Saved machine",
+    kind: "ssh" as const,
+    host: "saved-box",
+    folder: "/saved",
+    updatedAt: 0,
+  };
+  const asks: unknown[][] = [];
+  await mountNewTab(async () => undefined, {
+    snapshot: { ...noChat(), peers: ["gpu-box"] },
+    location: "explain this code",
+    savedEnvironments: { list: async () => [saved], save: async () => saved, remove: async () => {} },
+    onAsk: (...args) => {
+      asks.push(args);
+    },
+  });
+  await openPicker();
+  const row = rows().find((item) => item.textContent?.includes("Saved machine"));
+  expect(!!row).toBe(true);
+  await act(async () => row!.click());
+  await act(async () => ambientButton("gpu-box")!.click());
+  await press(host.querySelector("textarea")!, { key: "Enter" });
+  expect(asks[0]?.[6]).toEqual({ peer: "gpu-box" });
+});
+
+test("New Tab peer choice holds a web swap even with no draft", async () => {
+  const { webSwapHold } = await import("../src/pages/shared/webSwap");
+  await mountNewTab(async () => undefined, { snapshot: { ...noChat(), peers: ["gpu-box"] } });
+  await act(async () => ambientButton("gpu-box")!.click());
+  host.querySelector<HTMLTextAreaElement>("textarea")?.blur();
+  expect(webSwapHold(doc())).toBe("newtab.choice");
+});
+
+test("New Tab peer and native Cloud ids do not share a destination namespace", async () => {
+  const calls: unknown[][] = [];
+  await mountNewTab(async () => undefined, {
+    snapshot: {
+      ...noChat(),
+      peers: ["same-id"],
+      machines: [{ id: "same-id", label: "Cloud machine", kind: "cloud", native: true, status: "connected" }],
+    },
+    onMachineAction: (...args) => {
+      calls.push(args);
+    },
+  });
+  await act(async () => ambientButton("same-id")!.click());
+  expect(calls).toEqual([]);
+  await act(async () => ambientButton("Cloud machine")!.click());
+  expect(calls).toEqual([["same-id", "open", "cloud", true]]);
 });
 
 test("a peer and native Cloud machine with one id keep separate picker rows and targets", async () => {

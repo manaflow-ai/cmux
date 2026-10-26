@@ -45,6 +45,7 @@ test("machines: this Mac, then peers online, then older chats' hosts offline", (
   const machines = newTabMachines(
     {
       peers: ["cosmic-gray", "cloud-a"],
+      peerConnected: { "cosmic-gray": true, "cloud-a": true },
       sessions: [
         { sessionId: "1", peer: "cosmic-gray", host: "cosmic-gray" },
         { sessionId: "2", hostKind: "cloud", host: "cloud-old" },
@@ -58,10 +59,30 @@ test("machines: this Mac, then peers online, then older chats' hosts offline", (
     ["local", "local", true],
     ["cosmic-gray", "ssh", true],
     ["cloud-a", "cloud", true],
-    ["cloud-old", "cloud", false],
-    ["huge-blue", "cloud", false],
+    ["cloud-old", "cloud", undefined],
+    ["huge-blue", "cloud", undefined],
   ]);
   expect(machines[0]!.label).toBe("air-blue");
+});
+
+test("machine states follow explicit daemon status", () => {
+  const machines = newTabMachines(
+    {
+      peers: ["paused-cloud", "old-box"],
+      sessions: [],
+      peerStatus: {
+        "paused-cloud": { state: "paused", connected: false },
+        "old-box": { state: "connected", connected: true, outdated: true },
+      },
+    },
+    { "paused-cloud": "cloud", "old-box": "ssh" },
+    "air-blue",
+  );
+  expect(machines.map((machine) => [machine.id, machine.status])).toEqual([
+    ["local", undefined],
+    ["paused-cloud", "paused"],
+    ["old-box", "needsUpdate"],
+  ]);
 });
 
 test("another machine wears its identity color, this Mac none", () => {
@@ -78,4 +99,9 @@ test("weather and machines are widgets on every layout, the old layouts keep wha
   expect(cards.has("greeting")).toBe(false);
   expect(shownPageWidgets("cards").has("weather")).toBe(false);
   expect(shownPageWidgets("cards").has("chats")).toBe(true);
+});
+
+test("a machine without an authoritative connection state stays unknown", () => {
+  const machines = newTabMachines({ sessions: [], peers: ["unknown-box"] }, {}, "This Mac");
+  expect(machines.find((machine) => machine.id === "unknown-box")?.online).toBeUndefined();
 });
