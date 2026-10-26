@@ -3,12 +3,18 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 
-/// cmux pages of one site share a Chromium renderer (p07-memory 049, PL-memory's
-/// `cmux-page-scheme-process-per-site`), so one renderer end takes every page in it: Chromium reports
-/// it to each page's browser (`OnRenderProcessTerminated`, one per browser), and each page reloads under
-/// its own ``PageCrashReloads``, as each Chrome tab of a shared renderer shows its own sad tab.
+/// Characterization of the per-page crash path that pages in a shared renderer rely on (p07-memory
+/// 049). It models no renderer: each fake page gets its own `.crashed`, as Chromium sends
+/// `OnRenderProcessTerminated` to each browser of an ended renderer. It passes without 049 and is not
+/// evidence that a shared renderer's end reaches its pages; only a fork or fleet run that kills the
+/// shared renderer shows that.
+///
+/// The decision it pins: the app cannot tell which page of a shared renderer made it crash, so every
+/// page counts each end under its own ``PageCrashReloads``, and a renderer that keeps crashing stops
+/// all of them together. Only the person's Reload starts one again, as each Chrome tab of a shared
+/// renderer shows its own sad tab.
 @MainActor
-struct PageSharedRendererCrashTests {
+struct PageCrashReloadsPerPageTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.shared-renderer", resource: "shared-renderer", processGroup: .agent, namespaces: [])
 
@@ -32,7 +38,7 @@ struct PageSharedRendererCrashTests {
         return views
     }
 
-    @Test func aSharedRendererEndReloadsEveryPageInIt() async throws {
+    @Test func eachPagesCrashReloadsThatPage() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let views = try await openThree(hosting, now: Date(timeIntervalSince1970: 1_000))
@@ -41,7 +47,7 @@ struct PageSharedRendererCrashTests {
         var crashes: [(page: ObjectIdentifier, reloading: Bool)] = []
         for view in views { view.onCrash = { page, reloading in crashes.append((ObjectIdentifier(page), reloading)) } }
 
-        // The renderer the three pages share ends: Chromium tells each page's browser.
+        // What Chromium sends when a renderer the three share ends: one termination per browser.
         for page in hosting.made { page.onEvent?(.crashed) }
 
         #expect(hosting.made.map(\.reloads) == [1, 1, 1], "a page of the ended renderer stayed blank")
@@ -49,10 +55,9 @@ struct PageSharedRendererCrashTests {
         #expect(crashes.count == 3 && crashes.allSatisfy { $0.reloading })
     }
 
-    /// Each end of the shared renderer is one crash of every page in it: a renderer that keeps
-    /// crashing stops every page's reloads together after ``PageCrashReloads/limit``, and a page's
-    /// Reload button starts only that page again.
-    @Test func aRendererThatKeepsCrashingStopsEveryPagesReloads() async throws {
+    /// The suite's decision: a crash loop of pages that share a renderer stops every page's reloads
+    /// together after ``PageCrashReloads/limit``, and a page's Reload button starts only that page again.
+    @Test func pagesThatCrashTogetherStopReloadingTogether() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let views = try await openThree(hosting, now: Date(timeIntervalSince1970: 1_000))

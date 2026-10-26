@@ -43,15 +43,22 @@ public struct CEFPageSchemes {
 
     /// The main-frame cap of a shared cmux page renderer. Chrome gives every NTP one renderer with no
     /// cap (ChromeContentBrowserClient::ShouldUseProcessPerSite); 8 bounds how many pages one renderer
-    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4). Each
-    /// page of a crashed renderer reloads under its own `PageCrashReloads`.
+    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
     public nonisolated static let sharedRendererMainFrames = 8
 
-    /// PL-memory's sharing table for `entries`: one entry per page host that has a cap, sorted by
-    /// host, so the switch is the same on every launch.
+    /// PL-memory's sharing table for `entries`, sorted by site so the switch is the same on every
+    /// launch: one entry per page host that has a cap (`cmux.agent:8`), and one per process group of
+    /// those pages (`privileged:8`). The fork uses a host's own entry first, then its registered
+    /// group's (webui-DESIGN.md 3.2), so a host entry shares only between pages of one host and a
+    /// group entry shares across the group's hosts.
     static func siteCaps(_ entries: [String: Entry]) -> [CEFSwitches.PageSiteCap] {
-        entries.compactMap { id, entry in entry.mainFrameCap.map { CEFSwitches.PageSiteCap(site: id, mainFrames: $0) } }
-            .sorted { $0.site < $1.site }
+        var caps: [String: Int] = [:]
+        for (id, entry) in entries {
+            guard let cap = entry.mainFrameCap else { continue }
+            caps[id] = cap
+            if let group = entry.processGroup { caps[group] = min(caps[group] ?? cap, cap) }
+        }
+        return caps.map { CEFSwitches.PageSiteCap(site: $0.key, mainFrames: $0.value) }.sorted { $0.site < $1.site }
     }
 
     /// Page id (`cmux.agent`) to its entry.

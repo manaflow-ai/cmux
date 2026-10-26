@@ -36,12 +36,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Chromium sends each cmux page whose group shares a renderer to a live renderer of its page (or group) with fewer than 8 main frames, as Chrome gives every New Tab Page one renderer; needs a fork that reads the page-scheme sharing switch.
+    /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
     public static let cmuxPageRendererSharing = Feature(
         index: 2,
         name: "cmuxPageRendererSharing",
         owner: "PL-memory",
-        description: "Chromium sends each cmux page whose group shares a renderer to a live renderer of its page (or group) with fewer than 8 main frames, as Chrome gives every New Tab Page one renderer; needs a fork that reads the page-scheme sharing switch.",
+        description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

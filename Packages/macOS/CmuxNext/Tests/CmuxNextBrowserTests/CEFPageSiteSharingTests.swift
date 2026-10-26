@@ -20,8 +20,15 @@ import Testing
         "cmux.passwords": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'"),
     ]
 
-    private static func arguments(forkAPI: Int32, caps: [CEFSwitches.PageSiteCap]) -> [String] {
-        CEFSwitches.current(forkAPIVersion: forkAPI, rendererPaths: forkAPI >= CEFForkFeatures.rendererPathsForkAPI,
+    /// The same table with `pageProcessGroups` on: each sharing page also names its group.
+    private static let grouped: [String: CEFPageSchemes.Entry] = table.reduce(into: [:]) { out, item in
+        var entry = item.value
+        if entry.mainFrameCap != nil { entry.processGroup = item.key == "cmux.agent" ? "agent" : "privileged" }
+        out[item.key] = entry
+    }
+
+    private static func arguments(forkAPI: Int32, rendererPaths: Bool? = nil, caps: [CEFSwitches.PageSiteCap]) -> [String] {
+        CEFSwitches.current(forkAPIVersion: forkAPI, rendererPaths: rendererPaths ?? (forkAPI >= CEFForkFeatures.rendererPathsForkAPI),
                             bundleIdentifier: "com.cmuxterm.app.next", environment: [:], pageSiteCaps: caps).arguments
     }
 
@@ -38,22 +45,44 @@ import Testing
         ], "a solo or secrets page got an entry, or the order depends on the dictionary: \(caps)")
     }
 
+    /// A host entry shares only between pages of one host; the group entry is what lets History and
+    /// Cloud share once the fork registers their group (webui-DESIGN.md 3.2).
+    @Test func eachGroupOfASharingPageGetsItsOwnEntry() {
+        let caps = CEFPageSchemes.siteCaps(Self.grouped)
+        #expect(caps.map(\.site) == ["agent", "cmux.agent", "cmux.cloud", "cmux.history", "privileged"], "\(caps)")
+        #expect(caps.allSatisfy { $0.mainFrames == 8 })
+    }
+
     @Test func aForkThatReadsTheSwitchGetsTheExactTable() {
         let arguments = Self.arguments(forkAPI: CEFForkFeatures.pageSiteSharingForkAPI, caps: CEFPageSchemes.siteCaps(Self.table))
         #expect(Self.sharingSwitches(arguments) == ["cmux-page-scheme-process-per-site=cmux.agent:8,cmux.cloud:8,cmux.history:8"])
     }
 
-    /// The renderer-path fork (29) and the API 31 and 32 trains have no reader: the switch would do
-    /// nothing there, and a later fork could read a stale grammar from it.
-    @Test(arguments: [Int32(0), 24, 29, 31, 32])
+    /// The fork train numbers p13-webui-011, the switch's reader, with the train's API (32,
+    /// scripts/cmux-next/cef-fork-train.json): a fork at that number must get the switch.
+    @Test func theTrainsForkGetsTheSwitch() {
+        let arguments = Self.arguments(forkAPI: 32, caps: CEFPageSchemes.siteCaps(Self.table))
+        #expect(Self.sharingSwitches(arguments).count == 1, "\(arguments)")
+    }
+
+    /// The renderer-path fork (29) and the API 31 trains have no reader: the switch would do nothing there.
+    @Test(arguments: [Int32(0), 24, 29, 31])
     func anOlderForkNeverGetsTheSwitch(forkAPI: Int32) {
         let arguments = Self.arguments(forkAPI: forkAPI, caps: CEFPageSchemes.siteCaps(Self.table))
         #expect(Self.sharingSwitches(arguments).isEmpty, "\(arguments)")
     }
 
+    /// A shim without the renderer paths keeps a DevTools session on every page, and the fork never
+    /// shares a renderer with a DevTools agent: the switch would do nothing.
+    @Test func noRendererPathsGivesNoSwitch() {
+        let arguments = Self.arguments(forkAPI: CEFForkFeatures.pageSiteSharingForkAPI, rendererPaths: false,
+                                       caps: CEFPageSchemes.siteCaps(Self.table))
+        #expect(Self.sharingSwitches(arguments).isEmpty, "\(arguments)")
+    }
+
     /// The feature off: the app's table has no cap, so there is no switch on any fork.
     @Test func aTableWithNoCapsGivesNoSwitch() {
-        let off = Self.table.mapValues { entry in
+        let off = Self.grouped.mapValues { entry in
             var entry = entry
             entry.mainFrameCap = nil
             return entry

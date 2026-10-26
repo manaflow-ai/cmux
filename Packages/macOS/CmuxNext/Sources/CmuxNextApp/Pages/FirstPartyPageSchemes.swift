@@ -64,10 +64,12 @@ enum FirstPartyPageSchemes {
     ///   one process per origin: its raw value is a class, not a group, and two pages with one key would
     ///   share. Off, no entry names one.
     /// - Parameter rendererSharing: Each entry of a page whose group shares a renderer gets the shared
-    ///   renderer's main-frame cap (``CEFPageSchemes/sharedRendererMainFrames``), so Chromium sends its
-    ///   pages to one live renderer, as Chrome does for every NTP (the `cmuxPageRendererSharing`
-    ///   feature, PL-memory's switch). A `solo` or `secrets` page gets none and never joins one. Off, no
-    ///   entry has a cap.
+    ///   renderer's main-frame cap (``CEFPageSchemes/sharedRendererMainFrames``), so Chromium sends the
+    ///   page's instances (New Tab and every chat of the agent page) to one live renderer, as Chrome
+    ///   does for every NTP (the `cmuxPageRendererSharing` feature, PL-memory's switch). Pages of other
+    ///   hosts join it only through a registered group, which needs `<page>.<group>` hosts
+    ///   (webui-DESIGN.md 3.2). A `solo` or `secrets` page gets none and never joins one. Off, no entry
+    ///   has a cap.
     static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false,
                         rendererSharing: Bool = false) -> [String: CEFPageSchemes.Entry] {
         var out: [String: CEFPageSchemes.Entry] = [:]

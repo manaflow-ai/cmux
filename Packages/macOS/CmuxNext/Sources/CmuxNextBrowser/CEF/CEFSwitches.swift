@@ -91,8 +91,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // fork reads this table the second way, so a cap holds: a listed cmux page host joins a live
         // renderer of its own host (with page groups registered, of its group) while that renderer has
         // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc, cp/p13-webui-011).
-        // A host with no entry keeps Chromium's process per origin; an older fork never sees the switch.
-        if forkAPIVersion >= CEFForkFeatures.pageSiteSharingForkAPI, !pageSiteCaps.isEmpty {
+        // A host with no entry keeps Chromium's process per origin. Without the renderer paths every
+        // page talks through DevTools and the fork shares none, so the switch needs them too.
+        if rendererPaths, forkAPIVersion >= CEFForkFeatures.pageSiteSharingForkAPI, !pageSiteCaps.isEmpty {
             result.append(Self.pageSchemeProcessPerSiteArgument(pageSiteCaps))
         }
         // Never pass a feature-list switch expecting it to replace CEF's own
