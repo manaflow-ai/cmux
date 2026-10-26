@@ -271,10 +271,18 @@ mod tests {
 
     /// A hub with two open chats on a stand-in agent.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        two_chats_on(&[]).await
+    }
+
+    /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code).
+    async fn two_chats_on(env: &[&str]) -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
         use crate::config::{Config, StoreMode};
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut argv = vec!["/usr/bin/env"];
+        argv.extend(env);
+        argv.extend(["python3", fake]);
         let mut cfg: Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "harnesses": {"fake": {"argv": argv}},
             "defaultHarness": "fake",
         }))
         .unwrap();
@@ -338,6 +346,44 @@ mod tests {
         assert!(
             !returned,
             "an off push returned while a message checked under the old bound was still unwritten"
+        );
+    }
+
+    /// Review 33 of #23322: a family message checked before MDM's off (`receiver_check`, an
+    /// approve-all parent to an approve-edits child) that steers into the child's running turn
+    /// after the push is checked again at the steer, and refused: the parent now asks.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_family_steer_after_an_off_push_is_checked_again() {
+        let (hub, parent, child) = two_chats_on(&["FAKE_CLAUDE_STEER=1"]).await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        assert!(hub.receiver_check(&parent, &child).await.is_ok(), "checked before the push");
+        let running = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "until-cancel"})];
+            tokio::spawn(async move {
+                hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await
+            })
+        };
+        let started = async {
+            while child.meta().status != SessionStatus::Running {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let wait = std::time::Duration::from_secs(20);
+        tokio::time::timeout(wait, started).await.expect("the child's turn runs");
+        hub.apply_full_access_push(Some(false)).await;
+        let text = vec![json!({"type": "text", "text": "hello"})];
+        let sent = tokio::time::timeout(
+            wait,
+            hub.send_family_prompt(&parent, &child, text, None, true, false, None, None),
+        )
+        .await
+        .expect("the steer answers");
+        running.abort();
+        assert!(
+            sent.is_err(),
+            "a family steer checked under the old bound ran after the push: {sent:?}"
         );
     }
 
