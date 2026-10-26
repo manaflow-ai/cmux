@@ -4149,7 +4149,7 @@
       "default" : [
 
       ],
-      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again.",
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
       "items" : {
         "type" : "string"
       },

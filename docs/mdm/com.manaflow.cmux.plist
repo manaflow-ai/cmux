@@ -927,7 +927,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again.</string>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
 			<key>pfm_name</key>
 			<string>ssh.linkAllowedHosts</string>
 			<key>pfm_subkeys</key>
