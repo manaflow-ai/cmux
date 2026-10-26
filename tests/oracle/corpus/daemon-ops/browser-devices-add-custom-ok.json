@@ -38,7 +38,26 @@
       "args": {
         "method": "browser.devices.add_custom",
         "params": {
-          "device": {}
+          "device": {
+            "title": "Oracle Phone",
+            "type": "phone",
+            "screen": {
+              "device-pixel-ratio": 3,
+              "vertical": {
+                "width": 390,
+                "height": 844
+              },
+              "horizontal": {
+                "width": 844,
+                "height": 390
+              }
+            },
+            "capabilities": [
+              "touch",
+              "mobile"
+            ],
+            "user-agent": "Mozilla/5.0 (Linux; Android 14; Oracle Phone) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36"
+          }
         },
         "idempotencyKey": "browser-devices-add-custom-ok.call"
       },
@@ -50,7 +69,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a device in Chrome's JSONV1 format (a DevTools custom-device export)"
     }
   ],
   "invariants": [

@@ -240,9 +240,10 @@ public final class AgentPaneView: NSView {
         observeReduceMotion()
     }
 
-    /// Reduce Motion: the system setting, the tests' pin or calm mode.
+    /// Reduce Motion (the system setting, the tests' pin or calm mode) and the other motion
+    /// settings, Energy Saver included: the page's status loops follow them (`statusIndicators`).
     private func observeReduceMotion() {
-        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
+        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion, .motion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
             self?.applyTheme()
         }
     }

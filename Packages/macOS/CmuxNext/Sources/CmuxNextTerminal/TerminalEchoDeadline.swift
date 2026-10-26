@@ -10,7 +10,8 @@ public nonisolated protocol TerminalEchoDeadline: Sendable {
 
 /// ``TerminalEchoDeadline`` on the app's ``DemandTimer``.
 nonisolated struct DemandEchoDeadline: TerminalEchoDeadline {
-    let timer: DemandTimer
+    /// An off-main deadline: `fire` runs on the timer's clock, never on the main actor, so it needs no class.
+    let timer = DemandTimer(owner: "terminal.echo-deadline")
 
     func schedule(after delay: Duration, _ fire: @escaping @Sendable () -> Void) {
         timer.schedule(after: delay) { fire() }

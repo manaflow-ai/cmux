@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextTrace
 
 /// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by
 /// stage, in either engine (`debug.chat_open_trace`; Leo 2026-10-22: "flickers the initial thing
@@ -90,6 +91,7 @@ public final class ChatOpenTrace {
         /// The engine the bound pane's chat showed in (`cef`, `webkit:…`).
         public internal(set) var engine: String?
         let armedAt: TimeInterval
+        // wall-clock: a screen recording's frames carry wall-clock times; the trace's own times are uptime.
         /// Wall-clock seconds at arming, to line a trace up with a screen recording.
         public let armedWall = Date().timeIntervalSince1970
         var marks = [TimeInterval?](repeating: nil, count: Mark.allCases.count)
@@ -310,15 +312,11 @@ public final class ChatOpenTrace {
 
     static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
-    /// The process's start on the ``now()`` clock (now when the kernel does not say).
-    static func processStart() -> TimeInterval {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return now() }
-        let started = info.kp_proc.p_starttime
-        let startWall = TimeInterval(started.tv_sec) + TimeInterval(started.tv_usec) / 1_000_000
-        return now() - max(Date().timeIntervalSince1970 - startWall, 0)
+    /// The process's start on the ``now()`` clock (now when the kernel does not say): the launch slices' one
+    /// conversion of the kernel's wall-clock start onto the uptime clock (``LaunchClock/processStart()``).
+    static func processStart(_ clock: LaunchClock = LaunchClock()) -> TimeInterval {
+        guard let start = clock.processStart() else { return now() }
+        return TimeInterval(start.uptimeNanos) / 1e9
     }
 }
 

@@ -253,7 +253,7 @@ public nonisolated struct HomeBrainHost: Sendable {
             // never the app's folder (`/`) or the home folder, where an
             // agent reads Downloads, Documents and Desktop at once.
             // The shell exits right after the background start; its one line is the pid. The host is
-            // Home's brain: its answers show on screen, so it runs at userVisible (QoS default).
+            // Home's brain: its answers show on screen, so it runs at userVisible (a child at QoS default, `processQoS`).
             let shell = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), arguments, environment: childEnvironment,
                                        directory: muxHome, priority: .userVisible)
             let printed = try await processes.outcome(of: shell).text

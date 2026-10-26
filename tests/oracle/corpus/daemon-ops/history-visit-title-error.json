@@ -38,21 +38,25 @@
       "args": {
         "method": "history.visit.title",
         "params": {
-          "profile": "",
-          "url": "about:blank",
+          "profile": "oracle",
+          "url": "http://127.0.0.1:9/oracle",
           "title": "oracle"
         },
         "idempotencyKey": "history-visit-title-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "profile breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "Gate A2 refuses an agent before validation"
     }
   ],
   "invariants": [

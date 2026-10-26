@@ -4,19 +4,31 @@ import Foundation
 import CmuxNextCompat
 import VideoToolbox
 
+/// A CoreVideo buffer handed from one thread to another: a decoded picture,
+/// or a Metal texture made from one. Sendable types in this module hold
+/// CoreVideo buffers through it.
+nonisolated struct RemoteFrameBuffer: @unchecked Sendable { // crash-allow: CoreVideo buffers are reference-counted CF objects any thread may retain and release, and no holder writes one after VideoToolbox, the VNC session or the Metal texture cache returns it, so every thread only reads it
+    let buffer: CVBuffer
+
+    init(_ buffer: CVBuffer) {
+        self.buffer = buffer
+    }
+}
+
 /// One decoded picture: an IOSurface-backed NV12 pixel buffer (full range,
 /// Metal compatible) and the timing the presenter and stats need.
-public nonisolated struct RemoteDecodedFrame: @unchecked Sendable {
-    // @unchecked: the pixel buffer is never written after the decoder
-    // returns it; presenters only read it (IOSurface, Metal texture, layer).
-    public let pixelBuffer: CVPixelBuffer
+public nonisolated struct RemoteDecodedFrame: Sendable {
+    private let pixels: RemoteFrameBuffer
+    /// Never written after the decoder returns it; presenters only read it
+    /// (IOSurface, Metal texture, layer).
+    public var pixelBuffer: CVPixelBuffer { pixels.buffer }
     public let frame: UInt32
     public let tCaptureMicros: UInt64
     /// `DispatchTime.now().uptimeNanoseconds` when decode finished.
     public let decodedAtNanos: UInt64
 
     public init(pixelBuffer: CVPixelBuffer, frame: UInt32, tCaptureMicros: UInt64, decodedAtNanos: UInt64) {
-        self.pixelBuffer = pixelBuffer
+        pixels = RemoteFrameBuffer(pixelBuffer)
         self.frame = frame
         self.tCaptureMicros = tCaptureMicros
         self.decodedAtNanos = decodedAtNanos
@@ -73,7 +85,7 @@ nonisolated final class RemoteVideoDecoder {
         let result = output.take()
         guard result.status == noErr else { throw .decode(result.status) }
         guard let image = result.image else { throw .noImage }
-        return image
+        return image.buffer
     }
 
     /// Keeps the session when it accepts the new format, else rebuilds it.
@@ -126,19 +138,19 @@ nonisolated final class RemoteVideoDecoder {
 /// The output handler's result. Synchronous decode calls the handler before
 /// `DecodeFrame` returns; the mutex makes that hand-off explicit.
 private nonisolated final class DecodeOutput: Sendable {
-    private struct Result: @unchecked Sendable {
-        // @unchecked: the image buffer is read-only once VideoToolbox returns it.
+    private struct Result: Sendable {
         var status: OSStatus = -1
-        var image: CVImageBuffer?
+        var image: RemoteFrameBuffer?
     }
 
     private let state = Mutex(Result())
 
     func set(status: OSStatus, image: CVImageBuffer?) {
-        state.withLock { $0 = Result(status: status, image: image) }
+        let result = Result(status: status, image: image.map(RemoteFrameBuffer.init))
+        state.withLock { $0 = result }
     }
 
-    func take() -> (status: OSStatus, image: CVImageBuffer?) {
+    func take() -> (status: OSStatus, image: RemoteFrameBuffer?) {
         state.withLock { ($0.status, $0.image) }
     }
 }

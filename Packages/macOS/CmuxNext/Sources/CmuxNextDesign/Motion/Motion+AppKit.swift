@@ -349,8 +349,8 @@ extension MotionGate {
         return set(layer, keyPath, to: value, fade: token, from: from)
     }
 
-    /// A continuous clockwise rotation for a busy spinner, or nil when loops are off. Clockwise
-    /// only: every spinner turns the same way.
+    /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce
+    /// Motion, Energy Saver, the category or speed off). Clockwise only: every spinner turns the same way.
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
@@ -439,11 +439,12 @@ extension MotionGate {
 
     /// Attention flash: two blinks, one fade under Reduce Motion, nil when off.
     /// The blinks peak half a `flash` period apart (the 2 Hz cap,
-    /// `MotionLoop.shortestFlashCycle`).
+    /// `MotionLoop.shortestFlashCycle`). A person starts it and it ends on its own, so Energy
+    /// Saver leaves it as it is (``MotionPolicy/animatesBlinks``).
     public func flashAnimation() -> CAAnimation? {
         guard animatesFades else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
-        if animatesLoops {
+        if animatesBlinks {
             flash.values = [0, 1, 0, 1, 0]
             flash.duration = MotionLoop.flash.period * speed.timeScale
         } else {
