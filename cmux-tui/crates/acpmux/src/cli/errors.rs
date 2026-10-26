@@ -245,6 +245,26 @@ mod typed_error_tests {
         assert!(app.text().contains("\n  The daemon is restarting."), "{}", app.text());
     }
 
+    /// A kind adds detail and never changes the exit code: a timeout still exits 3 and an
+    /// unknown session 4 when the daemon typed the error.
+    #[test]
+    fn a_typed_error_keeps_its_exit_code() {
+        let typed = |message: &str| {
+            daemon(RpcError::internal(message).with_data(json!({
+                "errorKind": "agent.exited",
+                "recovery": "The agent stopped in the middle of the turn.",
+                "details": {},
+            })))
+        };
+        let app = classify(&typed("request timed out"));
+        assert_eq!(app.code as i32, 3, "{:?}", app.envelope());
+        assert_eq!(app.detail, "agent.exited");
+        assert_eq!(app.recovery(), Some("The agent stopped in the middle of the turn."));
+        let app = classify(&typed("unknown session s-1"));
+        assert_eq!(app.code as i32, 4, "{:?}", app.envelope());
+        assert_eq!(app.envelope()["error"]["errorKind"], "agent.exited");
+    }
+
     /// An error with nothing to add prints as before.
     #[test]
     fn an_untyped_error_prints_as_before() {
