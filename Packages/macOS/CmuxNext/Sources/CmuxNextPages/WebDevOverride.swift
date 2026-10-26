@@ -138,6 +138,8 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// with symlinks resolved, nil without an overlay or when it holds no pages. Every web tree imports
     /// React from there, so an overlay page's shared files come from the same install as the page
     /// (`web-overlay.sh` installs a surface that imports them only with its pages).
+    /// ``PageSchemeHandler/sharedReply(to:origin:mainDocument:page:)`` serves a file from here before
+    /// the bundle's copy.
     public var sharedOverlayRoot: URL? {
         guard let overlay else { return nil }
         let root = overlay.appending(path: Self.sharedOverlayPath, directoryHint: .isDirectory)

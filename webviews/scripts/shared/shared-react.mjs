@@ -71,11 +71,19 @@ function sharedSource() {
   }).join("");
 }
 
-/** The module `specifier` resolves to in a consuming bundle: its names, from the shared `url`. */
+/**
+ * The module `specifier` resolves to in a consuming bundle: its names, from the shared `url`. It also
+ * imports every other specifier, so the five modules form one cycle that every importer of one of
+ * them reaches whole: a code-splitting bundler puts modules reached by the same entries in one chunk,
+ * and five modules with five entry sets would be up to five more chunks per page.
+ */
 export function specifierModule(specifier, url) {
   const entry = SHARED_REACT_ENTRIES.find((candidate) => candidate.specifier === specifier);
   const names = exportNames(entry).map((name) => `${prefix(specifier)}${name} as ${name}`);
-  return `export { ${names.join(", ")} } from ${JSON.stringify(url)};\n`;
+  const siblings = SHARED_REACT_ENTRIES.filter((other) => other !== entry).map(
+    (other) => `import ${JSON.stringify(other.specifier)};\n`,
+  );
+  return `${siblings.join("")}export { ${names.join(", ")} } from ${JSON.stringify(url)};\n`;
 }
 
 /**
