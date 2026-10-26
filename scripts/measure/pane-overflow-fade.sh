@@ -22,10 +22,25 @@ git status --porcelain --untracked-files=no | grep -q . && die "tracked source c
 HEAD_SHA="$(git rev-parse HEAD)" || die "cannot resolve HEAD"
 HEAD_TREE="$(git rev-parse 'HEAD^{tree}')" || die "cannot resolve HEAD tree"
 echo "NATIVE_FADE_PREFLIGHT head=$HEAD_SHA tree=$HEAD_TREE"
-timeout 150s git -c fetch.parallel=1 fetch --depth=8 --filter=blob:none --no-tags --no-recurse-submodules origin "$HEAD_SHA" || die "bounded source fetch failed"
+python3 - "$HEAD_SHA" <<'PY_FETCH'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        ["git", "-c", "fetch.parallel=1", "fetch", "--depth=8", "--filter=blob:none",
+         "--no-tags", "--no-recurse-submodules", "origin", sys.argv[1]],
+        check=False,
+        timeout=150,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit("bounded source fetch timed out after 150 seconds")
+raise SystemExit(result.returncode)
+PY_FETCH
+[ $? -eq 0 ] || die "bounded source fetch failed"
 FIXED_BLOB="$(git rev-parse "$HEAD_SHA:$PRODUCT_PATH")" || die "product path missing"
 [ "$FIXED_BLOB" = "$EXPECTED_FIXED_BLOB" ] || die "final product blob mismatch expected=$EXPECTED_FIXED_BLOB actual=$FIXED_BLOB"
-OLD_HEAD="$(git log --all --format='%H' -- "$REGRESSION_PATH" | while read -r candidate; do
+OLD_HEAD="$(git log "$HEAD_SHA" --format='%H' -- "$REGRESSION_PATH" | while read -r candidate; do
   [ "$(git rev-parse "$candidate:$REGRESSION_PATH" 2>/dev/null || true)" = "$EXPECTED_RED_TEST_BLOB" ] || continue
   [ "$(git rev-parse "$candidate:$PRODUCT_PATH" 2>/dev/null || true)" = "$EXPECTED_OLD_BLOB" ] || continue
   printf '%s\n' "$candidate"
@@ -245,7 +260,10 @@ if "moreFadesInPlace" not in text or not re.search(r"(must not move it right|nev
 NX_RED_ORACLE
 (cd "$WORK/after" && bash scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext TabBarRestingControlsTests,PaneMoreOverflowButtonTests,PaneChromeEvenInsetTests,TabSelectionKeepsTabWidthsTests) > "$OUT/green.log" 2>&1 || { cat "$OUT/green.log"; exit 1; }
 cat "$OUT/green.log"
+mkdir -p "$ROOT/artifacts"
+tar -czf "$ROOT/artifacts/pane-overflow-fade.tar.gz" -C "$OUT" .
 python3 - "$OUT" "$RED_SHA" "$HEAD_SHA" <<'NX_CAPTURE_ORACLE'
+
 import json,pathlib,sys,hashlib,base64
 out=pathlib.Path(sys.argv[1])
 for label, source in [("before",sys.argv[2]),("after",sys.argv[3])]:
@@ -263,17 +281,15 @@ for label, source in [("before",sys.argv[2]),("after",sys.argv[3])]:
         if label=="after" and movement>.01:raise SystemExit(f"After fade still moves{movement}pt:{file}")
         print("NATIVE_FADE_GEOMETRY "+json.dumps({"name":data["name"],"source":source,"x_range":movement,"samples":len(samples)}))
 for file in sorted(out.glob("*")):
-    if file.suffix not in [".png",".json"]:continue
-    raw=file.read_bytes(); enc=base64.b64encode(raw).decode(); chunks=[enc[i:i+24000] for i in range(0,len(enc),24000)]
-    print(f"NATIVE_FADE_FILE_BEGIN {file.name} sha256={hashlib.sha256(raw).hexdigest()} bytes={len(raw)} chunks={len(chunks)}")
-    for index,chunk in enumerate(chunks,1):print(f"NATIVE_FADE_FILE_CHUNK {file.name} {index}/{len(chunks)} {chunk}")
-    print(f"NATIVE_FADE_FILE_END {file.name}")
+    if file.suffix not in [".png", ".json"]:
+        continue
+    raw=file.read_bytes()
+    print(f"NATIVE_FADE_FILE {file.name} sha256={hashlib.sha256(raw).hexdigest()} bytes={len(raw)}")
 NX_CAPTURE_ORACLE
 cd "$ROOT"
 [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ] && [ "$(git rev-parse 'HEAD^{tree}')" = "$HEAD_TREE" ]
 git diff --quiet && git diff --cached --quiet
-mkdir -p "$ROOT/artifacts"
-tar -czf "$ROOT/artifacts/pane-overflow-fade.tar.gz" -C "$OUT" .
+[ -f "$ROOT/artifacts/pane-overflow-fade.tar.gz" ] || die "measurement archive missing"
 archive_sha="$(shasum -a 256 "$ROOT/artifacts/pane-overflow-fade.tar.gz" | awk '{print $1}')"
 archive_bytes="$(wc -c < "$ROOT/artifacts/pane-overflow-fade.tar.gz" | tr -d ' ')"
 cd "$ROOT"
