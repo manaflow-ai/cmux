@@ -5172,7 +5172,7 @@ jobs:
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
       # The appcasts this track publishes (decide): one on nightly-next, four on main.
@@ -5583,6 +5583,11 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # A refused upload backs off within 30 minutes (publish-release-assets.py), not 10:
+          # run 40298250989's built nightly was lost to 10 minutes of refusals (2026-10-26).
+          # Every wait in this job (notes, assets, archive, gh) shares one hour
+          # (GH_BUDGET_WAIT_MAX_SECONDS), so the job's 120 minutes keep 60 for the work.
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
@@ -5635,6 +5640,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
@@ -7351,16 +7357,10 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
-      # The ring script and the guard come from the workflow commit: the build
-      # ref can predate them (publish-nightly does the same).
-      - name: Wait through GitHub API rate limits in this job's gh calls
-        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
-        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
-        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
-
+      # The ring script, the guard, the publisher and the gh rate-limit wait come from the
+      # workflow commit on every track: the build ref can predate them (publish-nightly does
+      # the same), and an older publisher has no secondary-limit backoff or serial uploads.
       - name: Checkout publication tooling at the workflow commit
-        if: needs.decide.outputs.track == 'nightly-next'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7369,7 +7369,15 @@ jobs:
           sparse-checkout: |
             scripts/ci/nightly_next_ring.py
             scripts/ci/nightly-next-guard.py
+            scripts/ci/publish-release-assets.py
+            scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -7382,6 +7390,7 @@ jobs:
         id: republish
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           TRACK: ${{ needs.decide.outputs.track }}
           DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
@@ -7437,7 +7446,9 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          # The workflow commit's publisher: its rate-limit backoff, serial uploads, shared wait.
+          publisher=.publish-tooling/scripts/ci/publish-release-assets.py
+          python3 "$publisher" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"
