@@ -327,7 +327,10 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Where Chromium keeps every profile's directory.
-    public var storageRoot: URL { CEFRuntime.shared.storage.root }
+    public var storageRoot: URL { Self.storageRoot }
+
+    /// ``storageRoot`` without an engine: the process's one runtime keeps it (a launch cleanup builds no engine).
+    public static var storageRoot: URL { CEFRuntime.shared.storage.root }
 
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.
