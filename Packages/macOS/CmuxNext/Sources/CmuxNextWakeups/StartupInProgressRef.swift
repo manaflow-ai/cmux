@@ -59,8 +59,8 @@ public final class StartupInProgressRef {
         case daemonUnavailable
         /// The failsafe deadline fired with refs still held.
         case failsafe
-        /// The launch's ``StartupPhase`` settled by its references (first snapshot, restore done,
-        /// visible page idle).
+        /// The launch's ``StartupPhase`` settled by its references. No longer released: the settle's ref
+        /// ends with the reason released before it (kept for its fixed position).
         case launchPhaseSettled
         /// The session restore ended with each visible pane holding its own ref (`VisiblePaneRefs`), so
         /// it is never the last release.

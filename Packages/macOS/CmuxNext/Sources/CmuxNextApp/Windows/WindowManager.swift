@@ -85,11 +85,8 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// Runs once, when the launch's session restore finished (the saved windows are back, the
-    /// launch window adopted or closed): the startup phase's restore reference.
-    var onRestored: (() -> Void)?
-    /// The restore's and the visible panes' startup refs, released at the end of the restore (p08-startup task 013).
-    var launchPaneRefs: VisiblePaneRefs?
+    /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
+    private var launchPaneRefs: VisiblePaneRefs?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -177,8 +174,10 @@ final class WindowManager {
     /// Opens one window at once (from the launch snapshot, else in the
     /// connecting state, outside the registry), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
-    /// becoming the frontmost. Creates a workspace only for an empty tree.
-    func restoreWhenLoaded() {
+    /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
+    /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
+    func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
+        if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
@@ -255,51 +254,12 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
-        let restoredHook = onRestored
-        onRestored = nil
-        restoredHook?()
-        finishLaunchRestore()
+        launchPaneRefs?.finishRestore(of: self)
+        launchPaneRefs = nil
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
-    }
-
-    /// The end of the launch restore: its startup ref ends, and each visible pane holds startup until
-    /// its content shows (`VisiblePaneRefs`, p08-startup task 013).
-    private func finishLaunchRestore() {
-        guard let refs = launchPaneRefs else { return }
-        services.cache.presentationChanges.subscribe("visible-pane-refs") { [weak refs] in refs?.noteChange() }
-        refs.restoreFinished(showsWindow: controllers.contains { $0.window?.isVisible == true }) { [weak self] in self?.launchVisiblePanes() ?? [] }
-    }
-
-    /// The mounted, not hidden panes of each visible window's shown workspace; a window whose panes
-    /// are not mounted yet stands in as one pane, so the restore never ends with no visible pane.
-    func launchVisiblePanes() -> [VisiblePaneRefs.Pane] {
-        _ = (services.paneMounts.generation, services.cache.pageInstalls.revision)
-        return controllers.filter { $0.window?.isVisible == true }.flatMap { controller -> [VisiblePaneRefs.Pane] in
-            guard let content = controller.content, !content.isParked else { return [] }
-            let mounted = content.panes.values.filter { $0.view.window == nil || !$0.view.isHiddenOrHasHiddenAncestor }
-            if mounted.isEmpty, !content.handles.panes.isEmpty { return [VisiblePaneRefs.Pane(key: "window:\(controller.state.id)", state: .loading)] }
-            return mounted.map { VisiblePaneRefs.Pane(key: $0.paneKey, state: $0.launchState) }
-        }
-    }
-
-    /// The front window's visible page, for the startup phase's visible-page reference
-    /// (`StartupReferences`): waiting until the focused pane shows its content and, for a browser
-    /// page, until the page's first load ended. A window with no workspace content shows no page.
-    /// It reads the page's load state and the selection (observable); what a pane shows is not, so
-    /// the caller reads it again on every content change.
-    func visiblePageLoad() -> StartupReferences.VisiblePage {
-        _ = services.cache.pageInstalls.revision
-        guard let controller = active, let content = controller.content else { return .idle }
-        guard let key = controller.focus.state.pane, let pane = content.paneController(key: key) else { return .waiting }
-        let selected = pane.stripModel.selectedID
-        switch pane.currentContent {
-        case .browser(let entry)?: return StartupReferences.VisiblePage(entry)
-        case nil: return selected == nil ? .idle : .waiting
-        case _?: return .idle
-        }
     }
 
     /// The launch window takes the frontmost saved window's identity and

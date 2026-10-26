@@ -25,14 +25,14 @@ final class LaunchSettle {
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
-    /// The restore's and the visible panes' startup refs (p08-startup task 013); nil until the root makes a scheduler.
-    let paneRefs: VisiblePaneRefs?
+    /// The restore's and the visible panes' startup refs (p08-startup task 013), made at the root.
+    let paneRefs: VisiblePaneRefs
     private var sawTerminalContent = false
 
     /// - Parameters:
     ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
-    ///   - paneRefs: The startup refs a terminal's content and an unavailable daemon release.
-    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs? = nil) {
+    ///   - paneRefs: The startup refs a terminal's content is a content signal for.
+    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs) {
         self.reveal = reveal
         self.paneRefs = paneRefs
     }
@@ -75,7 +75,6 @@ final class LaunchSettle {
     func install(daemon: DaemonService) {
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
         TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
-        paneRefs?.watchUnavailable { daemon.startup.isUnavailable }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
             for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
@@ -88,10 +87,11 @@ final class LaunchSettle {
     }
 
     /// A terminal was handed content: a content signal for the visible pane refs while they hold
-    /// startup; the first one also settles the launch once the frame showing it is committed.
-    private func terminalContentApplied() {
-        paneRefs?.noteChange()
-        if paneRefs?.isHolding != true { TerminalTimings.onContentApplied = nil }
+    /// startup; the first one also settles the launch once the frame showing it is committed. The
+    /// hook stays installed while the refs hold startup, and goes at the first content after.
+    func terminalContentApplied() {
+        paneRefs.noteChange()
+        if !paneRefs.isHolding { TerminalTimings.onContentApplied = nil }
         guard !sawTerminalContent else { return }
         sawTerminalContent = true
         DebugTimings.markLaunch("first_terminal_content_applied")
