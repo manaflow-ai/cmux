@@ -528,7 +528,13 @@ fn remember(root: &Path, head: &str, base: &str, answer: Option<Finish>) {
 /// Whether history in this repository can differ from what its ids say:
 /// replacement refs or a grafts file. Unreadable counts as yes.
 fn rewritten_history(root: &Path, objects: &Path, overrides: &[Override]) -> bool {
-    objects.parent().is_some_and(|common| common.join("info/grafts").exists())
+    let grafts = objects.parent().map(|common| common.join("info/grafts"));
+    // Only a grafts file known to be absent lets the memo in.
+    let grafted = grafts.is_none_or(|path| match std::fs::symlink_metadata(path) {
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+        Ok(_) => true,
+    });
+    grafted
         || git::read(root, overrides, &["for-each-ref", "--count=1", "refs/replace/"])
             .map_or(true, |out| !out.is_empty())
 }
