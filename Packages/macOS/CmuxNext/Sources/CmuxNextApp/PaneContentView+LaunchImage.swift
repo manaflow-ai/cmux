@@ -6,10 +6,10 @@ extension PaneContentView {
     /// Draws `image` (an agent page's last frame, `AgentPaneLaunchImages`)
     /// under the content, top-left at its point size, until the live page
     /// paints: an agent page is transparent until then, so the pane never
-    /// shows empty at launch. While it shows, `hold` holds startup open.
+    /// shows empty at launch. While it shows in the window, `hold` holds startup open.
     func showLaunchImage(_ image: NSImage, hold: LaunchImageHold) {
         // Before the old image goes, so a replaced image never ends the hold for a turn.
-        hold.began()
+        let share = hold.began()
         clearLaunchImage()
         let view = NSView(frame: contentHost.bounds)
         view.wantsLayer = true
@@ -19,7 +19,7 @@ extension PaneContentView {
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
-        launchImageHold = hold
+        launchImageShare = share
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
         launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
     }
@@ -33,12 +33,17 @@ extension PaneContentView {
             DebugTimings.markLaunch("agent_pane.launch_image_cleared")
             launchImageView.removeFromSuperview()
             self.launchImageView = nil
-            launchImageHold?.ended(reason)
-            launchImageHold = nil
         }
+        endLaunchImageShare(reason)
         // A page that has not painted when the image goes (its limit) shows its loading state.
         let cleared = onLaunchImageCleared
         onLaunchImageCleared = nil
         cleared?()
+    }
+
+    /// Ends the launch image's share of the startup hold; the image itself stays until it goes.
+    func endLaunchImageShare(_ reason: StartupInProgressRef.Reason) {
+        launchImageShare?.end(reason)
+        launchImageShare = nil
     }
 }

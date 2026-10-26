@@ -1,5 +1,6 @@
 import CmuxNextLaunch
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The launch's first-open warm-ups are afterStartup posts (p08-startup-016): nothing runs before
@@ -7,7 +8,7 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct LaunchFirstOpenWarmupsTests {
     @Test func eachWarmUpRunsAfterCompletionOnePerFrameInOrder() {
-        let s = LaunchTestScheduler()
+        let s = StartupTestScheduler()
         let ran = WarmupRan()
         s.startup.post(.afterFirstFrame, "AppServices.startNonPaintServices", on: .main) { ran.names.append("nonPaint") }
         LaunchFirstOpenWarmups(paletteSteps: ["Palette.prepare.0", "Palette.prepare.1"],
@@ -15,7 +16,7 @@ import Testing
                                prepareIconPicker: { ran.names.append("iconPicker") },
                                warmOpenPanel: { ran.names.append("openPanel") }).post(on: s.startup)
         let restore = s.startup.hold("WindowManager.restore")
-        s.completeImplicitRefs()
+        s.complete()
         for _ in 0..<6 { s.fire() }
         #expect(ran.names == ["nonPaint"], "a warm-up ran before the visible panes showed their content")
         restore.release(.visiblePaneLoadedIdle)
@@ -32,10 +33,10 @@ import Testing
     }
 
     @Test func debugStartupListsEachPaletteStepByName() {
-        let s = LaunchTestScheduler()
+        let s = StartupTestScheduler()
         LaunchFirstOpenWarmups(paletteSteps: ["Palette.prepare.0", "Palette.prepare.1"], preparePalette: { _ in },
                                prepareIconPicker: {}, warmOpenPanel: {}).post(on: s.startup)
-        s.completeImplicitRefs()
+        s.complete()
         for _ in 0..<4 { s.fire() }
         let records = s.startup.log.records
         #expect(records.map(\.name.description) == ["Palette.prepare.0", "Palette.prepare.1", "IconPicker.prepare", "OpenPanel.warmWhenIdle"])
@@ -44,13 +45,13 @@ import Testing
     }
 
     @Test func aQuitBeforeCompletionRunsNoWarmUp() {
-        let s = LaunchTestScheduler()
+        let s = StartupTestScheduler()
         let ran = WarmupRan()
         LaunchFirstOpenWarmups(paletteSteps: ["Palette.prepare.0"], preparePalette: { ran.names.append("palette.\($0)") },
                                prepareIconPicker: { ran.names.append("iconPicker") },
                                warmOpenPanel: { ran.names.append("openPanel") }).post(on: s.startup)
         s.startup.beginQuit()
-        s.completeImplicitRefs()
+        s.complete()
         for _ in 0..<4 { s.fire() }
         #expect(ran.names.isEmpty)
     }

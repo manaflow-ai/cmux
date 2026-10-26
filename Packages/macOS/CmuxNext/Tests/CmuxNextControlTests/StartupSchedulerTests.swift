@@ -93,32 +93,6 @@ import Testing
         await f.startup.afterFirstFrame()
     }
 
-    @Test func completedReturnsAtCompletionNotAtTheFirstFrame() async {
-        let f = StartupFixture()
-        let restore = f.startup.hold("WindowManager.restore")
-        let waiter = Task { @MainActor [ran = f.ran] in
-            await f.startup.completed()
-            ran.names.append("Control.start")
-        }
-        f.complete()
-        for _ in 0..<10 { await Task.yield() }
-        #expect(f.ran.names.isEmpty, "the control socket waits for the visible panes, not only the first frame")
-        restore.release(.visiblePaneLoadedIdle)
-        f.hand.drain()
-        await waiter.value
-        #expect(f.ran.names == ["Control.start"])
-        await f.startup.completed()
-    }
-
-    @Test func completedReturnsWhenQuitBegins() async {
-        let f = StartupFixture()
-        let waiter = Task { @MainActor in await f.startup.completed() }
-        for _ in 0..<10 { await Task.yield() }
-        f.startup.beginQuit()
-        await waiter.value
-        #expect(f.startup.completion == nil)
-    }
-
     @Test func pendingInputDefersMainAfterStartupTasksOnePerFrame() {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Spares.prewarm", on: .main) { [ran = f.ran] in ran.names.append("Spares.prewarm") }
@@ -406,55 +380,31 @@ import Testing
     }
 }
 
-/// A scheduler on hand-run frames, a hand-run main hop and a manual failsafe clock.
+/// The shared startup scheduler fixture with this suite's input source, critical allowlist and run records.
 @MainActor
 private final class StartupFixture {
-    let clock: ManualClock
+    let scheduler: StartupTestScheduler
     let input: StartupTestInput
-    let hand: StartupHandHop
-    let uptime: StartupTestUptime
-    let mainWork: MainWorkScheduler
-    let background: BackgroundWork
-    let startup: StartupScheduler
     let ran = StartupRan()
     let laneRan = StartupLaneRan()
-    private var timestamp = 0.0
+    var clock: ManualClock { scheduler.clock }
+    var hand: StartupTestHop { scheduler.hand }
+    var background: BackgroundWork { scheduler.background }
+    var startup: StartupScheduler { scheduler.startup }
 
     /// - Parameter phase: The launch phase of the frame scheduler (default: already settled, so the
     ///   scheduler arms its own failsafe on `clock`).
     init(phase: StartupPhase = .settled()) {
-        let clock = ManualClock()
         let input = StartupTestInput()
-        let hand = StartupHandHop()
-        let uptime = StartupTestUptime()
-        // The frame scheduler's stall timer sleeps on its own clock, so the failsafe is the only sleeper on `clock`.
-        let mainWork = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { uptime.now }),
-                                                 clock: ManualClock(), ledger: WakeupLedger(), startup: phase) { _ in StartupTestLink() }
-        let background = BackgroundWork(label: "test.startup")
-        self.clock = clock
         self.input = input
-        self.hand = hand
-        self.uptime = uptime
-        self.mainWork = mainWork
-        self.background = background
-        startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop,
-                                   clock: clock, ledger: WakeupLedger(), criticalAllowlist: ["Theme.apply", "Settings.read"],
-                                   log: StartupTaskLog())
+        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"])
     }
 
     /// One display frame, 17 ms after the last.
-    func fire() {
-        uptime.now += 17_000_000
-        timestamp += 1
-        mainWork.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
-    }
+    func fire() { scheduler.fire() }
 
     /// Releases both implicit refs and runs the posted completion.
-    func complete() {
-        startup.finishRegistration()
-        startup.firstFrameCommitted()
-        hand.drain()
-    }
+    func complete() { scheduler.complete() }
 }
 
 /// The names the tasks ran, in order.
@@ -472,42 +422,8 @@ private final class StartupLaneRan: Sendable {
     func add(_ name: String) { state.withLock { $0.append(name) } }
 }
 
-/// A main hop the test runs by hand.
-private final class StartupHandHop: Sendable {
-    private let queued = Mutex<[@MainActor @Sendable () -> Void]>([])
-
-    var hop: StartupMainHop {
-        StartupMainHop { [self] work in queued.withLock { $0.append(work) } }
-    }
-
-    var count: Int { queued.withLock { $0.count } }
-
-    /// Runs every queued hop, and the hops they queue; returns how many ran.
-    @MainActor @discardableResult func drain() -> Int {
-        var ran = 0
-        while true {
-            let batch = queued.withLock { queued -> [@MainActor @Sendable () -> Void] in
-                defer { queued = [] }
-                return queued
-            }
-            if batch.isEmpty { return ran }
-            for work in batch { work() }
-            ran += batch.count
-        }
-    }
-}
-
 @MainActor
 private final class StartupTestInput: InputPendingSource {
     var pending = false
     func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
-}
-
-private final class StartupTestUptime {
-    var now: UInt64 = 1_000_000_000
-}
-
-private final class StartupTestLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }

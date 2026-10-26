@@ -168,7 +168,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 39 | `control.registerSettingsDebugMethods(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 40 | `control.registerUpdateMethods(` | afterFirstFrame | main | 019 | Control method group. |
 | 41 | `control.service?.router.register(` | debug, afterFirstFrame | main | 019 | `debug.chromium_host` methods (`#if DEBUG`). |
-| 42 | `control.start(` | main() | `.lane(.system, .userBlocking)` | 019 | Bind and listen off main after the owner check; serve at `MainWorkClass.automation`. Replaces `await order.startup.completed()` (016 removed `launchSettle.settled(within: 4 s)`). |
+| 42 | `control.start(` | main() | `.lane(.system, .userBlocking)` | 019 | Bind and listen off main after the owner check; serve at `MainWorkClass.automation`. Replaces `launchSettle.settled(within: 4 s, images:)` (016 kept its bound: the first terminal frame and the launch images). |
 | 43 | `ghosttyConfigLiveReload.start(` | afterFirstFrame | main | 026 | File watchers for live reload; the loaded config is already applied. |
 | 44 | `ghosttyKeybinds.start(` | afterFirstFrame | main | 026 | Keeps the binding table's Ghostty keybinds current. |
 | 45 | `launchSettle.install(` | deleted | - | 016 | LaunchSettle becomes scheduler refs (012, 013). |

@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let startupTrace: StartupTrace?
     /// The app's daemon wire counters, made in `main` (nil in a release build).
     private let wireStats: DaemonWireStats?
-    /// The first live terminal frame (or no daemon): reveals the pane region.
+    /// The first live terminal frame (or no daemon): reveals the pane region and, with the launch images, starts the control socket.
     private let launchSettle: LaunchSettle
     /// The startup phase's settle references (first snapshot, restore, visible page).
     private let startupReferences: StartupReferences
@@ -381,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1); await order.startup.completed() // control socket: after the visible panes' first content (cx-z9kz0; task 019 moves it)
+            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // control socket: after the first frames (cx-z9kz0; task 019 binds it off main)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
             _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
