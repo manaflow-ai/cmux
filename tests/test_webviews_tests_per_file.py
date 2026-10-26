@@ -55,8 +55,11 @@ case "$file" in
     if [ -f "$BUN_CALLS.retry" ]; then sleep 60; fi
     touch "$BUN_CALLS.retry"
     echo "(fail) first attempt assertion"; exit 1 ;;
+  *notice-flood*)
+    printf '::notice title=browser-flood::%*s\n' 350000 ''
+    exit 0 ;;
   *flood*)
-    # One very long line models a browser/WPE diagnostic burst; the assertion at the end must still
+    # One very long line models a browser diagnostic burst; the assertion at the end must still
     # survive the runner's bounded public display and the retry's raw artifact copy.
     printf '%*s' 350000 '' | tr ' ' F
     printf '\n(fail) inspector-dead-clicks sentinel\n'
@@ -233,6 +236,18 @@ class PerFileRunner(unittest.TestCase):
         raw = logs[0].read_bytes()
         self.assertGreater(len(raw), 700_000, len(raw))
         self.assertIn(b"(fail) inspector-dead-clicks sentinel", raw)
+
+    def test_a_passing_annotation_flood_is_bounded(self):
+        result, _, calls = self.run_runner(
+            ["test/browser-notice-flood.test.ts"],
+            extra_env={"CMUX_WEB_TEST_LOG_DISPLAY_BYTES": "4096"},
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/browser-notice-flood.test.ts"])
+        self.assertLess(len(output.encode()), 12_000, output)
+        self.assertIn("::notice title=browser-flood", output)
+        self.assertIn("output truncated; complete log is in the webviews raw-log artifact", output)
 
     def test_retry_budget_expiring_during_limit_lookup_starts_no_retry(self):
         system_head = shutil.which("head")
