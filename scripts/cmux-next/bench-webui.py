@@ -53,6 +53,13 @@ process), `page`, `engine`, `group`, `state` (active, hidden, frozen, discarded,
 is read into the same rows (``Census.from_report``). Change them in ``Census`` only. The `publish` and `pressure`
 verbs count only when their reply confirms them; else their rows are `unscored`, never a pass with no load.
 
+--page-code-cache (task 052's A/B, Debug development bundles): the app starts Chromium with the code cache spike's
+switches (manaflow-ai/cef cp/p13-webui-052: cmux-page scripts get V8's code cache, in memory for the pages profile,
+as Chrome's WebUICodeCache gives chrome: scripts). Run `open` with and without it on one host, one build: the warm
+and cold Settings rows are the comparison (webui-DESIGN.md 5.4). Every Chromium renderer must carry the switch; a
+run whose renderers do not (a bench or Release build drops CMUX_NEXT_CEF_EXTRA_SWITCHES, or the fork lacks the spike)
+is refused before it measures, and `page_code_cache.renderers_with_switch` counts them after it.
+
 Session shapes (refused, exit 2, never measured as the shape asked): light is one window, no browser tab and no
 chat before the mode starts, every page the mode opens live, one page shown when the mode shows one; STRESS is
 perf-stress-session.py's check. With --engine chromium, `debug.cef` must show Chromium available with no WebKit
@@ -91,6 +98,9 @@ HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the G
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
+# Task 052's spike switches (CMUX_NEXT_CEF_EXTRA_SWITCHES, colon-separated): the fork copies the first to every renderer.
+CODE_CACHE_SWITCHES = ("cmux-code-cache-schemes=cmux-page", "enable-features=WebUICodeCache")
+CODE_CACHE_MARK = "--" + CODE_CACHE_SWITCHES[0]
 
 
 def host_uptime():
@@ -399,6 +409,26 @@ class Bench:
     def fork_api(self):
         cef = self.rpc("debug.cef")
         return int(cef.get("fork_api") or 0) if isinstance(cef, dict) else 0
+
+    def code_cache_renderers(self):
+        """(Chromium renderers apart from extension renderers, how many of them carry task 052's switch)."""
+        commands = [cmd for cmd in self.instance.pids().values() if self.type_kind(cmd) == "cef-renderer"]
+        return len(commands), sum(CODE_CACHE_MARK in cmd for cmd in commands)
+
+    def check_code_cache_arm(self):
+        """--page-code-cache: refused when a renderer runs without the switch (the A/B would measure the off arm
+        twice). No renderer yet is checked by the row after the mode."""
+        renderers, switched = self.code_cache_renderers()
+        if renderers and switched < renderers:
+            raise ShapeError(f"--page-code-cache: {renderers - switched} of {renderers} Chromium renderers lack "
+                             f"{CODE_CACHE_MARK} (a Debug development bundle reads CMUX_NEXT_CEF_EXTRA_SWITCHES; the "
+                             "fork needs manaflow-ai/cef cp/p13-webui-052)")
+
+    def code_cache_row(self):
+        renderers, switched = self.code_cache_renderers()
+        self.add(row("page_code_cache.renderers_with_switch", switched if renderers else None, ("==", renderers),
+                     note=f"{renderers} Chromium renderers at the end of the run" if renderers
+                     else "no Chromium renderer at the end of the run"))
 
     def check_engine(self, mode):
         problems = engine_problems(self.rpc("debug.cef"), self.opts.engine, mode)
@@ -1000,7 +1030,12 @@ class Bench:
             problems = light_problems((self.rpc("snapshot.get") or {}).get("topology") or {})
             if problems:
                 raise ShapeError("not the light session: " + "; ".join(problems))
+        self.facts["page_code_cache"] = bool(self.opts.page_code_cache)
+        if self.facts["page_code_cache"]:
+            self.check_code_cache_arm()
         getattr(self, mode)()
+        if self.facts["page_code_cache"]:
+            self.code_cache_row()
         if not self.alive():
             self.add(row("app_alive_at_end", 0, ("==", 1)))
         return {"mode": mode, "engine": self.opts.engine, "session": self.opts.session, "rows": self.rows, "facts": self.facts}
@@ -1046,6 +1081,8 @@ def parse(argv):
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
     parser.add_argument("--every-page-hidden", action="store_true",
                         help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
+    parser.add_argument("--page-code-cache", action="store_true",
+                        help="task 052's A/B: Chromium with the code cache spike's switches (Debug development bundles)")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
@@ -1055,7 +1092,17 @@ def parse(argv):
         parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
     if opts.every_page_hidden and opts.mode != "pages10":
         parser.error("--every-page-hidden is a pages10 option")
+    if opts.page_code_cache and opts.engine != "chromium":
+        parser.error("--page-code-cache needs --engine chromium")
     return opts
+
+
+def launch_env(opts, tunables):
+    """The app's environment: the React page tunables file, and with --page-code-cache task 052's switches."""
+    env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.page_code_cache:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(CODE_CACHE_SWITCHES)
+    return env
 
 
 def main(argv=None):
@@ -1071,8 +1118,7 @@ def main(argv=None):
     tunables = os.path.join(out, "debug-tunables.json")
     with open(tunables, "w") as handle:  # the React History and App Store pages (bench-pages.py's PAGES tunables)
         json.dump({"version": 1, "values": {"history.surface": "web", pages.PAGES["apps"]["tunable"]: "web"}}, handle)
-    app = launch.BenchApp(opts.app, out=out, config=launch_config(opts),
-                          env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
+    app = launch.BenchApp(opts.app, out=out, config=launch_config(opts), env=launch_env(opts, tunables))
     status = 0
     report = {"mode": opts.mode, "rows": []}
     try:

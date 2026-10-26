@@ -395,3 +395,55 @@ process (p13-webui.md risk 2). Run: `cmux-ci build cef --ref 976745836370f6b40e2
 then `ceftests --gtest_filter=CmuxPageProcessTest.*` three times (no switch, `--cmux-page-process-lock=effective-url`,
 `--cmux-page-process-lock=webui-scheme`). Put the job id, the counts, the logged locks and the kills in the Measured
 column.
+
+### 5.4 Code cache for cmux pages (task 052): open, not run
+
+Status 2026-10-26: the fork change exists and has not been built; no number exists. No cmux product code changed: the
+app passes the switches only through the Debug-only `CMUX_NEXT_CEF_EXTRA_SWITCHES`, so no build ships the cache.
+
+What Chrome does. Chrome caches V8 bytecode of chrome: scripts only with `WebUICodeCache` (default off at 154):
+`content/renderer/render_thread_impl.cc` registers chrome: and chrome-untrusted: as "code cache with hashing" (an
+entry is used only for the same source text, `ScriptCachedMetadataHandlerWithHashing`), and
+`content/browser/renderer_host/code_cache_host_impl.cc` accepts such a script only from a renderer locked to a WebUI
+scheme, keys it by that lock and keeps it in its own `GeneratedCodeCache` (`webui_js`), never with the open web. Any
+other custom scheme gets no code cache (`CheckSecurityForAccessingCodeCacheData`: "Invalid URL scheme for code
+cache."). An off-the-record partition gets no code cache at all (`StoragePartitionImpl::Initialize`: V8 already keeps
+one copy per renderer). cmux pages are `cmux-page://` in the off-the-record pages profile, so today a page's new
+renderer compiles every script again. Build-time bytecode (`WebUIBundledCodeCache`, `generate_code_cache` in
+`docs/webui/webui_build_configuration.md`) maps GRIT resource ids in the renderer; cmux pages come from the
+embedder's scheme handler, so it is not available for them, and `webviews/scripts/pages/build-pages.mjs` does not
+change.
+
+The spike: manaflow-ai/cef `cp/p13-webui-052` at `c6af944a` (on the pinned `c8953bc6`, `cmux/8037-helper-items`; patch
+`cmux_page_code_cache`; 267 added lines with the libcef part and the doc rows). `--cmux-code-cache-schemes=cmux-page` with
+`--enable-features=WebUICodeCache` gives cmux-page scripts the WebUI rules above: accepted only from a renderer locked
+to cmux-page (an http(s) renderer that writes one is a bad-message kill), keyed by the lock, kept in the WebUI cache;
+a renderer locked to cmux-page does not cache open-web scripts. The renderer registers the listed scheme with hashing
+(`CefRenderManager::WebKitInitialized`; the switch is copied to renderers). An off-the-record partition gets the WebUI
+cache alone, in memory (`GeneratedCodeCacheContext::InitializeInMemory`: a `MEMORY_CACHE` backend of
+`kMaxWebUICodeCacheSize`, 5 MB). Web, file, chrome and extension schemes are never listed. No export, no API number.
+Chrome's own hot-script rule still applies: Blink stores only a timestamp on a script's first load, the code cache on
+its second load within 72 h (`v8_code_cache.cc` `kHotHours`, `ProduceCacheOptions::kSetTimeStamp`), and uses it from
+the third. The cache keys a script file by its URL: inline scripts get none (Chrome's `InlineScriptCache` is http(s)
+only). The pages built today are one index.html with inline JS, so the spike can gain nothing until the split build
+(049) and the shared chunks of `cmux-page://cmux.shared/` (050) land; both are on their task branches, not on
+perf/chrome-parity yet. The expected gain is a renderer that loads page scripts another renderer of the same lock
+already ran twice: a cold Settings open after its renderer ended.
+
+The measurement (`bench-webui.py open --page-code-cache`, task 052's arm; refused when a Chromium renderer lacks the
+switch):
+
+0. 049 and 050 are on perf/chrome-parity (`page-bundle-report.mjs`, task 051, shows separate .js files).
+1. `cmux-ci build cef --arch arm64 --ref c6af944a --tag cef-stage-c6af944a-arm64`, staged with
+   `scripts/cmux-next/cef-pin-staging.sh pin` on a test-only branch (never landed), then a Debug tagged build of that
+   branch.
+2. On one mini, the same build, alternating arms, 3 runs each:
+   `bench-webui.py open --app APP --runs 20 --cold-runs 20 --chat-turns 0` and the same with `--page-code-cache`.
+   The first open of each run sets only timestamps, so its cold sample is the same in both arms.
+3. Rows compared: `settings.cold_open_ms` (expected to move) and `settings.open_ms` (warm, expected flat), p50 and p95.
+   Noise is the spread of the off arm's three p95 values. A gain is a p95 that is lower than every off-arm p95 by more
+   than that spread.
+
+Result: not run. If neither row gains beyond noise, the fork branch is not pinned and perf-lead.md's row says so. If
+the cold row gains, the next step is a default-off feature that adds the two switches, and the fork patch joins the
+train (178).
