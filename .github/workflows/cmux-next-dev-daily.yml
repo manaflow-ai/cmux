@@ -1034,18 +1034,24 @@ jobs:
           # rRUN-ATTEMPT -> cmux-NEXT-DEV-tip-RUN-ATTEMPT-, the delta prefix tip-dmg used.
           delta_from="cmux-NEXT-DEV-tip-${DMG_RUN_TAG#r}-" delta_to="cmux-NEXT-DEV-tip-${TIP_RUN_TAG#r}-"
           mv "tip-handoff/$dmg_from" "tip-new/$dmg_to"
+          moved=0
           for delta in tip-handoff/*.delta; do
             [[ -f "$delta" ]] || continue
             name="$(basename "$delta")"
             [[ "$name" == "$delta_from"* ]] || { echo "unexpected delta $name" >&2; exit 1; }
             mv "$delta" "tip-out/$delta_to${name#"$delta_from"}"
+            moved=$((moved + 1))
           done
-          python3 - "tip-handoff/$TIP_APPCAST" "tip-out/$TIP_APPCAST" "$dmg_from" "$dmg_to" "$delta_from" "$delta_to" <<'EOF'
+          python3 - "tip-handoff/$TIP_APPCAST" "tip-out/$TIP_APPCAST" "$dmg_from" "$dmg_to" "$delta_from" "$delta_to" "$moved" <<'EOF'
           import sys
-          source, out, dmg_from, dmg_to, delta_from, delta_to = sys.argv[1:]
+          source, out, dmg_from, dmg_to, delta_from, delta_to, moved = sys.argv[1:]
           text = open(source, encoding="utf-8").read()
           if text.count("/" + dmg_from + '"') != 1:
               sys.exit(f"the appcast does not name {dmg_from} exactly once")
+          # Every delta URL is renamed with its file: a prefix drift between
+          # the generator and this rename fails here, not on a client.
+          if text.count("/" + delta_from) != int(moved) or text.count(".delta") != int(moved):
+              sys.exit(f"the appcast names {text.count('.delta')} deltas ({text.count('/' + delta_from)} with {delta_from}), but {moved} moved")
           text = text.replace("/" + dmg_from + '"', "/" + dmg_to + '"').replace("/" + delta_from, "/" + delta_to)
           open(out, "w", encoding="utf-8").write(text)
           EOF

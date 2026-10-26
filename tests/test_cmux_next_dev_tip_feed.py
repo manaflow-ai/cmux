@@ -195,7 +195,7 @@ check(any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for s
 
 # The digest gate, run in bash.
 require = next(step for step in feed_job["steps"] if step.get("name") == "Require the archive verify tested")["run"]
-def run_require(built, tested, tag="r7-1", own="r7-1"):
+def run_require(built, tested, tag="r7-1", own="r7-1", extra=()):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "tip-handoff").mkdir(); (tmp / "tip-tested").mkdir()
@@ -204,7 +204,8 @@ def run_require(built, tested, tag="r7-1", own="r7-1"):
         (tmp / "tip-handoff" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
         (tmp / "tip-handoff" / "appcast-arm64.xml").write_text(open(feed(102, 100)).read().replace(
             "DEV-102.dmg", "DEV-102-r7-1.dmg").replace("</item>", '<sparkle:deltas><enclosure url="https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-1-102-100.delta"/></sparkle:deltas></item>', 1))
-        (tmp / "tip-handoff" / "cmux-NEXT-DEV-tip-7-1-102-100.delta").write_text("delta")
+        for name in ("cmux-NEXT-DEV-tip-7-1-102-100.delta", *extra):
+            (tmp / "tip-handoff" / name).write_text("delta")
         env = {"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "DMG_RUN_TAG": tag, "TIP_RUN_TAG": own,
                "TIP_BUILD": "102", "TIP_APPCAST": "appcast-arm64.xml"}
         result = subprocess.run(["bash", "-e", "-c", require], cwd=tmp, env=env, capture_output=True, text=True, timeout=30)
@@ -225,6 +226,8 @@ check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-2.dmg", "tip-out/appc
       and f"{prefix}102-r7-2.dmg" in urls and "https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-2-102-100.delta" in urls
       and not any("r7-1" in url or "tip-7-1-" in url for url in urls),
       f"a tip re-run publishes tip-dmg's files under its own names, and the appcast names them ({rc} {placed} {urls})")
+rc, placed, urls = run_require(digest, digest, extra=("cmux-NEXT-DEV-tip-7-1-102-99.delta",))
+check(rc != 0, "the moved deltas and the appcast's delta URLs must match in number")
 rc, placed, urls = run_require(digest, "cd" * 32 + "  cmux-NEXT-DEV.zip\n")
 check(rc != 0 and placed == [], "a DMG around an archive verify did not test never reaches the upload")
 rc, placed, urls = run_require(digest, digest, tag="")
