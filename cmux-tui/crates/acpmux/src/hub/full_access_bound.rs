@@ -52,6 +52,17 @@ impl FullAccessView {
         Self { argv: argv.to_vec(), ..Self::default() }
     }
 
+    /// An agent from `argv` whose harness answered `session/new` with `res`: the mode and config
+    /// options its session came up in, beside its argv.
+    pub(crate) fn of_session_new(argv: &[String], res: Option<&Value>) -> Self {
+        Self {
+            argv: argv.to_vec(),
+            mode: res.and_then(|r| r["modes"]["currentModeId"].as_str()).map(str::to_owned),
+            undeclared_mode: None,
+            options: res.and_then(|r| r["configOptions"].as_array()).cloned().unwrap_or_default(),
+        }
+    }
+
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
         let undeclared_mode =

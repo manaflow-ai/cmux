@@ -3,17 +3,49 @@
 use super::*;
 
 impl Pooled {
-    /// Whether this agent, started for `spec`, runs in full access: its argv, or the mode and
-    /// config options its harness session came up in (`runs_full_access`).
-    pub(super) fn runs_full_access(&self, spec: &PoolSpec) -> bool {
+    /// Whether this agent, started from `argv`, runs in full access (`runs_full_access`): its
+    /// argv, the mode and config options its harness session came up in, and the mode and option
+    /// updates it sent since, held until a chat takes it (`held.rs`), a mode reported by a harness
+    /// that declares none included (review 32 of #23322).
+    pub(super) fn runs_full_access(&self, argv: &[String]) -> bool {
         use crate::hub::full_access_bound::{FullAccessView, runs_full_access};
         let new = self.new_result.as_ref();
-        let view = FullAccessView {
-            argv: spec.spawn.argv.clone(),
-            mode: new.and_then(|r| r["modes"]["currentModeId"].as_str()).map(str::to_owned),
-            undeclared_mode: None,
-            options: new.and_then(|r| r["configOptions"].as_array()).cloned().unwrap_or_default(),
-        };
+        let mut view = FullAccessView::of_session_new(argv, new);
+        let declared = new.is_some_and(|r| r["modes"].is_object());
+        let harness_session = new.and_then(|r| r["sessionId"].as_str());
+        let slot = self.tap.lock().unwrap_or_else(|e| e.into_inner());
+        let TapSlot::Held(held) = &*slot else { return runs_full_access(&view).is_some() };
+        for (dir, msg, _) in held {
+            let Message::Notification { method: name, params: Some(params) } = msg else {
+                continue;
+            };
+            if *dir != Direction::In || name != crate::rpc::method::SESSION_UPDATE {
+                continue;
+            }
+            // A subagent's updates are not the session's own (`on_update`).
+            if harness_session
+                .is_some_and(|sid| params["sessionId"].as_str().is_some_and(|s| s != sid))
+            {
+                continue;
+            }
+            let update = &params["update"];
+            match update["sessionUpdate"].as_str() {
+                Some("current_mode_update") => {
+                    let mode = update["currentModeId"].as_str().map(str::to_owned);
+                    if declared {
+                        view.mode = mode;
+                    } else {
+                        view.undeclared_mode = mode;
+                    }
+                }
+                Some("config_option_update") => {
+                    if let Some(options) = update["configOptions"].as_array() {
+                        view.options = options.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
         runs_full_access(&view).is_some()
     }
 }

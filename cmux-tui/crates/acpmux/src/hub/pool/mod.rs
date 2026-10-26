@@ -425,7 +425,7 @@ impl Hub {
                         // not kept, where nothing caps it until a chat takes it. Read under the
                         // pool lock, which the push's drain takes after recording the off (and
                         // nothing takes the two the other way round), so no entry slips between.
-                        if hub.full_access_managed_off() && p.runs_full_access(&spec) {
+                        if hub.full_access_managed_off() && p.runs_full_access(&spec.spawn.argv) {
                             pool.failed(&spec.key, generation);
                             Some(p)
                         } else {
@@ -615,6 +615,15 @@ impl Hub {
     /// session starts cold.
     pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
+        // MDM forces full access off (#23322, review 32): an entry in full access by what it
+        // reported while held (a mode its harness declares none for, an option) is not taken,
+        // since `cap_full_access` may read the session before those reports reach it. The chat
+        // starts cold under the bound.
+        if self.full_access_managed_off() && p.runs_full_access(&spawn.argv) {
+            tracing::info!(session = %id, "pooled session not taken: it runs in full access, which MDM forces off");
+            self.pool_discard(vec![p]);
+            return None;
+        }
         if p.opencode_asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
             return Some(p);
         }

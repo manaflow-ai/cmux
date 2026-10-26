@@ -1279,6 +1279,16 @@ impl Hub {
                 .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            // MDM forces full access off (#23322, review 32): a session that came up in it (its
+            // mode or a config option, a profile that pins nothing included) keeps nothing. Read
+            // once it answered, so an off that landed during the handshake counts.
+            let view =
+                super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
+            if self.full_access_managed_off()
+                && super::full_access_bound::runs_full_access(&view).is_some()
+            {
+                anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
+            }
             let cfg = self.config.read().await;
             if cfg.harnesses.get(name) == Some(profile) {
                 self.remember_models_from(
