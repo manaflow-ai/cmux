@@ -1,0 +1,670 @@
+#!/usr/bin/env python3
+"""Rendering done checks and machine queues (plans/cmux-next/chrome-parity/p03-rendering.md, sections 5 and 6).
+
+Runs the static parts of the done checks (DC1, DC6 and DC8b rg parts, DC11) and every MQ count as the rg/comm
+queries the plan writes, and prints, per row, the query, the count and the threshold. A fleet and local tool, not a
+CI gate (Lawrence 2026-10-23: no new CI tests). Run it at the branch tip at the start and at the end of the push.
+
+  python3 scripts/cmux-next/render-done-checks.py [--repo DIR] [--verbose] [--json OUT]
+      [--motion J] [--hitches J] [--idle J] [--typing J] [--cef J]
+  python3 scripts/cmux-next/render-done-checks.py --frameclients
+  python3 scripts/cmux-next/render-done-checks.py --invalidate [PATH ...]
+
+Rows:
+  DC*  done checks: PASS or FAIL; any FAIL exits 1.
+  MQ*  machine queues: DONE when the unannotated count reaches the threshold, else OPEN (does not fail the run;
+       DC11 fails on the queues it names). INFO rows have no threshold (a count to compare across runs).
+
+ghostty-next queries need the submodule initialized at the gitlink the checkout pins; otherwise the GHOSTTY row
+FAILs (the run exits 1) and the ghostty rows print SKIP: an uninitialized submodule makes rg print nothing, which
+would read as done.
+
+Annotations (at the end of the hit's line or on a comment-only line above it): `// sync-layout: <why>` (DC11,
+MQ-sync-layout), `// input-driven: <why>` (MQ-springs, MQ-frameclients), `// frame-client: <why>` (MQ-frameclients;
+a hit inside an `#if DEBUG` or `#if DEBUG || CMUX_BENCH_HOOKS` branch counts as marked too), `// invalidate: <why>`
+(--invalidate, which also accepts `!= oldValue`, `guard ... !=` and `if ... !=` on the line or the line above),
+`// tracking-area: <why>` (MQ-tracking-areas), `// draw: <why>` (MQ-draw), `// decode: <why>` (MQ-image-decode),
+`LoopVisibility` (MQ-loops). MQ-shadow-path takes `shadowPath` or `// shadow: alpha-derived <why>` anywhere in the
+file, as the plan's comm query does.
+
+Bench JSON (each optional; a file with none of its keys FAILs, so a wrong file is never a silent pass):
+  --motion   motion-main-work.py (DC2): frame_sets, layouts, window_calls, layout_frames = 0; update_visibility <= 2
+  --hitches  motion-hitches.py (DC2t, DC3): hitches, hitch_count = 0; main_work_p99_ms <= 0.5;
+             max_interval_ms <= 12.5 (1.5 x 8.33 ms)
+  --idle     bench_idle.py (DC7r, DC7j): app + daemon wakeups/s <= 1 per scenario; render-attributed ledger
+             wakeups (frame clients, display links, VSyncHub, Ghostty renderer) = 0
+  --typing   typing-frame-bench.py (DC5): key_to_frame_ms p50 <= 8.3, p99 <= 16.7
+  --cef      cef-layer-ab.py summary (DC10): input_to_commit_ms p95 < 8.3; longest_frame_ms max <= 8.33
+
+Exit: 0 every DC row passes, 1 a DC row fails (or --frameclients / --invalidate lists a hit), 2 a usage or tool
+error (no rg, unreadable JSON, not a cmux checkout).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Callable, Iterator
+
+SOURCES = "Packages/macOS/CmuxNext/Sources"
+GHOSTTY = "ghostty-next"
+
+
+class CheckError(Exception):
+    """A tool or input problem: the run cannot say pass or fail."""
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# rg queries
+
+
+@dataclass(frozen=True)
+class Hit:
+    path: str
+    line: int  # 0 for a file-level (rg -l) hit
+    text: str = ""
+
+    def __str__(self) -> str:
+        return f"{self.path}:{self.line}: {self.text.strip()}" if self.line else self.path
+
+
+@dataclass(frozen=True)
+class Query:
+    pattern: str
+    paths: tuple[str, ...] = (SOURCES,)
+    globs: tuple[str, ...] = ()
+    files: bool = False
+
+    def shell(self) -> str:
+        parts = ["rg", "-l" if self.files else "-n", shlex.quote(self.pattern), *self.paths]
+        parts += [f"--glob {shlex.quote(g)}" for g in self.globs]
+        return " ".join(parts)
+
+
+class Tree:
+    """One checkout: runs queries with rg and reads files for annotations."""
+
+    def __init__(self, root: Path, rg: str) -> None:
+        self.root = root
+        self.rg = rg
+        self._lines: dict[str, list[str]] = {}
+
+    def run(self, query: Query) -> list[Hit]:
+        paths = [p for p in self._expand(query.paths) if (self.root / p).exists()]
+        if not paths:
+            return []
+        command = [self.rg, "--no-config", "--no-messages", "--with-filename", "--null", "--color=never"]
+        command += ["-l"] if query.files else ["-n", "--no-heading"]
+        for g in query.globs:
+            command += ["--glob", g]
+        command += ["-e", query.pattern, "--", *paths]
+        done = subprocess.run(command, cwd=self.root, capture_output=True, text=True, errors="replace")
+        if done.returncode not in (0, 1):
+            raise CheckError(f"rg failed ({done.returncode}) on {query.shell()}: {done.stderr.strip()}")
+        hits: list[Hit] = []
+        if query.files:
+            for path in done.stdout.split("\0"):
+                if path.strip():
+                    hits.append(Hit(_norm(path.strip()), 0))
+        else:
+            for row in done.stdout.splitlines():
+                path, _, rest = row.partition("\0")
+                number, _, text = rest.partition(":")
+                if number.isdigit():
+                    hits.append(Hit(_norm(path), int(number), text))
+        return sorted(hits, key=lambda h: (h.path, h.line))
+
+    def lines(self, path: str) -> list[str]:
+        if path not in self._lines:
+            try:
+                self._lines[path] = (self.root / path).read_text(errors="replace").splitlines()
+            except OSError:
+                self._lines[path] = []
+        return self._lines[path]
+
+    def _expand(self, paths: tuple[str, ...]) -> Iterator[str]:
+        for p in paths:
+            if any(c in p for c in "*?["):
+                yield from sorted(str(m.relative_to(self.root)) for m in self.root.glob(p))
+            else:
+                yield p
+
+
+def _norm(path: str) -> str:
+    return path[2:] if path.startswith("./") else path
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# annotations
+
+Marker = Callable[[Tree, Hit], bool]
+
+
+def near(*patterns: str) -> Marker:
+    """A hit is marked when its line or the line above matches one of `patterns` (a change check in code)."""
+    compiled = [re.compile(p) for p in patterns]
+
+    def marked(tree: Tree, hit: Hit) -> bool:
+        lines = tree.lines(hit.path)
+        window = lines[max(0, hit.line - 2):hit.line]
+        return any(c.search(text) for c in compiled for text in window)
+
+    return marked
+
+
+def comment(*tags: str) -> Marker:
+    """A hit is marked by `// <tag>: <why>` at the end of its line or on a comment-only line above it.
+
+    A trailing comment on the code line above belongs to that line, so it does not mark the next one."""
+    compiled = [re.compile(rf"//\s*{re.escape(tag)}:\s*\S") for tag in tags]
+
+    def marked(tree: Tree, hit: Hit) -> bool:
+        lines = tree.lines(hit.path)
+        own = lines[hit.line - 1] if 0 < hit.line <= len(lines) else ""
+        above = lines[hit.line - 2] if hit.line >= 2 else ""
+        candidates = [own] + ([above] if above.lstrip().startswith("//") else [])
+        return any(c.search(text) for c in compiled for text in candidates)
+
+    return marked
+
+
+_IF = re.compile(r"^\s*#if\s+(.*)$")
+_ELSEIF = re.compile(r"^\s*#elseif\b")
+_ELSE = re.compile(r"^\s*#else\b")
+_ENDIF = re.compile(r"^\s*#endif\b")
+_DEBUG_CONDITION = re.compile(r"^\(?\s*(DEBUG|CMUX_BENCH_HOOKS)(\s*\|\|\s*(DEBUG|CMUX_BENCH_HOOKS))*\s*\)?$")
+
+
+def debug_only(tree: Tree, hit: Hit) -> bool:
+    """The hit sits in the first branch of an `#if DEBUG` / `#if DEBUG || CMUX_BENCH_HOOKS` block."""
+    stack: list[bool] = []  # per open #if: is the current branch a debug-only branch
+    for text in tree.lines(hit.path)[:hit.line - 1]:
+        code = text.split("//", 1)[0].strip()
+        if m := _IF.match(code):
+            stack.append(bool(_DEBUG_CONDITION.match(m.group(1).strip())))
+        elif (_ELSEIF.match(code) or _ELSE.match(code)) and stack:
+            stack[-1] = False
+        elif _ENDIF.match(code) and stack:
+            stack.pop()
+    return any(stack)
+
+
+def either(*markers: Marker) -> Marker:
+    return lambda tree, hit: any(m(tree, hit) for m in markers)
+
+
+FRAME_CLIENT_MARK = either(comment("input-driven", "frame-client"), debug_only)
+INVALIDATE_MARK = either(near(r"!=\s*oldValue", r"\bguard\b.*!=", r"\bif\b.*!="), comment("invalidate"))
+SYNC_LAYOUT_MARK = comment("sync-layout")
+
+
+def file_marked(pattern: str, marker: Marker) -> Callable[[Tree, str], bool]:
+    """A file is marked when every line matching `pattern` in it is marked."""
+    compiled = re.compile(pattern)
+
+    def marked(tree: Tree, path: str) -> bool:
+        lines = tree.lines(path)
+        hits = [Hit(path, i + 1, t) for i, t in enumerate(lines) if compiled.search(t)]
+        return bool(hits) and all(marker(tree, h) for h in hits)
+
+    return marked
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# rows
+
+
+@dataclass
+class Row:
+    id: str
+    kind: str  # "done" | "queue" | "info"
+    query: str
+    count: int | None
+    threshold: str  # human form, e.g. "0", "<= 2", "-"
+    ok: bool | None  # None for info rows
+    note: str = ""
+    items: list[str] = field(default_factory=list)
+    skipped: bool = False
+
+    @property
+    def status(self) -> str:
+        if self.skipped:
+            return "SKIP"
+        if self.kind == "info" or self.ok is None:
+            return "INFO"
+        if self.kind == "done":
+            return "PASS" if self.ok else "FAIL"
+        return "DONE" if self.ok else "OPEN"
+
+    def as_json(self) -> dict:
+        return {"id": self.id, "status": self.status, "query": self.query, "count": self.count,
+                "threshold": self.threshold, "note": self.note, "items": self.items}
+
+
+@dataclass(frozen=True)
+class LineCheck:
+    """Hits of one or more queries; unmarked hits are counted against the threshold."""
+    id: str
+    kind: str
+    queries: tuple[Query, ...]
+    threshold: int | None = 0
+    marker: Marker | None = None
+    note: str = ""
+    by_file: bool = False  # count files, not lines (the hit list is still per line when the query is -n)
+    allowed: tuple[str, ...] = ()  # file paths (relative to SOURCES or the repo) that may hit
+    ghostty: bool = False
+
+    def evaluate(self, tree: Tree) -> Row:
+        hits = [h for q in self.queries for h in tree.run(q)]
+        if self.allowed:
+            hits = [h for h in hits if not any(h.path.endswith("/" + a) or h.path == a for a in self.allowed)]
+        if self.marker is not None:
+            hits = [h for h in hits if not self.marker(tree, h)]
+        count = len({h.path for h in hits}) if self.by_file else len(hits)
+        query = " ; ".join(q.shell() for q in self.queries)
+        ok = None if self.threshold is None else count <= self.threshold
+        threshold = "-" if self.threshold is None else str(self.threshold)
+        return Row(self.id, self.kind if self.threshold is not None else "info", query, count, threshold, ok,
+                   self.note, [str(h) for h in hits])
+
+
+@dataclass(frozen=True)
+class CommCheck:
+    """`comm -23` (left minus right) or `comm -12` (both) of two rg -l lists."""
+    id: str
+    kind: str
+    left: Query
+    right: Query
+    mode: str  # "-23" or "-12"
+    file_marker: Callable[[Tree, str], bool] | None = None
+    note: str = ""
+
+    def evaluate(self, tree: Tree) -> Row:
+        left = {h.path for h in tree.run(self.left)}
+        right = {h.path for h in tree.run(self.right)}
+        files = sorted(left - right if self.mode == "-23" else left & right)
+        if self.file_marker is not None:
+            files = [f for f in files if not self.file_marker(tree, f)]
+        query = f"comm {self.mode} <({self.left.shell()} | sort) <({self.right.shell()} | sort)"
+        return Row(self.id, self.kind, query, len(files), "0", not files, self.note, files)
+
+
+@dataclass(frozen=True)
+class GuardrailListed:
+    id: str
+    rule: str
+
+    def evaluate(self, tree: Tree) -> Row:
+        script = tree.root / "scripts/cmux-next/guardrails.py"
+        query = f"python3 scripts/cmux-next/guardrails.py --list | grep '^{self.rule}:'"
+        if not script.exists():
+            return Row(self.id, "done", query, 0, "1", False, "guardrails.py missing")
+        done = subprocess.run([sys.executable, str(script), "--list"], cwd=tree.root, capture_output=True,
+                              text=True, timeout=120)
+        found = len(re.findall(rf"^{re.escape(self.rule)}:", done.stdout, re.M))
+        return Row(self.id, "done", query, found, ">= 1", found >= 1, f"guardrail `{self.rule}` (task 066)")
+
+
+def q(pattern: str, *paths: str, globs: tuple[str, ...] = (), files: bool = False) -> Query:
+    return Query(pattern, paths or (SOURCES,), globs, files)
+
+
+SYNC_LAYOUT = r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush"
+FRAME_CLIENT = r"FrameClient\(owner:"
+INVALIDATE = r"needsLayout = true|needsDisplay = true"
+DISPLAY_LINK = r"displayLink\(target:|CADisplayLink\(|CVDisplayLink"
+TRACKING = r"override (public |open )?func updateTrackingAreas"
+CHILD_WINDOW_FALLBACK = "!**/ChildWindowPageFallback.swift"
+APP = f"{SOURCES}/CmuxNextApp"
+
+REDRAW_POLICY = CommCheck("MQ-redraw-policy", "queue", q(r"override (public |open )?func updateLayer", files=True),
+                          q("layerContentsRedrawPolicy", files=True), "-23", note="baseline 59 files")
+SHADOW_PATH = CommCheck("MQ-shadow-path", "queue", q("shadowOpacity", files=True),
+                        q(r"shadowPath|shadow: alpha-derived", files=True), "-23", note="baseline 11 files")
+TRACKING_AREAS = CommCheck("MQ-tracking-areas", "queue", q(TRACKING, files=True), q("inVisibleRect", files=True),
+                           "-12", file_marked(TRACKING, comment("tracking-area")),
+                           note="files without // tracking-area:; baseline 39 files")
+DRAW = LineCheck("MQ-draw", "queue", (q(r"override (public |open )?func draw\(_ "),), 0, comment("draw"),
+                 note="without // draw:; baseline 23")
+SYNC_LAYOUTS = LineCheck("MQ-sync-layout", "queue", (q(SYNC_LAYOUT),), 0, SYNC_LAYOUT_MARK,
+                         note="without // sync-layout: on the line or above; baseline 80")
+
+
+def as_done_check(check: LineCheck | CommCheck, id: str) -> LineCheck | CommCheck:
+    """The DC11 form of a machine queue: the same query, a failing row."""
+    return replace(check, id=id, kind="done")
+
+
+CHECKS = (
+    # Done checks (section 5).
+    LineCheck("DC1", "done", (q(DISPLAY_LINK, files=True),), 0,
+              allowed=("CmuxNextWakeups/DisplayClock.swift", "CmuxNextWakeups/VSyncHub.swift"),
+              note="files outside CmuxNextWakeups/DisplayClock.swift and VSyncHub.swift"),
+    LineCheck("DC1-ghostty", "info", (q("createWithActiveCGDisplays", f"{GHOSTTY}/src"),), None, ghostty=True,
+              note="reached only when vsync_external is off (task 082's test)"),
+    LineCheck("DC6-ghostty", "done", (q(r"dispatch_async|queue.getMain",
+                                        f"{GHOSTTY}/src/renderer/metal/IOSurfaceLayer.zig"),), 0, ghostty=True),
+    LineCheck("DC8b", "done", (q(r"cmuxClipPath|cmuxOcclusionRects|browserChildWindowPagesNeedUpdate",
+                                 globs=(CHILD_WINDOW_FALLBACK,)),), 0, note="Track B, after task 045"),
+    as_done_check(SYNC_LAYOUTS, "DC11-sync-layout"),
+    as_done_check(REDRAW_POLICY, "DC11-redraw-policy"),
+    GuardrailListed("DC11-guardrail", "sync-layout"),
+    as_done_check(SHADOW_PATH, "DC11-shadow-path"),
+    as_done_check(TRACKING_AREAS, "DC11-tracking-areas"),
+    as_done_check(DRAW, "DC11-draw"),
+    # Machine queues (section 6).
+    LineCheck("MQ-springs", "queue", (q(r"SpringValue|AnimatedFrame|advanceUnsettled\(|\.advance\(dt",
+                                        globs=("!**/CmuxNextDesign/Motion/**", "!**/CmuxNextDesignTokens/**",
+                                               "!**/MotionParityCorpus.swift")),),
+              0, comment("input-driven"), by_file=True, note="files; baseline 18"),
+    LineCheck("MQ-appkit-frame-animators", "queue",
+              (q(r"Motion\.animator\(|animator\(\)\.(frame|setFrame|setBoundsOrigin)"),
+               q(r"Motion\.[a-zA-Z]+\.animate\(")), 0, note="baseline 36"),
+    LineCheck("MQ-frameclients", "queue", (q(FRAME_CLIENT),), 0, FRAME_CLIENT_MARK,
+              note="unmarked; baseline 24 sites"),
+    LineCheck("MQ-displaylinks", "queue", (q(DISPLAY_LINK),), 0, note="cmux side"),
+    LineCheck("MQ-displaylinks-ghostty", "queue",
+              (q(r"createWithActiveCGDisplays|DisplayLink", f"{GHOSTTY}/src/renderer/generic.zig"),), 0, ghostty=True),
+    SYNC_LAYOUTS,
+    LineCheck("MQ-damage-owners", "info", (q(INVALIDATE),), None, INVALIDATE_MARK,
+              note="unguarded invalidations (--invalidate PATH lists an owner's); the blanket rewrite is out of scope"),
+    REDRAW_POLICY,
+    LineCheck("MQ-frame-observers", "queue",
+              (q(r"frameDidChangeNotification|boundsDidChangeNotification|postsFrameChangedNotifications"),), 0,
+              note="baseline 22"),
+    LineCheck("MQ-loops", "queue", (q(r"repeatCount = \.infinity"),), 0, near("LoopVisibility"),
+              note="not through LoopVisibility; baseline 10"),
+    LineCheck("MQ-child-window-pages", "queue",
+              (q(r"cmuxClipPath|cmuxOcclusionRects|browserChildWindowPagesNeedUpdate|postGeometryChange|cutouts",
+                 globs=(CHILD_WINDOW_FALLBACK,)),), 0),
+    LineCheck("MQ-child-windows", "info", (q("addChildWindow"),), None,
+              note="classify each: page ordering (delete) or out-of-window popup (keep); baseline 27"),
+    LineCheck("MQ-window-per-frame", "queue",
+              (q(r"(window|panel|Window|Panel)\??\.alphaValue = |self\.alphaValue = "),
+               q(r"(panel|window|bubble)\??\.animator\(\)\.(alphaValue|setFrame)|animator\(\)\.setFrame")), 0,
+              note="baseline 13 + 7"),
+    LineCheck("MQ-pane-autolayout", "queue",
+              (q("translatesAutoresizingMaskIntoConstraints = false",
+                 *(f"{SOURCES}/{d}" for d in ("CmuxNextLayout", "CmuxNextTabs", "CmuxNextTerminal",
+                                             "CmuxNextBrowser/UI", "CmuxNextBrowser/CEF")),
+                 f"{APP}/PaneContentView*.swift", f"{APP}/Screens", f"{APP}/WindowRootView*.swift",
+                 f"{APP}/TitlebarView.swift", f"{APP}/EmptyWorkspaceView.swift", files=True),), 0,
+              note="files"),
+    LineCheck("MQ-ghostty-main-hops", "queue",
+              (q(r"dispatch_async|queue.getMain|isMainThread", f"{GHOSTTY}/src/renderer"),), 0, ghostty=True),
+    LineCheck("MQ-terminal-contents", "info", (q(r"layer\?\.contents|presentedFrame", f"{SOURCES}/CmuxNextTerminal"),),
+              None, note="MQ-ghostty-main-hops, cmux side"),
+    LineCheck("MQ-producer-main-hops", "queue", (q("contents = surface", globs=("!**/CmuxNextTerminal/**",)),), 0,
+              note="baseline 3"),
+    LineCheck("MQ-labels", "info", (q(r"ChromeLabel\("),), None, note="sites sharing one cache; baseline 136"),
+    SHADOW_PATH,
+    TRACKING_AREAS,
+    DRAW,
+    LineCheck("MQ-occlusion", "queue",
+              (q(r"occlusionState|didChangeOcclusionStateNotification", globs=("!**/WindowOcclusionFamily*.swift",),
+                 files=True),), 0, note="files outside WindowOcclusionFamily; baseline 27"),
+    LineCheck("MQ-image-decode", "queue", (q(r"NSImage\(data:|NSImage\(contentsOf"),), 0,
+              comment("decode"), note="baseline 19"),
+    LineCheck("MQ-web-loops", "info", (q("infinite", "webviews/src"),), None, note="baseline 26"),
+    LineCheck("MQ-web-raf", "info", (q(r"requestAnimationFrame\(", "webviews/src"),), None, note="baseline 98"),
+)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# ghostty-next pin
+
+
+@dataclass(frozen=True)
+class GhosttyState:
+    pin: str | None
+    head: str | None
+
+    @property
+    def ok(self) -> bool:
+        return self.pin is not None and self.pin == self.head
+
+    def describe(self) -> str:
+        if self.pin is None:
+            return f"no {GHOSTTY} gitlink at HEAD"
+        if self.head is None:
+            return f"{GHOSTTY} is not initialized (pin {self.pin[:12]}): git submodule update --init {GHOSTTY}"
+        if self.head != self.pin:
+            return (f"{GHOSTTY} is at {self.head[:12]}, the checkout pins {self.pin[:12]}: "
+                    f"git submodule update {GHOSTTY}")
+        return f"{GHOSTTY} at the pinned {self.pin[:12]}"
+
+
+def _git(cwd: Path, *args: str) -> str | None:
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def ghostty_state(root: Path) -> GhosttyState:
+    tree = _git(root, "ls-tree", "HEAD", GHOSTTY) or ""
+    fields = tree.split()
+    pin = fields[2] if len(fields) >= 3 and fields[0] == "160000" else None
+    module = root / GHOSTTY
+    head = None
+    if (module / ".git").exists():
+        top = _git(module, "rev-parse", "--show-toplevel")
+        # Without its own .git the directory resolves to the parent checkout: that is not initialized.
+        if top and Path(top).resolve() == module.resolve():
+            head = _git(module, "rev-parse", "HEAD")
+    return GhosttyState(pin, head)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# bench JSON
+
+
+@dataclass(frozen=True)
+class KeyRule:
+    key: str
+    stat: str | None
+    op: str  # "<=" or "<"
+    limit: float
+
+    def label(self) -> str:
+        return f"{self.key}{'.' + self.stat if self.stat else ''}"
+
+
+BENCH_RULES: dict[str, tuple[str, tuple[KeyRule, ...]]] = {
+    "motion": ("DC2", (KeyRule("frame_sets", None, "<=", 0), KeyRule("layouts", None, "<=", 0),
+                       KeyRule("window_calls", None, "<=", 0), KeyRule("layout_frames", None, "<=", 0),
+                       KeyRule("update_visibility", None, "<=", 2))),
+    "hitches": ("DC2t/DC3", (KeyRule("hitches", None, "<=", 0), KeyRule("hitch_count", None, "<=", 0),
+                             KeyRule("main_work_p99_ms", None, "<=", 0.5),
+                             KeyRule("max_interval_ms", None, "<=", 12.5))),
+    "typing": ("DC5", (KeyRule("key_to_frame_ms", "p50", "<=", 8.3), KeyRule("key_to_frame_ms", "p99", "<=", 16.7))),
+    "cef": ("DC10", (KeyRule("input_to_commit_ms", "p95", "<", 8.3), KeyRule("longest_frame_ms", "max", "<=", 8.33))),
+}
+
+RENDER_OWNER = re.compile(r"DisplayClock|VSyncHub|DisplayLink|FrameScheduler|Ghostty.*([Rr]ender|[Ff]rame|tick)")
+RENDER_REASONS = {"frame", "stalled frame"}
+
+
+def walk(node: object, path: str = "") -> Iterator[tuple[str, str, object]]:
+    """(json path, key, value) for every dict entry in `node`."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            yield here, str(key), value
+            yield from walk(value, here)
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from walk(value, f"{path}[{i}]")
+
+
+def _number(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def rule_values(data: object, rule: KeyRule) -> list[tuple[str, float]]:
+    found = []
+    for path, key, value in walk(data):
+        if key != rule.key:
+            continue
+        if rule.stat is None:
+            number = _number(value) if not isinstance(value, dict) else _number(value.get("max"))
+        else:
+            number = _number(value.get(rule.stat)) if isinstance(value, dict) else None
+        if number is not None:
+            found.append((path, number))
+    return found
+
+
+def load_json(path: str) -> object:
+    try:
+        with open(path) as handle:
+            return json.load(handle)
+    except (OSError, ValueError) as error:
+        raise CheckError(f"cannot read bench JSON {path}: {error}") from error
+
+
+def bench_rows(name: str, path: str) -> list[Row]:
+    data = load_json(path)
+    if name == "idle":
+        return idle_rows(path, data)
+    dc, rules = BENCH_RULES[name]
+    rows = []
+    for rule in rules:
+        values = rule_values(data, rule)
+        if not values:
+            continue
+        bad = [(p, v) for p, v in values if not (v < rule.limit if rule.op == "<" else v <= rule.limit)]
+        rows.append(Row(f"{dc} {rule.label()}", "done", f"{path}: every {rule.label()}", len(bad),
+                        f"{rule.op} {rule.limit:g} (of {len(values)})", not bad, "",
+                        [f"{p} = {v:g}" for p, v in bad]))
+    if not rows:
+        keys = ", ".join(sorted({r.label() for r in rules}))
+        rows.append(Row(f"{dc} {name}", "done", f"{path}: keys {keys}", None, "present", False,
+                        f"no {keys} in the file: not a --{name} report"))
+    return rows
+
+
+def idle_rows(path: str, data: object) -> list[Row]:
+    scenarios = data.get("scenarios") if isinstance(data, dict) else None
+    if not isinstance(scenarios, dict):
+        return [Row("DC7 idle", "done", f"{path}: scenarios", None, "present", False,
+                    "no scenarios: not a bench_idle.py report")]
+    total_bad, render_bad, measured = [], [], 0
+    for name, result in scenarios.items():
+        if not isinstance(result, dict) or "processes" not in result:
+            continue
+        measured += 1
+        wakeups = sum(_number(r.get("wakeups_per_s")) or 0.0 for r in result["processes"]
+                      if isinstance(r, dict) and r.get("kind") in ("app", "daemon") and not r.get("partial"))
+        if wakeups > 1.0:
+            total_bad.append(f"{name}: app + daemon {wakeups:g}/s")
+        for entry in result.get("ledger") or []:
+            owner, reason = str(entry.get("owner", "")), str(entry.get("reason", ""))
+            rate = _number(entry.get("per_second")) or 0.0
+            if rate > 0 and (reason in RENDER_REASONS or RENDER_OWNER.search(owner)):
+                render_bad.append(f"{name}: {owner} {reason} {rate:g}/s")
+    if not measured:
+        return [Row("DC7 idle", "done", f"{path}: scenarios.*.processes", None, "present", False,
+                    "no measured scenario")]
+    return [
+        Row("DC7j app+daemon", "done", f"{path}: sum wakeups_per_s of kind app, daemon per scenario",
+            len(total_bad), f"<= 1/s (of {measured})", not total_bad, "", total_bad),
+        Row("DC7r render wakeups", "done", f"{path}: ledger per_second of render owners", len(render_bad), "0",
+            not render_bad, "frame clients, display links, VSyncHub, Ghostty renderer", render_bad),
+    ]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# driver
+
+
+def evaluate(tree: Tree, ghostty: GhosttyState) -> list[Row]:
+    rows = [Row("GHOSTTY", "done", f"git submodule status {GHOSTTY}", None, "pinned", ghostty.ok, ghostty.describe())]
+    for check in CHECKS:
+        if isinstance(check, LineCheck) and check.ghostty and not ghostty.ok:
+            query = " ; ".join(query.shell() for query in check.queries)
+            rows.append(Row(check.id, check.kind, query, None, "-", None, "needs the pinned ghostty-next",
+                            skipped=True))
+            continue
+        rows.append(check.evaluate(tree))
+    return rows
+
+
+def failed(rows: list[Row]) -> list[Row]:
+    return [r for r in rows if r.status == "FAIL"]
+
+
+def print_rows(rows: list[Row], verbose: bool, limit: int = 10) -> None:
+    for row in rows:
+        count = "-" if row.count is None else str(row.count)
+        status = row.status
+        note = f"  ({row.note})" if row.note else ""
+        print(f"{row.id:<28} {status:<5} count {count:<5} threshold {row.threshold}{note}")
+        print(f"    query: {row.query}")
+        shown = row.items if verbose else (row.items[:limit] if status == "FAIL" else [])
+        for item in shown:
+            print(f"      {item}")
+        if not verbose and status == "FAIL" and len(row.items) > limit:
+            print(f"      ... {len(row.items) - limit} more (--verbose)")
+
+
+def listing(tree: Tree, check: LineCheck, title: str) -> int:
+    """--frameclients and --invalidate: the unmarked hits, exit 1 when there is one."""
+    row = check.evaluate(tree)
+    print(f"{title}: {row.count} (threshold 0)")
+    print(f"    query: {row.query}")
+    for item in row.items:
+        print(f"      {item}")
+    return 0 if not row.items else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]), help="cmux checkout root")
+    parser.add_argument("--verbose", action="store_true", help="list every hit of every row")
+    parser.add_argument("--json", metavar="OUT", help="also write the rows as JSON")
+    parser.add_argument("--frameclients", action="store_true",
+                        help="only list FrameClient(owner: sites that are neither DEBUG-only nor marked")
+    parser.add_argument("--invalidate", nargs="*", metavar="PATH",
+                        help="only list needsLayout/needsDisplay = true hits without a change check (in PATHs)")
+    for name in ("motion", "hitches", "idle", "typing", "cef"):
+        parser.add_argument(f"--{name}", metavar="JSON", help=f"{name} bench report to check")
+    args = parser.parse_args(argv)
+
+    root = Path(args.repo).resolve()
+    rg = shutil.which("rg")
+    try:
+        if rg is None:
+            raise CheckError("rg (ripgrep) is not on PATH")
+        if not (root / SOURCES).is_dir():
+            raise CheckError(f"{root} has no {SOURCES}: pass --repo with a cmux checkout")
+        tree = Tree(root, rg)
+        if args.frameclients:
+            check = LineCheck("frameclients", "done", (q(FRAME_CLIENT),), 0, FRAME_CLIENT_MARK)
+            return listing(tree, check, "FrameClient sites neither DEBUG-only nor marked")
+        if args.invalidate is not None:
+            check = LineCheck("invalidate", "done", (q(INVALIDATE, *(args.invalidate or [SOURCES])),), 0,
+                              INVALIDATE_MARK)
+            return listing(tree, check, "invalidations without a change check or // invalidate:")
+        rows = evaluate(tree, ghostty_state(root))
+        for name in ("motion", "hitches", "idle", "typing", "cef"):
+            if getattr(args, name):
+                rows += bench_rows(name, getattr(args, name))
+    except CheckError as error:
+        print(f"render-done-checks: {error}", file=sys.stderr)
+        return 2
+    print_rows(rows, args.verbose)
+    bad = failed(rows)
+    if args.json:
+        Path(args.json).write_text(json.dumps({"repo": str(root), "rows": [r.as_json() for r in rows]}, indent=2))
+    opened = sum(1 for r in rows if r.status == "OPEN")
+    print(f"render-done-checks: {len(bad)} failing, {opened} open queues, {len(rows)} rows")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
