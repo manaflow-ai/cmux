@@ -358,6 +358,8 @@ extension FindPillView: NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        handleFieldCommand(selector, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+        // The key the field editor is handling is the one the window's tap dispatched last.
+        let key = (window as? InputTapHosting)?.inputTap?.lastDispatched
+        return handleFieldCommand(selector, shift: key?.modifierFlags.contains(.shift) == true)
     }
 }
