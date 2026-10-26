@@ -479,6 +479,13 @@ export type PurgedSession = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** The person who queued a prompt in a shared chat. */
+export type QueuedAuthor = {
+  /** `tailnet:<login>` or `user_…`. */
+  id: string;
+  name: string;
+} & Record<string, unknown>;
+
 /** An image a queued prompt sends. */
 export type QueuedImage = {
   /**
@@ -493,6 +500,13 @@ export type QueuedImage = {
 
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
+  /**
+   * The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
+   * `author.rs`), null for the owner's and for an agent's message: an app shows it under their
+   * name and offers none of its own actions on it (only they change it, `queue.not_author`).
+   * Kept across a restart and by their own edit.
+   */
+  author: (QueuedAuthor | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
