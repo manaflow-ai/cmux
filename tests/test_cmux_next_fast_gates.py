@@ -192,6 +192,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("state=success", body)
         self.assertIn("state=failure", body)
 
+    def test_status_api_rate_limit_is_advisory_instead_of_a_second_red(self):
+        """A GitHub installation-limit refusal is infrastructure, not a gate verdict."""
+        post = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
+        body = post["run"]
+        self.assertRegex(body, r"rate limit exceeded|secondary rate limit|too many requests|HTTP 429")
+        self.assertIn("::warning title=GitHub API budget::", body)
+        self.assertIn("status could not be posted", body)
+        self.assertRegex(body, r"rate limit.*?exit 0|exit 0.*?rate limit", re.DOTALL | re.IGNORECASE)
+        self.assertNotIn("sleep ", body, "status posting must not burn more quota with in-job retries")
+
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
         bun = next(s for s in steps if s.get("uses", "").startswith("oven-sh/setup-bun@"))
