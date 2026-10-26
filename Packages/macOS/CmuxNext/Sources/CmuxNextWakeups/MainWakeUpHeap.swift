@@ -11,14 +11,26 @@
 struct MainWakeUpHeap<Payload> {
     struct Entry {
         let id: UInt64
+        /// The requested deadline, in uptime ns.
+        let deadline: UInt64
+        /// The window around it: its policy, leeway and grid.
+        let window: WakeLeeway
         /// The entry may run from here on.
         let earliest: UInt64
         /// The entry must run by here.
         let latest: UInt64
-        /// The boundary its fire date snaps up to, in ns; 0 for an exact (precise) entry.
-        let grid: UInt64
         let owner: String
         let payload: Payload
+
+        init(id: UInt64, deadline: UInt64, window: WakeLeeway, owner: String, payload: Payload) {
+            self.id = id
+            self.deadline = deadline
+            self.window = window
+            self.earliest = window.earliest(deadline: deadline)
+            self.latest = window.latest(deadline: deadline)
+            self.owner = owner
+            self.payload = payload
+        }
     }
 
     private var entries: [Entry] = []
@@ -49,27 +61,16 @@ struct MainWakeUpHeap<Payload> {
         return remove(at: 0)
     }
 
-    /// When the timer must fire for the current top, in uptime ns, and the slack after that date the
-    /// system may add to share the wake with other processes; nil when empty.
+    /// When the timer must fire for the current top, in uptime ns, and the top's latest time (the end
+    /// of the slack the system may add to share the wake with other processes); nil when empty.
     ///
-    /// `MessagePump::AdjustDelayedRunTime` (base/message_loop/message_pump.cc) under `kAlignWakeUps`:
-    /// the top's earliest time snapped up to the next multiple of its grid (counted from uptime zero, so
-    /// every queue in the process lands on the same ticks), clamped to its latest time. The top has the
-    /// smallest latest time, so the fire is never after any entry's latest, and the tolerance runs to
-    /// that latest time. An exact top fires at its own time with no tolerance.
-    func wakeUp() -> (date: UInt64, tolerance: UInt64)? {
+    /// The date is the top's ``WakeLeeway/fireTime(deadline:)``: `MessagePump::AdjustDelayedRunTime`
+    /// (base/message_loop/message_pump.cc) under `kAlignWakeUps`, the earliest time snapped up to the
+    /// grid and clamped to the latest time. The top has the smallest latest time, so the fire is never
+    /// after any entry's latest. An exact top fires at its own time.
+    func wakeUp() -> (date: UInt64, latest: UInt64)? {
         guard let top = entries.first else { return nil }
-        guard top.grid > 0 else { return (top.earliest, 0) }
-        let date = min(Self.alignUp(top.earliest, grid: top.grid), top.latest)
-        return (date, top.latest - date)
-    }
-
-    /// The least multiple of `grid` (> 0) at or after `time`, saturating at `UInt64.max`.
-    static func alignUp(_ time: UInt64, grid: UInt64) -> UInt64 {
-        let remainder = time % grid
-        guard remainder != 0 else { return time }
-        let (aligned, overflow) = (time - remainder).addingReportingOverflow(grid)
-        return overflow ? .max : aligned
+        return (top.window.fireTime(deadline: top.deadline), top.latest)
     }
 
     // MARK: - Binary heap

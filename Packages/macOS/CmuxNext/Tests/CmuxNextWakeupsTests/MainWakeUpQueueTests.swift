@@ -26,7 +26,7 @@ struct MainWakeUpQueueTests {
         #expect(log.ran == [100, 103, 105, 107, 110])
         #expect(rig.fires == 2)
         #expect(rig.queue.count == 0)
-        #expect(rig.timer.parks == 0, "the last fire leaves the timer parked by CFRunLoop: no extra call")
+        #expect(rig.timer.parks == 1, "the fire parks the arm it made for its own due entries")
         #expect(rig.deadlines(of: "e107") == 1)
     }
 
@@ -57,21 +57,19 @@ struct MainWakeUpQueueTests {
         ]
         var latest = UInt64.max
         for (id, (deadline, window)) in windows.enumerated() {
-            let entry = MainWakeUpHeap<Int>.Entry(
-                id: UInt64(id), earliest: window.earliest(deadline: deadline), latest: window.latest(deadline: deadline),
-                grid: window.policy == .precise ? 0 : window.grid.nanosecondCount, owner: "mix", payload: id)
+            let entry = MainWakeUpHeap<Int>.Entry(id: UInt64(id), deadline: deadline, window: window, owner: "mix", payload: id)
             heap.insert(entry)
             latest = min(latest, entry.latest)
             let wakeUp = try #require(heap.wakeUp())
             #expect(wakeUp.date <= latest)
-            #expect(wakeUp.date + wakeUp.tolerance == latest, "the tolerance runs to the latest time")
+            #expect(wakeUp.latest == latest, "the slack runs to the smallest latest time")
         }
-        let whole = MainWakeUpHeap<Int>.Entry(id: 9, earliest: 5_300 * Self.ms, latest: 5_800 * Self.ms,
-                                              grid: 1_000 * Self.ms, owner: "s", payload: 9)
+        let whole = MainWakeUpHeap<Int>.Entry(id: 9, deadline: 5_300 * Self.ms, window: .window(delay: .seconds(5)),
+                                              owner: "s", payload: 9)
         var single = MainWakeUpHeap<Int>()
         single.insert(whole)
         let clamped = try #require(single.wakeUp())
-        #expect(clamped.date == 5_800 * Self.ms, "6 s is past the latest: clamped to 5.8 s")
+        #expect(clamped.date == 5_800 * Self.ms, "6 s is past the 5.8 s latest: clamped to it")
     }
 
     @Test("A precise entry fires at its own deadline with no tolerance")
@@ -127,52 +125,93 @@ struct MainWakeUpQueueTests {
         rig.fire()
         #expect(log.ran == [1, 2])
         #expect(rig.fires == 1)
-        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 304 * Self.ms], "no arm while firing; one at its end")
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 104 * Self.ms, 304 * Self.ms],
+                "the due insert arms for now (a nested run loop could fire it); the later one after it runs")
     }
 
-    @Test("A fire stops after its 2 ms slice and arms for the rest at once")
-    func sliceBudgetYields() {
+    @Test("Entries of one owner that share a wake count as one ledger record")
+    func oneRecordPerOwnerPerFire() {
         let rig = Rig()
-        let log = RunLog()
-        let uptime = rig.uptime
-        rig.queue.insert(owner: "slow", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
-            log.ran.append(100)
-            uptime.now += 3 * Self.ms
-        }
-        for at: UInt64 in [101, 102] {
-            rig.queue.insert(owner: "next", at: at * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(at) }
+        for at: UInt64 in [100, 101, 102] {
+            rig.queue.insert(owner: "same", at: at * Self.ms, window: .window(delay: .milliseconds(100))) {}
         }
         rig.fire()
-        #expect(log.ran == [100], "the slow entry used the whole slice")
-        #expect(rig.timer.armedDate == 104 * Self.ms, "armed for a date that has passed: it fires at once")
-        #expect(uptime.now == 107 * Self.ms)
-        rig.timer.fired()
-        rig.queue.fire()
-        #expect(log.ran == [100, 101, 102])
-        #expect(rig.fires == 2 && rig.queue.count == 0)
-    }
-
-    @Test("A fire a little before the armed date still runs what that date is for")
-    func earlyFireRunsArmedEntries() {
-        let rig = Rig()
-        let log = RunLog()
-        rig.queue.insert(owner: "a", at: 104 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(104) }
-        #expect(rig.timer.armedDate == 104 * Self.ms)
-        rig.uptime.now = 104 * Self.ms - 3_000
-        rig.timer.fired()
-        rig.queue.fire()
-        #expect(log.ran == [104])
+        #expect(rig.queue.count == 0)
+        #expect(rig.deadlines(of: "same") == 1)
         #expect(rig.fires == 1)
     }
 
-    @Test("4 threads x 1000 concurrent inserts lose nothing and only ever move the fire date earlier")
+    @Test("A new top with a later fire date re-arms later, so the wake runs both entries")
+    func newLaterTopRearms() {
+        let rig = Rig()
+        let log = RunLog()
+        rig.queue.insert(owner: "flex", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(100) }
+        rig.queue.insert(owner: "precise", at: 106 * Self.ms, window: .window(delay: .milliseconds(10), policy: .precise)) {
+            log.ran.append(106)
+        }
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 106 * Self.ms], "the precise top's latest is 106 < 108")
+        rig.fire()
+        #expect(log.ran == [106, 100])
+        #expect(rig.fires == 1, "no wake at 104 that runs nothing")
+    }
+
+    @Test("A deadline that has passed arms for now with the tolerance left to its latest time")
+    func pastDeadlineToleranceFromNow() {
+        let rig = Rig()
+        rig.uptime.now = 5_020 * Self.ms
+        rig.queue.insert(owner: "soon", at: 4_950 * Self.ms, window: .window(delay: .seconds(1))) {}
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_020 * Self.ms, tolerance: 30 * Self.ms),
+                "aligned 5 s has passed: fire now, by the 5.05 s latest")
+        rig.queue.insert(owner: "late", at: 2_000 * Self.ms, window: .window(delay: .seconds(1))) {}
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_020 * Self.ms, tolerance: 0),
+                "an overdue top re-arms the same date with no tolerance")
+        #expect(rig.timer.arms.count == 2)
+    }
+
+    @Test("A fire after a cancel re-armed the timer later runs nothing early")
+    func cancelRacingFireRunsNothingEarly() {
+        let rig = Rig()
+        let log = RunLog()
+        let first = rig.queue.insert(owner: "a", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
+            log.ran.append(100)
+        }
+        rig.queue.insert(owner: "b", at: 196 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(196) }
+        #expect(rig.timer.armedDate == 104 * Self.ms)
+        rig.uptime.now = 104 * Self.ms
+        rig.timer.fired()
+        rig.queue.cancel(first)
+        #expect(rig.timer.armedDate == 200 * Self.ms, "a background cancel re-arms while the fire is on its way")
+        rig.queue.fire()
+        #expect(log.ran.isEmpty, "b may not run before 196 ms")
+        #expect(rig.timer.armedDate == 200 * Self.ms && rig.queue.count == 1)
+    }
+
+    @Test("An entry that spins a nested run loop does not stop later deadlines")
+    func nestedRunLoopStillFires() {
+        let rig = Rig()
+        let log = RunLog()
+        let queue = rig.queue
+        queue.insert(owner: "menu", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
+            log.ran.append(1)
+            let hide = WakeLeeway.window(delay: .milliseconds(10), policy: .precise)
+            queue.insert(owner: "hide", at: rig.uptime.now + 10 * Self.ms, window: hide) { log.ran.append(2) }
+            #expect(rig.timer.armedDate == 114 * Self.ms, "armed while the entry still runs")
+            rig.fire()
+            log.ran.append(3)
+        }
+        rig.fire()
+        #expect(log.ran == [1, 2, 3])
+        #expect(rig.fires == 2 && queue.count == 0)
+    }
+
+    @Test("4 threads x 1000 concurrent inserts lose nothing and never move the fire date later")
     func concurrentInserts() {
         let rig = Rig()
         let log = RunLog()
         Self.insertConcurrently(into: rig.queue, log: log)
         #expect(rig.queue.count == 4_000)
         let dates = rig.timer.arms.map(\.date)
-        #expect(zip(dates, dates.dropFirst()).allSatisfy { $0 > $1 })
+        #expect(zip(dates, dates.dropFirst()).allSatisfy { $0 >= $1 }, "a same-date re-arm only shortens the tolerance")
         #expect(dates.last == 8 * Self.ms, "the 1 ms entry, on the grid")
         rig.uptime.now = 2_000 * Self.ms
         rig.timer.fired()
