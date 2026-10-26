@@ -352,7 +352,8 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            // Idle for the connection's next request: not blocking work.
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 

@@ -196,10 +196,10 @@ fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
             if wait.is_zero() {
                 break;
             }
-            state = wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
+            state = wake.idle().wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
             continue;
         }
-        state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        state = wake.idle().wait(state).unwrap_or_else(PoisonError::into_inner);
     }
     state.dirty = false;
     state.last_emit = Some(Instant::now());

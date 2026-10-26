@@ -18,16 +18,30 @@ fn site_at(line: u32) -> Option<blocking::BlockingSite> {
     blocking::snapshot().site(file!(), line).copied()
 }
 
-/// Takes `lock` on a holder thread, then runs `wait` on a waiter thread
-/// while the holder keeps it for `hold`, and returns what `wait` returned.
-/// The holder starts timing only once the waiter is about to wait.
+/// Runs `f` on a new thread that disallows blocking in panic mode, its own
+/// mode only: a long wait records and never panics, and the other tests of
+/// the binary keep the process-wide mode.
+fn on_disallowed_thread<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+    std::thread::spawn(|| {
+        blocking::with_mode(BlockingMode::Panic, || {
+            blocking::disallow_blocking();
+            f()
+        })
+    })
+    .join()
+    .expect("the disallowed thread returns")
+}
+
+/// Takes `lock` on a holder thread, then runs `wait` on a disallowed
+/// waiter thread while the holder keeps it for `hold`, and returns what
+/// `wait` returned. The holder starts timing only once the waiter is about
+/// to wait.
 fn contend<L: Send + Sync + 'static, R: Send + 'static>(
     lock: L,
     hold: Duration,
     take: impl FnOnce(&L, &dyn Fn()) + Send + 'static,
     wait: impl FnOnce(&L) -> R + Send + 'static,
 ) -> R {
-    blocking::set_mode(BlockingMode::Panic);
     let lock = Arc::new(lock);
     let (held_tx, held_rx) = channel();
     let (go_tx, go_rx) = channel::<()>();
@@ -42,12 +56,10 @@ fn contend<L: Send + Sync + 'static, R: Send + 'static>(
         })
     };
     held_rx.recv().expect("the holder took the lock");
-    let waiter = std::thread::spawn(move || {
-        blocking::disallow_blocking();
+    let result = on_disallowed_thread(move || {
         go_tx.send(()).expect("go");
         wait(&lock)
     });
-    let result = waiter.join().expect("waiter");
     holder.join().expect("holder");
     result
 }
@@ -131,8 +143,7 @@ fn a_5ms_rwlock_writer_makes_disallowed_readers_and_writers_sites() {
 #[cfg(debug_assertions)]
 #[test]
 fn a_long_condvar_wait_on_a_disallowed_thread_is_a_condvar_wait_site() {
-    let line = std::thread::spawn(|| {
-        blocking::disallow_blocking();
+    let line = on_disallowed_thread(|| {
         let mutex = Mutex::new(());
         let condvar = Condvar::new();
         let guard = mutex.lock().expect("lock");
@@ -140,9 +151,7 @@ fn a_long_condvar_wait_on_a_disallowed_thread_is_a_condvar_wait_site() {
         let (_guard, timeout) = condvar.wait_timeout(guard, LONG_HOLD).expect("wait");
         assert!(timeout.timed_out());
         line
-    })
-    .join()
-    .expect("waiter");
+    });
     let site = site_at(line).expect("the long wait is a site");
     assert_eq!(site.kinds.iter().collect::<Vec<_>>(), vec![BlockingKind::CondvarWait]);
 }
@@ -167,6 +176,40 @@ fn waits_on_an_ordinary_or_allowed_thread_record_nothing() {
     })
     .join()
     .expect("waiter");
+    for line in lines {
+        assert_eq!(site_at(line), None, "line {line}");
+    }
+}
+
+/// A thread idle for its own next work (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`) records nothing at any
+/// length, on a disallowed thread in panic mode too.
+#[test]
+fn idle_waits_on_a_disallowed_thread_record_nothing() {
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let notifier = Arc::clone(&pair);
+    let (waiting_tx, waiting_rx) = channel::<()>();
+    let waker = std::thread::spawn(move || {
+        waiting_rx.recv().expect("the waiter is idle");
+        std::thread::sleep(LONG_HOLD);
+        *notifier.0.lock().expect("lock") = true;
+        notifier.1.notify_all();
+    });
+    let lines = on_disallowed_thread(move || {
+        let (mutex, condvar) = &*pair;
+        let guard = mutex.lock().expect("lock");
+        let timed = line!() + 1;
+        let (guard, timeout) = condvar.idle().wait_timeout(guard, LONG_HOLD).expect("wait");
+        assert!(timeout.timed_out());
+        waiting_tx.send(()).expect("idle");
+        let mut ready = guard;
+        let untimed = line!() + 2;
+        while !*ready {
+            ready = condvar.idle().wait(ready).expect("wait");
+        }
+        [timed, untimed]
+    });
+    waker.join().expect("waker");
     for line in lines {
         assert_eq!(site_at(line), None, "line {line}");
     }

@@ -595,7 +595,7 @@ fn run_reader(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let allowed = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.send_credit == 0 && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;
@@ -650,7 +650,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
         let chunk = {
             let mut inner = stream.inner.lock().recover_poison();
             while inner.queue.is_empty() && !inner.client_shutdown && !inner.closed {
-                inner = stream.changed.wait(inner).recover_poison();
+                inner = stream.changed.idle().wait(inner).recover_poison();
             }
             if inner.closed {
                 return;

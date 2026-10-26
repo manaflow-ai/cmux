@@ -22,7 +22,8 @@
 //!
 //! [`Mutex`], [`RwLock`] and [`Condvar`] are std's with their waits timed: a
 //! wait of 2 ms or more on a thread that may not wait records its site
-//! (task 227, see the `locks` module).
+//! (task 227, see the `locks` module). A thread that waits for its own next
+//! work takes [`Condvar::idle`], which records nothing.
 //!
 //! Chromium makes a waiter run ahead of a lower-priority lock owner with
 //! priority-inheritance mutexes (base/synchronization/lock_impl_posix.cc);
@@ -36,7 +37,7 @@ use crate::blocking::{BlockingKind, assert_blocking_allowed_at};
 #[path = "sync_locks.rs"]
 mod locks;
 
-pub use locks::{Condvar, Mutex, RwLock};
+pub use locks::{Condvar, IdleWait, Mutex, RwLock};
 /// std's guard and result types, named here so a site imports them beside
 /// the timed locks.
 pub use std::sync::{

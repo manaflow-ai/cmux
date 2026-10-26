@@ -262,6 +262,20 @@ impl Condvar {
         timed(BlockingKind::CondvarWait, || self.0.wait_timeout_while(guard, timeout, condition))
     }
 
+    /// This condition variable for a thread that is idle: it waits for its
+    /// own next work item at the top of its loop and holds no one else's
+    /// work (a dispatcher's empty queue, a worker's next deadline). Its
+    /// waits are never timed or recorded, at any length. Chromium declares
+    /// the same with `WaitableEvent::declare_only_used_while_idle`
+    /// (base/synchronization/waitable_event.h), which MessagePumpDefault's
+    /// event uses: a thread idle at the bottom of its stack is not a
+    /// `ScopedBlockingCall`. A wait for another thread's result is not idle;
+    /// it takes [`Condvar::wait`].
+    #[inline]
+    pub fn idle(&self) -> IdleWait<'_> {
+        IdleWait(&self.0)
+    }
+
     /// `Condvar::notify_one`.
     #[inline]
     pub fn notify_one(&self) {
@@ -272,6 +286,29 @@ impl Condvar {
     #[inline]
     pub fn notify_all(&self) {
         self.0.notify_all();
+    }
+}
+
+/// A [`Condvar`]'s idle waits ([`Condvar::idle`]): std's waits, untimed.
+#[derive(Clone, Copy, Debug)]
+pub struct IdleWait<'c>(&'c std::sync::Condvar);
+
+impl IdleWait<'_> {
+    /// `Condvar::wait` for the thread's next work item.
+    #[inline]
+    pub fn wait<'a, T>(self, guard: MutexGuard<'a, T>) -> LockResult<MutexGuard<'a, T>> {
+        self.0.wait(guard)
+    }
+
+    /// `Condvar::wait_timeout` until the thread's own next deadline.
+    #[inline]
+    pub fn wait_timeout<'a, T>(
+        self,
+        guard: MutexGuard<'a, T>,
+        timeout: Duration,
+    ) -> LockResult<(MutexGuard<'a, T>, WaitTimeoutResult)> {
+        // wakeup-allow: deadline the caller's own timed wait, passed through; the audit judges the caller's wait_timeout(
+        self.0.wait_timeout(guard, timeout)
     }
 }
 

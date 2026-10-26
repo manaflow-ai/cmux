@@ -158,6 +158,7 @@ impl SizeLeases {
             }
             state = self
                 .changed
+                .idle()
                 .wait_timeout(state, next - now)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
