@@ -1,3 +1,5 @@
+import CmuxNextWakeups
+
 // The action pipeline (plans/cmux-next/zero-latency.md, "Native actions: the budget contract"): a
 // handler returns its synchronous change as an ``ActionEffect``; the registry, not the handler,
 // starts the remote work after the handler returned, tracks it, reconciles and rolls back.
