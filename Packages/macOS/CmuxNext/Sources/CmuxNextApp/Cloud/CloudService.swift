@@ -452,22 +452,85 @@ final class CloudService {
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
     /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
+    /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
+    /// `/api/vm` create only; the app server's create refuses them for now). A server that did
+    /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+                       request: CloudMachineRequest = CloudMachineRequest()) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
+        let name = name ?? request.name
+        // The app server's create takes none of them yet, and its machines have no `/api/vm` file
+        // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
+        if configuration.linkSource == .appServer, !request.isDefault {
+            throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
+        }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let machine = configuration.linkSource == .appServer
+        let idlePause = request.persistent ? 0 : nil
+        var machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
+                                                      // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
+                                                      gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
+                                                      confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
+                                                      create: { [api, weak creation] in
+                                                          // The first send's team, for every later call about this machine.
+                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          creation?.markRequestSent(team: team)
+                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                      })
         logger.info("created machine \(machine.id, privacy: .public)")
+        // The machine exists either way: a failed write leaves its idle pause as the server says,
+        // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
+        if let idlePause, machine.idlePauseMinutes != idlePause {
+            do {
+                try await api.pinningTeam(creation?.request.team ?? request.team).setIdlePause(machine.id, minutes: idlePause)
+                machine.idlePauseMinutes = idlePause
+                // A refresh may have listed the machine meanwhile: its session holds the record, and a
+                // list read before the PUT must not put the old value back.
+                machines.session(machine.id)?.machine.idlePauseMinutes = idlePause
+                listGeneration += 1
+            } catch {
+                logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
+            }
+        }
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
     }
+
+    /// `POST /api/vm` with the request's one idempotency key. The server answers
+    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
+    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
+    /// machine: the same key is sent again (the server answers the machine once it exists), up
+    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
+    /// ends with its machine and its bootstrap.
+    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
+                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
+        // switched in the app meanwhile must not make the same key a new machine in the other team.
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
+        for _ in 0..<inProgressRetries {
+            do {
+                return try await send()
+            } catch let CloudAPIError.http(status, code, _, _, _)
+                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
+                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
+                try await ContinuousClock().sleep(for: inProgressDelay)
+            }
+        }
+        return try await send()
+    }
+
+    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
+    /// `create`), with each try's own answer time on top.
+    static let inProgressRetries = 70
+    static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
