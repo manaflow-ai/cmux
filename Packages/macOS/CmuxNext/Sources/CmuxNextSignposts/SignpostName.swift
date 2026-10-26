@@ -259,7 +259,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
     /// arg1 how many it carries.
     case frameCommit = 46
-    /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
+    /// Task 049. A Ghostty frame's Metal completion (`GhosttyTraceHook`). Ring: instant; arg0 surface id, arg1 frame seq.
     case frameGPUDone = 47
     /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
@@ -356,8 +356,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)
-    /// Reserved (task 049, PL-ghostty). One Ghostty frame on its renderer thread (`drawFrame`), through the
-    /// ghostty-next trace hook. Ring: B/E; arg0 the surface hash.
+    /// Task 049. One Ghostty `drawFrame` (`GhosttyTraceHook`). Ring: B/E; arg0 surface id, begin arg1 the echo's flow.
     case ghosttyRender = 67
 
     // MARK: resize (reserved: task 111, PL-motion-core)
