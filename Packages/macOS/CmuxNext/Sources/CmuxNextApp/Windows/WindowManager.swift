@@ -49,6 +49,7 @@ final class WindowManager {
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
     private var restacking: Set<String> = [], keepsOrder = false
+    // memory: fixed one 32-byte CGRect per new window that waits for its claimed workspace (`claimNew`); `makeController` takes it when the window opens
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
