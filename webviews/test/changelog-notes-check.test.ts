@@ -193,3 +193,30 @@ test("a curated headline repeated by an entry is reported as a duplicate", () =>
     `notes duplicate ${headline}`,
   );
 });
+
+test("a curated headline repeated by an older nightly in the page range is reported", () => {
+  const { notes } = at("3917159104301");
+  const headline = "A shared release title";
+  const current = {
+    ...clean(notes),
+    date: "2026-10-19",
+    whatsNew: {
+      ...clean(notes).whatsNew!,
+      headline: { en: headline },
+      entries: [{ ...clean(notes).whatsNew!.entries[0]!, id: "curated-current", title: { en: "Current feature" } }],
+    },
+  };
+  const older = {
+    ...clean(notes),
+    build: "3917061587901",
+    date: "2026-10-19",
+    whatsNew: {
+      ...clean(notes).whatsNew!,
+      headline: { en: "Older release" },
+      entries: [{ ...clean(notes).whatsNew!.entries[0]!, id: "curated-older", title: { en: headline } }],
+    },
+  };
+  expect(checkNightlyNotes(current, [older]).map((d) => `${d.where} ${d.kind} ${d.text}`)).toContain(
+    `page (10 nightlies) duplicate ${headline}`,
+  );
+});
