@@ -91,11 +91,10 @@ check(tip.index('notarytool wait "$id"') < tip.index("notarytool submit") < tip.
       "the tip job submits itself only when the early submission could not be read, before stapling")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
-# Freshness (2026-10-26: nothing published for six hours): the signer and the tip feed never wait
-# on a Blacksmith macOS queue, and no shared group evicts a newer handoff while a signer waits.
-check("runs-on: macos-26\n" in sign and "runs-on: macos-26\n" in tip, "sign and tip run on hosted macos-26")
-check(all("blacksmith" not in line for job in (sign, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
-      "sign and tip take no Blacksmith macOS label")
+# Freshness (2026-10-26: nothing published for six hours): the signer never waits on the 12 vCPU
+# macOS label, and no shared group evicts a newer handoff while a signer waits.
+check(all("12vcpu" not in line for job in (sign, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
+      "sign and tip never queue on blacksmith-12vcpu-macos-26")
 check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evicts a newer DEV handoff while a signer waits")
 check("concurrency:" in tip.split("steps:")[0] and "concurrency:" in publish,
       "the feed and the prerelease keep one writer each")
