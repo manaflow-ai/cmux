@@ -2541,21 +2541,20 @@ class GitHub:
         A status-filtered listing can return a short page before its last one: `status=queued` answered
         99 runs on page 1 and 85 on page 2 of a total_count of 182 at 06:10Z on 2026-10-26. Stopping at the first short page dropped every queued run older than page 1, so the
         snapshot's oldest wait on blacksmith-12vcpu-macos-26 read 24 minutes while run 40259152940's fast
-        tier had waited 205, and the janitor never cancelled that run after PR #24021 landed. Paging ends
-        at an empty page or once the status's total_count is read (at a short page when none is given).
+        tier had waited 205, and the janitor never cancelled that run after PR #24021 landed. So only an
+        empty page ends a status before MAX_RUN_PAGES: neither a short page nor total_count, which a page
+        repeating rows or a listing that shifts between pages would satisfy early. Runs keyed by id drop
+        the repeats; a run a shift moves past a page boundary is read on the next sweep.
         """
         runs: dict[int, dict[str, Any]] = {}
         for status in IN_FLIGHT_RUN_STATUSES:
-            seen = 0
             for page in range(1, MAX_RUN_PAGES + 1):
                 query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
                 payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
                 batch = payload.get("workflow_runs") or []
                 for run in batch:
                     runs[run["id"]] = run
-                seen += len(batch)
-                total = payload.get("total_count")
-                if not batch or (seen >= int(total) if isinstance(total, int) else len(batch) < 100):
+                if not batch:
                     break
         return list(runs.values())
 

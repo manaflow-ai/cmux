@@ -2721,14 +2721,19 @@ class InFlightRunListingTests(unittest.TestCase):
         ids, asked = self.listing({"queued": queued})
         self.assertEqual(len(ids), 184)
         self.assertIn(1084, ids)
-        self.assertIn(("queued", 2), asked)
-        self.assertNotIn(("queued", 3), asked)
+        self.assertIn(("queued", 3), asked)
 
-    def test_an_empty_or_complete_page_ends_the_status_and_no_total_keeps_the_old_rule(self):
-        ids, asked = self.listing({"queued": {1: [{"id": 1}]}})
-        self.assertEqual([page for status, page in asked if status == "queued"], [1])
-        ids, asked = self.listing({"queued": {1: [{"id": 1}], 2: [{"id": 2}]}}, total=False)
+    def test_only_an_empty_page_or_the_page_cap_ends_a_status(self):
+        # A page repeating rows reaches total_count by row count while run 3 is still unread.
+        ids, asked = self.listing({"queued": {1: [{"id": 1}, {"id": 2}], 2: [{"id": 2}, {"id": 3}]}})
+        self.assertEqual(ids, {1, 2, 3})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2, 3])
+        ids, asked = self.listing({"queued": {1: [{"id": 1}], 3: [{"id": 3}]}}, total=False)
         self.assertEqual(ids, {1})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2])
+        pages = {page: [{"id": page * 1000 + index} for index in range(100)] for page in range(1, 5)}
+        ids, asked = self.listing({"queued": pages})
+        self.assertEqual(len(ids), 100 * janitor.MAX_RUN_PAGES)
 
 
 if __name__ == "__main__":

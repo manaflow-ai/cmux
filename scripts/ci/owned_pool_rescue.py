@@ -999,21 +999,19 @@ class GitHub:
         """
         created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         found: list[tuple[int, int]] = []
-        seen = 0
         for page in range(1, pages + 1):
             data = self.request("GET", f"/actions/runs?status=failure&exclude_pull_requests=true&per_page={count}"
                                        f"&page={page}&created=%3E%3D{created}")
             runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             for run in runs:
                 finished = parse_time(run.get("updated_at"))
-                if run.get("id") and run.get("path") in SIDE_WORKFLOW_PATHS and not (
+                entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
+                if entry[0] and entry not in found and run.get("path") in SIDE_WORKFLOW_PATHS and not (
                         since is not None and finished is not None and finished < since):
-                    found.append((int(run["id"]), int(run.get("run_attempt") or 0)))
-            seen += len(runs)
+                    found.append(entry)
             # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
-            # in_flight_runs()), so only an empty page or the total ends the listing.
-            total = (data or {}).get("total_count")
-            if not runs or (seen >= int(total) if isinstance(total, int) else len(runs) < count):
+            # in_flight_runs()), so only an empty page ends the listing before `pages`.
+            if not runs:
                 break
         return found
 

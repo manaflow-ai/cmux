@@ -2468,7 +2468,8 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, [])}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, since=START - dt.timedelta(minutes=30), pages=5), [(9, 1)])
-        self.assertEqual(len(seen), 2)
+        # Page 2 is short, which no longer ends the listing (failed_runs()): the empty page 3 does.
+        self.assertEqual(len(seen), 3)
         self.assertIn("status=failure", seen[0])
         self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
 
@@ -2476,7 +2477,9 @@ class Sweeper(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         side = ".github/workflows/cmux-next-base-autofix.yml"
         pages = {1: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)}],
-                 2: [{"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(0)}]}
+                 # A shifted listing repeats a row; it is listed once.
+                 2: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)},
+                     {"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(0)}]}
         seen = []
 
         def request(method, path, **_):
@@ -2485,7 +2488,7 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, []), "total_count": 2}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, pages=5), [(9, 1), (7, 2)])
-        self.assertEqual(seen, [1, 2])
+        self.assertEqual(seen, [1, 2, 3])
 
     def test_the_session_label_is_an_owned_pool(self):
         # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
