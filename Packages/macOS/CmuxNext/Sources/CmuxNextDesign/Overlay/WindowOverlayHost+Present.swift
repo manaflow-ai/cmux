@@ -48,6 +48,7 @@ public extension WindowOverlayHost {
         updateMouseRouting()
         updateEscapeIntercept()
         onBlockingChange?()
+        changes?.signal()
         return handle
     }
 
@@ -157,6 +158,7 @@ extension WindowOverlayHost {
         updateEscapeIntercept()
         syncPanel()
         onBlockingChange?()
+        changes?.signal()
     }
 
     /// A dialog and its scrim fade out (POLISH: no flash) where they were. The dialog is already

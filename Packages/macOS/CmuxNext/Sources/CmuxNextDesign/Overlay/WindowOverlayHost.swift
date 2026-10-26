@@ -66,6 +66,9 @@ public final class WindowOverlayHost {
     public static var appInputTap: InputEventTap?
     /// The tap this host subscribes to (``appInputTap`` when made).
     var inputTap: InputEventTap?
+    /// Told each time an overlay is presented, dismissed or stops taking the mouse here; the App gives each main
+    /// window's host its one feed (`debug.oracle.wait_for` on the overlays facet waits on it).
+    public var changes: OverlayChangeFeed?
     /// The pointer in screen coordinates (tests inject one).
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
@@ -131,6 +134,9 @@ public final class WindowOverlayHost {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
     }
 
+    /// The app host if one exists (never makes one).
+    public static var existingAppHost: WindowOverlayHost? { app }
+
     /// The host for overlays with no window (its own small panel, centered on the main screen).
     public static func appHost() -> WindowOverlayHost {
         if let app { return app }
@@ -167,6 +173,11 @@ public final class WindowOverlayHost {
         handles.contains { $0.options.dimsContent || ($0.options.isModal && $0.options.modalRegion == nil) }
     }
     public var presentedHandles: [OverlayHandle] { handles }
+    /// The presented overlays bottom to top as the panel draws them: by layer (`.pane`, `.window`, `.modal`
+    /// containers), then in the order they were presented within a layer.
+    public var stackedHandles: [OverlayHandle] {
+        handles.enumerated().sorted { (layerIndex(of: $0.element), $0.offset) < (layerIndex(of: $1.element), $1.offset) }.map(\.element)
+    }
 
     /// The window's layout planes need the panel while pages show (`WindowOverlayLayer`).
     public func setPlanesWantPanel(_ wanted: Bool) {

@@ -175,10 +175,6 @@ public final class CmuxDialogCenter {
     /// The view of visible dialog `id` (screenshots, tests).
     public func view(_ id: Int) -> CmuxDialogView? { entries[id]?.view }
 
-    /// The window dialog `id` blocks or shows in: its window scope, or its tab's window; nil for an app dialog
-    /// or once its scope is gone.
-    public func window(of id: Int) -> NSWindow? { entries[id]?.scope.live?.window }
-
     /// Observes opens and answers; keep the token to stop.
     public func observe(_ observer: @escaping (Event) -> Void) -> UUID {
         let token = UUID()

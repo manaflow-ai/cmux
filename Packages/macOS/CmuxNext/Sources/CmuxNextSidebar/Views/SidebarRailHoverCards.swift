@@ -20,10 +20,7 @@ final class SidebarRailHoverCards: HoverCardSource {
 
     static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("rail:\(id.rawValue)") }
 
-    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
-        guard id.rawValue.hasPrefix("rail:") else { return nil }
-        return WorkspaceID(String(id.rawValue.dropFirst("rail:".count)))
-    }
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? { WorkspaceID(railHoverTarget: id) }
 
     /// The pointer moved over, onto or off the rail (`screenPoint`): the coordinator hit-tests.
     func pointerMoved(to screenPoint: CGPoint?) {
@@ -130,5 +127,14 @@ final class SidebarRailCardView: NSView, HoverCardTextReporting {
             // glass-opaque-allow: a 6 pt unread/working status dot inside the card, not a surface; the card is the shared glass panel
             dot.layer?.backgroundColor = (state == .unread ? Palette.notificationBlue : Palette.textSecondary).cgColor
         }
+    }
+}
+
+public extension WorkspaceID {
+    /// The workspace of a rail mark's hover card target (`SidebarRailHoverCards.targetID(_:)`); nil for any other
+    /// target.
+    nonisolated init?(railHoverTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("rail:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("rail:".count)))
     }
 }
