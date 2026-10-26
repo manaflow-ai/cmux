@@ -24,10 +24,16 @@ extension ActionID {
 }
 
 extension ActionRegistry {
-    /// Binds Session Info for the invocation's pane, focused when there is no target.
+    /// Binds Session Info for the invocation's pane, focused when there is no target. With
+    /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
+    /// reporting a toggle that changed nothing.
     @discardableResult
-    public func bindAgentPaneSessionInfo(toggle: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+    public func bindAgentPaneSessionInfo(
+        isOn: @escaping @MainActor () -> Bool = { AgentPaneTunables.inspector.value },
+        toggle: @escaping @MainActor (ActionInvocation) -> Void
+    ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
+            guard isOn() else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }

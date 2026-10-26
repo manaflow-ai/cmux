@@ -25,7 +25,7 @@ struct AgentPaneSessionInfoTests {
 
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
-        #expect(registry.bindAgentPaneSessionInfo { _ in view.toggleSessionInfo() })
+        #expect(registry.bindAgentPaneSessionInfo(isOn: { true }) { _ in view.toggleSessionInfo() })
         #expect(registry.perform("agentPane.toggleSessionInfo"))
         let command = AgentPageEvent.command("toggleSessionInfo").data
         var commands: [JSONValue] = []
@@ -40,7 +40,7 @@ struct AgentPaneSessionInfoTests {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         var toggles = 0
-        #expect(registry.bindAgentPaneSessionInfo { _ in toggles += 1 })
+        #expect(registry.bindAgentPaneSessionInfo(isOn: { true }) { _ in toggles += 1 })
         let refusal = registry.capturingRefusal {
             registry.perform("agentPane.toggleSessionInfo", invocation: ActionInvocation(origin: .cli))
         }
@@ -48,5 +48,19 @@ struct AgentPaneSessionInfoTests {
         #expect(toggles == 0)
         registry.perform("agentPane.toggleSessionInfo", invocation: ActionInvocation(origin: .cli, focusRequested: true))
         #expect(toggles == 1)
+    }
+
+    /// With `agent.inspector` off the page has no Session Info, so the action says so instead of
+    /// reporting a toggle that changed nothing.
+    @Test func sessionInfoTurnedOffRefusesInsteadOfToggling() {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        var toggles = 0
+        #expect(registry.bindAgentPaneSessionInfo(isOn: { false }) { _ in toggles += 1 })
+        let refusal = registry.capturingRefusal {
+            registry.perform("agentPane.toggleSessionInfo", invocation: ActionInvocation(origin: .cli, focusRequested: true))
+        }
+        #expect(refusal == "Session Info is turned off in Settings.")
+        #expect(toggles == 0)
     }
 }
