@@ -200,6 +200,7 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
@@ -441,6 +442,7 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
@@ -1702,6 +1704,7 @@ jobs:
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_release_host_root.py
           python3 tests/test_cmux_next_dev_release_import_out.py
+          python3 tests/test_cmux_next_dev_landing_workflow.py
           python3 tests/test_dev_landing_place.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
