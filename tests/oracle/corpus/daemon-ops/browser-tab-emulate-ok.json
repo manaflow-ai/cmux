@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-browser",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-tab-emulate-ok.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,12 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "tab.create_browser",
+        "method": "browser.profile.open",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "browser-tab-emulate-ok.fx-browser"
+        "idempotencyKey": "browser-tab-emulate-ok.fx-app-browser"
       },
       "expect": {
         "outcome": "ok",
@@ -76,11 +96,14 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-browser#/value/tab_id"
+        "tab": "$step:fx-app-browser#/value/tab_id"
       },
       "args": {
         "method": "browser.tab.emulate",
-        "params": {},
+        "params": {
+          "device": "iPhone SE",
+          "orientation": "horizontal"
+        },
         "idempotencyKey": "browser-tab-emulate-ok.call"
       },
       "expect": {
@@ -91,7 +114,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a built-in Chrome device; the tab snapshot shows extra.emulation, horizontal"
     }
   ],
   "invariants": [

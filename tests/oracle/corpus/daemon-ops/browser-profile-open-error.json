@@ -61,8 +61,8 @@
       "args": {
         "method": "browser.profile.open",
         "params": {
-          "url": "",
-          "profile": "oracle"
+          "url": "http://127.0.0.1:9/",
+          "profile": "no-such-profile"
         },
         "idempotencyKey": "browser-profile-open-error.call"
       },
@@ -74,7 +74,7 @@
         "before",
         "settled"
       ],
-      "note": "url breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a profile id or name that names no profile is the caller's input; no tab opens"
     }
   ],
   "invariants": [

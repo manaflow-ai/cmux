@@ -49,6 +49,25 @@
       }
     },
     {
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-profile-open-ok.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -61,8 +80,8 @@
       "args": {
         "method": "browser.profile.open",
         "params": {
-          "url": "about:blank",
-          "profile": "oracle"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
         "idempotencyKey": "browser-profile-open-ok.call"
       },
@@ -74,7 +93,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "an app-drawn tab in the fixture pane whose record names the fixture profile; the daemon never loads the URL"
     }
   ],
   "invariants": [
