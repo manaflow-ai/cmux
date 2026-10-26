@@ -6,11 +6,16 @@ import Foundation
 /// no `CEFLoadedLibrary` and starts no pump: Chromium's message loop runs in the host, as the GPU
 /// process runs its own (content/gpu/gpu_main.cc) and the browser only holds a channel to it.
 ///
-/// One attach per runtime: every concurrent first start awaits the same one.
+/// One attach per runtime: every concurrent first start awaits the same one. It owns the runtime's
+/// one ``CEFHostReplies``, which the attached remote shim's REPLY frames resolve (task 018).
 final class CEFHostStart {
     /// Opens the remote dylib (off the main thread); ``CEFRemoteShim/open(_:)`` in the app.
     typealias Open = @Sendable (ChromiumHostAttachment) -> Result<CEFRemoteShim, CEFRuntime.BootError>
 
+    /// The async ops' replies, by token: ``expectReply()`` in the call's turn, then await it here.
+    let replies: CEFHostReplies
+    /// The attached remote shim, once the host said hello.
+    private(set) var remote: CEFRemoteShim?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -18,27 +23,38 @@ final class CEFHostStart {
     private var task: Task<Result<CEFAttachedHost, CEFRuntime.BootError>, Never>?
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
-    /// before the start fails (a host that hangs while it starts Chromium).
+    /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
+    /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
+        replies = CEFHostReplies(clock: clock)
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
-        if let task { return await task.value }
-        let task = Task { [supervisor, open, helloDeadline, clock] in
-            await CEFHostStart.attach(supervisor, open: open, helloDeadline: helloDeadline, clock: clock)
+        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock] in
+            await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock)
         }
         self.task = task
-        return await task.value
+        let outcome = await task.value
+        if case .success(let host) = outcome { remote = host.remote }
+        return outcome
     }
 
-    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, helloDeadline: Duration,
-                               clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+    /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
+    /// nil when the call sent nothing or no host is attached.
+    func expectReply() -> UInt32? {
+        guard let token = remote?.lastReplyToken(), token != 0 else { return nil }
+        replies.expect(token)
+        return token
+    }
+
+    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
+                               helloDeadline: Duration, clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
         let attachment: ChromiumHostAttachment
@@ -54,7 +70,7 @@ final class CEFHostStart {
             return .failure(error)
         }
         let hostExports: Set<String>
-        switch await remote.attach(attachment, helloDeadline: helloDeadline, clock: clock) {
+        switch await remote.attach(attachment, replies: replies, helloDeadline: helloDeadline, clock: clock) {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
         }

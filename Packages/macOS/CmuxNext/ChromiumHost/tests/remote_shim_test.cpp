@@ -362,6 +362,24 @@ int main() {
     host.Send(reply);
     CHECK(PumpUntil([] { return seen.replies.size() == 2; }));
     CHECK(seen.replies == std::vector<uint32_t>({scheme_token, token}));
+
+    // cmux_remote_shim_set_reply moves the replies to another sink and its ctx (CEFRemoteShim's).
+    static std::vector<std::pair<void*, uint32_t>> sunk;
+    int sink_ctx = 0;
+    cmux_remote_shim_set_reply(&sink_ctx, [](void* ctx, uint32_t answered, const void*, size_t) {
+      sunk.emplace_back(ctx, answered);
+    });
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://b.test/", "cookies") == 1);
+    const uint32_t moved = cmux_remote_shim_last_reply_token();
+    CHECK(moved != 0 && moved != token);
+    const std::vector<Message> sent = host.Read(1);
+    CHECK(sent.size() == 1 && sent[0].token == moved);
+    reply.token = moved;
+    host.Send(reply);
+    CHECK(PumpUntil([] { return !sunk.empty(); }));
+    CHECK(sunk.size() == 1 && sunk[0].first == &sink_ctx && sunk[0].second == moved);
+    CHECK(seen.replies.size() == 2);
+    cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
   // A mirror value pushed before its EVENT is what the event's callback reads.

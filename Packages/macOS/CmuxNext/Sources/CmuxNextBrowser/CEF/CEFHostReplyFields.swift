@@ -115,3 +115,42 @@ nonisolated struct CEFHostReplyFields: Sendable {
         return value
     }
 }
+
+/// Why an awaited Chromium Host reply did not come (``CEFHostReplies``).
+nonisolated enum CEFHostReplyError: Error, Equatable, Sendable {
+    /// The REPLY's fields are not the op's reply shape.
+    case malformed
+    /// The host exited before it answered (task 091 fails every waiter with it, as a mojo
+    /// disconnect runs each pending reply callback's default).
+    case hostGone
+    /// No reply within the waiter's limit; the label names the op.
+    case timedOut(String, Duration)
+    /// The awaiting task was cancelled.
+    case cancelled
+    /// A second wait on the same token took it over.
+    case superseded
+}
+
+/// A reply that is one value: the op's result with no out-parameters.
+nonisolated protocol CEFHostReplyValue: Sendable {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError)
+}
+
+nonisolated extension Int32: CEFHostReplyValue {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
+        self = try fields.int32()
+    }
+}
+
+nonisolated extension Int64: CEFHostReplyValue {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
+        self = try fields.int64()
+    }
+}
+
+/// A `char*` result; nil for NULL.
+nonisolated extension Optional: CEFHostReplyValue where Wrapped == String {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
+        self = try fields.string()
+    }
+}

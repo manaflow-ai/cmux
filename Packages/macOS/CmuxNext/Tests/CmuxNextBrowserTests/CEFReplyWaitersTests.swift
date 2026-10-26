@@ -1,11 +1,17 @@
 @testable import CmuxNextBrowser
+import CmuxNextWakeupsTestSupport
+import Darwin
 import Testing
 
-/// Chromium Host REPLY frames awaited by token (`CEFHostReplies`, task p01-process-018) and read by
-/// `CEFHostReplyFields`: the golden body that ChromiumHost/src/chromium_host_tlv.h's TlvWriter
-/// encodes, replies before and after the await, replies resolved off the main thread, malformed
-/// shapes, the deadline, cancellation and the host's exit.
-@Suite(.timeLimit(.minutes(1))) struct CEFReplyWaitersTests {
+/// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift, task
+/// p01-process-018) and read by `CEFHostReplyFields`: the golden body that
+/// ChromiumHost/src/chromium_host_tlv.h's TlvWriter encodes, replies before and after the await,
+/// the decode off the main thread, malformed shapes, the deadline on a manual clock, cancellation,
+/// a second wait on a token, and the host's exit.
+///
+/// A wait registers in the turn its task first runs (every call up to the suspension is on the
+/// main actor), so ``afterQueuedWork()`` returning means every wait started before it is waiting.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct CEFReplyWaitersTests {
     /// TlvWriter: I32(-2), Str(NULL), Str("hé"), I32Array({3, -1}), I64(0x0102030405060708),
     /// F64(1.5), StrList({"a", NULL}), Bytes(NULL), as EncodeFields writes them.
     static let golden = hexBytes(
@@ -56,10 +62,14 @@ import Testing
         }
     }
 
-    /// Resolves `tokens` from a thread of the shared pool, as the reply callback does from the
-    /// control channel; each answer is the token times ten.
-    @concurrent nonisolated static func resolveOffMain(_ replies: CEFHostReplies, tokens: [UInt32]) async -> [Bool] {
-        tokens.map { replies.resolve($0, fields: int32(Int32($0) * 10)) }
+    /// Returns after every main-actor task enqueued before it has run to its first suspension.
+    static func afterQueuedWork() async {
+        await Task { @MainActor in }.value
+    }
+
+    /// A wait on `token` in its own task, started now; it registers in that task's first turn.
+    static func waiting(_ replies: CEFHostReplies, _ token: UInt32, timeout: Duration = .seconds(30)) -> Task<Int32, any Error> {
+        Task { try await replies.reply(to: token, as: Int32.self, label: "renderer ids", timeout: timeout) }
     }
 
     @Test func readsTheGoldenBodyOfTheCxxWriter() throws {
@@ -135,39 +145,58 @@ import Testing
         #expect(replies.count == 0)
     }
 
+    /// The production order: the call awaits first, the REPLY comes later and cancels the deadline.
+    @Test func aReplyAfterTheAwaitResumesItsWaiterAndEndsItsDeadline() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
+        replies.expect(7)
+        let wait = Self.waiting(replies, 7, timeout: .seconds(5))
+        try await clock.waitForSleeper()
+        #expect(replies.awaiting == 1)
+        #expect(replies.resolve(7, fields: Self.int32(70)))
+        #expect(clock.sleeperCount == 0, "the reply left its deadline asleep")
+        #expect(try await wait.value == 70)
+        #expect(replies.count == 0)
+    }
+
+    @Test func decodesOffTheMainThread() async throws {
+        let replies = CEFHostReplies()
+        replies.expect(2)
+        replies.resolve(2, fields: Self.int32(1))
+        let decodedOnMain = try await replies.reply(to: 2, label: "password list", timeout: .seconds(30)) {
+            (fields: inout CEFHostReplyFields) throws(CEFHostReplyError) -> Bool in
+            _ = try fields.int32()
+            return pthread_main_np() != 0
+        }
+        #expect(!decodedOnMain)
+    }
+
     @Test func dropsATokenNobodyExpects() {
         let replies = CEFHostReplies()
+        replies.expect(0)  // 0: the call sent nothing
         #expect(!replies.resolve(9, fields: Self.int32(1)))
         #expect(replies.count == 0)
     }
 
-    @Test func eachTokenResumesItsOwnWaiterWhenRepliesComeOffMainInAnyOrder() async throws {
+    @Test func eachTokenResumesItsOwnWaiterWhenRepliesComeInAnyOrder() async throws {
         let replies = CEFHostReplies()
         let tokens = (1...50).map { UInt32($0) }
         for token in tokens { replies.expect(token) }
-        let values = try await withThrowingTaskGroup(of: (UInt32, Int32).self) { group in
-            for token in tokens {
-                group.addTask {
-                    (token, try await replies.reply(to: token, as: Int32.self, label: "renderer ids", timeout: .seconds(30)))
-                }
-            }
-            let resolved = await Self.resolveOffMain(replies, tokens: tokens.reversed())
-            #expect(resolved.allSatisfy { $0 })
-            var values: [UInt32: Int32] = [:]
-            for try await (token, value) in group { values[token] = value }
-            return values
-        }
-        #expect(values.count == 50)
-        #expect(tokens.allSatisfy { values[$0] == Int32($0) * 10 })
+        let waits = tokens.map { Self.waiting(replies, $0) }
+        await Self.afterQueuedWork()
+        #expect(replies.awaiting == 50)
+        for token in tokens.reversed() { #expect(replies.resolve(token, fields: Self.int32(Int32(token) * 10))) }
+        for (token, wait) in zip(tokens, waits) { #expect(try await wait.value == Int32(token) * 10) }
         #expect(replies.count == 0)
     }
 
     @Test func aReplyWithTheWrongShapeFailsItsWaiter() async {
         let replies = CEFHostReplies()
         replies.expect(5)
+        let wait = Self.waiting(replies, 5)
+        await Self.afterQueuedWork()
         replies.resolve(5, fields: Self.int32(1) + Self.int32(2))  // one value expected, two came
-        let error = await Self.awaitedFailure { try await replies.reply(to: 5, as: Int32.self, label: "try close", timeout: .seconds(30)) }
-        #expect(error == .malformed)
+        #expect(await Self.awaitedFailure { try await wait.value } == .malformed)
     }
 
     @Test func aNullStringResultIsNil() async throws {
@@ -178,22 +207,53 @@ import Testing
         #expect(value == nil)
     }
 
-    @Test func aReplyThatNeverComesTimesOut() async {
-        let replies = CEFHostReplies()
+    /// The deadline fires at its timeout on the injected clock, not a moment before.
+    @Test func aReplyThatNeverComesTimesOutAtItsDeadline() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
         replies.expect(3)
-        let error = await Self.awaitedFailure { try await replies.reply(to: 3, as: Int32.self, label: "ssl status", timeout: .zero) }
-        #expect(error == .timedOut("ssl status", .zero))
+        let wait = Task { try await replies.reply(to: 3, as: Int32.self, label: "ssl status", timeout: .seconds(5)) }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(5) - .nanoseconds(1))
+        #expect(clock.sleeperCount == 1)
+        #expect(replies.awaiting == 1)
+        clock.advance(by: .nanoseconds(1))
+        #expect(await Self.awaitedFailure { try await wait.value } == .timedOut("ssl status", .seconds(5)))
         #expect(replies.count == 0)
         #expect(!replies.resolve(3, fields: Self.int32(1)))  // late: nobody waits any more
     }
 
-    @Test func aCancelledWaitFailsAndLeavesNoSlot() async {
-        let replies = CEFHostReplies()
+    @Test func aCancelledWaitFailsAndLeavesNoSlot() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
         replies.expect(4)
-        let wait = Task { try await replies.reply(to: 4, as: Int32.self, label: "context proxy state", timeout: .seconds(30)) }
-        wait.cancel()
-        let error = await Self.awaitedFailure { try await wait.value }
-        #expect(error == .cancelled)
+        let waiting = Self.waiting(replies, 4)
+        try await clock.waitForSleeper()
+        waiting.cancel()
+        #expect(await Self.awaitedFailure { try await waiting.value } == .cancelled)
+        // Cancelled before its task first ran: the cancellation lands once the wait registers.
+        let early = Self.waiting(replies, 4)
+        early.cancel()
+        #expect(await Self.awaitedFailure { try await early.value } == .cancelled)
+        #expect(replies.count == 0)
+        #expect(clock.sleeperCount == 0)
+    }
+
+    /// A second wait on a token takes it over. The first wait's cancellation, which lands after the
+    /// second registered, settles only the first wait (each wait has its own identity).
+    @Test func aSecondWaitSupersedesTheFirstAndTheFirstsCancellationLeavesItAlone() async throws {
+        let clock = ManualClock()
+        let replies = CEFHostReplies(clock: clock)
+        replies.expect(8)
+        let first = Self.waiting(replies, 8)
+        try await clock.waitForSleeper()
+        first.cancel()  // its cancellation hop is queued on the main actor now
+        let answer = Task { replies.resolve(8, fields: Self.int32(80)) }  // queued after that hop
+        // Registers in this turn, before either queued task runs.
+        let second = try await replies.reply(to: 8, as: Int32.self, label: "try close", timeout: .seconds(30))
+        #expect(second == 80)
+        #expect(await answer.value)
+        #expect(await Self.awaitedFailure { try await first.value } == .superseded)
         #expect(replies.count == 0)
     }
 
@@ -203,12 +263,13 @@ import Testing
         replies.expect(2)
         replies.expect(3)
         replies.resolve(3, fields: Self.int32(30))  // answered before the exit: still the answer
-        let waiting = Task { try await replies.reply(to: 2, as: Int32.self, label: "bookmarks sync", timeout: .seconds(30)) }
+        let waiting = Self.waiting(replies, 2)
+        await Self.afterQueuedWork()
+        #expect(replies.awaiting == 1)
         replies.failAll(.hostGone)
+        #expect(await Self.awaitedFailure { try await waiting.value } == .hostGone)
         let first = await Self.awaitedFailure { try await replies.reply(to: 1, as: Int32.self, label: "try close", timeout: .seconds(30)) }
         #expect(first == .hostGone)
-        let second = await Self.awaitedFailure { try await waiting.value }
-        #expect(second == .hostGone)
         let third = try await replies.reply(to: 3, as: Int32.self, label: "content setting", timeout: .seconds(30))
         #expect(third == 30)
         #expect(replies.count == 0)

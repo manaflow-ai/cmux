@@ -94,6 +94,10 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
 // verdict): read right after the call, it names that call's answer, which the reply callback
 // delivers under it (task 018: CEFHostReplies awaits it). 0 when that call sent nothing.
 CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
+// Main thread. REPLY frames go to `reply(ctx, ...)` from now on, in place of the configured
+// callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
+// (replies_unhandled). The next cmux_remote_shim_configure sets them again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
 
 }  // extern "C"
 

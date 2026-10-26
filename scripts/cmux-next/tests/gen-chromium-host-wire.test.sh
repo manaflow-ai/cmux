@@ -441,6 +441,42 @@ grep -q 'sync-reply' <<<"$out" && fail "a host_mode_rewrites site is still sync-
 grep -q $'CEFProcesses.swift:3\tcmux_shim_renderer_client_ids\tasync\tasync$' <<<"$out" ||
   fail "the rewritten site lost its async row: $out"
 
+# The same read through a closure: one passed inside a statement's head (CEFAgentRelay.send's
+# `switch text.withCString({ shim.devToolsSend(browser, $0) })`), and one given the library by a
+# function that takes a (CEFShimLibrary, ...) closure (CEFExtensionBackend's `call { $0.x($1) }`,
+# by `$0` or a named parameter, behind an `if` on the same line). A dropped result is no read.
+hidden="$work/sync-reply-closures"
+fixture "$hidden"
+cat >"$hidden/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProcesses.swift" <<'EOF'
+extension CEFCaller {
+    func sent(_ shim: CEFShimLibrary, _ out: UnsafeMutablePointer<Int32>) -> Bool {
+        switch "x".withCString({ _ in shim.rendererClientIDs(1, out, 4) }) {
+        case 1: return true
+        default: return false
+        }
+    }
+    func through(_ out: UnsafeMutablePointer<Int32>) -> Bool { call { $0.rendererClientIDs($1, out, 4) } }
+    func named(_ out: UnsafeMutablePointer<Int32>) -> Bool {
+        if out.pointee > 0 { return call { library, browser in library.rendererClientIDs(browser, out, 4) } }
+        return false
+    }
+    func dropped(_ out: UnsafeMutablePointer<Int32>) {
+        call { library, browser in
+            library.rendererClientIDs(browser, out, 4)
+            return 1
+        }
+    }
+    private func call(_ body: (CEFShimLibrary, Int32) -> Int32) -> Bool { body(library, 1) == 1 }
+}
+EOF
+out="$(python3 "$gen" --root "$hidden" --swift-sites)"
+for line in 3 8 10; do
+  grep -q "CEFProcesses.swift:$line"$'\tcmux_shim_renderer_client_ids\tasync\tasync,sync-reply' <<<"$out" ||
+    fail "the closure read on line $line is not sync-reply: $out"
+done
+grep -q $'CEFProcesses.swift:15\tcmux_shim_renderer_client_ids\tasync\tasync$' <<<"$out" ||
+  fail "a dropped closure result is listed as read: $out"
+
 # host_mode_rewrites accepts the listed function's calls of the listed exports, and nothing else.
 rewrite="$work/rewrite"
 fixture "$rewrite"
@@ -570,6 +606,13 @@ refuse "rewrite needs" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF
   "exports": ["cmux_shim_go_back"], "needs": "later", "change": "x", "task": "p01-process-021"}]' "needs 'later' is not one of"
 refuse "rewrite of a missing file" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/Gone.swift: Gone.f()",
   "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' "Gone.swift does not exist"
+refuse "rewrite of a missing function" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.gone()",
+  "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' "CEFCaller.gone is no function of"
+refuse "rewrite of a function that calls none of its exports" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.color(_:)",
+  "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' \
+  "CEFCaller.color uses none of cmux_shim_go_back"
+edit_ops "$work/refuse" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)"'
+expect 0 "1 host-mode rewrites" "a rewrite of the function that calls its export" -- --root "$work/refuse" --check-ops
 refuse "after_attach on a post" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)",
   "exports": ["cmux_shim_go_back"], "needs": "after_attach", "change": "x", "task": "p01-process-015"}]' \
   "needs after_attach is for mirror reads"
