@@ -36,7 +36,7 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-fn hub_with(d: &Path, vm_host: bool) -> Arc<Hub> {
+fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fakeclaude": {
@@ -66,12 +66,25 @@ fn hub_with(d: &Path, vm_host: bool) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    // `_acpmux/vm_host` writes here, and reads the creation marker under
+    // `d/root` (`mark`), never this machine's own `/etc/cmux`.
+    cfg.path = Some(d.join("home/config.json"));
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    let hub = Hub::new(cfg, store);
+    hub.set_vm_marker_root(d.join("root"));
+    hub
 }
 
 fn hub(d: &Path) -> Arc<Hub> {
-    hub_with(d, false)
+    hub_with(d, None)
+}
+
+/// Writes the creation marker cmux writes on a VM it made (`owner`), or a
+/// team VM's (`team`), under the hub's marker root.
+fn mark(d: &Path, kind: &str) {
+    let etc = d.join("root/etc/cmux");
+    std::fs::create_dir_all(&etc).unwrap();
+    std::fs::write(etc.join("vm-kind"), format!("{kind}\n")).unwrap();
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -141,7 +154,7 @@ impl Client {
 #[tokio::test]
 async fn every_remote_harness_inherits_only_its_explicit_environment() {
     let d = dir("acp-environment");
-    let hub = hub_with(&d, true);
+    let hub = hub_with(&d, Some(true));
     let prompt = "envs: CMUX_REMOTE_TEST_SECRET,LC_API_TOKEN,SSH_AUTH_SOCK,UNRELATED_TOKEN,REMOTE_PROFILE_VALUE,HOME,PATH";
     let mut web = Client::new(&hub, Origin::Web);
     let remote: Value = serde_json::from_str(
@@ -191,7 +204,7 @@ async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
     let d = dir("environment");
     // Off macOS, vmHost is the sandbox boundary and still needs the same
     // least-authority process environment. A Mac keeps Seatbelt too.
-    let hub = hub_with(&d, true);
+    let hub = hub_with(&d, Some(true));
     let names = [
         "ANTHROPIC_AUTH_TOKEN",
         "CMUX_REMOTE_TEST_SECRET",
@@ -233,6 +246,30 @@ async fn a_local_session_spawns_claude_without_the_remote_settings() {
     let mut local = Client::new(&hub, Origin::Local);
     let argv = local.run(&d, "argv").await.unwrap_or_else(|e| panic!("{e}"));
     assert!(!argv.contains("--settings"), "{argv}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A VM cmux created (an owner marker, no `vmHost` key) runs a remote chain's
+/// Claude Code with the VM as the sandbox; `_acpmux/vm_host` turns that off
+/// and on again for the next session, with no restart.
+#[cfg(not(target_os = "macos"))]
+#[tokio::test]
+async fn on_a_vm_cmux_created_remote_claude_runs_until_the_toggle_turns_it_off() {
+    let d = dir("cmux-vm");
+    mark(&d, "owner");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web);
+    web.run(&d, "argv").await.unwrap_or_else(|e| panic!("on by default: {e}"));
+
+    let mut local = Client::new(&hub, Origin::Local);
+    let off = local.call("_acpmux/vm_host", json!({"on": false})).await;
+    assert_eq!(off["result"]["vmHost"], false, "{off}");
+    let e = web.run(&d, "argv").await.expect_err("off: a remote chain needs the sandbox again");
+    assert!(e.to_string().contains("Seatbelt"), "{e}");
+
+    let on = local.call("_acpmux/vm_host", json!({"on": true})).await;
+    assert_eq!(on["result"]["vmHost"], true, "{on}");
+    web.run(&d, "argv").await.unwrap_or_else(|e| panic!("on again: {e}"));
     let _ = std::fs::remove_dir_all(&d);
 }
 
