@@ -911,7 +911,8 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
     {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api) and `untested`
     replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
     of the error's details the case asserts; `gap` (success only) says why no product can check the success yet and
-    names the task that closes it, so coverage excludes the operation."""
+    names the task that closes it, so coverage excludes the operation. A value that looks like a real credential
+    (CREDENTIAL_PATTERNS) is refused."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -944,9 +945,41 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
                     raise GenError(f"{path}: {operation}.{kind} details is a non-empty object")
                 if "gap" in spec and not (isinstance(spec["gap"], str) and TASK_ID.search(spec["gap"])):
                     raise GenError(f"{path}: {operation}.{kind} gap is a reason that names the task closing it")
+                secret = next(credential_values(spec, f"{operation}.{kind}"), None)
+                if secret:
+                    raise GenError(f"{path}: {secret}")
                 check_tuned_steps(f"{path}: {operation}.{kind}", spec, catalog)
             tuning[operation] = kinds
     return tuning
+
+
+# Values that are a real credential (key formats from cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml): a case
+# runs offline with a mock agent and holds none, so a tuning that carries one is refused before it reaches a case.
+CREDENTIAL_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
+    ("an Anthropic API key", re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}")),
+    ("an OpenAI API key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}")),
+    ("a GitHub token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})")),
+    ("an AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("a Slack token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("a bearer token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}")),
+    ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+)
+
+
+def credential_values(value: Any, path: str) -> Iterable[str]:
+    """Where a tuning value looks like a real credential, as `<path>: <kind>` (never the value itself)."""
+    if isinstance(value, str):
+        for kind, pattern in CREDENTIAL_PATTERNS:
+            if pattern.search(value):
+                yield f"{path} holds {kind}; daemon-op cases hold no real credentials"
+                return
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from credential_values(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from credential_values(item, f"{path}[{index}]")
 
 
 def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> None:
@@ -1351,6 +1384,20 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
              "a before step is"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "x"}]}}}}, "a before step is"),
         ]
+        # Credential-shaped values, built here so this file holds no literal key a secret scanner would flag.
+        for kind, secret in (("an Anthropic API key", "sk-" + "ant-api03-" + "A" * 24),
+                             ("an OpenAI API key", "sk-" + "proj-" + "a1" * 12),
+                             ("a GitHub token", "gh" + "p_" + "B" * 36),
+                             ("an AWS access key id", "AK" + "IA" + "C" * 16),
+                             ("a Slack token", "xo" + "xb-" + "1" * 12),
+                             ("a Google API key", "AI" + "za" + "D" * 35),
+                             ("a bearer token", "Bear" + "er " + "e" * 20),
+                             ("a private key", "-----BEGIN RSA PRIV" + "ATE KEY-----")):
+            bad.append(({"operations": {"pane.close": {"success": {"params": {"pane": secret}}}}},
+                        f"pane.close.success.params.pane holds {kind}"))
+            bad.append(({"operations": {"pane.close": {"success": {"before": [
+                {"id": "x", "method": "pane.split", "params": {"argv": ["/bin/sh", "-c", f"echo {secret}"]}}]}}}},
+                f"pane.close.success.before\\[0\\].params.argv\\[2\\] holds {kind}"))
         live = {"pointer": "/daemon/session", "equals": "live", "maxMs": 100}
         for wait, message in (
                 ({"pointer": "/daemon/session"}, "maxMs None is not an integer"),
@@ -1480,7 +1527,43 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             self.assertIn("p15-oracle-204", files[COVERAGE]["excluded"][operation], operation)
         move = files["browser-input-mouse-ok.json"]["steps"][-1]["args"]["params"]
         self.assertEqual((move["kind"], "button" in move), ("move", False))
-        self.assertEqual(files[COVERAGE]["covered"], 148)
+        self.assertEqual(sorted(op for op in files[COVERAGE]["excluded"] if family_of(op) == "browser"), sorted(engine))
+
+    def test_the_chief_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/chief/_tuning.json (p15-oracle-069): each of the 24 chief, conversation,
+        room, participant and agent mutations has a success and a typed-error case on the mock agent (no agent
+        process, no credential). Every error case reaches the handler and asserts its refusal; the success cases
+        that need a Chief brain, a conversation or the verified app are excluded with the task that closes them."""
+        gapped = {
+            "agent.message.release": "p15-oracle-023", "agent.message.unsend": "p15-oracle-023",
+            "chief.engine.set": "p15-oracle-200", "chief.stop": "p15-oracle-200",
+            "chief.profile.adopt": "p15-oracle-023", "conversation.draft": "p15-oracle-023",
+            "conversation.send": "p15-oracle-023", "conversation.typing": "p15-oracle-023",
+        }
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        chief = sorted(op for op in self.catalog.mutations() if family_of(op) == "chief")
+        self.assertEqual(len(chief), 24)
+        excluded = files[COVERAGE]["excluded"]
+        self.assertEqual(sorted(op for op in excluded if family_of(op) == "chief"), sorted(gapped))
+        for operation in chief:
+            entry = files[COVERAGE]["operations"][operation]
+            if operation in gapped:
+                self.assertIn(gapped[operation], excluded[operation], operation)
+            else:
+                self.assertEqual(entry["placeholders"], [], operation)
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                self.assertEqual(case["requires"], ["resource_api"], f"{operation} {kind}")
+                self.assertEqual(case["steps"][-1]["args"]["method"], operation)
+                self.assertIsNone(next(credential_values(case, operation), None), f"{operation} {kind}")
+            error = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
+            self.assertTrue(error.get("errorDetails"), f"{operation}: the error case asserts its refusal")
+        undo = [step["id"] for step in files["chief-profile-undo-ok.json"]["steps"]]
+        self.assertEqual(undo, ["fx-chief", "rename", "call"])
+        self.assertNotIn("rename", [step["id"] for step in files["chief-profile-undo-error.json"]["steps"]])
+        unpin = [step["id"] for step in files["room-unpin-ok.json"]["steps"]]
+        self.assertEqual(unpin, ["fx-workspace", "fx-room", "pin", "call"])
 
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):

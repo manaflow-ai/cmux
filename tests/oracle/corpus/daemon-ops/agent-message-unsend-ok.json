@@ -92,7 +92,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "takes back every delivery of the fixture message"
     }
   ],
   "invariants": [
@@ -101,5 +101,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the message's verified sender (an agent with its launch credential) or the person in the verified cmux app takes a message back, and driver_daemon.py's connection is a plain local client. Follow-up to p15-oracle-023: driver_daemon.py opens a frontend-actor connection and a credentialed agent sender"
   ]
 }

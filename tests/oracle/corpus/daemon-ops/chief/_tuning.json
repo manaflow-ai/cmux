@@ -1,0 +1,255 @@
+{
+  "$comment": "p15-oracle-069: the 24 mutations of the chief, conversation, room, participant and agent families (gen_daemon_ops.py reads this file; run it after an edit). The mock agent of the daemon product: the case daemon runs no agent process and holds no credential. Its environment is driver_daemon.py's env -i base, CMUX_TUI_CHIEF_BRAINS is unset, so no Chief brain starts (chief_brains.rs not_configured), and the agent actors of these cases are the fixture terminal, addressed by its terminal id (agent.report source hook, agent.message.send and mark to that terminal). No params here carry a token, key or credential, and gen_daemon_ops.py refuses a tuning value that looks like one. Each error case reaches the handler and asserts its refusal with errorDetails (the reason or the scope and id), not only the error code. The success cases that need a Chief brain, a local conversation, a bound agent participant or the verified cmux app have a gap naming the task that closes it, so coverage excludes them.",
+  "operations": {
+    "agent.message.mark": {
+      "success": {
+        "params": {"ids": [{"$fixture": "message"}], "recipient": {"$fixture": "terminal"}, "state": "acknowledged"},
+        "note": "acknowledges the fixture message's delivery to the fixture terminal; a person reading a queued message may skip delivered (agent_message_store.rs), so the outcome is the same whether the terminal took it yet"
+      },
+      "error": {
+        "params": {"ids": ["msg_00000000000000000000000000000000"]},
+        "error": "resource.not_found",
+        "details": {"scope": "agent", "id": "msg_00000000000000000000000000000000"},
+        "note": "a well-formed message id that names no message to the fixture terminal"
+      }
+    },
+    "agent.message.release": {
+      "success": {
+        "gap": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a held delivery needs a sender with a launch credential in another workspace; driver_app.py hands resource.call to driver_daemon.py, whose connection is a plain local client. Follow-up to p15-oracle-023: driver_daemon.py opens a frontend-actor connection and a credentialed agent sender",
+        "note": "approves the held delivery of the fixture message"
+      },
+      "error": {
+        "error": "operation.failed",
+        "details": {"operation": "agent.message.release", "reason": "release_needs_app"},
+        "note": "a plain local connection may be an agent that left out its launch credential, so it never releases a delivery"
+      }
+    },
+    "agent.message.send": {
+      "error": {
+        "params": {"recipients": ["term_00000000000000000000000000000000"]},
+        "error": "resource.not_found",
+        "details": {"scope": "terminal", "id": "term_00000000000000000000000000000000"},
+        "note": "a well-formed terminal id that names no terminal of this session"
+      }
+    },
+    "agent.message.unsend": {
+      "success": {
+        "gap": "no product runs it yet: only the message's verified sender (an agent with its launch credential) or the person in the verified cmux app takes a message back, and driver_daemon.py's connection is a plain local client. Follow-up to p15-oracle-023: driver_daemon.py opens a frontend-actor connection and a credentialed agent sender",
+        "note": "takes back every delivery of the fixture message"
+      },
+      "error": {
+        "error": "operation.failed",
+        "details": {"operation": "agent.message.unsend", "reason": "unsend_needs_app"},
+        "note": "a plain local connection may be an agent that left out its launch credential, so it never takes back a message it cannot prove it sent"
+      }
+    },
+    "agent.report": {
+      "error": {
+        "params": {"terminal_id": "term_00000000000000000000000000000000"},
+        "error": "operation.failed",
+        "details": {"reason": "unknown terminal term_00000000000000000000000000000000"},
+        "note": "a hook report for a well-formed terminal id that names no terminal"
+      }
+    },
+    "chief.engine.set": {
+      "success": {
+        "gap": "no product runs it yet: the default Chief's brain answers through its tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET) and the case daemon has none, and a real brain needs agent credentials, which no case may hold. Follow-up to p15-oracle-200: the hermetic env starts a mock Chief brain, a tools socket that answers optchat-chief's engine and stop tools",
+        "note": "the default Chief's engine choice, cleared to its defaults"
+      },
+      "error": {
+        "params": {"chief": "agent_00000000000000000000000000"},
+        "error": "operation.failed",
+        "details": {"operation": "chief.engine.set", "reason": "not_found"},
+        "note": "a Chief id that names no live Chief (chief_control.rs target), refused before any brain is asked"
+      }
+    },
+    "chief.profile.adopt": {
+      "success": {
+        "gap": "no product runs it yet: adopt takes an agent participant of a local conversation, and no resource-protocol mutation makes a conversation (conversation-create is a v1 command, which no case step sends). Follow-up to p15-oracle-023: driver_daemon.py gets a conversation fixture step",
+        "note": "makes the conversation's agent participant a Chief"
+      },
+      "error": {
+        "params": {"participant_id": "agent_oracle"},
+        "error": "operation.failed",
+        "details": {"operation": "chief.profile.adopt", "reason": "not_an_agent_participant"},
+        "note": "a well-shaped agent id that is in no local conversation"
+      }
+    },
+    "chief.profile.avatar.set": {
+      "success": {
+        "params": {"media_type": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="},
+        "note": "a 1x1 PNG on the fixture Chief; the record's avatar is its sha256, type and size"
+      },
+      "error": {
+        "params": {"media_type": "image/gif", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="},
+        "error": "validation.invalid",
+        "details": {"field": "data"},
+        "note": "PNG bytes sent as image/gif: the type comes from the bytes, and a media_type that differs is refused (chief_registry_resource.rs avatar_change)"
+      }
+    },
+    "chief.profile.create": {
+      "error": {
+        "params": {"display_name": "oracle\nchief"},
+        "error": "validation.invalid",
+        "details": {"field": "display_name"},
+        "note": "a display name is one line; the catalog type allows the newline, the registry refuses it"
+      }
+    },
+    "chief.profile.delete": {
+      "error": {
+        "params": {"chief": "agent_mux"},
+        "error": "operation.failed",
+        "details": {"operation": "chief.profile.delete", "reason": "chief_is_default"},
+        "note": "the owner may do everything except delete the default Chief"
+      }
+    },
+    "chief.profile.undo": {
+      "success": {
+        "before": [
+          {"id": "rename", "method": "chief.profile.update", "params": {"chief": {"$fixture": "chief"}, "display_name": "oracle renamed"}}
+        ],
+        "note": "after one rename, undo makes the record equal to its revision before it, as a new revision"
+      },
+      "error": {
+        "before": [],
+        "error": "operation.failed",
+        "details": {"operation": "chief.profile.undo", "reason": "no_revision"},
+        "note": "a Chief with only its first revision has none to go back to"
+      }
+    },
+    "chief.profile.update": {
+      "error": {
+        "params": {"expected_rev": 7},
+        "error": "operation.failed",
+        "details": {"operation": "chief.profile.update", "reason": "rev_mismatch", "extra": {"rev": 1}},
+        "note": "expected_rev 7 on a record at rev 1: refused, with the rev the caller should read"
+      }
+    },
+    "chief.stop": {
+      "success": {
+        "gap": "no product runs it yet: the default Chief's brain answers through its tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET) and the case daemon has none, and a real brain needs agent credentials, which no case may hold. Follow-up to p15-oracle-200: the hermetic env starts a mock Chief brain, a tools socket that answers optchat-chief's engine and stop tools",
+        "note": "stops the default Chief's turn"
+      },
+      "error": {
+        "params": {"chief": "agent_00000000000000000000000000"},
+        "error": "operation.failed",
+        "details": {"operation": "chief.stop", "reason": "not_found"},
+        "note": "a Chief id that names no live Chief (chief_control.rs target), refused before any brain is asked"
+      }
+    },
+    "conversation.draft": {
+      "success": {
+        "gap": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and no resource-protocol mutation makes a conversation or binds a participant (both are v1 commands, which no case step sends). Follow-up to p15-oracle-023: driver_daemon.py gets conversation and bound-agent fixture steps",
+        "params": {"fresh": true},
+        "note": "the bound agent's first draft segment of a turn"
+      },
+      "error": {
+        "params": {"conversation": "conv_00000000000000000000000000"},
+        "error": "operation.failed",
+        "details": {"operation": "conversation.draft", "reason": "not_agent"},
+        "note": "the case connection acts as the person, and only a bound agent participant publishes drafts"
+      }
+    },
+    "conversation.send": {
+      "success": {
+        "gap": "no product runs it yet: a send goes to a local conversation the caller takes part in, and no resource-protocol mutation makes a conversation (conversation-create is a v1 command, which no case step sends). Follow-up to p15-oracle-023: driver_daemon.py gets a conversation fixture step",
+        "params": {"text": "oracle"},
+        "note": "the person's text message in the conversation (exactly one of text and parts)"
+      },
+      "error": {
+        "params": {"conversation": "conv_00000000000000000000000000"},
+        "error": "resource.not_found",
+        "details": {"scope": "conversation", "id": "conv_00000000000000000000000000"},
+        "note": "a conversation id that names no conversation"
+      }
+    },
+    "conversation.typing": {
+      "success": {
+        "gap": "no product runs it yet: typing is published in a local conversation the caller takes part in, and no resource-protocol mutation makes a conversation (conversation-create is a v1 command, which no case step sends). Follow-up to p15-oracle-023: driver_daemon.py gets a conversation fixture step",
+        "params": {"on": true},
+        "note": "the person starts typing in the conversation"
+      },
+      "error": {
+        "params": {"conversation": "conv_00000000000000000000000000"},
+        "error": "resource.not_found",
+        "details": {"scope": "conversation", "id": "conv_00000000000000000000000000"},
+        "note": "a conversation id that names no conversation"
+      }
+    },
+    "participant.avatar.set": {
+      "success": {
+        "params": {"participant_id": "user_local", "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="},
+        "note": "the person's own picture, a 1x1 PNG (participant_avatars.rs person path; chief.profile.avatar.set covers the Chief path)"
+      },
+      "error": {
+        "params": {"participant_id": "agent_00000000000000000000000000"},
+        "error": "operation.failed",
+        "details": {"reason": "chief_not_found"},
+        "note": "an agent participant id must name a Chief; this one names none"
+      }
+    },
+    "room.create": {
+      "error": {
+        "params": {"name": ""},
+        "error": "validation.invalid",
+        "details": {"reason": "room name cannot be empty"},
+        "note": "the catalog types name as any string; the room store refuses an empty one"
+      }
+    },
+    "room.delete": {
+      "error": {
+        "params": {"room": "default"},
+        "error": "operation.failed",
+        "details": {"reason": "the default room cannot be deleted"},
+        "note": "every session has the default room, and it stays"
+      }
+    },
+    "room.follow": {
+      "error": {
+        "params": {"room": "room_unknown"},
+        "error": "resource.not_found",
+        "details": {"scope": "room", "id": "room_unknown"},
+        "note": "a room id that names no room"
+      }
+    },
+    "room.move": {
+      "error": {
+        "params": {"room": "room_unknown"},
+        "error": "resource.not_found",
+        "details": {"scope": "room", "id": "room_unknown"},
+        "note": "a room id that names no room"
+      }
+    },
+    "room.pin": {
+      "error": {
+        "params": {"room": "room_unknown"},
+        "error": "resource.not_found",
+        "details": {"scope": "room", "id": "room_unknown"},
+        "note": "a room id that names no room"
+      }
+    },
+    "room.unpin": {
+      "success": {
+        "before": [
+          {"id": "pin", "method": "room.pin", "target": {"workspace": {"$fixture": "workspace"}}, "params": {"room": {"$fixture": "room"}}}
+        ],
+        "note": "unpins the fixture workspace that the step before pinned in the fixture room"
+      },
+      "error": {
+        "before": [],
+        "params": {"expected_revision": "999"},
+        "error": "revision.conflict",
+        "details": {"expected": "999"},
+        "note": "a revision precondition the session never reached"
+      }
+    },
+    "room.update": {
+      "error": {
+        "params": {"room": "room_unknown"},
+        "error": "resource.not_found",
+        "details": {"scope": "room", "id": "room_unknown"},
+        "note": "a room id that names no room"
+      }
+    }
+  }
+}

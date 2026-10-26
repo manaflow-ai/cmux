@@ -44,7 +44,7 @@
           "seq": 1,
           "kind": "talk",
           "text": "oracle",
-          "fresh": false,
+          "fresh": true,
           "done": false
         },
         "idempotencyKey": "conversation-draft-ok.call"
@@ -57,7 +57,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the bound agent's first draft segment of a turn"
     }
   ],
   "invariants": [
@@ -68,6 +68,7 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "params.conversation is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
+    "params.conversation is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it",
+    "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and no resource-protocol mutation makes a conversation or binds a participant (both are v1 commands, which no case step sends). Follow-up to p15-oracle-023: driver_daemon.py gets conversation and bound-agent fixture steps"
   ]
 }

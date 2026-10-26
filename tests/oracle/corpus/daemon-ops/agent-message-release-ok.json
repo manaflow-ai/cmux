@@ -94,7 +94,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "approves the held delivery of the fixture message"
     }
   ],
   "invariants": [
@@ -103,5 +103,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a held delivery needs a sender with a launch credential in another workspace; driver_app.py hands resource.call to driver_daemon.py, whose connection is a plain local client. Follow-up to p15-oracle-023: driver_daemon.py opens a frontend-actor connection and a credentialed agent sender"
   ]
 }

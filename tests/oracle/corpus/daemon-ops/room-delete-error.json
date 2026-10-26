@@ -38,19 +38,22 @@
       "args": {
         "method": "room.delete",
         "params": {
-          "room": ""
+          "room": "default"
         },
         "idempotencyKey": "room-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "the default room cannot be deleted"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "room breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "every session has the default room, and it stays"
     }
   ],
   "invariants": [

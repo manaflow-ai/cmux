@@ -48,7 +48,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the default Chief's engine choice, cleared to its defaults"
     }
   ],
   "invariants": [
@@ -57,5 +57,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: the default Chief's brain answers through its tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET) and the case daemon has none, and a real brain needs agent credentials, which no case may hold. Follow-up to p15-oracle-200: the hermetic env starts a mock Chief brain, a tools socket that answers optchat-chief's engine and stop tools"
   ]
 }

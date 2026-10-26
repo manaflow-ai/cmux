@@ -38,19 +38,22 @@
       "args": {
         "method": "room.create",
         "params": {
-          "name": 7
+          "name": ""
         },
         "idempotencyKey": "room-create-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "room name cannot be empty"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "name breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "the catalog types name as any string; the room store refuses an empty one"
     }
   ],
   "invariants": [
