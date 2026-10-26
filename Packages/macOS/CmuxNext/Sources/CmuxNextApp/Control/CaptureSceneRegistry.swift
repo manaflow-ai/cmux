@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWorkspaceNaming
@@ -261,7 +262,7 @@ extension CaptureSceneRegistry {
         func cleanup() async {
             guard let key = createdKey, !cleaned else { return }
             cleaned = true
-            try? await WorkspaceClose.close(key, terminals: [], on: connection)
+            try? await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
             services.windows.pendingClaims.removeValue(forKey: key.rawValue)
             services.windows.quietClaims.remove(key.rawValue)
             services.windows.reconcileMembership()
