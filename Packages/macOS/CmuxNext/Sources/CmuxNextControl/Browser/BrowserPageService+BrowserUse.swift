@@ -124,12 +124,15 @@ extension BrowserPageService {
             ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
                                                                           "Could not save the download to %1$@: %2$@", to.path, reason))
         }
-        if from.resolvingSymlinksInPath().standardizedFileURL.path == to.resolvingSymlinksInPath().standardizedFileURL.path {
-            return from.path
-        }
         isFolder = false
         let exists = manager.fileExists(atPath: to.path, isDirectory: &isFolder)
         if exists && isFolder.boolValue { throw failed(to.path) }
+        // The same file by identity, not by spelling (a case-insensitive volume, a symlink, a hard link).
+        if exists, let source = try? from.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+           let existing = try? to.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+           source.isEqual(existing) {
+            return from.path
+        }
         do {
             try manager.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
             if exists { try manager.removeItem(at: to) }

@@ -174,6 +174,18 @@ import Testing
         #expect(result["path"] == .string(paths[0]))
     }
 
+    /// The same file spelled in another case (a case-insensitive volume) is the download itself.
+    @Test func aPathNamingTheDownloadInAnotherCaseKeepsTheFile() async throws {
+        let (folder, paths) = try scratch(["report.pdf"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = ChooserEngine(chooser: "chosen", download: BrowserPageDownload(id: "AB12", filename: "report.pdf", status: "finished", path: paths[0]))
+        let router = install(engine)
+
+        _ = await call(router, "browser.page.download.wait", ["path": .string(folder.appendingPathComponent("Report.PDF").path)])
+
+        #expect(FileManager.default.fileExists(atPath: paths[0]), "the wait deleted the download it was asked to copy")
+    }
+
     @Test func aDownloadThatDidNotFinishFailsTheWaitWithItsRow() async throws {
         let failed = BrowserPageDownload(id: "AB12", filename: "big.iso", status: "failed", reason: "Network error")
         let router = install(ChooserEngine(chooser: "chosen", download: failed))
