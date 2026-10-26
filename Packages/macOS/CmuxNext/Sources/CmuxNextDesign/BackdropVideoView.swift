@@ -194,7 +194,7 @@ public final class BackdropVideoView: NSView {
     }
 
     private func scheduleCoverage() {
-        coverageTimer.schedule(after: .seconds(BackdropCoverage.interval)) { @MainActor [weak self] in
+        coverageTimer.scheduleOnMain(after: .seconds(BackdropCoverage.interval)) { [weak self] in
             self?.coverageFired()
         }
     }

@@ -3371,7 +3371,7 @@
                               "type": "string"
                             },
                             "labelKey": {
-                              "description": "localization key, never the shown text",
+                              "description": "localization key, never the shown text; \"<ambiguous>\" when the shown text is that of several keys and the element names none; null when it is no app string",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/ax/windows/*/nodes/*/labelKey"},
                               "type": ["string", "null"]
                             },

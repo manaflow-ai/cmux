@@ -449,7 +449,7 @@ final class BrowserHibernation {
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
-            hoverDwell.schedule(after: Self.hoverDwellDelay) { @MainActor [weak self] in self?.warm(key) }
+            hoverDwell.scheduleOnMain(after: Self.hoverDwellDelay) { [weak self] in self?.warm(key) }
         }
         replan()
     }
@@ -505,7 +505,7 @@ final class BrowserHibernation {
         for key in plan.due { prepare(key, for: HibernationPlanner.discardReason(at: pressure)) }
         nextCheck = [plan.nextCheck, graceEnds].compactMap(\.self).min()
         if let next = nextCheck {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -578,7 +578,7 @@ final class BrowserHibernation {
         let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
         for key in plan.due { freeze(key) }
         if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
-            freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            freezeDeadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             freezeDeadline.cancel()
         }

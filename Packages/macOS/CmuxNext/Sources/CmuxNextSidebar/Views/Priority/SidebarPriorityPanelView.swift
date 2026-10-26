@@ -175,7 +175,7 @@ final class SidebarPriorityPanelView: NSView {
     private func updateTicker() {
         let working = !panel.collapsed && panel.entries.contains { if case .working = $0.state { true } else { false } }
         guard working else { return ticker.cancel() }
-        ticker.scheduleIfIdle(after: .seconds(60)) { @MainActor [weak self] in
+        ticker.scheduleOnMainIfIdle(after: .seconds(60)) { [weak self] in
             guard let self else { return }
             for row in self.rows.values { row.tick(now: Date()) }
             self.updateTicker()

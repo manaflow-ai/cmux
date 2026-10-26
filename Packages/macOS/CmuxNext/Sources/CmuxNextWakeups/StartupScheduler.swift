@@ -170,7 +170,7 @@ public final class StartupScheduler {
             launchPhase = hold("Startup.launchPhase")
             phase.whenReached(.settled) { [weak self, weak phase] in self?.launchPhaseSettled(phase?.settleCause) }
         } else {
-            failsafe.schedule(after: failsafeTimeout) { @MainActor [weak self] in self?.failsafeFired() }
+            failsafe.scheduleOnMain(after: failsafeTimeout) { [weak self] in self?.failsafeFired() }
         }
     }
 
