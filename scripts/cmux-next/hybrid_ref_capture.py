@@ -15,13 +15,16 @@ own paths, when the inputs that change build lines have no capture yet.
 
   hybrid_ref_capture.py capture --log LOG --workspace WS --derived-data DD --sha SHA
                                 --key KEY --run-id N --out DIR [--lane L] [--upload]
+                                [--read-workspace SNAP_WS --read-derived-data SNAP_DD]
       Checks that the log (a build with EMIT_FRONTEND_COMMAND_LINES=YES) has a frontend
       compile line for the module of every SwiftDriver task; a module without one makes the
       capture incomplete (manifest "complete": false, "missing": [...]) and nothing is
       uploaded. A complete capture packs the log, XCBuildData, DerivedData without objects
       or the compilation cache, the workspace without .git or build output, and the
       committed Package.resolved, splits each pack under PART_BYTES, and with --upload puts
-      every part in the build fleet's private store (cmux-ci artifact-put --lane L). It
+      every part in the build fleet's private store (cmux-ci artifact-put --lane L). WS and
+      DD are the build's paths (the REF's); the files come from the --read-* snapshot of
+      them, cloned while the build still held its host lock (compile-dev-release.sh). It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
       manifest goes to this public repository's Actions artifacts.
 """
@@ -177,7 +180,9 @@ def split(path: Path) -> list[Path]:
 def capture(a: argparse.Namespace, environ=os.environ) -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    # The build's paths go in the manifest; the files are read from the snapshot of them.
     ws, dd, log = Path(a.workspace), Path(a.derived_data), Path(a.log)
+    read_ws, read_dd = Path(a.read_workspace or ws), Path(a.read_derived_data or dd)
     modules, compiled, command = drivers_and_lines(log)
     missing = sorted(set(modules) - compiled)
     manifest = {
@@ -192,17 +197,17 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     if manifest["complete"]:
         replace = {}
         if settings(environ)["CMUX_NEXT_BROWSER_DATA_IMPORT"] == "compiled-out":
-            replace[BROWSER_SOURCES] = (ws / BROWSER_SOURCES_COMPILED_OUT).read_bytes()
+            replace[BROWSER_SOURCES] = (read_ws / BROWSER_SOURCES_COMPILED_OUT).read_bytes()
         packs = out / "packs"
         packs.mkdir(exist_ok=True)
         with log.open("rb") as src, open(packs / "xcodebuild.log.gz", "wb") as raw, \
                 gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=6, mtime=0) as dst:
             shutil.copyfileobj(src, dst)
-        write_tar(dd / "Build/Intermediates.noindex", packs / "xcbuilddata.tgz",
+        write_tar(read_dd / "Build/Intermediates.noindex", packs / "xcbuilddata.tgz",
                   re.compile(r"^(?!XCBuildData(/|$))"))
-        write_tar(dd, packs / "build-noobj.tgz", DD_EXCLUDE)
-        write_tar(ws, packs / "ws-src.tgz", WS_EXCLUDE, replace)
-        shutil.copyfile(ws / RESOLVED, packs / "Package.resolved")
+        write_tar(read_dd, packs / "build-noobj.tgz", DD_EXCLUDE)
+        write_tar(read_ws, packs / "ws-src.tgz", WS_EXCLUDE, replace)
+        shutil.copyfile(read_ws / RESOLVED, packs / "Package.resolved")
         for pack in sorted(packs.iterdir()):
             whole = {"sha256": sha256_file(pack), "size": pack.stat().st_size}
             parts = split(pack)
@@ -234,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("--log", "--workspace", "--derived-data", "--sha", "--key", "--out"):
         c.add_argument(name, required=True)
     c.add_argument("--run-id", type=int, required=True)
+    c.add_argument("--read-workspace", help="where to read the workspace from (a snapshot of --workspace)")
+    c.add_argument("--read-derived-data", help="where to read DerivedData from (a snapshot of --derived-data)")
     c.add_argument("--lane", default="hybrid-ref-dev")
     c.add_argument("--upload", action="store_true")
     a = parser.parse_args(argv)

@@ -4682,11 +4682,12 @@ jobs:
           retention-days: 2
           compression-level: 0
       # Last, so nothing in this job waits for it. Only a host-mode build (one tree and DerivedData
-      # per host, the paths every mini shares) is captured. The packs go to the build fleet's
+      # per host, the paths every mini shares) is captured, from the snapshot compile-dev-release.sh
+      # cloned while it held the host lock (another build may own the host tree by now). The packs go to the build fleet's
       # private store; the manifest artifact names their sizes and sha256 only.
       - name: Capture the Linux build's REF
         id: hybrid-ref-capture
-        if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' }}
+        if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
         continue-on-error: true
         timeout-minutes: 20
         env:
@@ -4706,11 +4707,14 @@ jobs:
           DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           KEY: ${{ steps.hybrid-ref.outputs.key }}
+          SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
         run: |
           set -euo pipefail
+          trap 'rm -rf -- "$SNAPSHOT"' EXIT
           log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
           python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
-            --derived-data "$DERIVED_DATA" --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
+            --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
+            --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
             --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
       - name: Upload the REF capture manifest
         if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}

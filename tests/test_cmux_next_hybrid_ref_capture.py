@@ -137,8 +137,9 @@ class Capture(unittest.TestCase):
         output = tmp / "github_output"
         env = {"CMUX_CI_CLIENT": str(client), "HYBRID_REF_SETTINGS": "CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out\n",
                "GITHUB_OUTPUT": str(output), "TMPDIR": "/var/folders/x/T/"}
-        a = Namespace(log=str(tmp / "xcodebuild.log"), workspace=str(repo), derived_data=str(dd), sha="a" * 40,
-                      key="k" * 64, run_id=7, out=str(out), lane="hybrid-ref-dev", upload=upload)
+        a = Namespace(log=str(tmp / "xcodebuild.log"), workspace="/Users/cmux/host/src",
+                      derived_data="/Users/cmux/host/Release/xcode-1", read_workspace=str(repo), read_derived_data=str(dd),
+                      sha="a" * 40, key="k" * 64, run_id=7, out=str(out), lane="hybrid-ref-dev", upload=upload)
         saved = cap.PART_BYTES
         if part_bytes:
             cap.PART_BYTES = part_bytes
@@ -168,6 +169,8 @@ class Capture(unittest.TestCase):
     def test_complete_capture(self) -> None:
         manifest, out, uploads, output = self.run_capture(LOG + CMUX_LINE)
         self.assertTrue(manifest["complete"], manifest["missing"])
+        self.assertEqual((manifest["workspace"], manifest["derived_data"]),
+                         ("/Users/cmux/host/src", "/Users/cmux/host/Release/xcode-1"), "the build's paths, not the snapshot's")
         self.assertIn("complete=true", output)
         self.assertEqual(set(manifest["blobs"]), {"xcodebuild.log.gz", "xcbuilddata.tgz", "build-noobj.tgz",
                                                   "ws-src.tgz", "Package.resolved"})
@@ -209,6 +212,15 @@ class Capture(unittest.TestCase):
         self.assertEqual(len(uploads), sum(len(b["parts"]) for b in manifest["blobs"].values()))
 
 
+class Snapshot(unittest.TestCase):
+    def test_the_snapshot_is_taken_before_the_host_lock_goes(self) -> None:
+        text = (ROOT / "scripts/cmux-next/compile-dev-release.sh").read_text()
+        zipped, snapshot = text.index('ditto -c -k --keepParent "$app" "$archive"'), text.index('hybrid-ref-snapshot')
+        self.assertLess(zipped, snapshot)
+        self.assertNotIn("release_lock", text[snapshot:], "the lock is held until the script exits")
+        self.assertIn('"${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1', text[snapshot - 400:snapshot + 400])
+
+
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -233,6 +245,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])
+        self.assertIn("outputs.snapshot != ''", capture["if"], "the capture reads the snapshot taken under the host lock")
+        self.assertIn("--read-workspace \"$SNAPSHOT/src\"", capture["run"])
+        self.assertIn('trap \'rm -rf -- "$SNAPSHOT"\' EXIT', capture["run"])
         self.assertLess(self.order.index("hybrid-ref"), self.order.index("compile-cmux-next-dev-release"))
         self.assertLess(self.order.index("Upload the exact cmux-next app for the trusted publisher"),
                         self.order.index("hybrid-ref-capture"), "the capture runs last")
