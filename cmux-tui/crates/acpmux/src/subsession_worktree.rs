@@ -426,6 +426,8 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: another folder is at its path");
             return;
         }
+        #[cfg(test)]
+        after_root_removal(&worktree.root);
         let Some(registration) = registration else {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
             return;
@@ -832,6 +834,20 @@ thread_local! {
 fn before_registration_removal(admin: &Path) {
     if let Some(f) = BEFORE_REGISTRATION_REMOVAL.with(|h| h.borrow_mut().take()) {
         f(admin);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on the next [`remove_worktree`], right after its root is gone from its path.
+    static AFTER_ROOT_REMOVAL: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(all(test, unix))]
+fn after_root_removal(root: &Path) {
+    if let Some(f) = AFTER_ROOT_REMOVAL.with(|h| h.borrow_mut().take()) {
+        f(root);
     }
 }
 
@@ -1356,6 +1372,28 @@ mod tests {
         let admin = worktrees.join(made.root.file_name().unwrap());
         assert!(admin.join("HEAD").exists(), "the registration that took its place stays");
         assert_ne!(sh(&repo, &["branch", "--list", "other"]), "", "its branch stays");
+    }
+
+    /// A folder that appears at the root once it is gone (recreated, or a copy of its `.git`
+    /// file) keeps the registration and branch it names.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_appears_where_the_removed_root_was_keeps_its_registration_and_branch() {
+        let (_scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let git_file = std::fs::read(made.root.join(".git")).unwrap();
+        AFTER_ROOT_REMOVAL.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                std::fs::create_dir(root).unwrap();
+                std::fs::write(root.join(".git"), git_file).unwrap();
+                std::fs::write(root.join("sentinel"), "theirs\n").unwrap();
+            }))
+        });
+        remove_worktree(repo.as_path().into(), &made);
+        assert!(made.root.join("sentinel").exists(), "the folder that appeared stays");
+        assert!(branch_in(&repo, "task"), "the branch it names stays");
+        let worktrees = sh(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(worktrees.contains(&*made.root.to_string_lossy()), "{worktrees}");
     }
 
     /// The descriptor removal reads a folder through never reaches a child another thread
