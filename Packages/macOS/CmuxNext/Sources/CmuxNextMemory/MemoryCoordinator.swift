@@ -59,10 +59,10 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         }
     }
 
-    /// The registered consumers in registration order, each with its limit and release state. The
-    /// list drops released registrations on each add and walk; a slice walks them in
-    /// ``MemoryReleaseOrder``.
-    let consumers = MemoryConsumerList<Record>()
+    /// The registered consumers in ``MemoryReleaseOrder`` (equal orders in registration order),
+    /// each with its limit and release state. The list drops released registrations on each add
+    /// and walk.
+    let consumers: MemoryConsumerList<Record>
     private var policy: MemoryLimitPolicy
     private var isSliceScheduled = false
     private let slicer: any MemoryReleaseSlicer
@@ -92,6 +92,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         self.slicer = slicer
         self.clock = clock
         sliceDuration = sliceBudget
+        consumers = MemoryConsumerList(orderedBy: { $0.order < $1.order })
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
@@ -101,6 +102,33 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// - Returns: Its limit.
     public func limit(for traits: MemoryConsumerTraits) -> MemoryLimit {
         policy.limit(for: traits, at: level)
+    }
+
+    /// What every live consumer holds now, with the limit it has and the level and mode the limits
+    /// come from (Chrome's memory-infra dump, `base/trace_event/memory_dump_manager.h`).
+    ///
+    /// One pass over the consumers, O(consumers), on the main actor, in release order: one
+    /// ``MemoryConsumer/memoryUsage`` read per live consumer and no lock held across consumers. A
+    /// consumer on another actor registers through the asynchronous registration (Chrome's
+    /// `base/memory_coordinator/async_memory_consumer_registration.h`), whose main-actor
+    /// `memoryUsage` is the last value it sent, so the report never waits for an actor. Released
+    /// registrations are left out; a consumer that cannot tell its size shows as unknown, never 0.
+    ///
+    /// - Parameter budget: The app's budgets at normal pressure (`AppServices.memoryBudget`).
+    /// - Returns: The snapshot `debug.memory` serves.
+    public func report(budget: SubsystemBudget) -> MemoryReport {
+        let records = consumers.liveRecords()
+        var rows: [MemoryReport.Consumer] = []
+        rows.reserveCapacity(records.count)
+        for record in records {
+            guard let consumer = record.entry.liveConsumer else { continue }
+            rows.append(
+                MemoryReport.Consumer(
+                    name: record.entry.name, traits: record.entry.traits, limit: record.limit,
+                    usage: consumer.memoryUsage)
+            )
+        }
+        return MemoryReport(level: level, mode: mode, budget: budget, consumers: rows)
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
@@ -142,13 +170,11 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         slicer.scheduleSlice { [weak self] in self?.runSlice() }
     }
 
-    /// One frame's release: the consumers over their limit, in release order (equal orders keep
-    /// registration order; the sort is stable), until the slice's time is spent.
+    /// One frame's release: the consumers over their limit, in order, until the slice's time is spent.
     private func runSlice() {
         isSliceScheduled = false
         let isExpired = Self.deadline(on: clock, after: sliceDuration)
-        let inReleaseOrder = consumers.liveRecords().sorted { $0.order < $1.order }
-        for record in inReleaseOrder where record.needsRelease {
+        for record in consumers.liveRecords() where record.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()
                 return
