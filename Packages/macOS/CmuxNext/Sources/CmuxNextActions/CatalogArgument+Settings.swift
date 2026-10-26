@@ -18,6 +18,7 @@ nonisolated extension CatalogArgument {
                 ActionEnumCase(value: "rooms", title: text("argument.value.section.rooms", "Spaces & Profiles")),
                 ActionEnumCase(value: "machines", title: text("argument.value.section.machines", "Machines")),
                 ActionEnumCase(value: "advanced", title: text("argument.value.section.advanced", "Advanced")),
+                ActionEnumCase(value: "development", title: text("argument.value.section.development", "Development")),
             ]),
             isRequired: false)
     }

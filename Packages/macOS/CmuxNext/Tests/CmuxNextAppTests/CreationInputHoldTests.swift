@@ -49,4 +49,33 @@ import Testing
         #expect(buffer.holds(letter, limit: .seconds(2), expiring: true, closes: false))
         #expect(buffer.hasPendingCreation)
     }
+
+    /// Lawrence 2026-10-23: Cmd-D, type, Cmd-D, type, Cmd-W. The keys go to the pane the person saw
+    /// when they typed them. The Cmd-W closes the second new pane before the daemon made it: the keys
+    /// typed for it go with it, and the keys typed for the first new pane still wait for that pane.
+    /// Before, the first pane got both, or (with no other creation pending) the close replayed them
+    /// into whatever had the focus.
+    @Test func closingAPendingCreationDropsOnlyTheKeysTypedForIt() {
+        let buffer = CreationInputBuffer(began: .now)
+        _ = buffer.open(generation: 1, tab: "first")
+        let forFirst = Self.key("a", code: 0)
+        buffer.capture(forFirst)
+        _ = buffer.open(generation: 2, tab: "second")
+        buffer.capture(Self.key("b", code: 11))
+        #expect(buffer.cancel(tab: "second"))
+        #expect(buffer.take() == [forFirst], "the keys typed for the closed pane went to another one")
+    }
+
+    /// A creation whose keys were all typed for it: its close drops them all; one that is not
+    /// pending any more (its reply came) is not this hold's to cancel.
+    @Test func aCreationIsCancelledOnlyWhileItIsPending() {
+        let buffer = CreationInputBuffer(began: .now)
+        let ticket = buffer.open(generation: 1, tab: "new")
+        #expect(buffer.isCreating(tab: "new"))
+        buffer.capture(Self.key("a", code: 0))
+        buffer.resolve(ticket, awaitsFocus: true)
+        #expect(!buffer.isCreating(tab: "new"))
+        #expect(!buffer.cancel(tab: "new"))
+        #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
+    }
 }

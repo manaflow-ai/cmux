@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample commands, chat titles and files), not shipped UI.
 // The chat's summary card (SummaryCard.tsx) as the inline column draws it, with background work
-// live: commands from acpmux's process registry (running ones with their time and Stop, the
-// finished ones folded into one row), chats the agent started under Subagents with their state,
+// live: commands from acpmux's process registry (running ones with their time and Stop, finished
+// ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
 import type { ComponentProps } from "react";
@@ -12,8 +12,13 @@ import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
 import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
+import type { WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
 
-type Props = Pick<ComponentProps<typeof SummaryCard>, "rows" | "background" | "sessions" | "onAttach">;
+type Props = Pick<
+  ComponentProps<typeof SummaryCard>,
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
+>;
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -78,6 +83,42 @@ const sessions: StartedSession[] = [
   { sessionId: "child-5", title: "Draft the release notes for 0.42", state: "idle", createdAt: minutesAgo(16) },
 ];
 
+const workflow: WorkflowSummary = {
+  id: "workflow-migration",
+  title: "Migration workflow",
+  state: "running",
+  phase: "implement",
+  elapsedMs: 92_000,
+  tokens: 18_420,
+  phases: [
+    { id: "plan", name: "Plan", state: "completed", agentIds: ["planner"] },
+    { id: "implement", name: "Implement", state: "running", agentIds: ["api", "ui"] },
+    { id: "verify", name: "Verify", state: "pending", agentIds: ["tests"] },
+  ],
+  agents: [
+    { id: "planner", name: "Planner", state: "completed", tokens: 3_200, transcriptRowId: "row-plan" },
+    {
+      id: "api",
+      name: "API",
+      state: "running",
+      doing: "Updating the transport seam",
+      tokens: 8_400,
+      transcriptRowId: "row-api",
+    },
+    {
+      id: "ui",
+      name: "UI",
+      state: "waiting",
+      doing: "Waiting for API types",
+      tokens: 5_100,
+      transcriptRowId: "row-ui",
+    },
+    { id: "tests", name: "Tests", state: "pending" },
+  ],
+  selectedAgentId: "api",
+};
+const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
+
 const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
@@ -96,14 +137,23 @@ export default componentEntry<Props>({
   load: async () => GallerySummaryCard,
   variants: {
     "background-work": {
-      note: "Three commands running, newest first with their time and Stop; three finished folded into one row. Five started chats under Subagents: waiting, running, failed, done.",
+      note: "Three commands running, newest first with their time and Stop; three finished as compact status cards. Five started chats under Subagents: waiting, running, failed, done.",
       props: { rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
     },
+    "workflow-labs": {
+      note: "Labs-only workflow summary: progress, elapsed time and tokens; opening it shows phases, selected agents, transcript links and action affordances.",
+      props: {
+        rows,
+        background: background(processes),
+        sessions: { list: sessions, onOpen: none },
+        workflow,
+        workflowActions,
+      },
+    },
     "finished-open": {
-      note: "The finished commands opened from their row.",
+      note: "Finished commands remain visible as individual cards with their state and detail.",
       props: { rows, background: background(processes), sessions: { list: [], onOpen: none } },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-summary-finished" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-summary-task").length === 6);
       },
     },

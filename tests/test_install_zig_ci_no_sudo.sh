@@ -109,25 +109,16 @@ printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
 cat > "$FIXTURE_ROOT/$ZIG_NAME/zig" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+# A Linux Zig invocation can retain the public symlink in argv[0]; the wrapper
+# installed by install-zig-ci must provide the real library root explicitly.
 self="\$0"
-if [ -L "\$self" ]; then
-  target="\$(readlink "\$self")"
-  case "\$target" in
-    /*)
-      self="\$target"
-      ;;
-    *)
-      self="\$(cd "\$(dirname "\$self")" && pwd -P)/\$target"
-      ;;
-  esac
-fi
 case "\${1:-}" in
   version)
     echo "$ZIG_REQUIRED"
     ;;
   env)
-    zig_dir="\$(cd "\$(dirname "\$self")" && pwd -P)"
-    printf '.{\\n    .lib_dir = "%s/lib",\\n}\\n' "\$zig_dir"
+    zig_lib_dir="\${ZIG_LIB_DIR:-\$(cd "\$(dirname "\$self")" && pwd -P)/lib}"
+    printf '.{\\n    .lib_dir = "%s",\\n}\\n' "\$zig_lib_dir"
     ;;
   *)
     echo "$ZIG_REQUIRED"

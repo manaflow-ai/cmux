@@ -53,11 +53,13 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             let translation = pan.translation(in: surface)
             let at = pan.location(in: surface)
             anchor = CGPoint(x: at.x - translation.x, y: at.y - translation.y)
+            // The touch slop before the pan began is not scaled: a drag
+            // meant to be slow starts fast past it.
             send(scroll.moved(translationY: translation.y))
         case .changed:
-            send(scroll.moved(translationY: pan.translation(in: surface).y))
+            send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
         case .ended:
-            send(scroll.moved(translationY: pan.translation(in: surface).y))
+            send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
             if isEnabled(), let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
             }
