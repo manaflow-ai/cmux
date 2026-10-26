@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+inline constexpr std::string_view kProtocolIrSha256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -164,6 +164,8 @@ struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsSlowRequest;
+struct ServerStatsSlowRequests;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
@@ -4900,6 +4902,23 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsSlowRequest {
+    std::uint64_t busy_ms{};
+    std::uint64_t client{};
+    std::string method{};
+    std::uint64_t started_ms{};
+    friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
+};
+
+struct ServerStatsSlowRequests {
+    std::vector<ServerStatsSlowRequest> recent{};
+    std::uint64_t threshold_ms{};
+    std::uint64_t total{};
+    std::uint64_t unwatched{};
+    std::uint64_t watchdog_wakeups{};
+    friend bool operator==(const ServerStatsSlowRequests&, const ServerStatsSlowRequests&) = default;
+};
+
 struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
@@ -4915,6 +4934,7 @@ struct ServerStatsResult {
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
+    std::optional<ServerStatsSlowRequests> slow_requests{};
     std::uint64_t uptime_ms{};
     std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
@@ -6870,6 +6890,18 @@ template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsSlowRequest> {
+    static Result<Json> encode(const ServerStatsSlowRequest& value);
+    static Result<ServerStatsSlowRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsSlowRequests> {
+    static Result<Json> encode(const ServerStatsSlowRequests& value);
+    static Result<ServerStatsSlowRequests> decode(const Json& value);
 };
 
 template <>

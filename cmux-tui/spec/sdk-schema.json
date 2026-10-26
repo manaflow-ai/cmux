@@ -6023,6 +6023,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "slow_requests": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsSlowRequests"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6031,7 +6039,8 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "slow_requests is present only when the request names it in include."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6230,6 +6239,102 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsSlowRequests": {
+   "kind": "object",
+   "fields": {
+    "threshold_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unwatched": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "watchdog_wakeups": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "recent": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequest"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start.",
+    "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
+    "unwatched counts requests that started while every watchdog slot was taken."
+   ]
+  },
+  "ServerStatsSlowRequest": {
+   "kind": "object",
+   "fields": {
+    "method": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "started_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "busy_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "method is the request cmd tag, or unknown.",
+    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded."
    ]
   },
   "GuestUrlOpenResult": {

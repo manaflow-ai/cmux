@@ -369,6 +369,9 @@ pub(super) fn run_pending_request(
     writer: &MessageWriter,
 ) -> bool {
     let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    // Watched until the reply is queued: past 250 ms it lands in
+    // server-stats `slow_requests` (request_watchdog.rs).
+    let _watched = mux.request_watchdog.begin(client, request.cmd.wire_name());
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 

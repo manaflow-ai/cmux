@@ -580,7 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path` and `slow_requests`; unknown
+names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -618,6 +619,10 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
+  },
+  slow_requests?:object{
+    threshold_ms:uint64, total:uint64, unwatched:uint64, watchdog_wakeups:uint64,
+    recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64}>
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -659,6 +664,18 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`slow_requests` lists requests that ran past `threshold_ms` (250) on a
+connection's request sequence, each recorded once while it still runs:
+`method` is its `cmd` tag, `client` its connection, `started_ms` its start
+in milliseconds since daemon start and `busy_ms` how long it had run when it
+was recorded. `total` counts every recorded request and `recent` keeps the
+newest 128, oldest first. `unwatched` counts requests that started while all
+128 watch slots were taken. `watchdog_wakeups` counts wakes of the
+`mux-request-watchdog` thread: it has no periodic timer, so the count stays
+still while the daemon is idle and grows by at most four a second under load.
+With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
+`slow-request` line with the method as its mark.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
