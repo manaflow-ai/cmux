@@ -123,6 +123,11 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // `_acpmux/retry` with `subagentId`: resume a failed subagent now
+    // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
+    // retry a subagent, so the pane shows a subagent's Retry button only
+    // under it.
+    Capability { id: "subagent-retry-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

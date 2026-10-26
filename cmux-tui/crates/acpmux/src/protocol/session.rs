@@ -321,6 +321,21 @@ pub struct QueuedPromptSummary {
     /// The sending agent's name when it is another agent's message, null for the person's: an
     /// app draws it as a received message waiting for the turn, not as a composer row.
     pub from_agent: Option<String>,
+    /// The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
+    /// `author.rs`), null for the owner's and for an agent's message: an app shows it under their
+    /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
+    /// Kept across a restart and by their own edit.
+    pub author: Option<QueuedAuthor>,
+}
+
+/// The person who queued a prompt in a shared chat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct QueuedAuthor {
+    /// `tailnet:<login>` or `user_…`.
+    pub id: String,
+    pub name: String,
 }
 
 /// An image a queued prompt sends.
@@ -464,14 +479,15 @@ impl RetryReason {
 pub struct RetryParams {
     /// The chat's id, name or unique prefix.
     pub session_id: String,
-    /// One of the chat's failed subagents to resume instead. Refused for now
-    /// (`retry.subagent_unsupported`), never taken as the chat's own turn.
+    /// One of the chat's failed subagents to resume instead, by its id or agent id
+    /// (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_id: Option<String>,
 }
 
-/// What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
-/// failed prompt) and the turn it started.
+/// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+/// attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+/// it started.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RetryResult {
