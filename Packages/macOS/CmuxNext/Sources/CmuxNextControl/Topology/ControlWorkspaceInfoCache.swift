@@ -154,7 +154,7 @@ public final class ControlWorkspaceInfoCache {
         var scoped = list.pageTabWorkspaces
         for model in scope.shown {
             let key = ObjectIdentifier(model)
-            if list.index[key] != nil { scoped.insert(key) }
+            if list.contains(key) { scoped.insert(key) }
         }
         for id in scope.paneIDs {
             if let key = list.paneOwners[id] { scoped.insert(key) }

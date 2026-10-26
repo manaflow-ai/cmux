@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "أعد إنشاء هذا الجهاز",
       "message": "أُنشئ هذا الجهاز قبل تحديث Cloud ولا يمكن الاتصال به.",
-      "action": "أنشئ جهازًا جديدًا، وانسخ ملفاتك باستخدام cmux vm pull و cmux vm push، ثم احذف هذا الجهاز."
+      "action": "أنشئ جهازًا جديدًا. جهّز نقطة اتصال SCP باستخدام `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`، ثم انسخ ملفاتك عبر SCP قبل حذف هذا الجهاز."
     },
     "guestUnresponsive": {
       "title": "الجهاز لا يستجيب",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "لا يزال قيد التنفيذ",
       "message": "لم يُكمل مزوّد السحابة هذا التغيير بعد. قد يكتمل لاحقًا.",
-      "action": "تحقّق من حالة الجهاز باستخدام cmux vm ls أو في قائمة الأجهزة قبل المحاولة مرة أخرى."
+      "action": "تحقّق من حالة الجهاز باستخدام cmux cloud list-machines أو في قائمة الأجهزة قبل المحاولة مرة أخرى."
     },
     "providerTimeout": {
       "title": "مزوّد السحابة بطيء",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "الجهاز مشغول",
       "message": "هذا الجهاز قيد بدء التشغيل أو الإيقاف المؤقت أو لا يعمل، لذا لا يمكنه تنفيذ ذلك الآن.",
-      "action": "انتظر لحظة ثم حاول مرة أخرى. تحقّق من حالة الجهاز باستخدام cmux vm ls، واستأنفه أولًا إذا كان متوقفًا مؤقتًا."
+      "action": "انتظر لحظة ثم حاول مرة أخرى. تحقّق من حالة الجهاز باستخدام cmux cloud list-machines، واستأنفه أولًا إذا كان متوقفًا مؤقتًا."
     },
     "networkRuleCapacity": {
       "title": "بلغت قواعد الشبكة الحد الأقصى",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "restore": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
-        "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
-        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux vm exec`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
-        "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
+        "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux cloud new-machine`.",
+        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux cloud exec --target machine:<id> --command <command>`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
+        "default": "لا تعاود المحاولة. شغّل `cmux cloud list-machines` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
     },
     "requiresPro": {
-      "title": "يتطلب cmux Pro",
-      "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
-      "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+      "title": "يتطلب cmux {plan}",
+      "message": "تتطلب أجهزة Cloud VM خطة cmux {plan}.",
+      "action": "قم بالترقية إلى cmux {plan} عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     },
     "displayName": {
       "title": "اسم الجهاز غير صالح",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "تم استهلاك حصة الحوسبة في {plan}",
       "computeMessage": "استهلكت خطة {plan} ساعات الحوسبة البالغة {included} لفترة الفوترة هذه. ساعة الحوسبة هي 1 vCPU مع 2 GB من الذاكرة لمدة ساعة واحدة. يمكن تشغيل أجهزتك مرة أخرى في {resetDate}.",
       "computeAction": "تحتفظ الأجهزة المتوقفة مؤقتًا بملفاتها. تواصل مع الدعم إذا احتجت إلى حوسبة إضافية قبل {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "تم استهلاك حصة القرص في {plan}",
       "storageMessage": "تتضمن خطة {plan} مساحة قرص إجمالية قدرها {included} GB لكل الأجهزة المحفوظة. تستخدم الأجهزة المحفوظة {used} GB، ويحتاج هذا الطلب إلى {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "لا تكفي موارد Cloud VM",

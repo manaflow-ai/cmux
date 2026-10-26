@@ -1,7 +1,8 @@
-// Leo 2026-10-20: no Search | Ask switch on the New Tab page: type and press Return. The field
-// reads the text (omniboxAction): a question or an instruction asks the agent, plain keywords search
-// the web, an address opens. Its pick is the first row and Return takes it; Down or Tab picks the
-// other row for the rare miss. This replaces the Search | Ask switch of 2026-10-18 (PR 21817).
+// Leo 2026-10-20: no Search | Ask switch on the New Tab page: type and press Return. An address
+// opens; any other text asks the agent (Leo 2026-10-24: "Search the web. Do you really want that
+// first?"), with the web search as the last row. The pick is the first row and Return takes it;
+// Down or Tab picks another row for the rare miss. This replaces the Search | Ask switch of
+// 2026-10-18 (PR 21817).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -13,15 +14,17 @@ import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab
 const ask = { harness: "claude", agent: "Claude Code" };
 const omnibar = { ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] };
 
-test("keywords put the web search first, a question puts Ask first", () => {
+test("keywords and questions both put Ask first and the web search last", () => {
   const rows = screenRows("ff", { omnibar, ask });
-  expect(rows.map((row) => row.type)).toEqual(["search", "ask", "workspace"]);
+  expect(rows.map((row) => row.type)).toEqual(["ask", "workspace", "search"]);
   expect(defaultSelection(rows)).toBe(0);
-  expect(
-    screenRows("how do ff work", { omnibar, ask })
-      .map((row) => row.type)
-      .slice(0, 2),
-  ).toEqual(["ask", "search"]);
+  expect(screenRows("how do ff work", { omnibar, ask }).map((row) => row.type)).toEqual(["ask", "search"]);
+});
+
+test("with no agent, plain text searches first and an address leads with the web search still last", () => {
+  expect(screenRows("ff", { omnibar }).map((row) => row.type)).toEqual(["search", "workspace"]);
+  const visited = { ...omnibar, history: [{ url: "https://github.com/x" }] };
+  expect(screenRows("github.com", { omnibar: visited }).map((row) => row.type)).toEqual(["open", "history", "search"]);
 });
 
 test("an address opens first", () => {
@@ -129,13 +132,13 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   expect(field.getAttribute("placeholder")).toBe("Ask anything or type a URL");
 });
 
-test("Return on keywords searches the web", async () => {
+test("Return on keywords asks the composer's agent", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
   await type(field, "ff");
-  expect(selected()).toBe("Search the web for ff");
+  expect(selected()).toBe("Ask Claude Code");
   await key(field, "Enter");
-  expect(calls).toEqual([["search", "ff"]]);
+  expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
 
 test("Return on a question asks the composer's agent", async () => {
@@ -147,21 +150,22 @@ test("Return on a question asks the composer's agent", async () => {
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "why is ff slow?"]);
 });
 
-test("Down picks the other action for a miss, and Return takes it", async () => {
+test("Down reaches the web search for a miss, and Return takes it", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
   await type(field, "ff");
   await key(field, "ArrowDown");
-  expect(selected()).toBe("Ask Claude Code");
+  await key(field, "ArrowDown");
+  expect(selected()).toBe("Search the web for ff");
   await key(field, "Enter");
-  expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
+  expect(calls).toEqual([["search", "ff"]]);
 });
 
 test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
   const field = await render([]);
   await type(field, "ff");
   await key(field, "Tab");
-  expect(selected()).toBe("Ask Claude Code");
+  expect(selected()).toBe("ff-scratch");
   expect(window.document.activeElement).toBe(field);
   const event = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
   await act(async () => void field.dispatchEvent(event));
@@ -173,6 +177,8 @@ test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
 test("Tab on the last row moves focus on instead of wrapping", async () => {
   const field = await render([]);
   await type(field, "ff");
+  // Up from the top row goes back to the text; from there Up takes the last row.
+  await key(field, "ArrowUp");
   await key(field, "ArrowUp");
   const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => void field.dispatchEvent(event));

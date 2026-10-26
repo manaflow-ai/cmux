@@ -936,6 +936,11 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
+    // The tool packs cmux ships (toolpacks.rs); their skills reach each
+    // Chief through session_dir::write (toolpacks::sync_skills).
+    if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {
+        eprintln!("optchat-chief: installing the shipped tool packs: {e}");
+    }
     // Section 9: every subagent's directory and system prompt.
     let sub_tools = if sub_family == Family::Claude {
         crate::prompt::Tools::Mcp
@@ -1335,48 +1340,69 @@ fn start(
                 }
             },
         );
-    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
-        None
-    } else if let Some(daemon) =
-        crate::workspaces::subagent_daemon(daemon_socket, &|k: &str| env(k))
-    {
-        // a423: workspaces an older host left on the owner daemon move into the user's
-        // session, once per start, off the start path (best effort; a failure is logged).
-        if Path::new(daemon_socket) != daemon.as_path() {
-            let (owner, app) = (PathBuf::from(daemon_socket), daemon.clone());
-            std::thread::spawn(move || {
-                match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
-                    Ok(0) => {}
-                    Ok(n) => eprintln!("optchat: moved {n} workspaces into the user's session"),
-                    Err(e) => eprintln!("optchat: workspaces stay on the Chief's session: {e}"),
-                }
-            });
+    let placed = crate::workspaces::placement(
+        workspaces_off,
+        daemon_socket,
+        &|k: &str| env(k),
+        cloud_install.as_deref(),
+    );
+    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = match placed {
+        crate::workspaces::Placement::Off => None,
+        crate::workspaces::Placement::App(daemon) => {
+            // a423: workspaces an older host left on the owner daemon move into the user's
+            // session, once per start, off the start path (best effort; a failure is logged).
+            if Path::new(daemon_socket) != daemon.as_path() {
+                let (owner, app) = (PathBuf::from(daemon_socket), daemon.clone());
+                std::thread::spawn(move || {
+                    match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
+                        Ok(0) => {}
+                        Ok(n) => eprintln!("optchat: moved {n} workspaces into the user's session"),
+                        Err(e) => eprintln!("optchat: workspaces stay on the Chief's session: {e}"),
+                    }
+                });
+            }
+            // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
+            // workspace is the same kind of workspace as one the user makes (it outlives the app
+            // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
+            // A Chief no app opened (`cmux chief --chief-home`): the link dangles, so
+            // its workspaces go to this host's own session until an app opens Home.
+            let fallback = (Path::new(daemon_socket) != daemon.as_path())
+                .then(|| PathBuf::from(daemon_socket));
+            Some(Arc::new(crate::workspaces::DaemonWorkspaces {
+                daemon,
+                host: crate::workspaces::chief_host(home),
+                host_name: crate::workspaces::host_name(),
+                harness: Some(sub_harness.clone()),
+                personal: true,
+                fallback,
+            }) as Arc<dyn crate::workspaces::Workspaces>)
         }
-        // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
-        // workspace is the same kind of workspace as one the user makes (it outlives the app
-        // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
-        Some(Arc::new(crate::workspaces::DaemonWorkspaces {
-            daemon,
-            host: crate::workspaces::chief_host(home),
-            host_name: crate::workspaces::host_name(),
-            harness: Some(sub_harness.clone()),
-            personal: true,
-        }) as Arc<dyn crate::workspaces::Workspaces>)
-    } else {
-        cloud_install.map(|install| {
-            Arc::new(crate::workspaces::DaemonWorkspaces {
-                daemon: daemon_socket.into(),
+        crate::workspaces::Placement::Cloud(daemon, install) => {
+            Some(Arc::new(crate::workspaces::DaemonWorkspaces {
+                daemon,
                 host: format!("install:{install}"),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
-            }) as Arc<dyn crate::workspaces::Workspaces>
-        })
+                fallback: None,
+            }) as Arc<dyn crate::workspaces::Workspaces>)
+        }
+        // Fresh Chief with no app in its environment (user 12374): the host's own session.
+        crate::workspaces::Placement::OwnDaemon(daemon) => {
+            Some(Arc::new(crate::workspaces::DaemonWorkspaces {
+                daemon,
+                host: crate::workspaces::chief_host(home),
+                host_name: crate::workspaces::host_name(),
+                harness: Some(sub_harness.clone()),
+                personal: false,
+                fallback: None,
+            }) as Arc<dyn crate::workspaces::Workspaces>)
+        }
     };
     let no_workspace_reason = if workspaces_off {
         "subagent workspaces are turned off on this Chief host".to_owned()
     } else {
-        "this Chief host has neither a cmux app nor a cloud install, so no cmux app shows this subagent".to_owned()
+        "this Chief host could not reach a cmux session to make the workspace in".to_owned()
     };
     let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
@@ -1399,6 +1425,7 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
+        .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())

@@ -4,9 +4,10 @@
    toggle is: the header's tools, its own toggle among them, stay above it. It is as tall as its sections,
    never a column to the pane's foot (Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD
    SPACE"); past a ceiling (560px, and 80% of the room under the header) its body scrolls. Overlay (the
-   default, when the pane's right gutter has room): it floats in the gutter beside the transcript's column,
-   never over its text, and the chat does not move. Push (when the gutter has no room, and with Settings
-   Push always): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
+   default, in every pane): it floats outside the chat's layout and never takes a column (Leo, 2026-10-24:
+   "it was never supposed to be a sidebar; y'all kept doing sidebars"); the chat's column moves left only
+   when the two then fit side by side, and otherwise the panel floats over the chat. Push (Settings Push
+   always only): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
    beside it, but top-aligned at its own height, so the column below it is the chat's own page, not an
    empty slab. Its width comes from the viewer's drag (inline style); it slides in from the right and back
    out, and the width never animates. No section is a card (Leo, 2026-10-22: "tmi and too many boxes"):
@@ -54,28 +55,72 @@
   right: var(--acpmux-inspector-side, 0px);
   margin-right: var(--acpmux-inspector-inset);
 }
+/* The composer's glass (composerStates.css, cmux #24566; Leo, 2026-10-24: "the composer itself also
+   being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
+   surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
+   Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
+   blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
+:root:not([data-cmux-see-through]) .acpmux-chat-inspector.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.25);
+}
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-chat-inspector.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+.acpmux-chat-inspector.ui-glass {
+  /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
+  --glass-opaque: var(--acpmux-composer-solid, var(--glass-surface));
+}
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
 }
-/* As the overlay approaches the transcript column, ChatInspector.tsx shifts the chat toward the
-   room left of the card. The quick transition follows ResizeObserver's measured width; it ends when
-   the handoff reaches the push boundary. A pushed layout disables it for that boundary frame so the
-   flex reflow and the overlay shift describe the same center. */
-.acpmux-main > .acpmux-stage {
+/* When the chat and the floating card both fit with the chat moved left (ChatInspector.tsx
+   inspectorChatShift), the conversation and the composer's stack under it move left together, so the
+   card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
+   the pane. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-main > .acpmux-stage .acpmux-handoff-review,
+.acpmux-main > .acpmux-dock > * {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
 }
+/* The thread rail stays at the pane's left edge while the conversation moves (Leo, 2026-10-25: "when
+   that session rail is there, the session rail ends up pushing it to the side"): it draws inside the
+   moved scroller, so it moves back by the same amount, on the same frames. The shift always leaves the
+   rail's room in the left gutter (ChatInspector.tsx inspectorChatShift), so no row slides under it. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap {
+  translate: var(--acpmux-chat-shift, 0px) 0;
+}
+/* A part that joins the stack while the chat is moved rises from below its moved place
+   (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
+   list as bottomStack.css): the parts nested in them enter inside a part already moved. */
+.acpmux-main > .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack) {
+  --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
+}
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
     transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
       var(--acpmux-motion-ease, ease-out);
   }
 }
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage {
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage {
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
@@ -248,7 +293,6 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-more:hover,
-.acpmux-chat-inspector-subagents__more:hover,
 .acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
 .acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
   background: var(--acpmux-inspector-row-hover);
@@ -408,7 +452,7 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
 }
 .acpmux-chat-inspector-row__end[data-state="failed"] {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-row .acpmux-diff-counts {
   opacity: 0.8;
@@ -472,7 +516,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-stop[data-state="failed"],
 .acpmux-chat-inspector-stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-sr-only {
   position: absolute;
@@ -487,6 +531,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* Changes: a pull request per row, its menu at the end. */
 .acpmux-chat-inspector-pr {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -506,6 +551,22 @@ button.acpmux-chat-inspector-port:hover,
   text-decoration: none;
   cursor: default;
 }
+/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
+   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+.acpmux-chat-inspector-pr__link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+/* The link's own content paints above that overlay, so the glyph's and the check dot's titles and
+   the line counts' by-kind tooltip still get the pointer; a click there bubbles to the link. */
+.acpmux-chat-inspector-pr__link > * {
+  position: relative;
+}
+.acpmux-chat-inspector-pr__more {
+  position: relative;
+}
 .acpmux-chat-inspector-pr__link:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
@@ -517,17 +578,17 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-success, var(--acpmux-add));
+  color: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-ansi-5, var(--agent-accent));
+  color: var(--agent-status-merged);
 }
 .acpmux-chat-inspector-pr[data-state="draft"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-warning, var(--agent-muted));
+  color: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon,
 .acpmux-chat-inspector-pr[data-state="conflicting"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__text {
   flex: 1 1 auto;
@@ -584,7 +645,7 @@ button.acpmux-chat-inspector-port:hover,
   margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__base {
   color: var(--agent-muted);
@@ -597,10 +658,10 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin-right: 2px;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr__checks[data-checks="pending"] {
-  background: var(--agent-warning, var(--agent-muted));
+  background: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr__owner {
   flex: none;
@@ -682,7 +743,7 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin: 6px 2px 0;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-server__text {
   flex: 1 1 auto;
@@ -734,12 +795,13 @@ button.acpmux-chat-inspector-port:focus-visible {
 }
 .acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
 .acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-fold {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
@@ -748,15 +810,13 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  text-align: left;
+  appearance: none;
   cursor: default;
 }
-.acpmux-chat-inspector-fold:hover {
-  color: var(--agent-text);
-}
-.acpmux-chat-inspector-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
-}
+/* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes
+   the agent pane's soft pill (agent-session/shared/styles.css), the wider ring under Increase
+   Contrast (pages/shared/desktop.css). test/chat-inspector-fold-rows.test.ts. */
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {

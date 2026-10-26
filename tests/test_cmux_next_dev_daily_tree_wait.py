@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""cmux NEXT DEV daily runs wait for their own cmux-tui tree, then build it.
+"""cmux NEXT DEV daily runs build the app head against a published tree.
 
-A DEV daily run builds exactly the SHA the dispatcher asked for. A same-tree
-run started later by the tree's publication runs only while feat-cmux-next's
-tip is still that SHA, which a busy branch never is, so every DEV daily run
-whose tree was cold published nothing (from 01:59Z on 2026-10-14).
+A DEV daily run builds exactly the SHA the dispatcher asked for. If its daemon
+tree is cold, path routing falls back to the newest published compatible tree;
+it does not wait for nightly's tree publisher.
 """
 
 from pathlib import Path
@@ -30,6 +29,22 @@ class DevDailyTreeWaitTests(unittest.TestCase):
         self.assertIn("ubuntu", wait["runs-on"])
         run = "\n".join(step.get("run", "") for step in wait["steps"])
         self.assertIn("scripts/cmux-next/wait-dev-daily-tree.sh", run)
+
+    def test_dev_daily_probe_uses_the_newest_published_tree(self):
+        steps = {step.get("name"): step for step in jobs()["path_route"]["steps"]}
+        probe = steps["Probe the same-tree cmux-tui"]
+        self.assertIn("inputs.dev_daily == true", probe["env"]["CMUX_TUI_TREE_BASE_FALLBACK"])
+        fetch_steps = [
+            step
+            for job in jobs().values()
+            for step in job.get("steps", [])
+            if step.get("name") == "Fetch the same-tree cmux-tui"
+        ]
+        self.assertTrue(fetch_steps)
+        self.assertTrue(any(
+            "needs.path_route.outputs.tree_fetch_key" in step.get("env", {}).get("CMUX_TUI_TREE_KEY", "")
+            for step in fetch_steps
+        ))
 
     def test_the_dev_release_compile_runs_after_the_wait(self):
         compile_job = jobs()["cmux-scheme-compile"]

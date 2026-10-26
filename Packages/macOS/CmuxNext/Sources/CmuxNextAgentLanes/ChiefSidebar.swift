@@ -97,10 +97,12 @@ public final class ChiefSidebar {
     }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
-    /// subagent fold on any item but the Chief.
-    public static func menuRemovals(isApp: Bool, isChief: Bool) -> Set<ActionID> {
+    /// subagent fold on any item but the Chief, Archive on a band tile (`isTile`: Pinned, custom and app
+    /// sections draw no dimmed look; plans/cmux-next/archiving-DESIGN.md).
+    public static func menuRemovals(isApp: Bool, isChief: Bool, isTile: Bool = false) -> Set<ActionID> {
         var removed: Set<ActionID> = isApp ? [] : ["sidebar.item.hideApp"]
         if !isChief { removed.insert(toggleIdleAction) }
+        if isTile { removed.insert("sidebar.item.toggleArchive") }
         return removed
     }
 

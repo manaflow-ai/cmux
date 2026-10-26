@@ -10,9 +10,9 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
-  /// The turn's stable key: session id, row id and a hash of the prompt, since every session
-  /// numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots. Bookmarks use
-  /// the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
+  /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
+  /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
+  /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
   /// The prompt on one line.
   prompt: string;
@@ -24,10 +24,27 @@ export type MinimapTurn = {
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
 /// The rail shows from this many prompts...
 export const MIN_PROMPTS = 4;
-/// ...and only when the transcript column starts this far right of the scroller's left edge.
+/// With the transcript column starting this far right of the scroller's left edge or more, the rail
+/// draws in full (16 px in, 36 px rows); with less (every pane under about 816 px) it draws narrow.
 export const MIN_GUTTER = 48;
 /// The rail's left edge, in from the scroller's.
 export const RAIL_LEFT = 16;
+/// A narrow rail (Leo 2026-10-22: "when the horizontal space shrinks too far it disapperas... idk i
+/// dont like that... we can maybe have a more minimal looking thing when not hovered"): it rests
+/// inside the page edge, left of the text, with shorter ticks, and draws the full wave over the
+/// text while the pointer or keyboard focus is on it.
+export const NARROW_RAIL_LEFT = 4;
+/// Space kept between the resting narrow rail (its ticks and its hit area) and the chat column.
+const NARROW_CLEAR = 2;
+/// A resting narrow rail's tick, in px (the full rail's rest is 6 px).
+export const NARROW_TICK = 4;
+/// Where the rail sits for a chat column `gutter` px in: the full rail, or the narrow one, whose
+/// resting width stops NARROW_CLEAR short of the column.
+export function railPlacement(gutter: number): { narrow: boolean; left: number; restWidth: number } {
+  if (gutter >= MIN_GUTTER) return { narrow: false, left: RAIL_LEFT, restWidth: ROW_WIDTH };
+  const left = Math.min(NARROW_RAIL_LEFT, Math.max(0, gutter - NARROW_TICK - NARROW_CLEAR));
+  return { narrow: true, left, restWidth: Math.max(NARROW_TICK, Math.floor(gutter - left - NARROW_CLEAR)) };
+}
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
@@ -40,7 +57,8 @@ export const RAIL_MAX_SHARE = 0.7;
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
 export const EDGE_MARGIN = 8;
-/// A jump lands the prompt's bubble this far below the top of the transcript's viewport.
+/// A jump lands the top of the prompt's row (its sent images, else its bubble) this far below the
+/// top of the transcript's viewport.
 export const LANDING_OFFSET = 35;
 /// The transcript thread's top padding (.acpmux-thread): row tops start this far down the scroller.
 export const THREAD_PADDING_TOP = 16;
@@ -278,7 +296,7 @@ export function minimapTurns(
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
-        key: `${sessionId}#${user.id}#${hash(user.text ?? "")}`,
+        key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
       };
@@ -308,7 +326,9 @@ export function minimapTurns(
     const turn = tail[at]!;
     if (old?.[keep + at] !== turn) sameTurns = false;
     const tick = oldTicks?.[keep + at];
-    if (tick?.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
+    // A tick keeps its key (its turn's, or that and its row: ticksOf) while its turn does.
+    if ((tick?.key !== turn.key && tick?.key !== repeatKey(turn)) || tick.prompt !== turn.prompt || tick.id !== turn.id)
+      sameTicks = false;
   }
   // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
@@ -333,6 +353,21 @@ export function minimapTurns(
   };
 }
 
+/// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it
+/// (`local-<promptId>`, its delivery's) through acpmux's echo (`user-<seq>`) and every later read of
+/// the history (the `user_message` record's), else its row id. Never the prompt's text, which the
+/// row can show differently once more is known (a sender's address line, incomingMessage.ts): the
+/// tick stays one element and a jump or step that looks a turn up by key still finds it (Leo
+/// 2026-10-25: "my latest prompt that I sent in ... should be able to go in at the bottom as well").
+///
+/// A send that failed keys on its row: acpmux may still have taken it (a send that timed out), and
+/// the failed row stays beside acpmux's echo of it, anywhere in the list once the log is read again,
+/// so only the echo holds the promptId and every tick's key is its own.
+export function turnKey(sessionId: string, user: AcpmuxRow): string {
+  const promptId = user.promptId ?? (user.delivery?.state === "failed" ? undefined : user.delivery?.promptId);
+  return `${sessionId}#${promptId ? `prompt-${promptId}` : user.id}`;
+}
+
 /// Whether two reply previews are the same blocks and spans.
 function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolean {
   if (a.length !== b.length) return false;
@@ -346,24 +381,36 @@ function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolea
   });
 }
 
-/// Each turn's tick, the previous one where its prompt is the same.
-function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
-  return turns.map((turn, index) => {
-    const tick = previous[index];
-    return tick && tick.key === turn.key && tick.prompt === turn.prompt && tick.id === turn.id
-      ? tick
-      : { key: turn.key, id: turn.id, prompt: turn.prompt };
-  });
-}
+/// A tick's key when its turn's key is already taken: the turn's key and its row id.
+const repeatKey = (turn: Pick<MinimapTurn, "key" | "id">) => `${turn.key}#${turn.id}`;
 
-/// FNV-1a of `text`, as base 36.
-function hash(text: string): string {
-  let value = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    value ^= text.charCodeAt(index);
-    value = Math.imul(value, 0x01000193);
-  }
-  return (value >>> 0).toString(36);
+/// Each turn's tick, the previous one where its prompt is the same. Every tick's key is its own (the
+/// list's key, and the rail's focus, hover and card maps), and a tick keeps the key it had: two turns
+/// can share a key (a retried send beside acpmux's echo of it, one promptId), and the one that had it
+/// first keeps it wherever the other arrives (an older echo read in above it); the other keys on its
+/// row too. Built when the ticks change (a new prompt, older turns), never per token.
+function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[] = []): MinimapTick[] {
+  const had = new Map(previous.map((tick) => [tick.id, tick.key]));
+  const keys: (string | undefined)[] = [];
+  const taken = new Set<string>();
+  // The keys the ticks already had, first.
+  turns.forEach((turn, index) => {
+    const key = had.get(turn.id);
+    if (key === undefined || (key !== turn.key && key !== repeatKey(turn)) || taken.has(key)) return;
+    keys[index] = key;
+    taken.add(key);
+  });
+  return turns.map((turn, index) => {
+    let key = keys[index];
+    if (key === undefined) {
+      key = taken.has(turn.key) ? repeatKey(turn) : turn.key;
+      taken.add(key);
+    }
+    const tick = previous[index];
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
+      ? tick
+      : { key, id: turn.id, prompt: turn.prompt };
+  });
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
@@ -405,7 +452,8 @@ export function visibleTurns(
   return { first, last };
 }
 
-/// The scroll offset that lands a turn's prompt bubble LANDING_OFFSET below the viewport's top.
+/// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
+/// below the viewport's top.
 export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
   return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
 }

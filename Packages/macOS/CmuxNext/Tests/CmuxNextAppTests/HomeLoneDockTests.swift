@@ -52,6 +52,24 @@ struct HomeLoneDockTests {
         #expect(beside.left?.width == 0.5, "with a column beside it the dock is a dock again")
     }
 
+    /// A new column beside the dock alone fills the strip right of it, in every width mode: the
+    /// dock's 0.5 is a share of the window, so copying it left half the strip empty.
+    @Test func aColumnBesideTheLoneDockFillsTheStrip() {
+        let lone = [LayoutColumn(id: "home", width: 0.5, root: .leaf("dock"), dock: Self.homeDock)]
+        for mode in [NewColumnWidthMode.matchCurrent, .fixed, .fitScreen] {
+            let plan = NewColumnWidth.plan(mode: mode, columns: lone, anchor: "home", visible: [], fixedWidth: 0.5)
+            #expect(plan == NewColumnPlan(width: 1, resizes: []), "\(mode)")
+        }
+        // A tab dragged out of the only column beside the dock leaves the dock alone: same rule.
+        let beside = lone + [LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]
+        let dragged = NewColumnWidth.plan(mode: .matchCurrent, columns: beside, anchor: "c1", visible: ["c1"],
+                                          fixedWidth: 0.5, removing: "p1")
+        #expect(dragged.width == 1)
+        // With a column beside it, the mode decides as before.
+        let next = NewColumnWidth.plan(mode: .matchCurrent, columns: beside, anchor: "c1", visible: ["c1"], fixedWidth: 0.5)
+        #expect(next.width == 0.5)
+    }
+
     /// A person's new tab, and a new chat, from the dock alone open in a new column right of it:
     /// the pinned dock takes neither, and there is no scrolling pane to send them to. Home's dock
     /// takes dragged tabs (`allow_tabs`, Leo 2026-10-21) and still opens new ones beside it, so

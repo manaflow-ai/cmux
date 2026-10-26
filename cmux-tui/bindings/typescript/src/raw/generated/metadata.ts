@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1. */
+/* cmux-tui mux protocol 12, IR ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "703393e4b4e99f70fa8b7761ae54eebd46dc54b8ed3ce9b83a597216d6f75cb1" as const;
+export const SDK_IR_SHA256 = "ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -568,6 +568,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-presence": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversation-presence-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "While some client of the daemon subscribes the conversation (not_subscribed). The person views while any client of the daemon views; a change of that goes out as the owner's ephemeral presence.set {conversation, viewing} frame on the shared socket once it is live, again on a new socket while viewing, and off when the last viewing client closes or unsubscribes; nothing is stored. Answers the subscription's state. See spec/commands.md."
     ]
   },
   "cloud-conversation-run": {
@@ -1410,6 +1420,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Each identifier is nonempty, contains no control character, and is at most 128 bytes."
+    ]
+  },
+  "get-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The host policy applies to every terminal without a terminal override or workspace default."
     ]
   },
   "get-size-state": {
@@ -2627,6 +2647,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "expect_agent": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
+      },
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
@@ -2634,6 +2658,10 @@ export const COMMAND_METADATA = {
       "paste": {
         "since": 7,
         "capability": null
+      },
+      "submit": {
+        "since": null,
+        "capability": "send-expect-agent-v1"
       },
       "terminal_id": {
         "since": null,
@@ -2704,6 +2732,10 @@ export const COMMAND_METADATA = {
       "install": {
         "since": 12,
         "capability": null
+      },
+      "remote": {
+        "since": 12,
+        "capability": "host-size-policy-v1"
       },
       "user_id": {
         "since": 12,
@@ -2795,6 +2827,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "set-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
     ]
   },
   "set-personal-terminal": {
@@ -3688,6 +3730,14 @@ export const EVENT_METADATA = {
   "cloud-conversation-live": {
     "since": 12,
     "capability": "cloud-chief-live-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-conversation-presence": {
+    "since": 12,
+    "capability": "cloud-conversation-presence-v1",
     "streams": [
       "subscribe"
     ],
@@ -5311,6 +5361,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "CloudConversationPresenceParticipant": {
+    "additional_properties": false,
+    "fields": {
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "viewing": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ColorHex": {
     "kind": "alias",
     "target": {
@@ -6873,6 +6945,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "GetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "mac_participants": {
+        "constraints": [
+          "Size-state participant ids of the surface's terminal that are this host's own views; empty without surface."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "GetSizeStateResult": {
     "additional_properties": false,
     "fields": {
@@ -7176,6 +7276,72 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostSizeMode": {
+    "kind": "enum",
+    "values": [
+      "smallest",
+      "mac",
+      "latest",
+      "priority"
+    ]
+  },
+  "HostSizePolicy": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac (this host's own views) or device:<id>; at most 32."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostSizePolicyRequest": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac or device:<id> (1 to 128 of [A-Za-z0-9_.:-]); at most 32. Omitted keeps the stored order."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
         }
       }
     },
@@ -9873,6 +10039,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SendExpectAgent": {
+    "additional_properties": false,
+    "fields": {
+      "session": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsConnections": {
     "additional_properties": false,
     "constraints": [
@@ -10558,6 +10739,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
         }
       }
     },
@@ -15674,6 +15869,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-conversation-presence": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "viewing": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-conversation-run": {
     "request": {
       "additional_properties": false,
@@ -19464,6 +19687,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "FrontendProjection"
+    }
+  },
+  "get-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GetHostSizePolicyResult"
     }
   },
   "get-size-state": {
@@ -24306,7 +24550,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
       ],
       "fields": {
         "bytes": {
@@ -24323,6 +24568,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Base64"
           }
         },
+        "expect_agent": {
+          "capability": "send-expect-agent-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "SendExpectAgent"
+          }
+        },
         "expect_foreground": {
           "capability": "send-expect-foreground-v1",
           "default": null,
@@ -24333,11 +24588,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "flow": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "paste": {
           "default": false,
           "nullable": false,
           "presence": "optional",
           "since": 7,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "submit": {
+          "capability": "send-expect-agent-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "boolean"
@@ -24613,6 +24887,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "remote": {
+          "capability": "host-size-policy-v1",
+          "constraints": [
+            "A remote device's spliced lane (cmux-mobile-host sets it); never one of this host's own views. Sticky: false never clears it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "user_id": {
@@ -24922,6 +25210,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "set-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "policy": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "HostSizePolicyRequest"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetHostSizePolicyResult"
     }
   },
   "set-personal-terminal": {
@@ -26786,6 +27094,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "string"
           }
+        },
+        "proxy": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
         }
       },
       "kind": "object"
@@ -28127,6 +28444,47 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-presence": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-presence"
+        }
+      },
+      "participants": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "CloudConversationPresenceParticipant"
+          },
+          "kind": "array"
         }
       }
     },

@@ -1,12 +1,13 @@
-// `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `package`, `plusMinus` and `worktree` are
+// `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `minus`, `package`, `plus`, `plusMinus`, `revert` and `worktree` are
 // custom stroke icons drawn for the diff toolbar and its menus (20px grid). The
 // `pill*` icons redraw the classic viewer's toolbar pill glyphs (wrap, collapse
-// or expand all, layout, files).
+// or expand all, files); the layout button shows `unified`, `split` or `auto`.
 // Filled icons use Primer Octicons 19.38.0 path data (MIT, 16px grid), the
-// icon set of GitHub's own diff view. `bars`, `split`, and `unified` stay
+// icon set of GitHub's own diff view. `bars`, `split`, `unified` and `auto` stay
 // custom stroke icons because they preview the indicator style and layout.
 export type IconName =
   | "arrow"
+  | "auto"
   | "background"
   | "bars"
   | "branch"
@@ -38,12 +39,14 @@ export type IconName =
   | "pillCollapse"
   | "pillExpand"
   | "pillFiles"
-  | "pillLayout"
   | "pillRefresh"
   | "viewedEye"
   | "pillWrap"
+  | "minus"
+  | "plus"
   | "plusMinus"
   | "refresh"
+  | "revert"
   | "search"
   | "sidebarCollapse"
   | "split"
@@ -160,11 +163,13 @@ export function Icon({ name }: { name: IconName }) {
 function StrokeIconPaths({ name }: { name: IconName }) {
   switch (name) {
     case "bars":
+      // One striped vertical line: the gutter's change bar down three changed lines (the Bars
+      // indicator style).
       return (
         <>
-          <path d="M5 4v12" />
-          <path d="M9 6v8" />
-          <path d="M13 8v4" />
+          <rect x="8.75" y="3" width="2.5" height="3.6" rx="1" fill="currentColor" stroke="none" />
+          <rect x="8.75" y="8.2" width="2.5" height="3.6" rx="1" fill="currentColor" stroke="none" />
+          <rect x="8.75" y="13.4" width="2.5" height="3.6" rx="1" fill="currentColor" stroke="none" />
         </>
       );
     case "split":
@@ -173,6 +178,15 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <rect x="4" y="4" width="12" height="12" rx="2" />
           <rect x="6" y="6" width="3.5" height="8" rx="1" data-diff-deletion="true" />
           <rect x="10.5" y="6" width="3.5" height="8" rx="1" data-diff-addition="true" />
+        </>
+      );
+    case "auto":
+      // The frame cut on the diagonal: split when wide, unified when narrow.
+      return (
+        <>
+          <rect x="4" y="4" width="12" height="12" rx="2" />
+          <path d="M6 6h7.2L6 13.2Z" data-diff-deletion="true" />
+          <path d="M14 6.8V14H6.8Z" data-diff-addition="true" />
         </>
       );
     case "unified":
@@ -205,6 +219,14 @@ function StrokeIconPaths({ name }: { name: IconName }) {
       );
     case "chevronRight":
       return <path d="M8 5l5 5-5 5" />;
+    case "revert":
+      // An arrow turning back: Revert (the Codex Review pane's undo arrow).
+      return (
+        <>
+          <path d="M7.5 5L4.5 8l3 3" />
+          <path d="M4.5 8h7a3.75 3.75 0 0 1 0 7.5H9" />
+        </>
+      );
     case "pillWrap":
       // A return arrow and the wrap margin.
       return (
@@ -256,15 +278,6 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <path d="M11 11.5h5" />
         </>
       );
-    case "pillLayout":
-      // A square split on the diagonal: deletions above, additions below.
-      return (
-        <>
-          <path d="M5.6 5.6h8.1L5.6 13.7Z" data-diff-deletion="true" />
-          <path d="M14.4 6.3v8.1H6.3Z" data-diff-addition="true" />
-          <rect x="4" y="4" width="12" height="12" rx="2" />
-        </>
-      );
     case "pillFiles":
       // Two overlapping folders.
       return (
@@ -303,6 +316,17 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <path d="M10 3l6.5 3.5v7L10 17l-6.5-3.5v-7Z" />
           <path d="M3.5 6.5L10 10l6.5-3.5" />
           <path d="M10 10v7" />
+        </>
+      );
+    case "minus":
+      // Unstage a hunk (Staged), beside Stage's plus.
+      return <path d="M5 10h10" />;
+    case "plus":
+      // Stage a hunk (the Codex Review pane's hunk "+").
+      return (
+        <>
+          <path d="M10 5v10" />
+          <path d="M5 10h10" />
         </>
       );
     case "plusMinus":

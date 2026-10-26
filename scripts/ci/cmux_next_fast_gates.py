@@ -22,7 +22,6 @@ The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
                   web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
-  defaults stamp  scripts/ci/defaults_guard.py check-stamp --base BASE (cmux-next-guards.yml, defaults-snapshot)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
@@ -106,39 +105,49 @@ def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
     return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
 
 
+def deep_enough(repo: Path, head: str, base: str) -> bool:
+    """BASE is here and meets HEAD at its true merge base, with no shallow cut between them.
+
+    A cut commit shows no parents, so a merge base found here can be an older common ancestor than the true one,
+    hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched). And a cut PR commit
+    reads as a root that adds every file in the tree: #24526's head, a commit bringing the base in, was cut at the
+    merge ref's depth 2, so the Sidebar-Look check saw it add 162 sidebar files. One found base is the true one once
+    every cut either side reaches lies behind it. Several can be stale even then (a cut at one hides that it
+    descends from another), and git merges them into a virtual base from their own history, so they count only
+    once no cut is reachable at all."""
+    if not rev(repo, base) or not rev(repo, head):
+        return False
+    bases = git(repo, "merge-base", "--all", head, base, check=False).stdout.split()
+    if not bases:
+        return False
+    shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+    cuts = set(shallow.read_text().split()) if shallow.exists() else set()
+    behind = ["--not", *bases] if len(bases) == 1 else []
+    return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
+
+
+def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:
+    """Deepen a shallow checkout until `deep_enough`; a full clone is left alone (a depth flag there would make
+    every worktree sharing it shallow: tests/test_ci_no_shallow_dev_fetch.py)."""
+    if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
+        return
+    for depth in DEEPEN_STEPS:
+        if deep_enough(repo, head, base):
+            return
+        git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
+    if not deep_enough(repo, head, base):
+        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
+
+
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
     """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head at its
     true merge base."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
-
-    def met() -> bool:
-        if not rev(repo, base):
-            return False
-        bases = git(repo, "merge-base", "--all", HEAD_REF, base, check=False).stdout.split()
-        if not bases:
-            return False
-        # A cut commit shows no parents, so a merge base found here can be an older common ancestor than the
-        # true one, hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched).
-        # One found base is the true one once every cut either side reaches lies behind it. Several can be
-        # stale even then (a cut at one hides that it descends from another), and git merges them into a
-        # virtual base from their own history, so they count only once no cut is reachable at all.
-        shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
-        cuts = set(shallow.read_text().split()) if shallow.exists() else set()
-        behind = ["--not", *bases] if len(bases) == 1 else []
-        return not cuts.intersection(git(repo, "rev-list", HEAD_REF, base, *behind).stdout.split())
-
-    # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
-    # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
         git(repo, "fetch", "--no-tags", "--quiet", remote, *refspecs)
         return
     git(repo, "fetch", "--no-tags", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
-    for depth in DEEPEN_STEPS:
-        if met():
-            return
-        git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *refspecs)
-    if not met():
-        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *refspecs)
+    deepen(repo, remote, refspecs, HEAD_REF, base)
 
 
 def prepare(args: argparse.Namespace) -> int:
@@ -185,6 +194,9 @@ def prepare(args: argparse.Namespace) -> int:
         if first != base:
             log(f"fast-gates: the merge ref's first parent {first} is not the resolved base {base}")
             return 1
+        # The checkout holds the merge and its two parents only (fetch-depth 2): the PR's own commits need their
+        # parents, or the per-commit gates read a cut commit as adding the whole tree.
+        deepen(repo, args.remote, [head, base], head, base)
     write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false",
                                 "checks": "true" if checks_needed(repo, args.event, base, merge) else "false"})
     return 0
@@ -213,7 +225,6 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
-        ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),

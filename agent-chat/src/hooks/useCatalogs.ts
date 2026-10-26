@@ -7,14 +7,19 @@ export function useSessionCwdCheck({ ready, connectionEpoch, phase, session, che
   "ready" | "connectionEpoch" | "phase" | "session" | "checkCwd"
 >) {
   const requested = useRef({ epoch: connectionEpoch, cwds: new Set<string>() });
+  // Keep the lifecycle check independent from the callback identity. A session
+  // render may replace the action object while a stream event is folded; that
+  // must not turn a once-per-connection check into one request per event.
+  const checkCwdRef = useRef(checkCwd);
+  checkCwdRef.current = checkCwd;
   const cwd = session?.cwd;
   useEffect(() => {
     if (requested.current.epoch !== connectionEpoch) {
       requested.current = { epoch: connectionEpoch, cwds: new Set() };
     }
     if (!ready || phase !== "chat" || !cwd || requested.current.cwds.has(cwd)) return;
-    if (checkCwd(cwd)) requested.current.cwds.add(cwd);
-  }, [checkCwd, connectionEpoch, cwd, phase, ready]);
+    if (checkCwdRef.current(cwd)) requested.current.cwds.add(cwd);
+  }, [connectionEpoch, cwd, phase, ready]);
 }
 
 export function useDefaultCwd(
@@ -45,7 +50,9 @@ export function useProviderCatalogs(
   activeProvider: string,
   cwd: string,
   requestProviderOptions: (provider: string, cwd: string) => void,
-  requestProviderCommands: (provider: string, cwd: string) => void,
+  // Chat receives command groups from the stream and has no use for the
+  // provider catalog. The composer passes this callback to opt into discovery.
+  requestProviderCommands?: (provider: string, cwd: string) => void,
 ) {
   useEffect(() => {
     if (!ready || !cwd) return;
@@ -53,7 +60,7 @@ export function useProviderCatalogs(
       if (provider.installed === false) continue;
       requestProviderOptions(provider.id, cwd);
     }
-    if (activeProvider && providers.some((p) => p.id === activeProvider && p.installed !== false)) {
+    if (requestProviderCommands && activeProvider && providers.some((p) => p.id === activeProvider && p.installed !== false)) {
       requestProviderCommands(activeProvider, cwd);
     }
   }, [activeProvider, connectionEpoch, cwd, providers, ready, requestProviderCommands, requestProviderOptions]);

@@ -148,7 +148,8 @@ SECTIONS = [
         "source": "schemas/settings/source/now-playing.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings"),
+                  "pictureInPicture": ("pictureInPictureDescriptors", "NowPlayingSettings")},
         "enums": {},
     },
     {
@@ -187,6 +188,13 @@ SECTIONS = [
         "type": "TrustSettingsSchema",
         "lists": {"trust": ("descriptors", "TrustSettings")},
         "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/auto-archive.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AutoArchive.generated.swift",
+        "type": "AutoArchiveSettingsSchema",
+        "lists": {"autoArchive": ("descriptors", "AutoArchiveSettings")},
+        "enums": {"workspaces.autoArchive.style": "AutoArchiveStyle"},
     },
     {
         "source": "schemas/settings/source/feed.json",

@@ -9,6 +9,8 @@ import { commitReferences, githubReferences, mentionedRepository } from "../src/
 
 const REPO = "manaflow-ai/cmux";
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
+const LOCAL_TMP = "/tmp/cx-lanes/sidebar-clean-cmux.png";
+const OUTSIDE_IMAGE = "/var/tmp/other-host/sidebar-clean-cmux.png";
 
 describe("image-only paragraphs", () => {
   const cases: Array<[name: string, text: string, items: Array<[src: string, alt: string]> | undefined]> = [
@@ -226,6 +228,8 @@ describe("rendered replies", () => {
         "/tmp/shots/before.png": { place: "root", folder: false },
         "/tmp/shots/after.png": { place: "root", folder: false },
         "/tmp/shots/slow.png": { place: "root", folder: false },
+        [LOCAL_TMP]: { place: "root", folder: false },
+        [OUTSIDE_IMAGE]: { place: "outside", folder: false },
       },
       policy: { remoteImages: "click", outsideRoots: "confirm", clickFreeImageHosts },
     });
@@ -254,6 +258,23 @@ describe("rendered replies", () => {
       "Before",
       "After",
     ]);
+    await unmount();
+  });
+
+  test("a local /tmp image loads into its thumbnail", async () => {
+    const { container, unmount } = await render(`![Sidebar](${LOCAL_TMP})`);
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).not.toBeNull();
+    expect(container.querySelector(".cv-image-file")).toBeNull();
+    expect(loads).toEqual([LOCAL_TMP]);
+    await unmount();
+  });
+
+  test("an image outside the local image roots stays gated", async () => {
+    const { container, unmount } = await render(`![Sidebar](${OUTSIDE_IMAGE})`);
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).toBeNull();
+    expect(container.querySelector(".cv-image-file.is-outside")).not.toBeNull();
+    expect(container.querySelector(".cv-chip__lock")).not.toBeNull();
+    expect(loads).toEqual([]);
     await unmount();
   });
 
