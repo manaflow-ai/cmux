@@ -3,12 +3,12 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
-#if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextControl
-import CmuxNextOracle
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
+import CmuxNextOracle
 #endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the

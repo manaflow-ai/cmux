@@ -44,23 +44,37 @@ enum AgentBrowserProfile {
         if profiles.isKnown(id) { return id }
         _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
         if profiles.isKnown(id) { return id }
-        let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
-        // The record or the deadline, whichever comes first; the winner stops the other.
         try await withOnceThrowingContinuation { (once: OnceContinuation<Void, any Error>) in
+            let race = ReportRace(once)
             // Event-driven: the profile list is observable state of the home store.
-            let watch = Task { @MainActor in
+            race.watch = Task { @MainActor in
                 for await known in ObservationStream({ profiles.isKnown(id) }) where known {
-                    // The deadline won and cancelled this watch: its resume is spent.
-                    guard !Task.isCancelled else { return }
-                    if once.resume(returning: ()) { timer.cancel() }
+                    race.finish(.success(()))
                     return
                 }
             }
-            timer.schedule(after: deadline) {
-                if once.resume(throwing: NotReported()) { watch.cancel() }
-            }
+            race.timer.scheduleOnMain(after: deadline) { race.finish(.failure(NotReported())) }
         }
         return id
+    }
+
+    /// The record against the deadline. Both producers run on the main actor, and the first
+    /// one answers, then stops the other, in one turn; the loser finds the race settled.
+    @MainActor
+    private final class ReportRace {
+        private var continuation: OnceContinuation<Void, any Error>?
+        let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
+        var watch: Task<Void, Never>?
+
+        init(_ continuation: OnceContinuation<Void, any Error>) { self.continuation = continuation }
+
+        func finish(_ result: Result<Void, any Error>) {
+            guard let continuation else { return }
+            self.continuation = nil
+            continuation.resume(with: result)
+            timer.cancel()
+            watch?.cancel()
+        }
     }
 
     nonisolated struct NotReported: Error, CustomStringConvertible {
