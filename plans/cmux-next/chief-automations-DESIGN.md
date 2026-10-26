@@ -59,9 +59,9 @@ itself and this conversation.
   carries them in metadata and returns to `/v1/billing/plan/done?session_id=...`. The return page and
   the signed webhook (`/v1/hooks/stripe/credits`, checkout.session.completed) share `grantPlanSession`:
   a paid test-mode session at the plan's price becomes the team's test plan grant in TeamDO
-  (`test_plan_grant`), once per session. `inferencePlan` honors it off production only, so the job gate,
+  (`test_plan_session`, one row per session, marked revoked, never deleted), once per session. `inferencePlan` honors it off production only, so the job gate,
   the model router and Cloud machines see the plan on their next read (no restart).
-  customer.subscription.deleted removes it. The Chief's conversation gets one "[billing] ... is on"
+  customer.subscription.deleted marks it revoked. The Chief's conversation gets one "[billing] ... is on"
   note (`plan:<session>`) that starts a turn: it says the plan is on in one line and redoes the add.
 - User-facing copy names no vendor (return pages, the skill's example reply, both prompts; evals check).
 
