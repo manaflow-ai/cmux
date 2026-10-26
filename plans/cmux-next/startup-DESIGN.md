@@ -423,8 +423,9 @@ After 014 splits `AppDelegate.swift` into `Startup/*.swift`, the Q2 rows are che
 ## 9. Swift PGO and order toolchain (048)
 
 Spike for section F of [p08-startup.md](chrome-parity/p08-startup.md): which instrumentation, merge and
-`-profile-use` paths work on the Xcode the nightly builds with. The probe builds small fixtures in a
-scratch directory, one path at a time, and exits 0 or 1 for each:
+`-profile-use` paths work on the Xcode the nightly builds with. The probe copies the fixtures in
+`scripts/cmux-next/pgo/probe-fixtures/` to a scratch directory, runs one path at a time, and exits 0 or 1
+for each:
 
 ```sh
 cmux-ci run --class isolated --script scripts/cmux-next/pgo/probe-toolchain.sh --ref SHA
@@ -432,16 +433,16 @@ scripts/cmux-next/pgo/probe-toolchain.sh flush        # one path: exit 0 works, 
 scripts/cmux-next/pgo/probe-toolchain.sh --keep merge # keep fixtures, logs and profiles
 ```
 
-Xcode: Xcode 26.6 (Swift 6.2), the macOS 26 and 27 pool pin in `scripts/ci/xcode-pins.txt`, selected
-the way `check-release-compile.sh` selects it (`DEVELOPER_DIR`, else `CMUX_PGO_PROBE_XCODE`, else
-`/Applications/Xcode_<pin>.app`). The probe prints `xcodebuild -version`, `swiftc --version` and
-`llvm-profdata --version` first; a changed pin means the probe runs again before 049 to 054 rely on it.
-With no path named, the exit is 0 only when F's plan holds: (`flush` and `merge`) or `trace-pc-guard`,
-and `use`, and `scope-xcodebuild`.
+Xcode: the "26" pin in `scripts/ci/xcode-pins.txt`, selected the way `check-release-compile.sh` selects
+it (`DEVELOPER_DIR`, else `CMUX_PGO_PROBE_XCODE`, else `/Applications/Xcode_<pin>.app`). The probe prints
+`xcodebuild -version`, `swiftc --version` and `llvm-profdata --version` first; a changed pin means the
+probe runs again before 049 to 054 rely on it. With no path named, the exit is 0 only when F's plan
+holds: (`flush` and `merge`) or `trace-pc-guard`, and `use`, `use-weights` and `scope-xcodebuild`.
+`use`, `use-weights` and the scope paths take the merged flush profile, or the plain `generate` profile
+when the flush API fails, so they test `-profile-use` apart from the flush.
 
-Result: not run yet. The p08-startup lead runs the command above on the fleet and replaces this line with
-the job id, the Xcode build number and the PASS/FAIL table. Until then the plan below is what the probe
-checks, not a measured fact.
+Result: the fleet run of this commit is pending; until its job id, Xcode build number and table are here,
+the table below is what the probe checks, not a measured fact.
 
 | Path | Command the later tasks use | What the probe checks | Used by |
 | --- | --- | --- | --- |
@@ -449,11 +450,11 @@ checks, not a measured fact.
 | `flush` | `__llvm_profile_set_filename(launch)`, `__llvm_profile_write_file()`, `__llvm_profile_reset_counters()`, then `set_filename(rest)` and `write_file()` before quit | a launch-only function counts only in launch.profraw, a rest-only one only in rest.profraw | 103 (`startup_complete`, `debug.pgo_flush`) |
 | `merge` | `xcrun llvm-profdata merge -o cmux-next.profdata launch.profraw rest.profraw` | both functions keep their counts | 050 |
 | `use` | `swiftc -O -profile-use=cmux-next.profdata` | compiles, links and runs | 052 |
-| `use-weights` | the same with `-emit-ir` | `branch_weights` in the IR: the flag is applied, not ignored | 052 |
+| `use-weights` | the same with `-emit-ir`, and once more without `-profile-use` | the profile changes the IR: `function_entry_count` on `launchOnly` or the `branch_weights` tuples differ from the build without it (an `-O` build has `branch_weights` from `llvm.expect` anyway, so a count alone proves nothing) | 052 |
 | `trace-pc-guard` | `swiftc -O -sanitize=undefined -sanitize-coverage=func,trace-pc-guard` (`-sanitize=address` when undefined is refused) and a C `__sanitizer_cov_trace_pc_guard` that writes each function's first-hit PC; `atos -o` names them | the launch function comes before the rest function | 109 fallback |
 | `scope-swiftpm` | `Package.swift`: `Context.environment["CMUX_PGO_PROFDATA"]` adds `.unsafeFlags(["-profile-use=<file>"], .when(configuration: .release))`; `swift build -c release -v` | the root and a local path package get the flag; a package that does not ask (Sentry, Sparkle) does not | 052 |
-| `scope-xcodebuild` | the same manifest through `xcodebuild -configuration Release` | as above, and with the variable unset a fresh build has no `-profile-use` anywhere (no cached manifest keeps it) | 052 |
-| `cmdline-scoped` | `OTHER_SWIFT_FLAGS='$(inherited) -profile-use=<file>'` on the xcodebuild command line | expected FAIL: the command line reaches every target, remote packages too | rejected |
+| `scope-xcodebuild` | the same manifest through `xcodebuild -configuration Release` with `OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS'` on the command line, as `check-release-compile.sh --bench-hooks` runs it | in one kept DerivedData: on, off, on, then on with the profile at a new path; after each build the root and the local package compile again with exactly that flag (or with none when the variable is unset), and the other package never gets it | 052 |
+| `cmdline-scoped` | `OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS -profile-use=<file>'` on the xcodebuild command line | expected FAIL: the command line reaches every target, remote packages too | rejected |
 
 Decisions the probe confirms or refutes:
 
@@ -462,12 +463,16 @@ Decisions the probe confirms or refutes:
   the profile's sha256 matches (052). The command line (`OTHER_SWIFT_FLAGS`) is not used: it also
   passes the profile to Sentry, Sparkle and the other remote packages, which have no functions in it and
   warn for each. When `scope-xcodebuild` fails, 052 stops and this section names the next mechanism.
+- 052 puts the profile at a path that names its sha256, so a new profile is a new flag and a kept
+  DerivedData compiles again. The probe does not check whether Xcode tracks the profile's content at one
+  path; 052 must not depend on it.
 - Two profiles from one run use `write_file` plus `reset_counters`, not `__llvm_profile_dump`, which
   writes once and then refuses (compiler-rt `InstrProfilingFile.c`). The runtime also writes at exit to
   the last name set, so the rest profile is rewritten at quit with the same counters plus the quit path.
-  Chrome does the same flush on demand for its profiling builds
-  (`base/test/clang_profiling.cc`, `WriteClangProfilingProfile`), and merges with `llvm-profdata` in
-  `tools/pgo/generate_profile.py`.
+  cmux differs from Chrome here: Chrome's on-demand flush (`base/test/clang_profiling.cc`,
+  `WriteClangProfilingProfile`) calls `__llvm_profile_dump` and writes one profile per process, because
+  it needs one. cmux needs two from one run (launch and rest). Chrome merges with `llvm-profdata` in
+  `tools/pgo/generate_profile.py`, as 050 does.
 - The app target links with clang, not swiftc, so the profile build (049) adds `-fprofile-instr-generate`
   to `OTHER_LDFLAGS` to link the profile runtime; the probe links with swiftc and does not cover this.
 - The trace-pc-guard fallback needs a sanitizer in the profile build only, and gives first-hit order, not
