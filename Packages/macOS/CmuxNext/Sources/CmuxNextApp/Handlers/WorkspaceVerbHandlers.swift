@@ -117,15 +117,15 @@ enum WorkspaceVerbHandlers {
         spawn.placesBySetting = then == nil
         spawn.opensNewTabPage = newTabPage
         spawn.firstChat = firstChat
-        let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
-        context.services.registry.track(Task {
-            do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                return nil
-            } catch {
-                return ActionWorkFailure("new workspace", error)
-            }
-        })
+        let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }, created = spawn
+        // The create is awaited off main; its failure is the run's, in one task on main.
+        context.services.registry.trackWork(owner: "WorkspaceVerbHandlers.spawn",
+                                            on: context.services.mainWork) {
+            _ = try await windows.createWorkspace(created, on: daemon, into: target)
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure("new workspace", error)
+        }
     }
 
     /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
@@ -137,17 +137,22 @@ enum WorkspaceVerbHandlers {
         let services = context.services, windows = services.windows
         let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
-        services.registry.track(result: Task {
-            do {
-                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
-                // The store lists it (its `ws_` id and name) once it applied the create's events.
-                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+        // The create and the store's catch-up are awaited off main; the answer is read in one task on main.
+        services.registry.trackResultWork(owner: "WorkspaceVerbHandlers.newWorkspaceOnMachine",
+                                          on: services.mainWork) {
+            let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+            // The store lists it (its `ws_` id and name) once it applied the create's events.
+            if let connection = await daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+            return id
+        } then: { result in
+            switch result {
+            case .success(let id):
                 return .success(createdFields(id, on: daemon, services: services))
-            } catch {
+            case .failure(let error):
                 daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return .failure(ActionWorkFailure("new workspace on machine", error))
             }
-        })
+        }
     }
 
     /// `action.run`'s `result` for a workspace made on `daemon`: its public id (`ws_…` on
