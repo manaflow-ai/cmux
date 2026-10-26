@@ -148,7 +148,12 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     func keepOnScreen() {
         guard !pet.isDragging, let visible = visibleFrame() else { return }
         let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
-        guard origin != frame.origin else { return }
+        // The screen's middle can move with no move of the pet (another screen, a new resolution):
+        // the controller redraws the character's facing either way.
+        guard origin != frame.origin else {
+            onKeptOnScreen?()
+            return
+        }
         setFrameOrigin(origin)
         onKeptOnScreen?()
     }

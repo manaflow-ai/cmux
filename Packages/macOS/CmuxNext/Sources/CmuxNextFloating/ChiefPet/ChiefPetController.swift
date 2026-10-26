@@ -59,8 +59,8 @@ public final class ChiefPetController {
     private(set) var drawnState = ChiefPetState.idle
     /// Ends `done` after one pass of its row (one-shot; cancelled by the next state and when the pet turns off).
     private let doneTimer: DemandTimer
-    /// Reduce Motion (or calm mode) on or off.
-    private var motionObserver: MainActorObservation?
+    /// Reduce Motion (the system's, calm mode or the test override) or the motion switches changing.
+    private var motionObservers: [MainActorObservation] = []
     /// Whether the pet's frames must stand: the same loop policy as an upload's (Reduce Motion, calm
     /// mode, the Home motion switch: `Motion.home.animatesLoops`); tests pin one.
     var reduceMotion: @MainActor () -> Bool = { !Motion.home.animatesLoops }
@@ -83,9 +83,14 @@ public final class ChiefPetController {
         self.appIsActive = appIsActive
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         doneTimer = DemandTimer(owner: "chiefPet.done", clock: clock)
-        motionObserver = MainActorObservation(Motion.reduceMotionDidChange, center: notifications) { [weak self] in
-            self?.drawCharacter()
+        motionObservers = [Motion.reduceMotionDidChange, Motion.speedDidChange].map {
+            MainActorObservation($0, center: notifications) { [weak self] in self?.drawCharacter() }
         }
+        // The system's Reduce Motion posts on the workspace's center, not the app's.
+        motionObservers.append(MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                                                    center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.drawCharacter()
+        })
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
             MainActorObservation($0, center: notifications) { [weak self] in
@@ -196,6 +201,8 @@ public final class ChiefPetController {
             expiries.removeAll()
             toast.cancel()
             doneTimer.cancel()
+            // A `done` cut short ends here: shown again, the pet draws the Chief's state.
+            drawnState = chiefState
             presenting = false
             // A message summoned with the setting off (or turning off) keeps its box until it closes.
             if transient, replyPanel?.isVisible == true { return render(animated: false) }

@@ -165,6 +165,34 @@ import Testing
         #expect(!panel.pet.sprite.layer.isHidden)
     }
 
+    /// Turned off mid-`done`, the pet comes back in the Chief's state, not stuck on done.
+    @Test func turningOffEndsDone() {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.sync(false) }
+        controller.setMascot(.mochi)
+        controller.sync(true)
+        controller.setState(.working)
+        controller.setState(.idle)
+        #expect(controller.drawnState == .done)
+        controller.sync(false)
+        controller.sync(true)
+        #expect(controller.drawnState == .idle)
+        #expect(controller.panel?.pet.sprite.shown?.state == .idle)
+    }
+
+    /// A screen change that leaves the pet where it is still tells the controller, which redraws the facing.
+    @Test func aScreenChangeWithNoMoveStillRedraws() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        panel.visibleFrame = { CGRect(x: 0, y: 0, width: 1000, height: 800) }
+        panel.setFrameOrigin(CGPoint(x: 800, y: 20))
+        var told = 0
+        panel.onKeptOnScreen = { told += 1 }
+        panel.keepOnScreen()
+        #expect(told == 1)
+    }
+
     /// The pet faces the side of its screen it sits on.
     @Test func facesTheSideItIsDockedToward() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
