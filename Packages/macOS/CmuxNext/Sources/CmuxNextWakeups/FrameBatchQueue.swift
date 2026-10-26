@@ -32,12 +32,12 @@ public final class FrameBatchQueue {
     private var head = 0
     private let client: FrameClient
 
-    /// One queued task: posted work names its own owner and posting site, ``enqueue(_:)`` work runs
-    /// as the queue's owner.
+    /// One queued task: posted work names its own owner and post (site, enqueue time, node state),
+    /// ``enqueue(_:)`` work runs as the queue's owner.
     private struct Item {
         var work: (@MainActor () -> Void)?
         var owner: MainTaskOwner?
-        var site: MainPostSite?
+        var post: MainTaskPost?
     }
 
     /// Lets the client's tick reach the queue before `self` exists (the client is built in init).
@@ -88,10 +88,10 @@ public final class FrameBatchQueue {
 
     // MARK: Posted work (MainWorkScheduler.post)
 
-    /// Queues posted work as `owner`, recorded on the board as posted from `site`, without waking
-    /// the frame: the scheduler runs it on the next turn or calls ``activate()``.
-    func append(owner: MainTaskOwner, site: MainPostSite, _ work: @escaping @MainActor () -> Void) {
-        pending.append(Item(work: work, owner: owner, site: site))
+    /// Queues posted work as `owner`, recorded on the board and its ledger as `post`, without
+    /// waking the frame: the scheduler runs it on the next turn or calls ``activate()``.
+    func append(owner: MainTaskOwner, post: MainTaskPost, _ work: @escaping @MainActor () -> Void) {
+        pending.append(Item(work: work, owner: owner, post: post))
     }
 
     /// Ticks on the next frame while work is queued (no effect while ticking).
@@ -121,10 +121,7 @@ public final class FrameBatchQueue {
         while head < end {
             if ran > 0, !budget.mayRun(mainClass) { break }
             let item = takeHead()
-            budget.run(mainClass, owner: item.owner ?? budgeted.owner) {
-                if let site = item.site { budget.board.notePostedFrom(site) }
-                item.work?()
-            }
+            budget.run(mainClass, owner: item.owner ?? budgeted.owner, posted: item.post) { item.work?() }
             ran += 1
         }
         compact()

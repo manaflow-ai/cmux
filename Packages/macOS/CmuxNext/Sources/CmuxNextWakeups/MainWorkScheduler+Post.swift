@@ -138,8 +138,14 @@ extension MainWorkScheduler {
     }
 
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
+        post(workClass, owner: owner, post: MainTaskPost(site: site, enqueueNanos: budget.nowNanos), body)
+    }
+
+    /// Queues `body` as `post` (its site, enqueue time and node state: the board's ledger records
+    /// its wait from that enqueue time).
+    func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
-        queue.append(owner: owner, site: site, body)
+        queue.append(owner: owner, post: post, body)
         if posting.turnQueued { return }
         if frames.hasLink {
             queue.activate()
@@ -156,9 +162,10 @@ extension MainWorkScheduler {
 
     /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
     /// scheduler it runs now (in class order with anything else posted), not one more turn later.
+    /// Its ledger wait starts here: the budget's clock is read on the main actor only.
     private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
-        queue.append(owner: owner, site: site, body)
+        queue.append(owner: owner, post: MainTaskPost(site: site, enqueueNanos: budget.nowNanos), body)
         if posting.turnQueued { return }
         if frames.hasLink {
             queue.activate()

@@ -31,3 +31,57 @@ extension MainFrameBudget {
                 "max_input_response_ms": .number(Double(stats.maxInputResponseNanos) / 1_000_000)]
     }
 }
+
+extension MainTaskBoard {
+    /// The whole `debug.main_budget` reply: the budget's ``MainFrameBudget/report``, read on the
+    /// main actor, plus `owners`, per owner and class the wait and run percentiles, node states and
+    /// posting sites of the finished tasks (``MainOwnerLedger``, highest run p99 first), and
+    /// `owner_ledger`, how many records it folded, dropped and has pending. The ledger is folded
+    /// here, off the main thread, so the main thread never takes its lock.
+    ///
+    /// - Parameters:
+    ///   - budget: The budget whose board this is.
+    ///   - reset: Clears the budget's counters and the ledger after reading them.
+    @concurrent
+    public func mainBudgetReport(_ budget: MainFrameBudget, reset: Bool) async -> JSONValue {
+        let snapshot = ownerSnapshot()
+        if reset { ledger.reset() }
+        let classes = await MainActor.run {
+            let report = budget.report
+            if reset { budget.resetStats() }
+            return report
+        }
+        guard case .object(var fields) = classes else { return classes }
+        fields["owners"] = .array(snapshot.owners.map(\.report))
+        fields["owner_ledger"] = [
+            "recorded": .number(Double(snapshot.recorded)), "dropped": .number(Double(snapshot.dropped)), "pending": JSONValue(snapshot.pending),
+        ]
+        return .object(fields)
+    }
+}
+
+extension MainOwnerLedger.Owner {
+    /// One `owners` row: owner, class, tasks, wait and run percentiles in milliseconds, total run
+    /// time, tasks per node state and the top posting sites.
+    var report: JSONValue {
+        var nodes: [String: JSONValue] = [:]
+        for (state, count) in self.nodes { nodes[state.description] = JSONValue(count) }
+        let postedFrom: [JSONValue] = sites.map { site in ["location": .string(site.location), "tasks": JSONValue(site.tasks)] }
+        let row: [String: JSONValue] = [
+            "owner": .string(owner), "class": .string(workClass.description), "tasks": JSONValue(tasks), "wait": wait.report,
+            "run": run.report, "run_total_ms": .number(Double(runTotalNanos) / 1_000_000), "nodes": .object(nodes),
+            "posted_from": .array(postedFrom),
+        ]
+        return .object(row)
+    }
+}
+
+extension MainOwnerLedger.Distribution {
+    /// `{count, p50_ms, p95_ms, p99_ms, max_ms}`.
+    var report: JSONValue {
+        [
+            "count": JSONValue(count), "p50_ms": .number(Double(p50Nanos) / 1_000_000), "p95_ms": .number(Double(p95Nanos) / 1_000_000),
+            "p99_ms": .number(Double(p99Nanos) / 1_000_000), "max_ms": .number(Double(maxNanos) / 1_000_000),
+        ]
+    }
+}

@@ -68,7 +68,8 @@ public final class MainTaskQueue {
     private struct Item {
         var work: (@MainActor () -> Void)?
         var key: AnyHashable?
-        var site: MainPostSite
+        /// Its site and enqueue time; the node state is filled in when it runs.
+        var post: MainTaskPost
     }
 
     init(node: VisibilityNode, workClass: BudgetedWorkClass, owner: String, on work: MainWorkScheduler) {
@@ -87,7 +88,7 @@ public final class MainTaskQueue {
     ///   - line: The posting line (leave the default).
     ///   - body: The task. The queue holds it until it runs or the queue is released.
     public func post(file: StaticString = #fileID, line: UInt = #line, _ body: @escaping @MainActor () -> Void) {
-        append(Item(work: body, key: nil, site: MainPostSite(file: file, line: line)))
+        append(Item(work: body, key: nil, post: MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: work.budget.nowNanos)))
     }
 
     /// Queues `body`, or replaces the body of the pending task posted with the same `key` (which
@@ -103,12 +104,14 @@ public final class MainTaskQueue {
         let key = AnyHashable(key)
         let site = MainPostSite(file: file, line: line)
         if let index = keyed[key] {
+            // The pending task keeps its place and its enqueue time: its wait counts from the first post.
+            let held = pending[index - dropped].post
             pending[index - dropped].work = body
-            pending[index - dropped].site = site
+            pending[index - dropped].post = MainTaskPost(site: site, enqueueNanos: held.enqueueNanos)
             return
         }
         keyed[key] = dropped + pending.count
-        append(Item(work: body, key: key, site: site))
+        append(Item(work: body, key: key, post: MainTaskPost(site: site, enqueueNanos: work.budget.nowNanos)))
     }
 
     /// Tasks posted and not run yet (keyed posts count once).
@@ -187,9 +190,9 @@ public final class MainTaskQueue {
 
     private func postPumps(upTo wanted: Int) {
         while pumps < min(wanted, pendingCount) {
-            let site = pending[head + pumps].site
+            let post = pending[head + pumps].post
             pumps += 1
-            work.post(workClass, owner: owner, site: site) { [weak self] in self?.pump() }
+            work.post(workClass, owner: owner, post: post) { [weak self] in self?.pump() }
         }
     }
 
@@ -199,11 +202,11 @@ public final class MainTaskQueue {
         guard pendingCount > 0, mayRunNow else { return }
         if !node.isVisible { released -= 1 }
         let item = pending[head]
-        pending[head] = Item(work: nil, key: nil, site: item.site)
+        pending[head] = Item(work: nil, key: nil, post: item.post)
         head += 1
         if let key = item.key { keyed[key] = nil }
         compact()
-        work.board.notePostedFrom(item.site)
+        work.budget.notePost(item.post.starting(in: MainTaskPost.NodeState(node.effective)))
         runsByNodeState[node.effective.rawValue] += 1
         item.work?()
         if !node.isVisible, released == 0 { schedule() }

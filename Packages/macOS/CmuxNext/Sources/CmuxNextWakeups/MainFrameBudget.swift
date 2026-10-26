@@ -271,17 +271,20 @@ public final class MainFrameBudget {
     ///   - workClass: The task's class.
     ///   - owner: Its owner, interned on this budget's ``board`` when the queue or method was built
     ///     (``MainTaskBoard/owner(_:)``), so starting the task takes no lock.
+    ///   - posted: Where, when and in which node state it was posted: the board names its site while
+    ///     it runs, and its ledger records its wait (nil: run time only, under node state `none`).
     ///   - body: The task.
     /// - Returns: What `body` returns.
     @discardableResult
-    public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, _ body: () throws -> T) rethrows -> T {
+    public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost? = nil, _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
         let task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
-                            budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
+                            budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0, post: post)
         if let index { ranThisFrame[index] = true }
         open.append(task)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
+        if let post { board.notePostedFrom(post.site) }
         let interval = signposts
             ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name,
                                      classID: UInt8(truncatingIfNeeded: workClass.rawValue), ownerID: owner.index)
@@ -292,6 +295,16 @@ public final class MainFrameBudget {
         }
         return try body()
     }
+
+    /// The running task runs work posted as `post` (a node queue's pump runs a task it held): the
+    /// board and the ledger take that post in place of the running task's.
+    func notePost(_ post: MainTaskPost) {
+        if !open.isEmpty { open[open.count - 1].post = post }
+        board.notePostedFrom(post.site)
+    }
+
+    /// Now on the budget's clock: the enqueue time of a post it will run.
+    var nowNanos: UInt64 { uptimeNanos() }
 
     /// The running task is a batch that runs requests as tasks of their own (a control drain): the
     /// typing burst's one task per 100 ms counts those, so a drain that ran none takes no slot.
@@ -325,25 +338,12 @@ public final class MainFrameBudget {
         }
         board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner.name, sequence: task.sequence, startNanos: task.start,
                                      budgetNanos: task.budgetNanos), durationNanos: own, overBudget: over)
+        board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
         // The outer task runs again: the watchdog names it.
         if let outer = open.last {
             board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,
                         budgetNanos: outer.budgetNanos, notify: false)
         }
-    }
-
-    /// One task that started and has not returned.
-    private struct OpenTask {
-        var workClass: MainWorkClass
-        var owner: MainTaskOwner
-        var sequence: UInt32
-        var start: UInt64
-        var budgetNanos: UInt64
-        /// Time spent in tasks nested in this one.
-        var childNanos: UInt64 = 0
-        /// This one is a batch, not a request (``markRunningTaskAsBatch()``, or a task of its class
-        /// ran inside it): the typing burst does not count it.
-        var isBatch = false
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
@@ -367,7 +367,7 @@ public final class MainFrameBudget {
         return total
     }
 
-    /// Clears the counters (`debug.main_budget reset`).
+    /// Clears the counters (`debug.main_budget reset`; ``MainOwnerLedger/reset()`` is off main).
     public func resetStats() {
         stats = Stats()
     }
