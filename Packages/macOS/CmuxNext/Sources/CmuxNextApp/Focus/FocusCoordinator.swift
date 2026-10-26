@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -33,6 +34,8 @@ final class FocusCoordinator {
     weak var applier: (any FocusEffectApplying)?
     /// The window this coordinator focuses in (`debug.pane_focus` times its commit).
     weak var window: NSWindow?
+    /// The app's crash keys: what has the keyboard in the key window's focused pane (``CrashKeySlots/Key/paneKind``).
+    var crashKeys: CrashKeySlots?
     private var queue: [FocusEvent] = []
     private var isRunning = false
     /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
@@ -89,6 +92,7 @@ final class FocusCoordinator {
         defer {
             if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else { DebugPaneFocus.dropped(self) }
             if reduced.pane != paneBefore { paneMoved(from: paneBefore) }
+            noteCrashKeyPane()
         }
         // The settled observer can send or reduce a pending topology: what it queued runs too. The
         // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
@@ -197,6 +201,13 @@ final class FocusCoordinator {
         }
     }
 
+    /// Names what has the keyboard in the focused pane in the crash keys, from the key window (or a coordinator
+    /// with no window, in tests): one relaxed store per drain.
+    private func noteCrashKeyPane() {
+        guard let crashKeys, window?.isKeyWindow != false else { return }
+        crashKeys.set(.paneKind, CrashKeySlots.PaneKind(focus: reduced.resolved)?.rawValue ?? 0)
+    }
+
     /// Stamps the focused pane's move with the presentation of the frame that shows it (``closeAim``).
     private func paneMoved(from before: String?) {
         let serial = closeAim.paneMoved(from: before, to: reduced.pane)
@@ -284,5 +295,20 @@ extension FocusEvent.Source {
     static var intent: FocusEvent.Source {
         let source = current
         return source == .programmatic ? .cli : source
+    }
+}
+
+extension CrashKeySlots.PaneKind {
+    /// What has the keyboard in the focused pane for `focus`; nil when the keyboard is outside the panes (the
+    /// sidebar, a text field, an overlay, nothing).
+    init?(focus: FocusState.Resolved) {
+        switch focus {
+        case .terminal: self = .terminal
+        case .browserPage, .addressBar, .findBar, .devTools: self = .browser
+        case .agentPage, .conversation: self = .agent
+        case .page: self = .page
+        case .emptyPane: self = .empty
+        case .sidebar, .sidebarField, .textField, .overlay, .none: return nil
+        }
     }
 }

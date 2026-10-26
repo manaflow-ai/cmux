@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 import CmuxNextSignposts
 
 /// The App's ``ActionRunTiming``: `action.perform` around the synchronous run and `action.commit`
@@ -12,18 +13,24 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     private let wakes: RunLoopWakeWatch
     /// The per-action budget the runs are recorded into; nil records none.
     public let monitor: ActionBudgetMonitor?
+    /// The app's crash keys: each run sets ``CrashKeySlots/Key/actionID`` for its synchronous work and puts the
+    /// outer value back after it (p10-stability-207); nil sets none.
+    public let crashKeys: CrashKeySlots?
 
     /// The always-on action signposts, with no budget monitor.
     public init() {
         self.init(monitor: nil)
     }
 
-    /// The always-on action signposts, and every run recorded into `monitor`.
+    /// The always-on action signposts, and every run recorded into `monitor` and named in `crashKeys`.
     ///
-    /// - Parameter monitor: The per-action budget (``ActionBudgetMonitor``), or nil.
-    public init(monitor: ActionBudgetMonitor?) {
+    /// - Parameters:
+    ///   - monitor: The per-action budget (``ActionBudgetMonitor``), or nil.
+    ///   - crashKeys: The app's crash keys, or nil.
+    public init(monitor: ActionBudgetMonitor?, crashKeys: CrashKeySlots? = nil) {
         wakes = RunLoopWakeWatch()
         self.monitor = monitor
+        self.crashKeys = crashKeys
     }
 
     /// A run whose handler opened a person-driven nested run loop that waited (a menu's event
@@ -31,6 +38,12 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     /// intervals with `loop=nested`: they hold the person's dwell. A handler that waits in any other
     /// mode stays in the latency rows (a stall). A run started inside that loop is timed on its own.
     public func time<T>(_ key: ActionRunKey, _ origin: ActionOrigin, input: () -> ActionRunInput, _ body: () -> T) -> T {
+        guard let crashKeys else { return timed(key, origin, input: input, body) }
+        // Around the timing too, so a crash in the timing's own bookkeeping names the run.
+        return crashKeys.withKey(.actionID, CrashKeySlots.stableKey(key.id.rawValue)) { timed(key, origin, input: input, body) }
+    }
+
+    private func timed<T>(_ key: ActionRunKey, _ origin: ActionOrigin, input: () -> ActionRunInput, _ body: () -> T) -> T {
         let id = key.id, index = key.index
         let signposter = Signposter.action
         let signposts = signposter.isEnabled

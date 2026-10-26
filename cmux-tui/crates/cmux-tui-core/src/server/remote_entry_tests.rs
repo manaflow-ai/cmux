@@ -256,7 +256,7 @@ fn the_entry_socket_is_private_and_removed_on_drop() {
     use std::os::unix::fs::PermissionsExt;
     let entry = entry(true, Arc::new(DenyAllGate));
     let path = entry.server.path().to_path_buf();
-    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     drop(entry);
     assert!(!path.exists());

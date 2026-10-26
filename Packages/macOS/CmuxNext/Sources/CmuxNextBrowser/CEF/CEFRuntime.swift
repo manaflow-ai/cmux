@@ -23,7 +23,9 @@ final class CEFRuntime {
         case shutDown
     }
 
-    var state: State = .idle
+    var state: State = .idle { didSet { noteCrashKeyState() } }
+    /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
+    var crashKeys: CrashKeySlots?
     private(set) var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -414,7 +416,7 @@ final class CEFRuntime {
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             let pump = CEFMessagePump(
-                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
+                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
                 gate: pumpGate
             )
