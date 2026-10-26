@@ -30,9 +30,9 @@ final class WindowKeyFamily {
     /// A deferred check is scheduled and has not run: later notices in the same turn need no
     /// check of their own (the check reads the keyboard when it runs, after all of them).
     private var checkPending = false
-    /// The `switch.app_activation` the turn's first key or activation notice began; the commit after
-    /// the turn's check ends it.
-    private var activation: SignpostInterval?
+    /// The turn's first key or activation notice, while its check has not run: a check that flips the
+    /// window's look times it as a `switch.app_activation`.
+    private var notice: Notice?
     /// How many deferred checks it ran (tests read it: one per window per turn of notices).
     private(set) var checks = 0
     /// How many times it called a view's ``WindowMaterialView/updateInactiveTint()`` (tests read it:
@@ -44,6 +44,26 @@ final class WindowKeyFamily {
     var isObserving: Bool { !observers.isEmpty }
 
     private static var key: UInt8 = 0
+
+    /// The key and activation notices it observes. A notice's code in `switch.app_activation` is its
+    /// position + 1 (``SignpostName/switchAppActivation``): a window did become key 1, resign key 2,
+    /// become main 3, resign main 4; the app did become active 5, resign active 6.
+    private static let notices = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                                  NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+                                  NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
+
+    /// Whether `code` is the app's become or resign active notice.
+    private static func isAppActivation(_ code: UInt8) -> Bool { code >= 5 }
+
+    /// The first key or activation notice of a turn.
+    private struct Notice {
+        /// Its code (``notices``).
+        let code: UInt8
+        /// When it arrived (``Signposter/nowNanos()``).
+        let nanos: UInt64
+        /// The turn also had the app's become or resign active notice: a Cmd-Tab, not a focus move in the app.
+        var appActivation = false
+    }
 
     /// The tracker of `window`, made on first use with `environment` (a later call returns that
     /// tracker and ignores its argument).
@@ -77,17 +97,15 @@ final class WindowKeyFamily {
         // Any window's key change and the app's activation: the keyboard moving into this
         // window's own Chromium page window resigns this window's key, and leaving from that page
         // window to another app posts nothing on this window.
-        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
-                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
-        observers = names.enumerated().map { position, name in
-            events.subscribe(name, owner: "WindowKeyFamily") { [weak self] in self?.keyDidMove(name, code: UInt64(position + 1)) }
+        observers = Self.notices.enumerated().map { position, name in
+            let code = UInt8(position + 1)
+            return events.subscribe(name, owner: "WindowKeyFamily") { [weak self] in self?.keyDidMove(code) }
         }
         dimWatch = environment.appearance.subscribe([.inactiveDim], owner: "WindowKeyFamily") { [weak self] in
             self?.forEachView { $0.updateInactiveTint() }
         }
         // Key changes while it did not observe: read where the keyboard is now.
-        keyDidMove(nil, code: 0)
+        keyDidMove(nil)
     }
 
     private func forEachView(_ body: (WindowMaterialView) -> Void) {
@@ -98,29 +116,27 @@ final class WindowKeyFamily {
     }
 
     /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash.
-    ///
-    /// The turn's first notice begins this window's `switch.app_activation`, and the commit after the
-    /// check ends it: one async slice per window the key change touched, from the notice to the frame
-    /// that shows its wash or no wash, like Chrome's tab switch slice from the input to the presented
-    /// frame (content/browser/renderer_host/visible_time_request_trigger.h). The begin's message is the
-    /// notice's name and its `arg0` the notice's `code`, its position + 1 in ``startObserving()``'s list:
-    /// a window did become key 1, resign key 2, become main 3, resign main 4; the app did become active 5,
-    /// resign active 6. `notice` is nil for the tracker's first read, which is not a key change and takes
-    /// no interval.
-    private func keyDidMove(_ notice: Notification.Name?, code: UInt64) { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
-        if let notice, activation == nil {
-            activation = environment.switchSignposter.begin(.switchAppActivation, notice.rawValue, arg0: code)
+    /// window becomes key, so the key window in between (nil) would flash the wash. `code` is the
+    /// notice's code (``notices``), nil for the tracker's first read, which is not a key change.
+    private func keyDidMove(_ code: UInt8?) { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
+        if let code {
+            if notice == nil { notice = Notice(code: code, nanos: environment.switchSignposter.nowNanos()) }
+            if Self.isAppActivation(code) { notice?.appActivation = true }
         }
         guard !checkPending else { return }
         checkPending = true
-        // Held for one turn: the check ends the interval its notice began, even after the window went away.
-        environment.nextTurn { self.check() }
+        environment.nextTurn { [weak self] in self?.check() }
     }
 
+    /// Decides whether the window looks inactive now. A check that flips it is one `switch.app_activation`
+    /// slice, from the flip to the commit that shows the wash or no wash, with the turn's first notice
+    /// and its age in the begin (like Chrome's tab switch, the input to the presented frame:
+    /// content/browser/renderer_host/visible_time_request_trigger.h). A window whose look stays, or a check
+    /// with no view left, writes none: the key change shows nothing there.
     private func check() {
         checkPending = false
-        defer { endActivation() }
+        let pending = notice
+        notice = nil
         guard isObserving, let window else { return }
         checks += 1
         let key = environment.keyWindow()
@@ -135,16 +151,22 @@ final class WindowKeyFamily {
                                                         familyHeldKey: familyHeldKey)
         if active, holds { familyHeldKey = true }
         guard inactive != isInactive else { return }
+        let activation = pending.map { beginActivation($0) }
         isInactive = inactive
         forEachView { $0.updateInactiveTint() }
+        if let activation {
+            let signposter = environment.switchSignposter
+            environment.afterCommit { outcome in signposter.end(.switchAppActivation, activation, outcome) }
+        }
     }
 
-    /// Ends the open `switch.app_activation` at the commit that ends this turn.
-    private func endActivation() {
-        guard let interval = activation else { return }
-        activation = nil
+    /// Begins the `switch.app_activation` of the check that flips the window's look for `notice`.
+    private func beginActivation(_ notice: Notice) -> SignpostInterval {
         let signposter = environment.switchSignposter
-        environment.afterCommit { outcome in signposter.end(.switchAppActivation, interval, outcome) }
+        let now = signposter.nowNanos()
+        let age = Double(now >= notice.nanos ? now - notice.nanos : 0) / 1_000_000
+        return signposter.beginAppActivation(noticeCode: notice.code, noticeName: Self.notices[Int(notice.code) - 1].rawValue,
+                                             appActivation: notice.appActivation, noticeAgeMilliseconds: age)
     }
 
     /// `CefNSWindow`: a Chromium page window.

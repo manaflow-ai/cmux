@@ -22,8 +22,8 @@ struct WindowKeyEnvironment {
         Task { @MainActor in check() }
     }
 
-    /// Takes a `switch.app_activation` interval per window per turn of key or activation notices
-    /// (``Signposter/switch``; tests pass one on their own trace runtime).
+    /// Takes a `switch.app_activation` interval for each window whose look a turn of key or activation
+    /// notices flips (``Signposter/switch``; tests pass one on their own trace runtime).
     var switchSignposter: Signposter = .switch
     /// Runs `body` after the Core Animation commit that ends this main run-loop turn (``CommitBoundary``),
     /// where a check's `switch.app_activation` ends. Tests fire the boundaries themselves.
