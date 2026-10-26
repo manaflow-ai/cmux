@@ -9424,7 +9424,10 @@ the cut summary). A bound connection may send only `agent-session-attach`,
 line) is `agent_session.not_trusted`. Each request uses the chat its check
 validated: an attach, a page or a command on an attachment of another chat,
 and a page acpmux answers after the tab was rebound, are refused as
-`agent_session.not_shared`.
+`agent_session.not_shared`. A rebind waits for any write to or for a teammate's
+attachment that has checked its tab, so nothing of the old chat reaches the
+teammate (and no prompt or cancel reaches the old chat) after the tab shows
+another chat; the attachment ends at its next event.
 
 `{id, cmd:"agent-session-of", surface}` answers `{surface, session}`, the
 agent session the tab shows, so `cmux host share` can pin it; only the owner's

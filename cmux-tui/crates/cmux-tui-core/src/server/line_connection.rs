@@ -99,6 +99,12 @@ pub(super) fn serve_line_connection(
         }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
+            // A blank line is a line too: a proxy's bind must be the very first.
+            #[cfg(unix)]
+            if !first_line_done {
+                first_line_done = true;
+                mux.control_clients.agent_sessions.first_line_done(client);
+            }
             continue;
         }
         let keep_open = match admission.refusal(&line) {

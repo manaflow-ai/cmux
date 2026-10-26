@@ -659,6 +659,49 @@ mod tests {
         assert_code(&client.answer(again), "agent_session.not_shared");
     }
 
+    /// A rebind waits for a write to or for a teammate's attachment that already checked its tab
+    /// (held here as that write would hold it), so none lands after the tab shows another chat.
+    #[test]
+    fn a_rebind_waits_for_a_teammate_write_in_flight() {
+        let fake = FakeAcpmux::start("proxy-atomic");
+        let mux = mux_with(&fake, "proxy-atomic");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let in_flight = mux.control_clients.agent_sessions.shared();
+        let (done, rebound) = std::sync::mpsc::channel();
+        let rebinder = mux.clone();
+        let thread = std::thread::spawn(move || {
+            crate::server::agent_session_attach_tests::run(
+                &rebinder,
+                json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                    "session":"acp_session_2","expected_session":SESSION}),
+            );
+            done.send(()).unwrap();
+        });
+        assert!(
+            rebound.recv_timeout(Duration::from_millis(300)).is_err(),
+            "the rebind waits for the write in flight"
+        );
+        assert_eq!(tab_session(&mux, surface).as_deref(), Some(SESSION), "the tab still shows it");
+        drop(in_flight);
+        rebound.recv_timeout(Duration::from_secs(5)).expect("the rebind lands after the write");
+        thread.join().unwrap();
+        assert_eq!(tab_session(&mux, surface).as_deref(), Some("acp_session_2"));
+    }
+
+    /// A blank line is a line: a bind after one is refused.
+    #[test]
+    fn a_bind_after_a_blank_line_is_refused() {
+        let fake = FakeAcpmux::start("proxy-blank");
+        let mux = mux_with(&fake, "proxy-blank");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let mut client = Client::connect(&mux, "proxy-blank");
+        client.raw("\n");
+        let bind = json!({"cmd":"agent-session-proxy-bind", "author":author});
+        assert_code(&client.request(bind), "agent_session.not_trusted");
+        assert!(author_of(&mux).is_none(), "nothing bound");
+    }
+
     fn author_of(mux: &Mux) -> Option<Value> {
         let authors = mux.control_clients.agent_sessions.proxy_authors.lock().unwrap();
         authors.values().next().cloned()

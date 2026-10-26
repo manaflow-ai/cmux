@@ -373,6 +373,12 @@ impl Client {
         self.answer(id)
     }
 
+    /// Writes raw bytes on the connection, as a client would (a blank line).
+    pub(super) fn raw(&mut self, bytes: &str) {
+        self.writer.write_all(bytes.as_bytes()).unwrap();
+        self.writer.flush().unwrap();
+    }
+
     /// Sends a request without waiting for its answer; returns its id.
     pub(super) fn send(&mut self, mut value: Value) -> u64 {
         let id = self.next_id;

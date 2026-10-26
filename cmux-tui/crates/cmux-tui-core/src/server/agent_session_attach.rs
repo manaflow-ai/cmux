@@ -82,6 +82,9 @@ pub(crate) struct AgentSessions {
     proxy_authors: Mutex<HashMap<u64, Value>>,
     /// Unix connections past their first line: a proxy binds only on its first.
     spoken: Mutex<HashSet<u64>>,
+    /// A tab's session changes under the write side; every write to or for a teammate's
+    /// attachment checks the tab under the read side, so none lands after a rebind.
+    rebinding: RwLock<()>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
     /// `agent-session-children-v1`: the descendants acpmux answered, which
@@ -121,6 +124,16 @@ impl AgentSessions {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, AttachState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Held while a tab's session changes (`bind-conversation-tab-session`, a start's bind).
+    pub(super) fn rebinding(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.rebinding.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Held by a write to or for a teammate's attachment, from its tab check to the write.
+    pub(super) fn shared(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.rebinding.read().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The connection's first line was handled: it can no longer bind a proxy identity.
@@ -235,6 +248,20 @@ impl Attachment {
     /// An answered request: it cannot be answered again.
     fn forget_permission(&self, id: &str) {
         self.permissions.lock().unwrap_or_else(|e| e.into_inner()).retain(|known| known != id);
+    }
+
+    /// Runs `write` for this attachment: at once for the owner's; for a teammate's, only while
+    /// its tab still shows the shared chat, with no rebind in between (`AgentSessions::shared`).
+    fn while_shared<T>(&self, write: impl FnOnce() -> T) -> Result<T, Refusal> {
+        if self.author.is_none() {
+            return Ok(write());
+        }
+        let Some(mux) = self.mux.upgrade() else { return Err(Refusal::NotShared) };
+        let _shared = mux.control_clients.agent_sessions.shared();
+        if self.ended.load(Ordering::Acquire) || !self.tab_current() {
+            return Err(Refusal::NotShared);
+        }
+        Ok(write())
     }
 
     /// True while the tab's store record still shows the attached session.
@@ -912,11 +939,19 @@ fn run_on_worker(
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
         let sent = attachment
-            .link
-            .notify("session/cancel", attachment.stamp(json!({"sessionId": attachment.session})));
+            .while_shared(|| {
+                attachment
+                    .link
+                    .notify(
+                        "session/cancel",
+                        attachment.stamp(json!({"sessionId": attachment.session})),
+                    )
+                    .map_err(Refusal::of)
+            })
+            .and_then(|sent| sent);
         return match sent {
             Ok(()) => ok(writer, id, json!({})),
-            Err(error) => refuse(writer, id, Refusal::of(error)),
+            Err(refusal) => refuse(writer, id, refusal),
         };
     }
     if attachment.calls.fetch_add(1, Ordering::AcqRel) >= MAX_CALLS {
@@ -932,10 +967,14 @@ fn run_on_worker(
         .spawn(move || {
             let result = call(&worker, command);
             worker.calls.fetch_sub(1, Ordering::AcqRel);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            };
+            // A teammate's answer goes out only while its tab still shows the shared chat.
+            let replied = worker.while_shared(|| match result {
+                Ok(data) => ok(&worker_writer, worker_id.clone(), data),
+                Err(refusal) => refuse(&worker_writer, worker_id.clone(), refusal),
+            });
+            if let Err(refusal) = replied {
+                refuse(&worker_writer, worker_id, refusal);
+            }
         });
     if spawned.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
@@ -1143,11 +1182,17 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).
-    if let Err(error) =
-        attachment.link.send_ignoring_reply("session/prompt", attachment.stamp(params))
-    {
+    let sent = attachment
+        .while_shared(|| {
+            attachment
+                .link
+                .send_ignoring_reply("session/prompt", attachment.stamp(params))
+                .map_err(Refusal::of)
+        })
+        .and_then(|sent| sent);
+    if let Err(refusal) = sent {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-        return Err(Refusal::of(error));
+        return Err(refusal);
     }
     let accepted = receiver.recv_timeout(CALL_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
