@@ -37,6 +37,8 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Mask {
     Directory(PathBuf),
+    /// A read-only /dev/null bind. Bubblewrap's nodev mounts can make
+    /// reads fail with EACCES instead of returning EOF; either hides the file.
     File(PathBuf),
 }
 
@@ -483,27 +485,43 @@ mod tests {
         let outside = fixture.0.join("outside");
         fs::write(&outside, "unchanged").unwrap();
         let secret = p.home.join(".netrc");
-        fs::write(&secret, "synthetic credential").unwrap();
+        const FILE_MARKER: &str = "acpmux-file-secret-marker";
+        const DIRECTORY_MARKER: &str = ".acpmux-directory-secret-marker";
+        fs::write(&secret, FILE_MARKER).unwrap();
         let secrets = p.home.join(".ssh");
         fs::create_dir(&secrets).unwrap();
-        fs::write(secrets.join("key"), "synthetic key").unwrap();
+        fs::write(secrets.join(DIRECTORY_MARKER), DIRECTORY_MARKER).unwrap();
         let memory = p.claude_project.join("memory/keep");
         fs::write(&memory, "unchanged").unwrap();
         let host_pid_ns = fs::read_link("/proc/self/ns/pid").unwrap();
         let script = r#"
 set -eu
 outside=$1; secret=$2; secrets=$3; tmp=$4; scratch=$5; project=$6; host_pid_ns=$7
+file_marker=$8; directory_marker=$9
+# A nodev /dev/null mask can deny the open instead of returning EOF.
+# Capture stdout even on failure, so partial disclosure cannot pass.
+check_hidden_read() {
+    content=$(cat -- "$1" 2>/dev/null) || :
+    case "$content" in *"$2"*) echo 'masked read exposed fixture marker' >&2; exit 13;; esac
+    test -z "$content" || { echo 'masked read returned content' >&2; exit 14; }
+}
 if (printf changed > "$outside") 2>/dev/null; then exit 10; fi
 printf inside > ./inside
 printf temp > "$tmp/inside"
 printf scratch > "$scratch/inside"
 printf transcript > "$project/inside"
 if (printf changed > "$project/memory/keep") 2>/dev/null; then exit 11; fi
-test "$(cat "$secret")" = ""
-test ! -e "$secrets/key"
+check_hidden_read "$secret" "$file_marker"
+check_hidden_read "$secrets/$directory_marker" "$directory_marker"
+listing=$(ls -A -- "$secrets" 2>/dev/null) || :
+case "$listing" in *"$directory_marker"*) echo 'masked directory exposed fixture marker' >&2; exit 15;; esac
+test -z "$listing" || { echo 'masked directory returned entries' >&2; exit 16; }
+test ! -e "$secrets/$directory_marker"
 if (printf changed > "$secrets/new") 2>/dev/null; then exit 12; fi
 test "$(readlink /proc/self/ns/pid)" != "$host_pid_ns"
-test "$(readlink /proc/1/ns/pid)" = "$(readlink /proc/self/ns/pid)"
+test "$(readlink /proc/1/ns/pid)" = "$(readlink /proc/self/ns/pid)" || {
+    echo 'PID 1 namespace check failed' >&2; exit 17;
+}
 count=0
 for entry in /proc/[0-9]*; do count=$((count + 1)); done
 test "$count" -le 4
@@ -525,6 +543,7 @@ done < /proc/net/dev
             .into_iter()
             .map(|path| path.to_str().unwrap().to_owned()),
         );
+        command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
         let args = bwrap_args(&p, &masks(&p.home, &[secrets, secret]), &command);
         let mut child = tokio::process::Command::new(bwrap);
         child
