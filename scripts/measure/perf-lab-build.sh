@@ -14,17 +14,19 @@
 #   with its own submodules and its own reload.sh, and one DerivedData per config beside it, so the next
 #   build on this builder is incremental (task 234 orders builds for that).
 # - scripts/perf-lab/builds.py keeps one record per (sha, config) next to the zips (zips/<digest>.zip).
-#   An ok record whose zip is still there is reused (cached: true). A commit that fails to build (or whose
-#   reload.sh has no such --config) is recorded once and never built again; a killed or cancelled build
-#   and a fetch, submodule or GhosttyKit failure record nothing.
+#   An ok record whose zip is still there is reused (cached: true); one whose zip was evicted is built
+#   again and its record takes the new digest. A failure the commit causes is recorded once and never
+#   built again: xcodebuild's BUILD FAILED with a compile or link error, a reload.sh with no such
+#   --config, or an app whose defines are not the config's (`builds.py outcome`). Anything else (fetch,
+#   submodule, GhosttyKit, disk, network, signing, a signal, BUILD INTERRUPTED) records nothing.
 # - The last line is `perf-lab-build: {"sha", "config", "digest", "seconds", "status", "cached", ...}`,
 #   also in artifacts/perf-lab-build/receipt.json. digest is the zip's sha256, the key the worker uploads
 #   the --artifact under, so a lab host downloads the app by it (scripts/measure/perf-lab.sh, task 008).
 # - It refuses to run on a perf-lab host (worker label perf-lab): those measure, they never build.
 # Exit: 0 built or reused; 1 the commit did not build (now or before); 2 refused (usage, label);
-#       75 the build did not finish for a reason that is not the commit's (fetch, signal, cache busy).
+#       75 the build did not finish for a reason that is not the commit's (fetch, disk, signal, cache busy).
 set -euo pipefail
-PERF_LAB_BUILD_VERSION=1  # in the receipt; bump when a change alters what gets built
+PERF_LAB_BUILD_VERSION=1  # names the ledger and is in the receipt; bump when a change alters what gets built
 build_sha="" config=bench
 for arg in "$@"; do
   case "$arg" in
@@ -62,11 +64,13 @@ fi
 out="$tip/artifacts/perf-lab-build"
 rm -rf "$out"
 mkdir -p "$out"
-ledger="$root/v1"
+ledger="$root/v$PERF_LAB_BUILD_VERSION"
 zips="$ledger/zips"
 src="$root/src"
 tag="perf-lab-build"
 mkdir -p "$zips"
+
+infra() { echo "perf-lab-build: $*; nothing recorded" >&2; exit 75; }
 
 publish() {  # $1: cached (true|false). Prints and keeps the receipt; returns the record's exit code.
   local receipt_args=(receipt --ledger "$ledger" --sha "$build_sha" --config "$config")
@@ -83,6 +87,9 @@ PY
 }
 
 record_failed() {  # $1: seconds, $2: reason
+  if [[ "$("${builds[@]}" status --ledger "$ledger" --sha "$build_sha" --config "$config")" == ok ]]; then
+    infra "$build_sha ($config) built before, so this failure is the builder's: $2"
+  fi
   "${builds[@]}" record --ledger "$ledger" --sha "$build_sha" --config "$config" --status failed \
     --seconds "$1" --reason "$2" --job "${CMUX_CI_STEP_KEY:-}" > /dev/null
   publish false || exit 1
@@ -104,7 +111,6 @@ case "$("${builds[@]}" status --ledger "$ledger" --sha "$build_sha" --config "$c
       exit 0
     fi
     echo "perf-lab-build: the cached zip of $build_sha ($config) is gone or damaged; building again" >&2
-    "${builds[@]}" forget --ledger "$ledger" --sha "$build_sha" --config "$config"
     ;;
 esac
 
@@ -117,7 +123,6 @@ trap 'on_signal INT' INT
 trap 'on_signal HUP' HUP
 
 # The commit's own tree, submodules and GhosttyKit. A failure here is the fleet's, not the commit's.
-infra() { echo "perf-lab-build: $*; nothing recorded" >&2; exit 75; }
 [[ -d "$src/.git" ]] || git init -q "$src" || infra "cannot create $src"
 origin="$(git -C "$tip" remote get-url origin 2>/dev/null || true)"
 if ! { [[ -n "$origin" ]] && git -C "$src" fetch -q --no-tags "$origin" "$build_sha"; }; then
@@ -154,17 +159,23 @@ rc=$?
 set -e
 seconds=$((SECONDS - start))
 tail -n 40 "$out/reload.log"
-# 65: xcodebuild reported BUILD INTERRUPTED (reload.sh); 124 and >= 128: a timeout or a signal.
-if (( rc == 65 || rc == 75 || rc == 124 || rc >= 128 )); then
-  infra "reload.sh ended with $rc (interrupted, killed, timed out or busy)"
+# reload.sh writes its body (xcodebuild, the bench configuration line) to its own log, `==> log: PATH`.
+build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
+if [[ -n "$build_log" && -f "$build_log" ]]; then
+  cp "$build_log" "$out/build.log"
 fi
+verdict="$("${builds[@]}" outcome --config "$config" --rc "$rc" --log "$out/reload.log" --log "$out/build.log")" \
+  || infra "cannot read how reload.sh ended ($rc)"
+kind="$(sed -n 1p <<< "$verdict")"
+reason="$(sed -n 2p <<< "$verdict")"
+case "$kind" in
+  ok) ;;
+  commit) record_failed "$seconds" "$reason" ;;
+  *) infra "${reason:-reload.sh ended with $rc}" ;;
+esac
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
-if (( rc != 0 )) || [[ -z "$app" || ! -d "$app" ]]; then
-  # reload.sh keeps xcodebuild's output in its own log (`==> log: PATH`): the compiler's first errors are there.
-  build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
-  reason="$({ grep -h -m 5 -E '\.swift:[0-9]+:[0-9]+: error|error: |BUILD FAILED' "$out/reload.log" \
-    ${build_log:+"$build_log"} 2>/dev/null || true; } | head -n 5 | tr '\n' ' ' | cut -c 1-600)"
-  record_failed "$seconds" "reload.sh exit $rc: ${reason:-no app path printed}"
+if [[ -z "$app" || ! -d "$app" ]]; then
+  infra "reload.sh succeeded but printed no app path that exists ('$app')"
 fi
 
 name="$(basename "$app")"
@@ -176,11 +187,12 @@ fi
 digest="$("${builds[@]}" digest "$out/app.zip")"
 cp "$out/app.zip" "$zips/$digest.zip.tmp"
 mv "$zips/$digest.zip.tmp" "$zips/$digest.zip"
-defines=()
-for define in $("${builds[@]}" defines --log "$out/reload.log"); do defines+=(--define "$define"); done
+defines=() names=()
+read -r -a names <<< "$(sed -n 3p <<< "$verdict")" || true
+for define in ${names[@]+"${names[@]}"}; do defines+=(--define "$define"); done
 "${builds[@]}" record --ledger "$ledger" --sha "$build_sha" --config "$config" --status ok --seconds "$seconds" \
   --digest "$digest" --app "$name" --job "${CMUX_CI_STEP_KEY:-}" ${defines[@]+"${defines[@]}"} > /dev/null
-# Keep the 20 newest zips; records of evicted zips are rebuilt on demand (the ok branch above).
+# Keep the 20 newest zips; an evicted zip's commit is rebuilt on demand and its record takes the new digest.
 # shellcheck disable=SC2012 # the names are 64-hex digests
 ls -1t "$zips"/*.zip 2>/dev/null | tail -n +21 | while read -r old; do rm -f "$old"; done
 publish false
