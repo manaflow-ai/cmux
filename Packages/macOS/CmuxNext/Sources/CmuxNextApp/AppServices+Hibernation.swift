@@ -41,6 +41,7 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         if features.isEnabled(.intentPrewarmHover) { startIntentPrewarm(over: hibernation) }
+        AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }

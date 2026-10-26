@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextInput
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -56,8 +57,8 @@ final class BrowserHibernation {
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
-    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
-    let snapshots = HibernationSnapshots()
+    /// Hibernated pages' pictures, sized by the cache's `ImageCacheShares`, and their wakes (`debug.surfaces`).
+    let snapshots: HibernationSnapshots
     var wakeLog = HibernationWakes()
     /// A navigation that woke a hibernated page, applied once it is back; at most one per page.
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
@@ -182,11 +183,17 @@ final class BrowserHibernation {
          lowPower: LowPowerMode = LowPowerMode(enabled: false), audible: AudibleHistory? = nil) {
         self.cache = cache
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
+        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
         self.lowPower = lowPower
         self.memory = memory
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
+        snapshots.neighbors = { [weak self] in self?.pictureNeighbors ?? [] }
     }
+
+    /// The tabs one step beside each pane's shown tab, at any pressure and setting: their pictures stay
+    /// under every memory limit (`HibernationSnapshots`), since Ctrl-Tab and Cmd-Shift-[ ] show them next.
+    private var pictureNeighbors: Set<String> { neighbors.awake(radius: 1) }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or in Low Power Mode.
     var neighborRadius: Int {
