@@ -259,6 +259,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
+  /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
+  /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
+  doingSendTo?: string;
+  doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
