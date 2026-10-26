@@ -124,7 +124,9 @@ Commands:
   ... --check-ops                           only the ops JSON, against the header and CEFShimLibrary
   ... --list-missing                        the live queue: export, class, missing side
   ... --swift-sites [--by-file]             Swift call sites that change in host mode: async,
-                                            mint, view, local, and post-like results read
+                                            mint, view, local, and post-like results read; an
+                                            async site that reads its wire:REPLY answer in the
+                                            call's turn, outside host_mode_rewrites, adds sync-reply
   ... --check-return-use                    exit 1 when a Swift caller binds, guards, compares or
                                             returns the result of a post, view, preinit or policy,
                                             outside host_mode_rewrites
@@ -1868,16 +1870,19 @@ def result_used(text: str, start: int, end: int) -> bool:
         if text[end:close].strip():
             return False  # one statement among several
         head_start = text.rfind("\n", 0, brace) + 1
-        head = text[head_start:brace]
+        # The head of this brace only: `if v >= 5 { return call {` heads the closure with `return call`.
+        head = re.split(r"[{};]", text[head_start:brace])[-1]
+        before = text[:brace].rstrip()
+        # A closure stored or passed returns the result, also inside a statement's head
+        # (`switch text.withCString({ shim.x($0) })`); only the block after a head drops it.
+        if not before or re.search(r"[=(\[,:]$", before):
+            return True
         if CONTROL_HEAD.search(head):
             return False
         if FUNC_HEAD.match(head):
             return "->" in head  # a single-expression body returns its value
         if GETTER_HEAD.match(head):
             return True
-        before = text[:brace].rstrip()
-        if not before or re.search(r"[=(\[,:]$", before):
-            return True  # a closure stored or passed: it returns the result
         start, end = expression_start(text, len(before)), close + 1
     return True
 
@@ -1955,21 +1960,71 @@ def context_at(scopes: list[Scope], index: int) -> tuple[str, str]:
     return owner, function
 
 
+# A parameter that is a closure taking the CEFShimLibrary first (`_ body: (CEFShimLibrary, Int32) -> Int32`).
+SHIM_CLOSURE_PARAM = re.compile(r":\s*(?:@\w+\s+)*\(\s*(?:_\s+\w+\s*:\s*)?CEFShimLibrary\s*[,)]")
+# A closure's first parameter when it names one (`{ library, browser in`, `{ (library: CEFShimLibrary) in`).
+CLOSURE_PARAM_NAME = re.compile(r"\s*(?:\[[^\]]*\]\s*)?\(?\s*([A-Za-z_]\w*)\b[^{}]*?\bin\b")
+
+
+def shim_closure_takers(files: list[tuple[str, str, list[Scope]]]) -> set[str]:
+    """Functions that hand the CEFShimLibrary to a closure argument (`call { $0.extReload($1, id) }`)."""
+    return {scope.name for _, _, scopes in files for scope in scopes
+            if scope.kind == "func" and SHIM_CLOSURE_PARAM.search(scope.head)}
+
+
+def shim_closure_receivers(masked: str, takers: set[str]) -> list[tuple[int, str]]:
+    """(open brace, receiver name) of every closure passed to a shim closure taker: `$0`, or the
+    closure's first parameter when it names one."""
+    if not takers:
+        return []
+    found = []
+    names = "|".join(re.escape(t) for t in sorted(takers))
+    for m in re.finditer(rf"(?<![\w.])(?:{names})\s*([({{])", masked):
+        if re.search(r"\bfunc\s+$", masked[:m.start()]):
+            continue  # the declaration
+        brace = m.end() - 1
+        if m.group(1) == "(":
+            inner = masked[m.end():].lstrip()
+            if inner.startswith("{"):
+                brace = len(masked) - len(inner)  # the closure is the first argument
+            else:
+                close = matching_close(masked, m.end() - 1, "(", ")")
+                after = masked[close + 1:].lstrip()
+                if not after.startswith("{"):
+                    continue
+                brace = len(masked) - len(after)  # a trailing closure
+        named = CLOSURE_PARAM_NAME.match(masked, brace + 1)
+        receiver = named.group(1) if named and named.group(1) != "_" else "$0"
+        found.append((brace, receiver))
+    return found
+
+
 def swift_sites(root: Path) -> list[Site]:
+    """Every call of a CEFShimLibrary function: through `shim`, or through the closure parameter of
+    a function that passes the library to its closure argument."""
     props = shim_properties(root)
     sites: list[Site] = []
-    for rel, masked, scopes in swift_files(root):
-        for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked):
-            export = props.get(m.group(1))
+    files = swift_files(root)
+    takers = shim_closure_takers(files)
+    for rel, masked, scopes in files:
+        calls = {(m.start(), m.end(), m.group(1))
+                 for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked)}
+        for brace, receiver in shim_closure_receivers(masked, takers):
+            if receiver == "shim":
+                continue  # the pattern above finds it
+            close = matching_close(masked, brace, "{", "}")
+            pattern = re.compile(rf"(?<![\w$]){re.escape(receiver)}[?!]?\.([A-Za-z_]\w*)\s*\(")
+            calls |= {(m.start(), m.end(), m.group(1)) for m in pattern.finditer(masked, brace, close)}
+        for begin, end, prop in sorted(calls):
+            export = props.get(prop)
             if export is None:
                 continue
-            open_index = m.end() - 1
-            close = matching_close(masked, open_index, "(", ")")
-            start = expression_start(masked, m.start())
-            owner, function = context_at(scopes, m.start())
-            sites.append(Site(rel, masked.count("\n", 0, m.start()) + 1, export, m.group(1),
-                              result_used(masked, start, close + 1), owner, function, m.start(),
-                              in_token_form(masked, scopes, m.start())))
+            close = matching_close(masked, end - 1, "(", ")")
+            start = expression_start(masked, begin)
+            owner, function = context_at(scopes, begin)
+            sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
+                              result_used(masked, start, close + 1), owner, function, begin,
+                              in_token_form(masked, scopes, begin)))
     return sites
 
 
@@ -2031,6 +2086,37 @@ def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
         masked = mask_swift_source(source)
         out.append((rel, masked, swift_scopes(masked)))
     return out
+
+
+def rewrite_site_problems(model: Model, root: Path) -> list[str]:
+    """Every host_mode_rewrites function exists in its file and uses one of the entry's exports by
+    its CEFShimLibrary name (a call, or an optional function read): an entry that names no site
+    accepts nothing and only reads like a rule."""
+    if not (root / SHIM_LIBRARY).is_file():
+        return []  # a tree without the sources
+    names: dict[str, set[str]] = {}
+    for prop, export in shim_properties(root).items():
+        names.setdefault(export, set()).add(prop)
+    files = {rel: (masked, scopes) for rel, masked, scopes in swift_files(root)}
+    problems = []
+    for rewrite in model.rewrites:
+        path = f"{APP}/{rewrite.path}"
+        if not (root / path).is_file():
+            continue  # load_ops reports it
+        masked, scopes = files.get(path) or (mask_swift_source((root / path).read_text(encoding="utf-8")), [])
+        if not scopes:
+            scopes = swift_scopes(masked)
+        props = sorted(p for export in rewrite.exports for p in names.get(export, ()))
+        uses = re.compile(rf"\.(?:{'|'.join(map(re.escape, props))})\b") if props else None
+        for owner, function in rewrite.functions:
+            bodies = [s for s in scopes if s.kind == "func" and s.name == function
+                      and owner in ("", context_at(scopes, s.open)[0])]
+            label = f"host_mode_rewrites {rewrite.site!r}: {owner + '.' if owner else ''}{function}"
+            if not bodies:
+                problems.append(f"{label} is no function of {path}")
+            elif uses is None or not any(uses.search(masked, s.open, s.close) for s in bodies):
+                problems.append(f"{label} uses none of {', '.join(rewrite.exports)}: name the function that calls them")
+    return problems
 
 
 def rewrite_for(model: Model, site: Site, needs: tuple[str, ...] | None = None) -> Rewrite | None:
@@ -2210,7 +2296,7 @@ def main(argv: list[str]) -> int:
             return report_sites(model, root, args)
         if args.list_missing or args.check or args.check_ops:
             if model is not None:
-                problems += shim_library_problems(model, root)
+                problems += shim_library_problems(model, root) + rewrite_site_problems(model, root)
             if args.list_missing:
                 for row in missing_sides(model, header, per_export, root):
                     print("\t".join(row))
@@ -2251,11 +2337,16 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def site_reasons(op: Op, site: Site) -> list[str]:
-    """Why a call site changes in host mode: its class, and result-read when it reads a stand-in result."""
+def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
+    """Why a call site changes in host mode: its class; result-read when it reads a stand-in result;
+    sync-reply when it reads, in the call's turn, an answer that comes later in the op's wire:REPLY
+    (the result or the out-parameters) and no host_mode_rewrites entry (needs reply) moves it to the
+    token API (CEFHostReplies, task 018)."""
     reasons = [op.cls] if op.cls in SITE_CLASSES else []
     if site.used and op.cls in POST_LIKE:
         reasons.append("result-read")
+    if site.used and op.cls == "async" and op.reply_event == REPLY_WIRE and rewrite_for(model, site, ("reply",)) is None:
+        reasons.append("sync-reply")
     return reasons
 
 
@@ -2265,7 +2356,7 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
         op = model.ops.get(site.export)
         if op is None or site_settled(model, site, op):
             continue
-        reasons = site_reasons(op, site)
+        reasons = site_reasons(model, op, site)
         if reasons:
             rows.append((site, op.cls, reasons))
     if args.check_return_use:
