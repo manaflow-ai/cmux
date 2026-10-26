@@ -298,13 +298,12 @@ export function EnvironmentSection({
         </li>
       )}
       {!compact && status && (
-        <li className="acpmux-chat-inspector-row" aria-label={t("inspector.connection")}>
+        <li className="acpmux-chat-inspector-row" aria-label={`${t("inspector.connection")}: ${connection.label}`}>
           <Icon name="machine.remote" size={ROW_ICON} row />
           <span className="acpmux-chat-inspector-row__name">{t("inspector.connection")}</span>
           {status}
         </li>
       )}
-      {compact && cwd && folderRow(cwd, "folder", true)}
       {folders.filter((path) => path !== cwd).map((path) => folderRow(path, "folder", false))}
       {repository && (
         <Row icon="brand.github" href={repositoryUrl}>

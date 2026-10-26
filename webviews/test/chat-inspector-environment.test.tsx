@@ -426,10 +426,10 @@ for (const canChoose of [true, false]) {
         />,
       );
     });
-    const environment = host.querySelector('[data-section="environment"]')!;
+    const environment = host.querySelector('ul[data-section="environment"]')!;
     expect(environment.textContent!.match(/primary-env-folder/g)).toHaveLength(1);
     expect(environment.querySelector("[data-machine]")!.textContent).toContain("primary-env-folder");
-    expect(environment.querySelectorAll(":scope > li")).toHaveLength(canChoose ? 3 : 2);
+    expect(environment.children).toHaveLength(canChoose ? 3 : 2);
     const choose = environment.querySelector<HTMLButtonElement>(
       `[aria-label="${translate("chatInspector.environment.chooseFolderNewChat")}"]`,
     );
