@@ -59,10 +59,11 @@ extension AppServices {
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput] stores, deadlines, source in
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput,
+                                           chromiumFeatures = features.enabledChromiumFeatures] stores, deadlines, source in
                                       CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                 contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
-                                                pumpInput: pumpInput, pointerFrames: pointerFrames)
+                                                pumpInput: pumpInput, pointerFrames: pointerFrames, chromiumFeatures: chromiumFeatures)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

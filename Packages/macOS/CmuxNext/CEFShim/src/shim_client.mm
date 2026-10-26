@@ -733,4 +733,29 @@ CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token) {
   return callback;
 }
 
+// The fork's delayed-work handler (cmux_on_schedule_delayed_t) for the host's
+// schedule_delayed, with the ctx cmux_shim_initialize stored.
+static void ScheduleDelayedTrampoline(void*, int64_t run_time_ns, int64_t leeway_ns, int precise) {
+  Host& h = host();
+  if (h.schedule_delayed) {
+    h.schedule_delayed(h.ctx, run_time_ns, leeway_ns, precise);
+  }
+}
+
 }  // namespace cmux_shim
+
+using namespace cmux_shim;
+
+extern "C" {
+
+int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed) {
+  ForkApi& api = fork_api();
+  if (!api.set_on_schedule_delayed) {
+    return 0;
+  }
+  host().schedule_delayed = schedule_delayed;
+  api.set_on_schedule_delayed(schedule_delayed ? ScheduleDelayedTrampoline : nullptr, nullptr);
+  return 1;
+}
+
+}  // extern "C"

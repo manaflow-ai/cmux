@@ -150,6 +150,22 @@ import Testing
         }
     }
 
+    /// A fork run time (p14-energy-046) keeps Chromium's leeway on the queue: a flexible 7.9 ms
+    /// request with 8 ms leeway fires in [7.9, 15.9] ms on its own 8 ms grid (not exact, as a
+    /// whole-millisecond request under 36 ms is), a precise one exactly at 7.9 ms.
+    @Test func anAbsoluteRequestKeepsChromiumsLeewayOnTheQueue() {
+        let flexible = PumpRig()
+        flexible.startAndRunFirstPass()
+        flexible.pump.request(runTimeNanos: 7_900_000, leewayNanos: 8_000_000, precise: false)
+        #expect(flexible.timer.armedDate == 8 * Self.ms, "the 8 ms boundary inside [7.9, 15.9] ms")
+        let precise = PumpRig()
+        precise.startAndRunFirstPass()
+        precise.pump.request(runTimeNanos: 7_900_000, leewayNanos: 0, precise: true)
+        let armed = precise.timer.armedDate ?? 0
+        #expect(armed >= 7_899_999 && armed <= 7_900_000, "exact: \(armed) ns")
+        #expect(precise.timer.armedTolerance == 0)
+    }
+
     @Test func energySaverDoesNotMoveACEFRequest() {
         let rig = PumpRig(saver: true)
         rig.startAndRunFirstPass()
