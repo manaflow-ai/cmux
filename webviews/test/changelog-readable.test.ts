@@ -182,6 +182,11 @@ test("tracker and review references come off a title", () => {
   );
 });
 
+test("agent and Unicode tracker references match the release-notes pipeline", () => {
+  expect(readableChange("fix: foo (a123)").title).toBe("Foo");
+  expect(readableChange("fix: foo (é#123)").title).toBe("Foo");
+});
+
 test("base reds, branch names and compile fixes are internal work", () => {
   expect(readableChange("fix: feat-cmux-next base reds in react-apps-check and cmux-next checks").internal).toBe(true);
   expect(readableChange("cmux-next: compile fixes (replay entry shadowing Location trail content name)").internal).toBe(
