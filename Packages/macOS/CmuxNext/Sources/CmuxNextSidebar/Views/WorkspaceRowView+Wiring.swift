@@ -23,7 +23,7 @@ extension WorkspaceRowView {
     /// row (`SidebarTunablesWatch`); the sidebar's look watch redraws the live rows when one changes,
     /// with no registration per configure.
     func observedTunables() -> SidebarTunablesWatch.Values {
-        SidebarTunablesWatch.shared.values(for: self)
+        SidebarTunablesWatch.shared.values()
     }
 }
 

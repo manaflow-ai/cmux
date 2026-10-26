@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 @testable import CmuxNextDaemon
 import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// page has its page and chrome when the pane first asks for its content.
 @MainActor @Suite(.serialized) struct ChromiumNewTabFirstFrameTests {
     @Test func aNewTabPageHasItsChromeWhenThePaneFirstShowsIt() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }  // Chromium runs
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
@@ -33,7 +34,7 @@ import Testing
     /// page follows in the next pass, with no asynchronous task in between.
     @Test func aStandInOnAnyAddressHasItsChromeRightAfterTheKeysFrame() throws {
         var afterFrame: [@MainActor () -> Void] = []
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), afterFrame: { afterFrame.append($0) })
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), afterFrame: { afterFrame.append($0) }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
@@ -60,7 +61,7 @@ import Testing
     /// 65 ms, and a page view remount on the fleet).
     @Test func aStandInsPageAndChromeMoveToTheDaemonsTab() throws {
         // The key's frame committed: the work runs at once.
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), afterFrame: { $0() })
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), afterFrame: { $0() }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
@@ -85,7 +86,7 @@ import Testing
     /// starting) takes the asynchronous path, which must still find the tab's closed history:
     /// the fast path may claim it only for the page it makes.
     @Test func aNewTabPageNotMadeNowLeavesItsClosedHistoryForTheLaterPage() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         cache.chromiumNow.runs = { false }  // Chromium still starting
         cache.chromiumNow.make = { _ in Issue.record("no page is made while Chromium starts"); return nil }
         let url = try #require(URL(string: BrowserNewTabPage.chromiumURL))

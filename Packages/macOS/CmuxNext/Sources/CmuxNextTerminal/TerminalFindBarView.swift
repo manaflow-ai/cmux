@@ -15,10 +15,12 @@ final class TerminalFindBarView: NSView {
     let pill: FindPillView
     private var shownFocusRequest = 0
     /// Follows the controller: one render per frame however many of its values changed.
-    private var watch: FrameObservation<Shown>?
+    private(set) var watch: FrameObservation<Shown>?
+    /// The scheduler's causes: the bar's own edits run as the person's (``asPerson(_:)``).
+    private let causes: ObservationCauses
 
     /// What the bar shows of its controller.
-    private struct Shown: Equatable {
+    struct Shown: Equatable {
         var presented: Bool
         var query: String
         var count: TerminalFindCount
@@ -32,10 +34,13 @@ final class TerminalFindBarView: NSView {
         }
     }
 
-    /// - Parameter mainWork: The app's main-thread scheduler the bar follows `find` through; nil (tests)
-    ///   renders `find` once.
-    init(find: TerminalFindController, mainWork: MainWorkScheduler?) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler the bar follows `find` through.
+    ///   - node: The terminal host's node (``TerminalHostView/node``): hidden, the bar follows nothing
+    ///     and reads once when it shows.
+    init(find: TerminalFindController, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.find = find
+        causes = mainWork.causes
         pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -46,9 +51,15 @@ final class TerminalFindBarView: NSView {
             pill.topAnchor.constraint(equalTo: topAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        pill.onQueryChange = { [weak self] in self?.find.updateQuery($0) }
-        pill.onCommand = { [weak self] in self?.run($0) }
-        follow(on: mainWork)
+        pill.onQueryChange = { [weak self] query in self?.asPerson { $0.find.updateQuery(query) } }
+        pill.onCommand = { [weak self] command in self?.asPerson { $0.run(command) } }
+        follow(on: mainWork, node: node)
+    }
+
+    /// Runs a change the person made in the bar (a key in its field, a click on its buttons) as theirs,
+    /// so the bar's render runs in that input's response pass, before its commit.
+    private func asPerson(_ change: (TerminalFindBarView) -> Void) {
+        causes.withCause(.person) { change(self) }
     }
 
     @available(*, unavailable)
@@ -66,19 +77,17 @@ final class TerminalFindBarView: NSView {
         guard pill.isPresented, pill.isEditing, let command = Self.command(for: event), command != .close else {
             return super.performKeyEquivalent(with: event)
         }
-        run(command)
+        asPerson { $0.run(command) }
         return true
     }
 
     // MARK: Rendering
 
-    /// Renders the controller now and once per frame after each change. The bar's own keys (typing,
-    /// Return, Escape) are a person's changes: they render in that key's input-response pass.
-    private func follow(on mainWork: MainWorkScheduler?) {
+    /// Renders the controller now and once per frame after each change. The bar's own edits and
+    /// clicks run as the person's (``asPerson(_:)``): they render in that input's response pass.
+    private func follow(on mainWork: MainWorkScheduler, node: VisibilityNode?) {
         let find = self.find
-        guard let mainWork else { return render(Shown(find)) }
-        // node-free: the bar has no VisibilityNode (its host has none); the apply only sets the pill.
-        let watch = FrameObservation(owner: "Terminal.findBar", delivery: .visible(nil), on: mainWork) {
+        let watch = FrameObservation(owner: "Terminal.findBar", delivery: .visible(node), on: mainWork) {
             Shown(find)
         } onChange: { [weak self] shown in
             self?.render(shown)

@@ -22,10 +22,10 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     /// Runs a registry action through the App (the cycle and attach buttons).
     package var perform: @MainActor (TextBoxCommand) -> Void = { _ in }
     /// Follows the model: one apply per frame however many of its values changed.
-    private var watch: FrameObservation<Shown>?
+    private(set) var watch: FrameObservation<Shown>?
 
     /// What the strip shows of its model.
-    private struct Shown: Equatable {
+    struct Shown: Equatable {
         var text: String
         var action: TextBoxSubmitAction
         var visible: Bool
@@ -37,9 +37,11 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         }
     }
 
-    /// - Parameter mainWork: The app's main-thread scheduler the strip follows `model` through (the
-    ///   terminal host's); nil (tests) shows `model` once, and the controller's own calls update it.
-    package init(model: TextBoxModel, mainWork: MainWorkScheduler? = nil) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler the strip follows `model` through (the terminal host's).
+    ///   - node: The terminal host's node (``TerminalHostView/node``): hidden, the strip follows nothing
+    ///     and reads once when it shows.
+    package init(model: TextBoxModel, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.model = model
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 36))
         wantsLayer = true
@@ -85,18 +87,16 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         attachButton.action = #selector(attach(_:))
         attachButton.image = NSImage.icon(.composerAttach, size: 14)
         attachButton.setAccessibilityLabel(TextBoxStrings.addFiles)
-        follow(on: mainWork)
+        follow(on: mainWork, node: node)
     }
 
     @available(*, unavailable)
     package required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// Shows the model's text, action and visibility now, and once per frame after each change.
-    private func follow(on mainWork: MainWorkScheduler?) {
+    private func follow(on mainWork: MainWorkScheduler, node: VisibilityNode?) {
         let model = self.model
-        guard let mainWork else { return show(Shown(model)) }
-        // node-free: the strip has no VisibilityNode (its terminal host has none); the apply only sets its views.
-        let watch = FrameObservation(owner: "Terminal.textBox", delivery: .visible(nil), on: mainWork) {
+        let watch = FrameObservation(owner: "Terminal.textBox", delivery: .visible(node), on: mainWork) {
             Shown(model)
         } onChange: { [weak self] shown in
             self?.show(shown)

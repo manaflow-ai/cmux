@@ -11,7 +11,7 @@ extension TabContentCache {
     /// `daemon`'s hang watch.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
-                                      mainWork: mainWork)
+                                      mainWork: mainWork, node: node(for: tab.id))
         let key = tab.id
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }

@@ -49,7 +49,7 @@ import Testing
 
         init(reveal: LaunchReveal) {
             _ = NSApplication.shared
-            session = TerminalSession(io: io)
+            session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: TerminalLaunchFrameTests.size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

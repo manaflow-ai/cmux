@@ -39,7 +39,9 @@ import Testing
         rig.stop()
     }
 
-    @Test func aBadgeDrawsTheNewLookAfterTheApply() throws {
+    /// The watch, not the badge, repaints it: the badge is marked for display in the frame after the
+    /// change, never in the change's own turn, and then draws the new look.
+    @Test func aBadgeIsMarkedForDisplayInTheFrameAfterTheChange() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         defer { Self.keys.forEach { TunableStore.shared.set($0, nil) } }
@@ -48,9 +50,12 @@ import Testing
         root.addSubview(badge)
         badge.updateLayer()
         #expect(badge.look == NotificationBadgeLook.tunable.defaultValue)
+        badge.needsDisplay = false // the display pass that drew it
         let watch = SidebarLookWatch(root: root, on: rig.work)
         try #require(TunableStore.shared.set(Self.keys[0], NotificationBadgeLook.outline.tunableValue) != nil)
+        #expect(!badge.needsDisplay, "the badge was marked in the change's own turn (a hop per change)")
         rig.frame()
+        #expect(badge.needsDisplay, "the watch's apply did not mark the badge for display")
         badge.updateLayer()
         #expect(badge.look == .outline, "the badge kept painting \(badge.look)")
         watch.cancel()
@@ -81,6 +86,33 @@ import Testing
                 "a pane changed its look in the change's own turn")
         rig.frame()
         #expect(chromes.allSatisfy { $0.attentionLook == .strong }, "a pane kept its look after the frame")
+        rig.stop()
+    }
+}
+
+/// The drop highlight follows its tunables through one FrameObservation: two changes in a turn swap
+/// its renderer once, in the next frame.
+@MainActor @Suite(.serialized) struct DropHighlightWatchTests {
+    @Test func twoStyleChangesSwapTheRendererOnceInTheNextFrame() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(DropOverlayTunables.all)
+        let key = DropOverlayTunables.style.key
+        defer { TunableStore.shared.set(key, nil) }
+        let rig = LookFrameRig()
+        let highlight = DropHighlightView()
+        highlight.follow(on: rig.work)
+        let start = highlight.style
+        let first = try #require(highlight.subviews.first)
+        let styles = DropOverlayStyle.allCases.filter { $0 != start }
+        try #require(styles.count >= 2)
+        try #require(TunableStore.shared.set(key, styles[0].tunableValue) != nil)
+        try #require(TunableStore.shared.set(key, styles[1].tunableValue) != nil)
+        #expect(highlight.style == start && highlight.subviews.first === first, "a change swapped the renderer in its own turn")
+        rig.frame()
+        #expect(highlight.style == styles[1], "the frame applied \(highlight.style), not the last style")
+        #expect(highlight.subviews.count == 1 && highlight.subviews.first !== first, "the old renderer stayed installed")
+        rig.frame()
+        #expect(highlight.style == styles[1])
         rig.stop()
     }
 }

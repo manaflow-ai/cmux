@@ -39,7 +39,7 @@ public final class SidebarContainerView: NSView {
     public let railView = SidebarRailView()
     let railCards = SidebarRailHoverCards()
     private var observation: Task<Void, Never>?
-    /// The sidebar's one watch of its Debug Settings looks (``SidebarLookWatch``); nil without a scheduler (tests).
+    /// The sidebar's one watch of its Debug Settings looks (``SidebarLookWatch``), made in `init`.
     private var lookWatch: SidebarLookWatch?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
@@ -116,8 +116,8 @@ public final class SidebarContainerView: NSView {
     /// - Parameters:
     ///   - model: What the sidebar shows.
     ///   - mainWork: The app's main-thread scheduler: the rows' and headers' Debug Settings looks follow
-    ///     through it, once per frame. The App passes its one; nil (tests) reads them as each view draws.
-    public init(model: SidebarModel, mainWork: MainWorkScheduler? = nil) {
+    ///     through it, once per frame.
+    public init(model: SidebarModel, mainWork: MainWorkScheduler) {
         self.model = model
         sidebarView = SidebarView(model: model)
         handle = SidebarResizeHandle()
@@ -156,7 +156,7 @@ public final class SidebarContainerView: NSView {
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         mountRail()
         observe()
-        if let mainWork { lookWatch = SidebarLookWatch(root: self, on: mainWork) }
+        lookWatch = SidebarLookWatch(root: self, on: mainWork)
     }
 
     @available(*, unavailable)

@@ -130,14 +130,12 @@ public final class TerminalSession {
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
     let frameHold = TerminalFrameHold()
-    /// READY snapshots restored in place, and surfaces swapped in for a
-    /// later VT replay (diagnostics: a snapshot attach never swaps).
+    /// READY snapshots restored in place, and surfaces swapped in for a later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
     /// Last frames shown while this session attached (``showLastFrame(_:)``).
     private(set) var lastFrameHolds = 0
-    /// Local-history restores whose history did not match the owner's (or
-    /// failed): each one asked the owner for READY + history.
+    /// Local-history restores whose history did not match the owner's (or failed): each one asked the owner for READY + history.
     private(set) var localHistoryMismatches = 0
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
@@ -152,15 +150,13 @@ public final class TerminalSession {
     ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
     ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
     ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
-    ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``): the host's find bar,
-    ///     scrollbar and TextBox follow their models through it, once per frame. The App passes its one;
-    ///     nil (tests) follows no change.
+    ///   - mainWork: The app's main-thread scheduler, and `node` the tab's node (`TabContentCache.node(for:)`; nil: no
+    ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
-                modifiers: TerminalModifierWatch? = nil,
-                mainWork: MainWorkScheduler? = nil) {
+                modifiers: TerminalModifierWatch? = nil, mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -173,7 +169,7 @@ public final class TerminalSession {
         let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
         input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
-        view = TerminalHostView(mainWork: mainWork)
+        view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)

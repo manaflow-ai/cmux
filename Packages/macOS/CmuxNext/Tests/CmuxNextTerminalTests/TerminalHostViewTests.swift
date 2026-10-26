@@ -61,7 +61,107 @@ import Testing
         #expect(bar.pill.query.isEmpty, "the bar rendered a query in the change's own turn")
         rig.frame()
         #expect(bar.pill.query == "error")
+        #expect(bar.watch?.deliveriesScheduled == 1, "five query changes scheduled \(bar.watch?.deliveriesScheduled ?? 0) renders")
         rig.stop()
+    }
+
+    /// Typing in the bar and Escape are the person's changes: the bar renders them in that key's
+    /// input-response pass, not a frame later.
+    @Test func theBarsOwnTypingAndEscapeRenderInTheKeysPass() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let host = TerminalHostView(mainWork: rig.work)
+        let find = TerminalFindController()
+        find.open(takeFocus: false)
+        host.attachFind(find)
+        let bar = try #require(Self.findBars(in: host).first)
+        let typed = try #require(bar.pill.onQueryChange)
+        typed("error")
+        #expect(rig.work.causes.flushPersonCaused() == 1, "typing in the bar waited for a later frame")
+        #expect(bar.watch?.value.query == "error")
+        let command = try #require(bar.pill.onCommand)
+        command(.close)
+        #expect(bar.pill.isPresented, "Escape hid the pill inside its own change")
+        #expect(rig.work.causes.flushPersonCaused() == 1, "Escape waited for a later frame")
+        #expect(!bar.pill.isPresented, "the pill stayed after Escape's pass")
+        rig.stop()
+    }
+
+    @Test func scrollbarChangesReachTheScrollerOnceInTheNextFrame() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let io = ScriptedTerminalIO()
+        defer { io.finish() }
+        let session = TerminalSession(io: io, mainWork: rig.work)
+        let watch = try #require(session.view.scrollbarWatch)
+        for offset in 1...5 { session.model.scrollbar = Self.bar(offset) }
+        #expect(session.view.scroller.shown == nil, "the scroller moved in the change's own turn")
+        rig.frame()
+        #expect(session.view.scroller.shown == Self.bar(5))
+        #expect(watch.deliveriesScheduled == 1, "five scrollbar changes scheduled \(watch.deliveriesScheduled) applies")
+        rig.stop()
+    }
+
+    @Test func aSurfaceSwapCancelsTheOldSurfacesScrollbarWatch() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let (firstIO, secondIO) = (ScriptedTerminalIO(), ScriptedTerminalIO())
+        defer { firstIO.finish(); secondIO.finish() }
+        let first = TerminalSession(io: firstIO, mainWork: rig.work), second = TerminalSession(io: secondIO, mainWork: rig.work)
+        let old = try #require(first.view.scrollbarWatch)
+        first.view.install(second.surfaceView)
+        #expect(old.isCancelled, "the replaced surface's watch kept following")
+        let new = try #require(first.view.scrollbarWatch)
+        #expect(new !== old)
+        first.model.scrollbar = Self.bar(1)
+        rig.frame()
+        #expect(first.view.scroller.shown == nil, "the replaced surface's scrollbar reached the scroller")
+        second.model.scrollbar = Self.bar(2)
+        rig.frame()
+        #expect(first.view.scroller.shown == Self.bar(2))
+        rig.stop()
+    }
+
+    /// A terminal whose tab is hidden (another tab selected, a hidden workspace) does no scroller work
+    /// for its output: it tracks nothing, and reads once when the tab shows.
+    @Test func aHiddenTerminalsScrollbarAppliesOnceWhenItShows() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let io = ScriptedTerminalIO()
+        defer { io.finish() }
+        let node = VisibilityNode(root: "tab", own: .hidden)
+        let session = TerminalSession(io: io, mainWork: rig.work, node: node)
+        let watch = try #require(session.view.scrollbarWatch)
+        for offset in 1...5 { session.model.scrollbar = Self.bar(offset) }
+        rig.frame()
+        #expect(session.view.scroller.shown == nil, "a hidden terminal's scroller followed its output")
+        #expect(watch.deliveriesScheduled == 0 && watch.trackingCallbacks == 0, "a hidden terminal tracked its scrollbar")
+        node.set(.visible)
+        #expect(session.view.scroller.shown == Self.bar(5), "the shown terminal did not read its scrollbar")
+        #expect(watch.deliveriesScheduled == 0, "showing scheduled an apply instead of reading once")
+        rig.stop()
+    }
+
+    @Test func aTextBoxShowsACycleAndATextSetOnceInTheNextFrame() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let model = TextBoxModel()
+        try #require(model.catalog.count > 1)
+        let view = TextBoxView(model: model, mainWork: rig.work, node: nil)
+        let watch = try #require(view.watch)
+        model.cycle()
+        model.text = "make test"
+        model.isVisible = true
+        #expect(view.textView.string.isEmpty && view.isHidden, "the strip showed a change in its own turn")
+        rig.frame()
+        #expect(view.textView.string == "make test" && !view.isHidden)
+        #expect(watch.value.action == model.action)
+        #expect(watch.deliveriesScheduled == 1, "three model changes scheduled \(watch.deliveriesScheduled) applies")
+        rig.stop()
+    }
+
+    static func bar(_ offset: Int) -> TerminalScrollbar {
+        TerminalScrollbar(totalRows: 100, offsetRows: UInt64(offset), visibleRows: 24)
     }
 }
 

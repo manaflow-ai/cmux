@@ -20,7 +20,7 @@ public final class TerminalHostView: NSView {
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
-    private let scroller = TerminalScroller()
+    let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -90,16 +90,21 @@ public final class TerminalHostView: NSView {
     private let aroundListener = TerminalHostThemeListener()
 
     /// The app's main-thread scheduler: the find bar's presence, the scrollbar, the find bar and the
-    /// TextBox follow their models through it, one apply per frame. nil (tests) follows no change:
-    /// each shows what its model held when it was built.
-    let mainWork: MainWorkScheduler?
+    /// TextBox follow their models through it, one apply per frame.
+    let mainWork: MainWorkScheduler
+    /// The terminal's tab's node (`TabContentCache.node(for:)`), visible while a visible pane selects
+    /// the tab. While it is hidden, the watches of the find bar, the scrollbar and the TextBox track
+    /// nothing; when it shows, they read once. So a hidden terminal's output does no view work.
+    /// nil: the host has no tab (tests and fixtures), and its watches apply while hidden too.
+    let node: VisibilityNode?
     /// Installs the find bar the first time find opens (``attachFind(_:)``); nil once it is installed.
     private var findPresence: FrameObservation<Bool>?
     /// The current surface's scrollbar (``followScrollbar(of:)``).
-    private var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
+    private(set) var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
 
-    init(mainWork: MainWorkScheduler? = nil) {
+    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
         self.mainWork = mainWork
+        self.node = node
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -135,9 +140,7 @@ public final class TerminalHostView: NSView {
     /// in the key's own frame.
     func attachFind(_ find: TerminalFindController) {
         if find.isPresented { return installFindBar(find) }
-        guard let mainWork else { return }
-        // node-free: the host has no VisibilityNode; the apply only builds the bar, once.
-        findPresence = FrameObservation(owner: "Terminal.findPresence", delivery: .visible(nil), on: mainWork) { [weak find] in
+        findPresence = FrameObservation(owner: "Terminal.findPresence", delivery: .visible(node), on: mainWork) { [weak find] in
             find?.isPresented ?? false
         } onChange: { [weak self, weak find] presented in
             guard presented, let self, let find else { return }
@@ -149,7 +152,7 @@ public final class TerminalHostView: NSView {
         findPresence?.cancel()
         findPresence = nil
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
-        let bar = TerminalFindBarView(find: find, mainWork: mainWork)
+        let bar = TerminalFindBarView(find: find, mainWork: mainWork, node: node)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
         needsLayout = true
@@ -258,9 +261,7 @@ public final class TerminalHostView: NSView {
         scrollbarWatch?.cancel()
         scrollbarWatch = nil
         guard current === surfaceView, let model = surfaceView.session?.model else { return }
-        guard let mainWork else { return scroller.update(model.scrollbar) }
-        // node-free: the host has no VisibilityNode; the apply only hands the scroller its state.
-        let watch = FrameObservation(owner: "Terminal.scrollbar", delivery: .visible(nil), on: mainWork) { [weak model] in
+        let watch = FrameObservation(owner: "Terminal.scrollbar", delivery: .visible(node), on: mainWork) { [weak model] in
             model?.scrollbar
         } onChange: { [weak self] bar in
             self?.scroller.update(bar)

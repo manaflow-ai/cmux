@@ -33,7 +33,7 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
-    /// overlay, applied once per frame (nil without a scheduler: tests).
+    /// overlay, applied once per frame (made in `init`).
     private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
@@ -148,13 +148,12 @@ public final class LayoutRootView: NSView {
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
     /// `mainWork` is the app's main-thread scheduler: the Debug Settings looks of the panes' overlays
-    /// and the drop highlight follow through it. The App passes its one; nil (tests) reads them when
-    /// each view is made or shown.
+    /// and the drop highlight follow through it.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil, mainWork: MainWorkScheduler? = nil) {
+                input: InputEventTap? = nil, mainWork: MainWorkScheduler) {
         self.model = model
         inputTap = input
         self.scrollFocusSignals = scrollFocusSignals
@@ -178,7 +177,7 @@ public final class LayoutRootView: NSView {
             planeHost?.paneShapesDidChange(overlayPlane)
         }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
-        if let mainWork { followLooks(on: mainWork) }
+        followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])

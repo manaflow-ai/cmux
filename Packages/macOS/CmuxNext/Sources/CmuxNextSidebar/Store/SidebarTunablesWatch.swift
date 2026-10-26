@@ -1,5 +1,4 @@
 import AppKit
-import Observation
 
 /// The sidebar tunables workspace rows draw from (agent mark, presence dots,
 /// row badge, stack size, quiet unnamed rows), read once for every row. Each
@@ -13,12 +12,10 @@ final class SidebarTunablesWatch {
 
     typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant, quietUnnamedRows: Bool)
 
-    private let rows = NSHashTable<WorkspaceRowView>.weakObjects()
     private var current: Values?
 
-    /// The current values; `changed()` redraws `row`.
-    func values(for row: WorkspaceRowView) -> Values {
-        rows.add(row)
+    /// The current values, read once and kept until ``drop()``.
+    func values() -> Values {
         if let current { return current }
         let values = (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value, SidebarRowBadgeStyle.tunable.value,
                       SidebarRowBadgeStackCap.tunable.value, SidebarTunables.workspaceTitleMotion.value, SidebarTunables.quietUnnamedRows.value)
@@ -27,15 +24,9 @@ final class SidebarTunablesWatch {
     }
 
     /// Forgets the kept values: the next row configured reads them again. The look watch calls it
-    /// before it redraws its rows.
+    /// before it redraws its rows; a test that sets a tunable and draws a row in the same turn calls
+    /// it right after the set.
     func drop() {
         current = nil
-    }
-
-    /// Drops the kept values and redraws every live row now: a test that sets a tunable and draws a
-    /// row in the same turn calls it right after the set.
-    func changed() {
-        drop()
-        for row in rows.allObjects { row.redrawLastConfiguration() }
     }
 }
