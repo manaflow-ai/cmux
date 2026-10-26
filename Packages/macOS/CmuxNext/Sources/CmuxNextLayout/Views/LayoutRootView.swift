@@ -631,12 +631,19 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// Whether its workspace is off screen (parked on no screen), set by the workspace's controller: its passes
+    /// then count as ``hiddenLayoutPasses``.
+    public var isOffScreen = false
+    /// Layout passes while ``isOffScreen`` (`debug.layout_counters` `hidden_workspace_layouts`); a hidden workspace's
+    /// changes update the model only, so a pass here is work nobody sees.
+    public private(set) var hiddenLayoutPasses: UInt64 = 0
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
+        if isOffScreen { hiddenLayoutPasses &+= 1 }
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {

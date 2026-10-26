@@ -72,6 +72,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
     /// node (an unmounted workspace has none); until then each pane's node is a root.
     var visibilityNode: VisibilityNode? { nil }
+    /// Tree changes that reached it while off screen (`debug.layout_counters` `hidden_workspace_applies`): each
+    /// updated the handles only and waited for the show.
+    private(set) var hiddenApplies: UInt64 = 0
     /// The latest mapping that came while off screen: applied once, at rest, when it shows.
     private var deferredApply: LayoutMapping.Result?
     /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
@@ -91,6 +94,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         parkedSerial = serial
         isParked = true
         isOffScreen = true
+        layoutView.isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
     }
@@ -119,6 +123,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func comeOnScreen() {
         guard isOffScreen else { return }
         isOffScreen = false
+        layoutView.isOffScreen = false
         if let pending = deferredApply {
             deferredApply = nil
             apply(pending, force: true)
@@ -324,6 +329,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Off screen: the handles stay current (commands translate through them) and an empty
         // workspace is still repaired; the layout waits for the frame that shows it.
         if isOffScreen {
+            hiddenApplies &+= 1
             deferredApply = result
             repairIfEmpty()
             return
