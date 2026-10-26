@@ -39,8 +39,10 @@ export default agentPaneEntry({
     definition: chatMinimapPlaceholder,
     script: [
       {
-        name: "streaming at the bottom",
-        run: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap__placeholder")),
+        // Both variants: the picture drawn (the streaming one draws the rows above its reply, and its
+        // placeholder comes in the same pass; the at-rest one has none).
+        name: "drawn",
+        run: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-minimap canvas[data-draws]")),
       },
     ],
   },

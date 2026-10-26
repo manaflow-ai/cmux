@@ -60,6 +60,10 @@ type Props = {
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: ConversationLayout };
 
+/// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
+/// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
+export const placeholderLook = () => experimentArm(chatMinimapPlaceholder, { stored: {} });
+
 /// Draws nothing unless the setting is on and the right gutter has room for it.
 export function ChatMinimap(props: Props) {
   const on = useChatMinimap();
@@ -116,9 +120,7 @@ const Minimap = memo(function Minimap({
   const control = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   /// The placeholder over the streaming reply: its place on the map, set once per stream.
-  // The look of the placeholder: the shimmer, except in the gallery, which compares the others. Only
-  // the gallery sets an arm in globalThis.cmuxExperiments; a stored override in the app is ignored.
-  const [look] = useState(() => experimentArm(chatMinimapPlaceholder, { stored: {} }));
+  const [look] = useState(placeholderLook);
   const [hold, setHold] = useState<{ top: number; height: number } | undefined>(undefined);
   const live = useRef({ viewportHeight, track, streaming });
   live.current = { viewportHeight, track, streaming };
