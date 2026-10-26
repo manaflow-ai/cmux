@@ -1,5 +1,5 @@
 #if DEBUG
-import AppKit
+public import AppKit
 
 // `debug.daemon_update` (captures): where a machine section header sits, so a synthetic hover opens its tooltip.
 public extension SidebarContainerView {
