@@ -32,18 +32,33 @@ memory_pressure -S -l critical`). Printed: the time until every eligible
 hidden page hibernated, the footprint before and after, and whether the media
 page or the driven page ever hibernated (they must not).
 
+With --background-timeline 0,30,300,600 the bench runs only this phase
+(Chromium, hibernation off): for each mode of --background-freeze (off, then on
+at --freeze seconds) it opens --tabs new pages, each its own site, hides them all
+behind the shown tab, and at each point (seconds after the hide) reads, for each
+hidden page, the footprint (PMF) of the renderer that hosts only that page and
+that renderer's task role. Chrome backgrounds a renderer whose pages are all
+hidden (role background) and purges its memory 1 to 4 minutes later, at once
+when frozen; the phase shows whether cmux's hidden pages get the same
+(plans/cmux-next/memory-DESIGN.md, "Hidden Chromium pages: backgrounded and purged").
+
 Usage (a fleet or capture mini, never a laptop; DEV build, it reads debug.surfaces):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
       [--config JSON] [--pressure] [--out FILE.json]
+  bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 [--background-freeze off,on]
+      [--freeze 10] [--tabs 6] [--heap-mb 40] [--out FILE.json]
   launch (default): starts the bundle's app with a scratch HOME and config, quits it at the end.
   attach (--socket PATH --app-pid PID): an app `capture-host launch` started in a capture
       slot; the run's settings are set over the socket (the slot's own cmux-next.json),
       and its tabs are closed at the end.
-Prints PERF-HIBERNATE lines (one per phase and kind, one per wake, a summary).
+Prints PERF-HIBERNATE lines (one per phase and kind, one per wake, a summary);
+the timeline prints PERF-HIBERNATE-BACKGROUND lines (one per mode and point, a
+summary per mode, and a verdict).
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import http.server
 import json
 import os
@@ -58,6 +73,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, owned, sample, end_bundle)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+import bench_renderer_sharing as brs  # noqa: E402  (renderer_map)
 
 ARTICLE = "<p>" + ("Hibernation frees a hidden page's renderer and brings it back on demand. " * 30) + "</p>"
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>Hibernate {n}</title>
@@ -233,6 +249,190 @@ def percentile(values, q):
     return values[min(len(values) - 1, int(len(values) * q))] if values else None
 
 
+# --- Hidden renderers: backgrounded and purged (--background-timeline) ---
+
+class _TaskInfo(ctypes.Structure):
+    """struct proc_taskinfo (sys/proc_info.h), PROC_PIDTASKINFO."""
+    _fields_ = [("virtual_size", ctypes.c_uint64), ("resident_size", ctypes.c_uint64),
+                ("total_user", ctypes.c_uint64), ("total_system", ctypes.c_uint64),
+                ("threads_user", ctypes.c_uint64), ("threads_system", ctypes.c_uint64),
+                ("policy", ctypes.c_int32), ("faults", ctypes.c_int32), ("pageins", ctypes.c_int32),
+                ("cow_faults", ctypes.c_int32), ("messages_sent", ctypes.c_int32),
+                ("messages_received", ctypes.c_int32), ("syscalls_mach", ctypes.c_int32),
+                ("syscalls_unix", ctypes.c_int32), ("csw", ctypes.c_int32), ("threadnum", ctypes.c_int32),
+                ("numrunning", ctypes.c_int32), ("priority", ctypes.c_int32)]
+
+
+PROC_PIDTASKINFO = 4
+# The task base priority each task role sets (xnu osfmk/kern/sched.h, task_policy.c):
+# TASK_FOREGROUND_APPLICATION BASEPRI_FOREGROUND 47, TASK_BACKGROUND_APPLICATION
+# BASEPRI_BACKGROUND 46, an unset role BASEPRI_DEFAULT 31, darwin background at most MAXPRI_THROTTLE 4.
+# Chrome's Process::SetPriority (base/process/process_mac.cc) sets the background role for
+# Priority::kBestEffort. The role is read from the base priority: task_policy_get needs the task port.
+TASK_ROLES = {47: "foreground", 46: "background", 31: "default"}
+BACKGROUNDED_ROLES = {"background", "throttled"}
+# The share of a hidden page's 0 s PMF that a purge must give back by the last point.
+PMF_FALL_PCT = 10.0
+
+
+def task_role(pid: int) -> tuple[str | None, int | None]:
+    """(role, base priority) of `pid`, or (None, None) once it is gone."""
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    written = bm._libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                                      ctypes.byref(info), ctypes.c_int(size))
+    if written != size:
+        return None, None
+    return role_name(info.priority), info.priority
+
+
+def role_name(priority: int) -> str:
+    if priority in TASK_ROLES:
+        return TASK_ROLES[priority]
+    return "throttled" if priority <= 4 else f"pri{priority}"
+
+
+def own_renderers(sock: str) -> dict[str, list[int]]:
+    """{tab: renderer pids that host that tab and no other} from the app's `resources` report."""
+    mapping = brs.renderer_map(sock)
+    if "error" in mapping:
+        print(f"   resources: {mapping['error']}", file=sys.stderr)
+        return {}
+    found: dict[str, list[int]] = {}
+    for pid, tabs in mapping["owners"].items():
+        if len(tabs) == 1:
+            found.setdefault(tabs[0], []).append(pid)
+    return found
+
+
+def counts_text(counts: dict[str, int]) -> str:
+    return ",".join(f"{key}:{value}" for key, value in sorted(counts.items())) or "none"
+
+
+def hidden_point(mode: str, point: float, hidden_at: float, tabs: list[str], renderers: dict[str, list[int]],
+                 front: str, sock: str) -> dict:
+    """One sample of the hidden pages' own renderers: PMF per page and each renderer's task role."""
+    per_tab, roles, priorities = [], {}, []
+    for tab in tabs:
+        footprint, seen = 0.0, False
+        for pid in renderers.get(tab, []):
+            got = bm.usage(pid)
+            role, priority = task_role(pid)
+            if got is None or role is None:
+                continue
+            seen = True
+            footprint += got[1] / bm.MB
+            roles[role] = roles.get(role, 0) + 1
+            priorities.append(priority)
+        if seen:
+            per_tab.append(footprint)
+    front_roles = sorted({role for role in (task_role(pid)[0] for pid in renderers.get(front, [])) if role})
+    frozen = set(hibernation(sock).get("frozen") or [])
+    row = {"freeze": mode, "at_s": point, "measured_at_s": round(time.monotonic() - hidden_at, 1),
+           "tabs": len(tabs), "measured_tabs": len(per_tab),
+           "per_hidden_tab_pmf_mb": round(sum(per_tab) / len(per_tab), 1) if per_tab else None,
+           "max_hidden_tab_pmf_mb": round(max(per_tab), 1) if per_tab else None,
+           "renderer_task_role": roles, "renderer_base_priority": sorted(priorities),
+           "front_task_role": ",".join(front_roles) or None, "frozen": len(frozen & set(tabs))}
+    print(f"PERF-HIBERNATE-BACKGROUND freeze={mode} at_s={point:g} measured_at_s={row['measured_at_s']} "
+          f"per_hidden_tab_pmf_mb={row['per_hidden_tab_pmf_mb']} max_hidden_tab_pmf_mb={row['max_hidden_tab_pmf_mb']} "
+          f"renderer_task_role={counts_text(roles)} front_task_role={row['front_task_role']} "
+          f"frozen={row['frozen']}/{len(tabs)} measured={len(per_tab)}/{len(tabs)}", flush=True)
+    return row
+
+
+def timeline_summary(mode: str, rows: list[dict]) -> dict:
+    """Whether the hidden renderers were backgrounded and their PMF fell between the first and last point."""
+    pmf = [row["per_hidden_tab_pmf_mb"] for row in rows]
+    first, last = pmf[0], pmf[-1]
+    fell_mb = round(first - last, 1) if first is not None and last is not None else None
+    fell_pct = round(100 * fell_mb / first, 1) if fell_mb is not None and first else None
+    # Backgrounded: every measured hidden renderer has a background role at the second point (30 s).
+    settled = rows[min(1, len(rows) - 1)]
+    roles = settled["renderer_task_role"]
+    backgrounded = bool(roles) and set(roles) <= BACKGROUNDED_ROLES
+    summary = {"freeze": mode, "pmf_mb": {f"{row['at_s']:g}s": row["per_hidden_tab_pmf_mb"] for row in rows},
+               "fell_mb": fell_mb, "fell_pct": fell_pct, "pmf_falls": fell_pct is not None and fell_pct >= PMF_FALL_PCT,
+               "backgrounded": backgrounded, "roles_at": f"{settled['at_s']:g}s", "roles": roles,
+               "frozen_at_end": rows[-1]["frozen"], "tabs": rows[-1]["tabs"]}
+    print(f"PERF-HIBERNATE-BACKGROUND-SUMMARY freeze={mode} "
+          f"pmf_mb={','.join(f'{key}:{value}' for key, value in summary['pmf_mb'].items())} "
+          f"fell_mb={fell_mb} fell_pct={fell_pct} pmf_falls={summary['pmf_falls']} "
+          f"backgrounded={backgrounded} roles_at_{summary['roles_at']}={counts_text(roles)} "
+          f"frozen_at_end={summary['frozen_at_end']}/{summary['tabs']}", flush=True)
+    return summary
+
+
+def background_verdict(summaries: list[dict]) -> str:
+    """`none` when every mode backgrounded its hidden renderers and their PMF fell, else the follow-up."""
+    if summaries and all(s["backgrounded"] and s["pmf_falls"] for s in summaries):
+        return "none"
+    return "shim-visibility"
+
+
+def background_timeline(app: bm.App, sock: str, ports: list[int], count: int, open_tab, front: str,
+                        opened_extra: list[str], points: list[float], modes: list[str], freeze: float) -> dict:
+    """Per freeze mode: new hidden pages' own renderer PMF and task role at each point after the hide.
+    The bench's last script call starts the agent grace (30 s), so a page freezes at the later of
+    --freeze and that grace; each point prints how many were frozen."""
+    result: dict = {"points_s": points, "modes": {}}
+    for number, mode in enumerate(modes):
+        value = freeze if mode == "on" else "off"
+        answer = bp.rpc(sock, "settings.set", {"path": "browser.freezeHiddenTabs", "value": value})
+        if answer.get("error"):
+            print(f"   settings.set browser.freezeHiddenTabs {value}: {answer['error']}", file=sys.stderr)
+        # New sites each mode, so each mode starts with new renderers.
+        tabs = []
+        for index in range(200 + 100 * number, 200 + 100 * number + count):
+            tab = open_tab("chromium", page_url("chromium", index, ports))
+            if tab:
+                tabs.append(tab)
+                opened_extra.append(tab)
+        app.run("tab.focus", target=front)
+        hidden_at = time.monotonic()
+
+        def mapped():
+            found = own_renderers(sock)
+            return found if all(tab in found for tab in tabs) else None
+
+        renderers = wait_for(mapped, 10, 0.5) or own_renderers(sock)
+        missing = [tab for tab in tabs if tab not in renderers]
+        if missing:
+            print(f"   {len(missing)} hidden tabs share a renderer or have none; they are not measured", file=sys.stderr)
+        rows = []
+        for point in points:
+            left = hidden_at + point - time.monotonic()
+            if left > 0:
+                time.sleep(left)  # test script: the next sample point after the hide
+            rows.append(hidden_point(mode, point, hidden_at, tabs, renderers, front, sock))
+        result["modes"][mode] = {"tabs": tabs, "renderers": {tab: renderers.get(tab, []) for tab in tabs},
+                                 "points": rows, "summary": timeline_summary(mode, rows)}
+        for tab in tabs:
+            app.run("tab.close", target=tab)
+            opened_extra.remove(tab)
+    result["follow_up"] = background_verdict([entry["summary"] for entry in result["modes"].values()])
+    print(f"PERF-HIBERNATE-BACKGROUND-VERDICT follow_up={result['follow_up']} "
+          f"(memory-DESIGN.md, \"Hidden Chromium pages: backgrounded and purged\")", flush=True)
+    return result
+
+
+def seconds_list(text: str) -> list[float]:
+    try:
+        points = sorted({float(item) for item in text.split(",") if item.strip()})
+    except ValueError:
+        points = []
+    if not points or points[0] < 0:
+        raise argparse.ArgumentTypeError("seconds after the hide, for example 0,30,300,600")
+    return points
+
+
+def freeze_modes(text: str) -> list[str]:
+    modes = [item.strip() for item in text.split(",") if item.strip()]
+    if not modes or any(mode not in ("off", "on") for mode in modes) or len(set(modes)) != len(modes):
+        raise argparse.ArgumentTypeError("off, on or off,on")
+    return modes
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -245,6 +445,10 @@ def main():
     parser.add_argument("--pressure", action="store_true", help="also simulate critical memory pressure")
     parser.add_argument("--pressure-reuse", action="store_true", help="pressure the bench tabs instead of opening new ones")
     parser.add_argument("--pressure-wait", type=float, default=0, help="seconds to wait for the pages under pressure (0: 1.5 s per page, at least 30)")
+    parser.add_argument("--background-timeline", type=seconds_list, metavar="S,S,...",
+                        help="only the hidden-renderer phase: sample at these seconds after the hide (0,30,300,600)")
+    parser.add_argument("--background-freeze", type=freeze_modes, default=["off", "on"], metavar="off,on",
+                        help="freeze modes of the hidden-renderer phase, in order (on: --freeze seconds)")
     parser.add_argument("--socket", help="attach: the running app's control socket")
     parser.add_argument("--app-pid", type=int, help="attach: the running app's pid")
     parser.add_argument("--out")
@@ -255,7 +459,10 @@ def main():
     engines = [e for e in args.engines.split(",") if e]
     ports = [serve() for _ in range(max(1, args.tabs))]
     # No neighbors: a tab beside the shown one would wake in the background before it is timed.
-    config = bm.merged({"browser": {"hibernation": "moderate", "freezeHiddenTabs": args.freeze, "keepNeighborTabsAwake": 0}},
+    # The hidden-renderer phase keeps every page loaded (hibernation off) for its whole timeline.
+    timeline = args.background_timeline
+    config = bm.merged({"browser": {"hibernation": "off" if timeline else "moderate", "freezeHiddenTabs": args.freeze,
+                                    "keepNeighborTabsAwake": 0}},
                        json.loads(args.config))
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
@@ -288,6 +495,12 @@ def main():
         return tab
 
     try:
+        if timeline:
+            front = open_tab("chromium", f"http://front.localhost:{ports[0]}/?n=front")
+            opened_extra.append(front)
+            report["background"] = background_timeline(app, sock, ports, args.tabs, open_tab, front, opened_extra,
+                                                       timeline, args.background_freeze, args.freeze)
+            return
         for engine in engines:
             opened[engine] = [t for t in (open_tab(engine, page_url(engine, i, ports)) for i in range(args.tabs)) if t]
         # One shown tab in front of them all (its page counts in every phase alike).
