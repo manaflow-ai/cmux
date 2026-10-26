@@ -218,6 +218,10 @@ MARKS = [
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
     ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    # p08-startup-058: the front window's saved picture, read and decoded on the files lane from main().
+    ("launch_picture_decoded", "front window's saved picture read and decoded"),
+    ("launch_picture_missed", "the first window asked before its picture's read ended"),
+    ("launch_picture_dropped", "the front window's picture untaken at startup complete"),
     # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),

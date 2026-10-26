@@ -127,6 +127,12 @@ public struct CmuxNextApp {
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
                                               hangWatch: hangWatch)
         DebugTimings.markLaunch("main.prestart")
+        // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
+        // which window is front comes from the launch snapshot, read there only when a picture was saved.
+        let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
+        environment.windowPictures = WindowPictureStore(state: state, work: work)
+        environment.windowPictures?.prefetchFront({ snapshot.flatMap { Self.frontSavedWindow(session: $0.session, stateDirectory: $0.state) } },
+                                                  mark: { DebugTimings.markLaunch($0) })
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -141,6 +147,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
+        if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.drop() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
@@ -158,5 +165,14 @@ public struct CmuxNextApp {
         withExtendedLifetime(delegate) {
             app.run()
         }
+    }
+
+    /// The window the launch shows first, from the daemon's launch snapshot: the open window with workspaces that
+    /// comes first in the saved order, which `WindowRegistry(records:)` makes the front of its recency. Nil without
+    /// a snapshot or window records. It reads the file: call it on a lane.
+    nonisolated static func frontSavedWindow(session: String, stateDirectory: URL?) -> String? {
+        guard let path = LaunchSnapshotLocation().path(session: session) ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory),
+              let records = (try? LaunchSnapshot.load(path: path, session: session))?.windows?.windows else { return nil }
+        return records.filter { !$0.isClosed && !($0.workspaceKeys.isEmpty && $0.workspaceKey == nil) }.min { $0.order < $1.order }?.id
     }
 }
