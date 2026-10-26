@@ -51,7 +51,7 @@ final class InputInvariantMonitor {
     /// Input or focus changed; check once it settles.
     func noteChange() {
         #if DEBUG
-        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.settled() }
+        settle.scheduleOnMain(after: Self.settleDelay) { [weak self] in self?.settled() }
         #endif
     }
 
