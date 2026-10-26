@@ -1,8 +1,8 @@
 // In cmux's Minimal Mode another agent's message is one line (conversation/IncomingMessageCard.tsx;
 // Leo 2026-10-24: "we could just have the first line be the thing that's there, and then you can
 // expand that"): the sender's chip, which still opens its chat, then the message's first line, with
-// no "Received message from" lead. The line is a button that opens the card in place and closes it
-// again; with Minimal Mode off the message draws as before.
+// no "Received message from" lead. Agent messages use this compact default independently of the
+// global Minimal Mode switch; the line opens the full selectable card in place and closes it again.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -64,7 +64,7 @@ const t = translatorFor("en");
 const text =
   "\n**Rebased** onto [main](https://example.com/main); ready for review.\n\nThe retry tests pass.\nCI is green.";
 
-async function line(id: string) {
+async function line(id: string, images?: { id: string; mimeType: string }[]) {
   const opened: string[] = [];
   root = createRoot(host);
   await act(async () =>
@@ -72,6 +72,7 @@ async function line(id: string) {
       <IncomingMessageLine
         id={id}
         message={{ name: "grid-lane", sessionId: "mux-grid", text, raw: text }}
+        images={images}
         onOpen={(sessionId) => void opened.push(sessionId)}
       />,
     ),
@@ -87,13 +88,21 @@ test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
   expect(resolveChatDisplay({}).minimal).toBe(false);
 });
 
-test("with Minimal Mode off the message draws as before: its line over the whole card", async () => {
+test("received messages default to a compact one-line row", async () => {
   const { toggle } = await line("normal-1");
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
-  expect(host.querySelector(".cv-received[data-minimal]")).toBeNull();
-  expect(toggle().getAttribute("aria-label")).toBe(t("message.label", { from: "grid-lane", to: t("message.self") }));
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+  expect(host.querySelector(".cv-received__body")).toBeNull();
+  expect(host.querySelector(".cv-received")?.getAttribute("data-minimal")).toBe("true");
+  expect(toggle().getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+  );
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a closed received message keeps image attachments inside its disclosure body", async () => {
+  await line("image-closed", [{ id: "image-1", mimeType: "image/png" }]);
+  expect(host.querySelector(".cv-message__images")).toBeNull();
+  expect(host.querySelector(".cv-received__body")).toBeNull();
 });
 
 test("in Minimal Mode the message is one line: the chip, then its first line, which opens and closes it", async () => {
@@ -126,36 +135,12 @@ test("in Minimal Mode the message is one line: the chip, then its first line, wh
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("turning Minimal Mode off draws the closed message's card again", async () => {
+test("Minimal Mode keeps the same compact received row", async () => {
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   await line("minimal-2");
   expect(host.querySelector(".cv-received__body")).toBeNull();
   await act(async () => setChatDisplay({}));
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
-});
-
-test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
-  const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
-  const motion = { ...foldMotion };
-  const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
-  const frames: Keyframe[][] = [];
-  proto.animate = (keyframes: Keyframe[]) => {
-    frames.push(keyframes);
-    return { onfinish: null, oncancel: null, cancel() {} };
-  };
-  Object.assign(foldMotion, { duration: () => 180, reducedMotion: () => false });
-  try {
-    setChatDisplay({ [MINIMAL_MODE_KEY]: true });
-    const { toggle } = await line("minimal-3");
-    await act(async () => toggle().click());
-    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 1]);
-    await act(async () => toggle().click());
-    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
-  } finally {
-    delete proto.animate;
-    Object.assign(foldMotion, motion);
-  }
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
 test("in Minimal Mode a closed message estimates as its line; one opened in this chat as its whole card", async () => {
@@ -172,17 +157,42 @@ test("in Minimal Mode a closed message estimates as its line; one opened in this
   };
   const height = (sessionId: string) =>
     layoutConversation([row] as never, 720, new Map(), undefined, undefined, undefined, sessionId).heights[0]!;
-  const normal = height("chat-a");
+  const closed = height("chat-a");
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   try {
-    const closed = height("chat-a");
-    expect(closed).toBeLessThan(normal);
     setMessageOpened("chat-a", "estimate-1", true);
     // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
     // same id stays closed.
-    expect(height("chat-a")).toBeGreaterThan(normal);
+    expect(height("chat-a")).toBeGreaterThan(closed);
     expect(height("chat-b")).toBe(closed);
   } finally {
     setMessageOpened("chat-a", "estimate-1", false);
+  }
+});
+
+test("the whole row toggles while the sender and nested actions remain independent", async () => {
+  const { toggle } = await line("whole-row");
+  const icon = host.querySelector<HTMLElement>(".cv-received__icon")!;
+  await act(async () => icon.click());
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-received__body")?.classList.contains("selectable")).toBe(true);
+  await act(async () => icon.click());
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a pointer disclosure still asks the transcript to hold its header", async () => {
+  const { ANCHORED_COLLAPSE_EVENT } = await import("../src/agent-session/acpmux/conversation/foldAnchor");
+  const { toggle } = await line("anchor-row");
+  let held = 0;
+  const hold = (event: Event) => {
+    held += 1;
+    event.preventDefault();
+  };
+  host.addEventListener(ANCHORED_COLLAPSE_EVENT, hold);
+  try {
+    await act(async () => toggle().click());
+    expect(held).toBe(1);
+  } finally {
+    host.removeEventListener(ANCHORED_COLLAPSE_EVENT, hold);
   }
 });
