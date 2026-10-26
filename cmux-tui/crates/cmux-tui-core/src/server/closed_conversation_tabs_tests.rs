@@ -35,7 +35,8 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
                 Some(capabilities.iter().map(|s| s.to_string()).collect()),
             )
             .unwrap();
-        let message = json!({"closed":[closed],"entries":[{"closed_kind":"conversation_tab"}]});
+        let message = json!({"closed":[closed],"entries":[{"kind":"closed","closed_kind":"conversation_tab"}],
+            "projection":[{"closed_kind":"conversation_tab"},{"kind":"custom","closed_kind":"conversation_tab"}]});
         writer.send_control(&message).unwrap();
         let read: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         for screens in [&read["closed"][0]["screens"], &read["closed"][0]["members"][0]["screens"]]
@@ -49,6 +50,7 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
             read["entries"][0]["closed_kind"],
             if canonical { "conversation_tab" } else { "browser_tab" }
         );
+        assert_eq!(read["projection"], message["projection"], "opaque projection data changed");
         assert_eq!(writer.project_conversation_tab_item(message), read);
     }
     mux.shutdown();
