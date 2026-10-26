@@ -25,9 +25,9 @@ use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::io::Write;
 #[cfg(test)]
-use std::io::{BufRead, BufReader};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read};
 #[cfg(test)]
 use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
@@ -159,8 +159,6 @@ mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
-#[cfg(test)]
-use line_connection::line_limits;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;

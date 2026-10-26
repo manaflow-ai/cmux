@@ -1,6 +1,7 @@
 //! The dual reader over a real socket pair: JSON lines get the replies they
-//! got from `read_line`, frames pass only after the grant, and a frame or a
-//! descriptor the connection may not take closes it with `bad_message`.
+//! got from `read_line`, frames pass only while the grant holds on a
+//! connection that may carry them, and a frame or a descriptor the
+//! connection may not take closes it with `bad_message`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
@@ -43,30 +44,42 @@ struct Peer {
     served: JoinHandle<ConnectionEnd>,
 }
 
+/// An admission that admits every line but, like the remote entry's, sees
+/// only lines.
+struct LinesOnly;
+
+impl admission::LineAdmission for LinesOnly {
+    fn refusal(&self, _line: &str) -> Option<Value> {
+        None
+    }
+}
+
 fn connect(label: &str, lane: Option<RecordingFrames>) -> Peer {
+    connect_with(label, lane, ClientTransport::Unix, Box::new(admission::LocalAdmission))
+}
+
+fn connect_with(
+    label: &str,
+    lane: Option<RecordingFrames>,
+    transport: ClientTransport,
+    admission: Box<dyn admission::LineAdmission + Send>,
+) -> Peer {
     let mux = Mux::new_for_test(format!("line-conn-{label}"), crate::SurfaceOptions::default());
     let (socket, server) = UnixStream::pair().unwrap();
     let served = std::thread::spawn(move || {
         let stream: Box<dyn transport::Stream> = Box::new(server);
         let render = Arc::new(RenderService::new());
-        let admission = admission::LocalAdmission;
         match lane {
-            Some(mut lane) => serve_connection(
-                mux,
-                stream,
-                render,
-                None,
-                ClientTransport::Unix,
-                &admission,
-                &mut lane,
-            ),
+            Some(mut lane) => {
+                serve_connection(mux, stream, render, None, transport, &*admission, &mut lane)
+            }
             None => serve_connection(
                 mux,
                 stream,
                 render,
                 None,
-                ClientTransport::Unix,
-                &admission,
+                transport,
+                &*admission,
                 &mut UnroutedFrames,
             ),
         }
@@ -250,5 +263,100 @@ fn line_connection_an_oversized_line_still_closes() {
         ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::LineTooLong {
             max: MAX_JSON_LINE_BYTES
         }))
+    );
+}
+
+/// The payload limit excludes the `\n`, as with `read_line`: a line of
+/// exactly the limit plus its delimiter is served.
+#[test]
+fn line_connection_a_line_of_exactly_the_limit_is_served() {
+    let mut peer = connect("exact-limit", None);
+    let mut line = json!({"id": 5, "cmd": "ping"}).to_string().into_bytes();
+    line.resize(MAX_JSON_LINE_BYTES, b' ');
+    line.push(b'\n');
+    peer.send(&line);
+    assert_eq!(peer.reply().unwrap()["id"], json!(5));
+    assert_eq!(peer.finish(), ConnectionEnd::PeerClosed);
+}
+
+#[test]
+fn line_connection_a_revoked_grant_closes_at_the_next_frame() {
+    let (lane, grant, seen) = recording(true);
+    let mut peer = connect("revoked", Some(lane));
+    let mut bytes = request_frame(30, b"a");
+    bytes.extend(ping(1));
+    peer.send(&bytes);
+    assert_eq!(peer.reply().unwrap()["id"], json!(1));
+    grant.store(false, Ordering::SeqCst);
+    let mut bytes = request_frame(31, b"b");
+    bytes.extend(ping(2));
+    peer.send(&bytes);
+    assert_eq!(peer.reply(), None, "nothing after the refused frame is read");
+    assert_eq!(
+        peer.finish(),
+        ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::FramesNotNegotiated))
+    );
+    assert_eq!(*seen.lock().unwrap(), vec![(FrameKind::Request, 30, b"a".to_vec())]);
+}
+
+/// Frames skip line admission, so a connection that is not a local Unix
+/// socket, or whose admission sees only lines, takes none, whatever the
+/// client's record says.
+#[test]
+fn line_connection_frames_need_a_local_socket_and_an_admission_that_takes_them() {
+    let cases: [(&str, ClientTransport, Box<dyn admission::LineAdmission + Send>); 3] = [
+        ("remote-transport", ClientTransport::Remote, Box::new(admission::LocalAdmission)),
+        ("websocket-transport", ClientTransport::WebSocket, Box::new(admission::LocalAdmission)),
+        ("lines-only-admission", ClientTransport::Unix, Box::new(LinesOnly)),
+    ];
+    for (label, transport, admission) in cases {
+        let (lane, _grant, seen) = recording(true);
+        let mut peer = connect_with(label, Some(lane), transport, admission);
+        peer.send(&ping(1));
+        assert_eq!(peer.reply().unwrap()["id"], json!(1), "{label}");
+        peer.send(&request_frame(7, b"{}"));
+        assert_eq!(peer.reply(), None, "{label}");
+        assert_eq!(
+            peer.finish(),
+            ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::FramesNotNegotiated)),
+            "{label}"
+        );
+        assert!(seen.lock().unwrap().is_empty(), "{label}");
+    }
+}
+
+/// The production lane: the grant is the `ipc-frames-v2` capability the
+/// client declared in `set-client-info` at this daemon's revision
+/// (p05-ipc-060 records it), and no frame kind has a route yet.
+#[test]
+fn line_connection_the_declared_capability_negotiates_frames() {
+    let (current, _) = api_revision_wire::identify_fields();
+    let mut peer = connect("declared", None);
+    let declare = json!({
+        "id": 1,
+        "cmd": "set-client-info",
+        "name": "frames",
+        "capabilities": [super::IPC_FRAMES_CAPABILITY],
+        "api_revision": current,
+    });
+    peer.send(format!("{declare}\n").as_bytes());
+    let reply = peer.reply().unwrap();
+    assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!(1), json!(true)), "{reply}");
+    peer.send(&request_frame(40, b"{}"));
+    assert_eq!(peer.reply(), None);
+    assert_eq!(
+        peer.finish(),
+        ConnectionEnd::BadMessage(ConnectionBadMessage::UnroutedKind { kind: FrameKind::Request })
+    );
+
+    let mut peer = connect("undeclared", None);
+    let undeclared = json!({"id": 1, "cmd": "set-client-info", "name": "lines"});
+    peer.send(format!("{undeclared}\n").as_bytes());
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    peer.send(&request_frame(41, b"{}"));
+    assert_eq!(peer.reply(), None);
+    assert_eq!(
+        peer.finish(),
+        ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::FramesNotNegotiated))
     );
 }
