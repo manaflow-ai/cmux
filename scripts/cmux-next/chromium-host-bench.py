@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Chromium in process vs Chromium in its own host app (prototype; plans/cmux-next/cef-helper-app-DESIGN.md).
 
-Launches one tagged Debug cmux-next app with `browserHost.helperPrototype` and `browserResize.layerHosting` on, and
+Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` on, and
 measures the same probe page twice:
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
@@ -115,7 +115,7 @@ window.__reset = function() { S.key = []; S.click = []; S.raf = []; S.key_paint 
 report();
 </script>"""
 
-TUNABLES = {"version": 1, "values": {"browserHost.helperPrototype": True, "browserResize.layerHosting": True}}
+TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
 
 

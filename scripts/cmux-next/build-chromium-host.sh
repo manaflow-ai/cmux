@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds cmux-chromium-host, the executable of the Chromium host app
-# (prototype behind browserHost.helperPrototype,
+# (prototype behind browserHost.helper,
 # plans/cmux-next/cef-helper-app-DESIGN.md), from
 # Packages/macOS/CmuxNext/ChromiumHost against one single-arch shim build of
 # build-cef-shim.sh (its libcef_dll_wrapper.a) and that build's CEF artifact.

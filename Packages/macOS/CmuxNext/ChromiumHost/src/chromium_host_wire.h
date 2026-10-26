@@ -1,5 +1,5 @@
 // The wire between cmux and the Chromium host app (prototype behind
-// `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+// `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 // Needs no CEF: scripts/cmux-next/tests/chromium-host-wire.test.sh compiles
 // it alone. CmuxNextBrowser mirrors it in ChromiumHostFrame.swift; the golden
 // bytes in ../tests/chromium_host_wire_test.cpp and

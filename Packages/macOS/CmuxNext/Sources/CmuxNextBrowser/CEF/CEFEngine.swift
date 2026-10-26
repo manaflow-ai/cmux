@@ -87,8 +87,7 @@ public final class CEFEngine: BrowserEngine {
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
-        adoptStores()
-        try await CEFRuntime.shared.start(layout: layout)
+        try await startRuntime()
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
@@ -152,8 +151,7 @@ public final class CEFEngine: BrowserEngine {
     /// caller picks. No-op once CEF is running, failed or shut down.
     public func warmStart(reason: String) async {
         guard layout != nil else { return }
-        adoptStores()
-        try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
+        try? await startRuntime(trigger: reason)
     }
 
     /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
@@ -351,10 +349,18 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
-    /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
+    /// Hands the stores, sign-in tabs and host supervisor (``CEFRuntimeSource/backend``) to the
+    /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
+    /// Chromium's first use, not at launch).
     private func adoptStores() {
-        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks, hostSupervisor: runtimeSource.hostSupervisor)
+    }
+
+    /// Starts Chromium in this process or in the Chromium Host, as the source's backend says;
+    /// every start of this engine goes through here. `trigger` names why (`tab`, a warm start reason).
+    func startRuntime(trigger: String = "tab") async throws(BrowserEngineError) {
+        adoptStores()
+        try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {

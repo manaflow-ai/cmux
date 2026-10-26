@@ -5,14 +5,14 @@ public import CmuxNextDesign
 import Observation
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
-/// (DEBUG builds, `browserHost.helperPrototype` on): one
+/// (DEBUG builds, `browserHost.helper` on): one
 /// ``ChromiumHostSession`` shown over a pane's content view.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 ///
 /// The host lives no longer than its pane and the tunable: the session
 /// closes (`quit`, then SIGKILL at the quit limit) when the page view leaves
 /// its window (the pane closed or moved out of every window) and when
-/// `browserHost.helperPrototype` goes off. A later `open` starts a new host.
+/// `browserHost.helper` goes off. A later `open` starts a new host.
 @MainActor
 public final class ChromiumHostPrototype {
     private var session: ChromiumHostSession?
@@ -21,7 +21,7 @@ public final class ChromiumHostPrototype {
     /// take it out of the window on the way, which does not end the host.
     private var movingPageView = false
 
-    /// The Debug Settings `browserHost.helperPrototype` is read from (off by default: every Chromium
+    /// The Debug Settings `browserHost.helper` is read from (off by default: every Chromium
     /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
     private let tunables: TunableStore
 
@@ -66,7 +66,7 @@ public final class ChromiumHostPrototype {
     /// Starts the host (or navigates it) and shows its page over `container`,
     /// first responder of `window` when `focus`.
     public func open(_ url: String, over container: NSView, focus: Bool) -> [String: Any] {
-        guard BrowserHostTunables.helperPrototype.value(in: tunables) else { return ["error": "browserHost.helperPrototype is off"] }
+        guard BrowserHostTunables.helper.value(in: tunables) else { return ["error": "browserHost.helper is off"] }
         guard !url.isEmpty else { return ["error": "pass url"] }
         guard container.window != nil else { return ["error": "the pane is not in a window"] }
         let session: ChromiumHostSession
@@ -105,7 +105,7 @@ public final class ChromiumHostPrototype {
     /// Closes the host when the tunable goes off; re-armed on every change of it.
     /// Armed once, with the session (which this prototype keeps for its life).
     private func watchTunable() {
-        let on = withObservationTracking { BrowserHostTunables.helperPrototype.value(in: tunables) } onChange: {
+        let on = withObservationTracking { BrowserHostTunables.helper.value(in: tunables) } onChange: {
             Task { @MainActor [weak self] in self?.watchTunable() }
         }
         if !on { _ = close() }
@@ -118,7 +118,7 @@ public final class ChromiumHostPrototype {
 
     public var report: [String: Any] {
         var fields = session?.report ?? ["phase": "none"]
-        fields["tunable"] = BrowserHostTunables.helperPrototype.value(in: tunables)
+        fields["tunable"] = BrowserHostTunables.helper.value(in: tunables)
         fields["app_pid"] = Int(ProcessInfo.processInfo.processIdentifier)
         return fields
     }
