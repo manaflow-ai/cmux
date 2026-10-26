@@ -47,6 +47,11 @@ class SidebarItemRowView: NSView {
     var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
+    /// A workspace tile's hover controls (`SidebarItemRowView+HoverActions`): its menu and its close.
+    var onMore: (() -> Void)?
+    var onClose: (() -> Void)?
+    var hoverMore: OverflowButton?
+    var hoverClose: SidebarIconButton?
     var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
@@ -75,6 +80,8 @@ class SidebarItemRowView: NSView {
             guard isHovered != oldValue else { return }
             if !isHovered { isPressed = false }
             pointerChanged()
+            // A workspace tile's more and close show on hover.
+            if info.workspace != nil { needsLayout = true }
         }
     }
     private var pointerHover: PointerHover?
@@ -218,6 +225,8 @@ class SidebarItemRowView: NSView {
         let b = bounds
         layoutEditing()
         if style == .favorite { return layoutFavorite(b) }
+        // Runs after the activity mark (defers run last first): the controls take the trailing end.
+        defer { layoutHoverActions(in: b) }
         defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()

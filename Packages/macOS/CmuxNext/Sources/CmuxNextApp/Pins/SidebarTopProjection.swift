@@ -58,6 +58,7 @@ struct SidebarWorkspaceItems {
         var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
         info.activity = row.activity
         info.activityStyle = row.activityStyle
+        info.workspace = row.id
         return info
     }
 
