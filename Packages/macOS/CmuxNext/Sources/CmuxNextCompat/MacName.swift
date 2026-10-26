@@ -101,8 +101,9 @@ public struct MacName: Sendable {
     /// The kernel host name's first label (`gethostname`: a syscall, no DNS).
     public nonisolated func kernelHostName() -> String {
         var buffer = [CChar](repeating: 0, count: 256)
-        guard gethostname(&buffer, buffer.count) == 0 else { return "" }
-        let raw = String(cString: buffer)
+        // SAFETY: gethostname writes at most buffer.count bytes into the array's own storage, lent for the call.
+        guard unsafe gethostname(&buffer, buffer.count) == 0 else { return "" }
+        let raw = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return raw.split(separator: ".").first.map(String.init) ?? raw
     }
 }
