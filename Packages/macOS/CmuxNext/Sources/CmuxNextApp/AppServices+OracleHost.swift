@@ -112,6 +112,8 @@ extension AppServices: OracleHost {
                     pageViews: cache.browsers.count, terminals: cache.terminals.count,
                     subscriptions: mainWork.observations.snapshot().reduce(0) { $0 + $1.armed }, tasks: mainWork.wakeUps.count)
             },
+            // Each window's focusable and actionable AX elements, named by localization key.
+            WindowHintTargets.oracleAccessibilityFacet(windows: windows, work: work),
         ])
     }
 
