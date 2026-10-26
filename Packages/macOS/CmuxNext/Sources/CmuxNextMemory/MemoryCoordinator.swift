@@ -27,21 +27,24 @@ public import CmuxNextWakeups
 ///   registration and after the limits of each level change.
 /// - Hysteresis (p07-memory-070): after the level falls, lossless consumers keep the limits of the
 ///   stricter ``limitLevel`` until the level has not changed for ``limitRiseDelay`` (30 s, one
-///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Warning/normal
-///   flaps then make one release pass and no refill between them. Lossy consumers (page discards,
-///   snapshots) follow ``level`` at once, so their release stops when the pressure does. Chromium
-///   damps repeated moderate signals with a cooldown (`kModeratePressureCooldown`,
-///   components/memory_pressure/system_memory_pressure_evaluator_win.cc); cmux damps the limits
-///   instead, since macOS WARN flaps (p07-memory.md section 3.A).
+///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Only limits a
+///   release already ran at are held, so a level that comes back before its release still releases
+///   nothing. Warning/normal flaps then make one release pass and no refill between them. Lossy
+///   consumers (page discards, snapshots) follow ``level`` at once, so their release stops when the
+///   pressure does. Chromium damps repeated moderate signals with a cooldown
+///   (`kModeratePressureCooldown`, components/memory_pressure/system_memory_pressure_evaluator_win.cc);
+///   cmux damps the limits instead, since macOS WARN flaps (p07-memory.md section 3.A).
 /// - Working set: a limit applies only to a consumer's entries not used in the last 2 s
 ///   (``MemoryLimit/workingSet``); the consumer reports its in-use entries to
-///   ``MemoryLimit/scale(_:inUse:)``.
+///   ``MemoryLimit/scale(_:inUse:)``. A release that kept some says when the first ages out
+///   (``MemoryReleaseProgress/keptWorkingSet(agesOutIn:)``), and one ``MainDeadline`` one-shot then
+///   asks those consumers for one more release at the same limit.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
-/// schedule: the pressure events, the slicer's frames and the hysteresis one-shot are its only
-/// inputs. The level is also its vote in in-process Chromium's pressure aggregator (``pressureVote``,
-/// p07-memory-051), next to Chromium's own platform voter.
+/// schedule: the pressure events, the slicer's frames and the hysteresis and working-set one-shots
+/// are its only inputs. The level is also its vote in in-process Chromium's pressure aggregator
+/// (``pressureVote``, p07-memory-051), next to Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
@@ -101,6 +104,16 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// Ends a hold of ``limitLevel``; nil raises limits with the level.
     private let limitRiseDeadline: MainDeadline?
+    /// The strictest level whose lossless limits a release ran at since those limits last rose. A fall
+    /// holds ``limitLevel`` here at most: a stricter level whose release never ran is not held.
+    private var releasedLimitLevel: MemoryPressureLevel = .normal
+    /// Asks consumers that kept working-set entries for one more release once the first ages out; nil
+    /// never asks again.
+    private let workingSetDeadline: MainDeadline?
+    /// When the armed working-set one-shot fires, on ``elapsed``.
+    private var workingSetDue: Duration?
+    /// The time since init on the coordinator's clock.
+    private let elapsed: @Sendable () -> Duration
     private let voteHandlers = MainActorHandlers<MemoryPressureLevel>()
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
@@ -114,19 +127,25 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     ///   - limitRiseDeadline: The one-shot that ends a hold of ``limitLevel`` after ``limitRiseDelay`` (the
     ///     app's is a background-class deadline on its one placer). Nil raises limits with the level: no
     ///     hysteresis.
+    ///   - workingSetDeadline: The one-shot that asks consumers that kept working-set entries for one more
+    ///     release once the first ages out (the app's is a background-class deadline on its one placer). Nil
+    ///     never asks again.
     public init(
         pressure: MemoryPressureEvents,
         mode: MemorySaverMode = .medium,
         slicer: any MemoryReleaseSlicer,
         clock: any Clock<Duration> = ContinuousClock(),
         sliceBudget: Duration = MemoryCoordinator.sliceBudget,
-        limitRiseDeadline: MainDeadline? = nil
+        limitRiseDeadline: MainDeadline? = nil,
+        workingSetDeadline: MainDeadline? = nil
     ) {
         let initial = pressure.currentLevel
         level = initial
         kernelLevel = initial
         limitLevel = initial
         self.limitRiseDeadline = limitRiseDeadline
+        self.workingSetDeadline = workingSetDeadline
+        elapsed = Self.stopwatch(on: clock)
         policy = MemoryLimitPolicy(mode: mode)
         self.slicer = slicer
         self.clock = clock
@@ -194,11 +213,14 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         let newLevel = pressureOverride ?? kernelLevel
         guard newLevel != level else { return }
         level = newLevel
-        if let limitRiseDeadline, newLevel.severity < limitLevel.severity {
+        // releasedLimitLevel is never stricter than limitLevel, so a rise always takes the else branch.
+        let held = newLevel.stricter(releasedLimitLevel)
+        if let limitRiseDeadline, held != newLevel {
+            setLimitLevel(held)
             limitRiseDeadline.schedule(after: Self.limitRiseDelay) { [weak self] in self?.limitHoldDidEnd() }
         } else {
             limitRiseDeadline?.cancel()
-            limitLevel = newLevel
+            setLimitLevel(newLevel)
         }
         applyLimits()
         for entry in consumers.liveEntries() {
@@ -210,8 +232,13 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// The level stayed under the held ``limitLevel`` for ``limitRiseDelay``: lossless limits rise.
     private func limitHoldDidEnd() {
         guard limitLevel != level else { return }
-        limitLevel = level
+        setLimitLevel(level)
         applyLimits()
+    }
+
+    private func setLimitLevel(_ newLevel: MemoryPressureLevel) {
+        limitLevel = newLevel
+        if releasedLimitLevel.severity > newLevel.severity { releasedLimitLevel = newLevel }
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.
@@ -245,9 +272,15 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
             // A consumer called before may have released this one's registration.
             guard let consumer = record.entry.liveConsumer else { continue }
             let target = record.limit
+            if record.entry.traits.retention == .lossless {
+                releasedLimitLevel = releasedLimitLevel.stricter(limitLevel)
+            }
             switch consumer.releaseMemory(within: MemoryReleaseSlice(limit: target, isExpired: isExpired)) {
             case .done:
-                record.didRelease(to: target)
+                record.didRelease(to: target, keptWorkingSet: false)
+            case .keptWorkingSet(let agesOutIn):
+                record.didRelease(to: target, keptWorkingSet: true)
+                scheduleWorkingSetRelease(after: agesOutIn)
             case .more:
                 scheduleSlice()
                 return
@@ -255,6 +288,34 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
                 scheduleSlice()
             }
         }
+    }
+
+    /// Arms the working-set one-shot `delay` from now, unless it is already armed to fire sooner.
+    private func scheduleWorkingSetRelease(after delay: Duration) {
+        guard let workingSetDeadline else { return }
+        let delay = max(delay, .zero)
+        let due = elapsed() + delay
+        if let workingSetDue, workingSetDue <= due, workingSetDeadline.isScheduled { return }
+        workingSetDue = due
+        workingSetDeadline.schedule(after: delay) { [weak self] in self?.workingSetDidAgeOut() }
+    }
+
+    /// Entries a release kept for the working set may have aged out: each consumer that kept some and is
+    /// still under its full limit gets one more release at that limit.
+    private func workingSetDidAgeOut() {
+        workingSetDue = nil
+        var needsRelease = false
+        for record in consumers.liveRecords() {
+            record.workingSetDidAgeOut()
+            needsRelease = needsRelease || record.needsRelease
+        }
+        if needsRelease { scheduleSlice() }
+    }
+
+    /// A reading of the time since now on `clock`.
+    private nonisolated static func stopwatch(on clock: some Clock<Duration>) -> @Sendable () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     /// A check that turns true `duration` after now on `clock`, shared by every consumer of one slice.
@@ -275,6 +336,10 @@ extension MemoryCoordinator {
         /// The most it may hold now: its limit when it last finished a release, or a higher limit given
         /// since. It needs a release while its limit is below this.
         private var heldBound = MemoryLimit.default
+        /// Whether its last finished release kept entries only because they were in the working set.
+        private var keptWorkingSet = false
+        /// Whether those entries may have aged out since: it needs one more release at its limit.
+        private var isWorkingSetDue = false
 
         init(entry: MemoryConsumerEntry, limit: MemoryLimit) {
             self.entry = entry
@@ -283,17 +348,32 @@ extension MemoryCoordinator {
         }
 
         var needsRelease: Bool {
-            limit < heldBound
+            limit < heldBound || (isWorkingSetDue && limit < .default)
         }
 
         func setLimit(_ newLimit: MemoryLimit) {
             limit = newLimit
             heldBound = max(heldBound, newLimit)
+            if newLimit == .default {
+                keptWorkingSet = false
+                isWorkingSetDue = false
+            }
         }
 
         /// Records a finished release down to `released`; a limit given during the call still counts.
-        func didRelease(to released: MemoryLimit) {
+        ///
+        /// - Parameters:
+        ///   - released: The limit it released down to.
+        ///   - kept: Whether it kept working-set entries above that limit.
+        func didRelease(to released: MemoryLimit, keptWorkingSet kept: Bool) {
             heldBound = max(released, limit)
+            keptWorkingSet = kept
+            isWorkingSetDue = false
+        }
+
+        /// The working-set one-shot fired: a record that kept working-set entries needs one more release.
+        func workingSetDidAgeOut() {
+            isWorkingSetDue = keptWorkingSet
         }
     }
 }
@@ -306,5 +386,10 @@ extension MemoryPressureLevel {
         case .warning: 1
         case .critical: 2
         }
+    }
+
+    /// The stricter of this level and `other`.
+    fileprivate func stricter(_ other: MemoryPressureLevel) -> MemoryPressureLevel {
+        other.severity > severity ? other : self
     }
 }

@@ -49,9 +49,9 @@ struct AppMemoryConsumers {
     let services: AppServices
 
     /// The app's one memory coordinator: it follows `pressure` and releases in background-class frame
-    /// work on the main-thread scheduler of `deadlines`, and holds lossless limits 30 s after a fall in
-    /// level with one background-class deadline on `deadlines` (p07-memory-070). AppServices holds it
-    /// next to its pressure source.
+    /// work on the main-thread scheduler of `deadlines`. Two background-class one-shots on `deadlines`
+    /// hold lossless limits 30 s after a fall in level and release working-set entries a release kept
+    /// once they age out (p07-memory-070). AppServices holds it next to its pressure source.
     ///
     /// - Parameters:
     ///   - pressure: The app's one memory pressure source.
@@ -63,7 +63,9 @@ struct AppMemoryConsumers {
             slicer: FrameReleaseSlicer(
                 queue: FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: deadlines.work)),
             limitRiseDeadline: MainDeadline(
-                owner: "MemoryCoordinator.limitRise", workClass: .background, scheduler: deadlines))
+                owner: "MemoryCoordinator.limitRise", workClass: .background, scheduler: deadlines),
+            workingSetDeadline: MainDeadline(
+                owner: "MemoryCoordinator.workingSet", workClass: .background, scheduler: deadlines))
     }
 
     /// AppServices' init calls this once, after the services the consumers belong to are built. Each

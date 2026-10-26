@@ -6,8 +6,11 @@ import Testing
 /// p07-memory-070: the working set and hysteresis of ``MemoryCoordinator``. A limit applies only to
 /// entries not used in the last 2 s (``MemoryLimit/scale(_:inUse:)``), and after a fall in level the
 /// lossless limits rise only once the level has not changed for 30 s, on one ``MainDeadline`` one-shot,
-/// so warning/normal flaps (DC17) make one release pass and no refill between them. Slices run on a
-/// ``ManualSlicer`` and the deadline on a ``MemoryDeadlineRig``, both fired by the test.
+/// so warning/normal flaps (DC17) make one release pass and no refill between them; only limits a
+/// release already ran at are held. Working-set entries a release kept are released once they age out,
+/// on a second one-shot.
+/// Slices run on a ``ManualSlicer`` and the deadlines on a ``MemoryDeadlineRig``, both fired by the test;
+/// a consumer's entries age on the ``ManualClock``, which the test moves with the rig.
 @MainActor @Suite struct MemoryCoordinatorHysteresisTests {
     let clock = ManualClock()
     let rig = MemoryDeadlineRig()
@@ -21,7 +24,8 @@ import Testing
         slicer = ManualSlicer(clock: clock)
         coordinator = MemoryCoordinator(
             pressure: pressure, mode: .medium, slicer: slicer, clock: clock,
-            limitRiseDeadline: MainDeadline(owner: "test.memory.limit-rise", workClass: .background, scheduler: rig.deadlines))
+            limitRiseDeadline: MainDeadline(owner: "test.memory.limit-rise", workClass: .background, scheduler: rig.deadlines),
+            workingSetDeadline: MainDeadline(owner: "test.memory.working-set", workClass: .background, scheduler: rig.deadlines))
     }
 
     func register(_ consumer: WorkingSetConsumer, _ traits: MemoryConsumerTraits) -> MemoryConsumerRegistration {
@@ -63,9 +67,30 @@ import Testing
         withExtendedLifetime(registration) {}
     }
 
+    @Test func criticalThenNormalBeforeTheFrameMakesNoReleaseCall() {
+        let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
+        let discards = WorkingSetConsumer(name: "discards", entries: 4, clock: clock)
+        let registrations = [
+            register(cache, managedTraits()),
+            register(discards, managedTraits(retention: .lossy, recreateCost: .expensive)),
+        ]
+        clock.advance(by: .seconds(10))
+        source.send(.critical)
+        source.send(.normal)
+        slicer.drain()
+        #expect(cache.releasePasses == 0, "a level that came back before its release still released")
+        #expect(discards.releasePasses == 0)
+        #expect(cache.keys.count == 4)
+        #expect(coordinator.limitLevel == .normal, "a level whose release never ran was held")
+        #expect(cache.limits == [100, 0, 100])
+        #expect(!rig.hasArmedWake, "a hold was armed with nothing released to hold")
+        withExtendedLifetime(registrations) {}
+    }
+
     @Test func aRiseBackToTheHeldLevelCancelsTheHold() {
         let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
         let registration = register(cache, managedTraits())
+        clock.advance(by: .seconds(10))
         source.send(.critical)
         slicer.drain()
         source.send(.normal)
@@ -81,7 +106,9 @@ import Testing
     @Test func eachChangeDuringTheHoldRestartsIt() {
         let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
         let registration = register(cache, managedTraits())
+        clock.advance(by: .seconds(10))
         source.send(.critical)
+        slicer.drain()
         source.send(.warning)
         rig.advance(by: .seconds(20))
         source.send(.normal)
@@ -100,21 +127,31 @@ import Testing
             register(cache, managedTraits()),
             register(discards, managedTraits(retention: .lossy, recreateCost: .expensive)),
         ]
+        clock.advance(by: .seconds(10))
+        // Warning releases the cache to 25 %; lossy consumers keep 100 % at warning.
+        source.send(.warning)
+        slicer.drain()
+        #expect(cache.releasePasses == 1)
+        // Critical then normal before the frame: the hold keeps the warning limit the cache was released
+        // to, not the critical one it never was, and the lossy limit follows the level.
         source.send(.critical)
         source.send(.normal)
-        #expect(coordinator.limitLevel == .critical)
-        #expect(cache.limits == [100, 0], "the lossless limit rose with the level")
+        #expect(coordinator.limitLevel == .warning, "the hold kept a level whose release never ran")
+        #expect(cache.limits == [100, 25, 0, 25], "the lossless limit did not stop at the released level")
         #expect(discards.limits == [100, 0, 100], "the lossy limit waited for the hold")
         slicer.drain()
         #expect(discards.releasePasses == 0, "a lossy release ran after the pressure ended")
-        #expect(cache.releasePasses == 1)
+        #expect(cache.releasePasses == 1, "a lossless release ran at a level that came back before it")
+        #expect(rig.hasArmedWake, "the warning limit is held with no hold armed")
         withExtendedLifetime(registrations) {}
     }
 
     @Test func aConsumerThatRegistersDuringTheHoldGetsTheHeldLimit() {
         let early = WorkingSetConsumer(name: "early", entries: 4, clock: clock)
         let registration = register(early, managedTraits())
+        clock.advance(by: .seconds(10))
         source.send(.warning)
+        slicer.drain()
         source.send(.normal)
         let late = WorkingSetConsumer(name: "late", entries: 4, clock: clock)
         let lateRegistration = register(late, managedTraits())
@@ -141,6 +178,84 @@ import Testing
         #expect(cache.keys == ["e6", "e7", "e0"])
         #expect(cache.releasedInUse == 0, "a release dropped an entry used in the last 2 s")
         withExtendedLifetime(registration) {}
+    }
+
+    @Test func workingSetEntriesKeptAtCriticalAreReleasedOnceTheyAgeOut() {
+        let cache = WorkingSetConsumer(name: "cache", entries: 8, clock: clock)
+        let registration = register(cache, managedTraits())
+        clock.advance(by: .seconds(10))
+        cache.use("e3")
+        cache.use("e4")
+        clock.advance(by: .milliseconds(1_900))
+        source.send(.critical)
+        slicer.drain()
+        #expect(cache.keys == ["e3", "e4"], "critical kept more than the working set")
+        #expect(rig.hasArmedWake, "nothing will release the kept working set once it ages out")
+        #expect(!slicer.hasPendingSlice)
+
+        // Nothing changes the level or the limit; the entries age out and the one-shot releases them.
+        clock.advance(by: .seconds(2))
+        rig.fireAndRun()
+        #expect(slicer.hasPendingSlice, "the one-shot asked for no release")
+        slicer.drain()
+        #expect(cache.keys.isEmpty, "entries out of the working set outlived the critical limit")
+        #expect(cache.releasePasses == 2)
+        #expect(cache.releasedInUse == 0)
+        #expect(!rig.hasArmedWake, "a release that kept nothing armed another wake")
+        withExtendedLifetime(registration) {}
+    }
+
+    @Test func aConsumerStillUsingItsEntriesIsAskedAgainOnlyWhenTheFirstAgesOut() {
+        let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
+        let registration = register(cache, managedTraits())
+        clock.advance(by: .seconds(10))
+        cache.use("e1")
+        clock.advance(by: .seconds(1))
+        cache.use("e2")
+        source.send(.critical)
+        slicer.drain()
+        #expect(cache.keys == ["e1", "e2"])
+
+        // e1 ages out 1 s later and e2 1 s after it: one more release as each leaves the working set.
+        clock.advance(by: .seconds(1))
+        rig.fireAndRun()
+        slicer.drain()
+        #expect(cache.keys == ["e2"], "the entry that aged out stayed")
+        #expect(rig.hasArmedWake, "the entry still in use will never be released")
+        clock.advance(by: .seconds(1))
+        rig.fireAndRun()
+        slicer.drain()
+        #expect(cache.keys.isEmpty)
+        #expect(cache.releasePasses == 3)
+        #expect(!rig.hasArmedWake)
+        withExtendedLifetime(registration) {}
+    }
+
+    @Test func aRiseToTheFullLimitMakesNoWorkingSetRelease() {
+        let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
+        let registration = register(cache, managedTraits())
+        source.send(.critical)
+        slicer.drain()
+        #expect(cache.keys.count == 4, "every entry is in the working set")
+        source.send(.normal)
+        rig.advance(by: .seconds(33))
+        clock.advance(by: .seconds(33))
+        rig.fireAtNow()  // the working set aged out at 2 s, the hold by 31 s
+        rig.fireAtNow()
+        slicer.drain()
+        #expect(coordinator.limitLevel == .normal)
+        #expect(cache.releasePasses == 1, "the full limit still released the aged working set")
+        #expect(cache.keys.count == 4)
+        withExtendedLifetime(registration) {}
+    }
+
+    @Test func keptInUseIdleTimesEndTheReleaseWithTheTimeToAgeOut() {
+        #expect(MemoryReleaseProgress.finished(keptInUseIdleFor: nil) == .done)
+        #expect(MemoryReleaseProgress.finished(keptInUseIdleFor: .seconds(2)) == .done)
+        #expect(
+            MemoryReleaseProgress.finished(keptInUseIdleFor: .milliseconds(1_500))
+                == .keptWorkingSet(agesOutIn: .milliseconds(500)))
+        #expect(MemoryReleaseProgress.finished(keptInUseIdleFor: .zero) == .keptWorkingSet(agesOutIn: .seconds(2)))
     }
 
     @Test func theWorkingSetLastsTwoSecondsAndLimitsApplyToTheRest() {
@@ -201,7 +316,8 @@ final class WorkingSetConsumer: MemoryConsumer {
             if isInUse(oldest.used) { releasedInUse += 1 }
             entries.removeFirst()
         }
-        return .done
+        let keptInUseIdle = entries.filter { isInUse($0.used) }.map { $0.used.duration(to: clock.now) }.max()
+        return .finished(keptInUseIdleFor: keptInUseIdle)
     }
 
     var memoryUsage: MemoryUsage? {
