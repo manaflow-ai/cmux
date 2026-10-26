@@ -1,0 +1,357 @@
+{
+  "about": "remote_cocoa parity for the Chromium Host page view (p01-process.md 1.4, 3.3; tasks 055, 059). The Chromium Host is Chrome's browser process and cmux's ChromiumHostPageView is the remote NSView. Each mojom method maps to ops (cmux -> host: a cmux_shim_* export, a chromium_host_wire.h kind or a planned wire op below), events (host -> cmux: a CMUX_SHIM_* kind, a wire kind or a planned wire event), cmux (what cmux does itself) or not_needed (why). Chrome allows 5 [Sync] calls; cmux allows none: each is answered from state the host pushes ahead. Check: python3 scripts/cmux-next/gen-chromium-host-wire.py --check-view-parity [--list-unmapped].",
+  "mojoms": [
+    {
+      "path": "plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom",
+      "upstream": "content/common/render_widget_host_ns_view.mojom",
+      "chromium_tag": "154.0.8037.58",
+      "chromium_commit": "a654841425914cbb703a2931e07b70a83aedbafd",
+      "sha256": "7160548c38f505f9c31531a43647ad9399461b0e6e0da2277fa030b4d331bb19",
+      "interfaces": {
+        "PopupMenuRunner": {"direction": "host_to_cmux"},
+        "RenderWidgetHostNSView": {"direction": "host_to_cmux"},
+        "RenderWidgetHostNSViewHost": {"direction": "cmux_to_host"}
+      }
+    }
+  ],
+  "wire": {
+    "AX_EMBEDDER_TOKENS": {"dir": "op", "task": "p01-process-049", "fields": "browser, cmux pid, parent (page view) token, window token; sent on first AX access and when the page view changes window"},
+    "AX_PAGE_TOKEN": {"dir": "event", "task": "p01-process-049", "fields": "browser, host pid, page root element token from cmux_shim_browser_accessibility_token"},
+    "BACKGROUND_COLOR": {"dir": "event", "task": "p01-process-040", "fields": "browser, 0xAARRGGBB of the page's own background"},
+    "CURSOR": {"dir": "event", "task": "p01-process-045", "fields": "browser, cursor type, custom PNG as shm fd, hotspot"},
+    "DICTIONARY_OVERLAY": {"dir": "event", "task": "p01-process-047", "fields": "browser, attributed string, baseline point in page-view coordinates"},
+    "IME_CANCEL": {"dir": "op", "task": "p01-process-170", "fields": "browser, input seq; the row names the fork's cmux_shim ime export once 170 adds it"},
+    "IME_COMMIT_TEXT": {"dir": "op", "task": "p01-process-170", "fields": "browser, text, replacement range, input seq"},
+    "IME_FINISH": {"dir": "op", "task": "p01-process-170", "fields": "browser, input seq"},
+    "IME_SET_COMPOSITION": {"dir": "op", "task": "p01-process-170", "fields": "browser, text, text spans, replacement range, selection start and end, input seq"},
+    "KEYBOARD_LOCK": {"dir": "event", "task": "p01-process-229", "fields": "browser, locked, DOM codes (empty = all)"},
+    "LOOKUP_AT_POINT": {"dir": "op", "task": "p01-process-047", "fields": "browser, point in page-view coordinates; the host answers DICTIONARY_OVERLAY"},
+    "LOOKUP_RANGE": {"dir": "op", "task": "p01-process-047", "fields": "browser, character range; the host answers DICTIONARY_OVERLAY"},
+    "PINCH": {"dir": "op", "task": "p01-process-054", "fields": "browser, phase, magnification, point, synthetic flag (input ring frame)"},
+    "POINTER_LOCK": {"dir": "event", "task": "p01-process-229", "fields": "browser, locked, unaccelerated movement"},
+    "POPUP_MENU": {"dir": "event", "task": "p01-process-060", "fields": "token, browser, items, bounds, item font size, right aligned, selected item"},
+    "POPUP_MENU_HIDE": {"dir": "event", "task": "p01-process-060", "fields": "token"},
+    "POPUP_MENU_REPLY": {"dir": "op", "task": "p01-process-060", "fields": "token, selected index or none"},
+    "SCREEN_INFO": {"dir": "op", "task": "p01-process-221", "fields": "browser, CGDirectDisplayID, backing scale, color space hash, maximumFramesPerSecond, work area"},
+    "SHARE_PICKER": {"dir": "event", "task": "p01-process-228", "fields": "token, browser, title, text, URL, file paths, anchor rect"},
+    "SHARE_PICKER_REPLY": {"dir": "op", "task": "p01-process-228", "fields": "token, blink ShareError value"},
+    "SMART_MAGNIFY": {"dir": "op", "task": "p01-process-054", "fields": "browser, point (input ring frame)"},
+    "SPEAKING_STATE": {"dir": "event", "task": "p01-process-047", "fields": "speaking"},
+    "TEXT_INPUT_STATE": {"dir": "event", "task": "p01-process-044", "fields": "browser, input type, flags, selection range, selection text with about 100 characters of context, composition range, per-character rects, caret rect"},
+    "TOOLTIP": {"dir": "event", "task": "p01-process-054", "fields": "browser, text (empty clears)"},
+    "WHEEL_ACK": {"dir": "event", "task": "p01-process-234", "fields": "browser, seq, consumed x, consumed y, overscroll delta and velocity"},
+    "WIDGET_CLOSE": {"dir": "op", "task": "p01-process-066", "fields": "widget id"},
+    "WIDGET_CONTEXT": {"dir": "event", "task": "p01-process-066", "fields": "widget id, kind (popup, extension popup, side panel, DevTools, PiP), owner browser, bounds, CAContext id"}
+  },
+  "methods": {
+    "PopupMenuRunner.Hide": {
+      "events": ["POPUP_MENU_HIDE"],
+      "cmux": "cancels the NSMenu it shows for that token",
+      "task": "p01-process-060"
+    },
+    "RenderWidgetHostNSView.InitAsPopup": {
+      "events": ["WIDGET_CONTEXT"],
+      "cmux": "shows the popup widget (date/time, datalist) as a CALayerHost in a cmux panel anchored at its rect, input forwarded like a page",
+      "task": "p01-process-066"
+    },
+    "RenderWidgetHostNSView.SetParentWebContentsNSView": {
+      "events": ["CONTEXT"],
+      "cmux": "the parent is always the tab's ChromiumHostPageView in cmux's view tree; the host only names the CAContext",
+      "task": "p01-process-040"
+    },
+    "RenderWidgetHostNSView.DisableDisplay": {
+      "not_needed": "cmux never draws page content into the NSView; pixels arrive only through the CALayerHost on the host's CAContext, so there is no NSView content to disable"
+    },
+    "RenderWidgetHostNSView.MakeFirstResponder": {
+      "cmux": "first responder is cmux's decision; the host lets a page take focus only when cmux marked it embedder-active and never moves cmux's first responder",
+      "task": "p01-process-032"
+    },
+    "RenderWidgetHostNSView.SetBounds": {
+      "events": ["WIDGET_CONTEXT"],
+      "cmux": "page geometry comes from cmux's layout (GEOMETRY op); popup widget bounds arrive in WIDGET_CONTEXT",
+      "task": "p01-process-066"
+    },
+    "RenderWidgetHostNSView.SetCALayerParams": {
+      "events": ["CONTEXT"],
+      "cmux": "sets the CALayerHost contextId; resizes join the CA fence (task 052)",
+      "task": "p01-process-040"
+    },
+    "RenderWidgetHostNSView.SetBackgroundColor": {
+      "events": ["BACKGROUND_COLOR"],
+      "cmux": "fills the page view behind the layer host, also while a resize waits for its frame",
+      "task": "p01-process-040"
+    },
+    "RenderWidgetHostNSView.SetVisible": {
+      "cmux": "visibility is cmux's: the page view pushes visible, hidden or occluded with cmux_shim_browser_set_page_visibility; the host never hides cmux's view",
+      "task": "p01-process-220"
+    },
+    "RenderWidgetHostNSView.SetTooltipText": {
+      "events": ["TOOLTIP"],
+      "cmux": "sets the page view's tooltip at the mouse point",
+      "task": "p01-process-054"
+    },
+    "RenderWidgetHostNSView.SetTextInputState": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "updates the NSTextInputClient state and secure event input for password fields (task 230)",
+      "task": "p01-process-044"
+    },
+    "RenderWidgetHostNSView.SetTextSelection": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "keeps the selection text and range for attributedSubstring, Look Up and Use Selection for Find",
+      "task": "p01-process-044"
+    },
+    "RenderWidgetHostNSView.SetCompositionRangeInfo": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "keeps the composition range and per-character rects for firstRect and characterIndex",
+      "task": "p01-process-044"
+    },
+    "RenderWidgetHostNSView.CancelComposition": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "an empty composition range makes the page view discard its marked text",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSView.SetShowingContextMenu": {
+      "events": ["CMUX_SHIM_CONTEXT_MENU"],
+      "ops": ["cmux_shim_context_menu_done"],
+      "cmux": "cmux shows the context menu from data, so it knows the menu is up until it calls context_menu_done",
+      "task": "p01-process-069"
+    },
+    "RenderWidgetHostNSView.SetSupportsAutoFill": {
+      "not_needed": "the flag only adds the macOS AutoFill item to Chrome's native NSMenu; cmux builds the context menu from CONTEXT_MENU data and draws autofill and password suggestions itself (task 061)"
+    },
+    "RenderWidgetHostNSView.DisplayCursor": {
+      "events": ["CURSOR"],
+      "cmux": "sets the NSCursor over the page view",
+      "task": "p01-process-045"
+    },
+    "RenderWidgetHostNSView.SetCursorLocked": {
+      "events": ["POINTER_LOCK"],
+      "cmux": "pointer lock: NSCursor.hide and CGAssociateMouseAndMouseCursorPosition(false), raw deltas in the input ring; Escape exits",
+      "task": "p01-process-229"
+    },
+    "RenderWidgetHostNSView.SetCursorLockedUnacceleratedMovement": {
+      "events": ["POINTER_LOCK"],
+      "cmux": "sends unaccelerated deltas while the lock asks for them",
+      "task": "p01-process-229"
+    },
+    "RenderWidgetHostNSView.ShowDictionaryOverlayForSelection": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "Look Up shows the definition for the pushed selection text, no round trip",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSView.ShowDictionaryOverlay": {
+      "events": ["DICTIONARY_OVERLAY"],
+      "cmux": "showDefinitionForAttributedString at the baseline point in the page view",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSView.LockKeyboard": {
+      "events": ["KEYBOARD_LOCK"],
+      "cmux": "routes reserved keys to the page while held; Ghostty-reserved keys and Escape stay cmux's",
+      "task": "p01-process-229"
+    },
+    "RenderWidgetHostNSView.UnlockKeyboard": {
+      "events": ["KEYBOARD_LOCK"],
+      "cmux": "returns every key to KeyRouter",
+      "task": "p01-process-229"
+    },
+    "RenderWidgetHostNSView.ShowSharingServicePicker": {
+      "events": ["SHARE_PICKER"],
+      "ops": ["SHARE_PICKER_REPLY"],
+      "cmux": "shows NSSharingServicePicker at the anchor and answers with the share result",
+      "task": "p01-process-228"
+    },
+    "RenderWidgetHostNSView.Destroy": {
+      "events": ["CMUX_SHIM_BEFORE_CLOSE"],
+      "cmux": "the view ends on BEFORE_CLOSE or on host exit (task 091); cmux's wire has no late-close race to work around",
+      "task": "p01-process-040"
+    },
+    "RenderWidgetHostNSView.GestureScrollEventAck": {
+      "events": ["WHEEL_ACK"],
+      "cmux": "swipe navigation and rubber-band decide from the consumed deltas",
+      "task": "p01-process-234"
+    },
+    "RenderWidgetHostNSView.DidOverscroll": {
+      "events": ["WHEEL_ACK"],
+      "cmux": "overscroll drives the swipe-back gesture",
+      "task": "p01-process-234"
+    },
+    "RenderWidgetHostNSView.DisplayPopupMenu": {
+      "events": ["POPUP_MENU"],
+      "ops": ["POPUP_MENU_REPLY"],
+      "cmux": "shows an NSMenu at the bounds and replies with the chosen index or none; a host exit resolves it (task 091)",
+      "task": "p01-process-060"
+    },
+    "RenderWidgetHostNSViewHost.SyncIsWidgetForMainFrame": {
+      "events": ["CONTEXT", "WIDGET_CONTEXT"],
+      "cmux": "a page view on CONTEXT is a tab's main-frame widget; a hosted widget's kind comes in WIDGET_CONTEXT, so cmux never asks",
+      "task": "p01-process-066"
+    },
+    "RenderWidgetHostNSViewHost.RequestShutdown": {
+      "ops": ["WIDGET_CLOSE"],
+      "cmux": "closing a popup widget's panel ends that widget",
+      "task": "p01-process-066"
+    },
+    "RenderWidgetHostNSViewHost.OnFirstResponderChanged": {
+      "ops": ["FOCUS", "cmux_shim_browser_set_embedder_active"],
+      "cmux": "first responder plus embedder-active on the ordered stream (task 092)",
+      "task": "p01-process-046"
+    },
+    "RenderWidgetHostNSViewHost.OnWindowIsKeyChanged": {
+      "ops": ["cmux_shim_browser_set_embedder_active"],
+      "cmux": "a page is embedder-active only while it is first responder in cmux's key window",
+      "task": "p01-process-046"
+    },
+    "RenderWidgetHostNSViewHost.OnBoundsInWindowChanged": {
+      "ops": ["GEOMETRY"],
+      "cmux": "sent only when the presented rect changes",
+      "task": "p01-process-053"
+    },
+    "RenderWidgetHostNSViewHost.OnWindowFrameInScreenChanged": {
+      "ops": ["GEOMETRY"],
+      "cmux": "GEOMETRY carries the screen origin for popups and screen coordinates",
+      "task": "p01-process-053"
+    },
+    "RenderWidgetHostNSViewHost.OnScreenInfosChanged": {
+      "ops": ["SCREEN_INFO"],
+      "cmux": "sent on window move, backing change and screen change so begin-frames follow the display that shows the page",
+      "task": "p01-process-221"
+    },
+    "RenderWidgetHostNSViewHost.BeginKeyboardEvent": {
+      "ops": ["KEY"],
+      "cmux": "each KEY frame names its page and carries ctl_seq; the ordered stream replaces the begin/end bracket",
+      "task": "p01-process-092"
+    },
+    "RenderWidgetHostNSViewHost.EndKeyboardEvent": {
+      "ops": ["KEY"],
+      "cmux": "same as BeginKeyboardEvent: one frame per key event, ordered by seq",
+      "task": "p01-process-092"
+    },
+    "RenderWidgetHostNSViewHost.ForwardKeyboardEventWithCommands": {
+      "ops": ["KEY"],
+      "events": ["CMUX_SHIM_KEY_UNHANDLED"],
+      "cmux": "KeyRouter decides first; keys for the page go on the input ring and unhandled ones come back as KEY_UNHANDLED (task 030)",
+      "task": "p01-process-042"
+    },
+    "RenderWidgetHostNSViewHost.RouteOrProcessMouseEvent": {
+      "ops": ["MOUSE"],
+      "cmux": "moves coalesce behind an unacked one; clicks are never coalesced",
+      "task": "p01-process-042"
+    },
+    "RenderWidgetHostNSViewHost.RouteOrProcessTouchEvent": {
+      "not_needed": "macOS has no touch screen; the page view gets trackpad input as wheel, magnify and smart-magnify events, which have their own rows"
+    },
+    "RenderWidgetHostNSViewHost.RouteOrProcessWheelEvent": {
+      "ops": ["WHEEL"],
+      "cmux": "first wheel event of a gesture leaves at once; later ones sum per phase behind an unacked one; the host sends phases with cmux_shim_browser_send_wheel",
+      "task": "p01-process-042"
+    },
+    "RenderWidgetHostNSViewHost.ForwardMouseEvent": {
+      "ops": ["MOUSE"],
+      "cmux": "synthetic moves and exits (mouse leaves the page view, menu closes) use the same frame",
+      "task": "p01-process-042"
+    },
+    "RenderWidgetHostNSViewHost.ForwardWheelEvent": {
+      "ops": ["WHEEL"],
+      "cmux": "synthetic gesture ends use the same frame",
+      "task": "p01-process-042"
+    },
+    "RenderWidgetHostNSViewHost.PinchEvent": {
+      "ops": ["PINCH"],
+      "cmux": "magnifyWithEvent sends pinch frames",
+      "task": "p01-process-054"
+    },
+    "RenderWidgetHostNSViewHost.SmartMagnifyEvent": {
+      "ops": ["SMART_MAGNIFY"],
+      "cmux": "smartMagnifyWithEvent sends one frame",
+      "task": "p01-process-054"
+    },
+    "RenderWidgetHostNSViewHost.ImeSetComposition": {
+      "ops": ["IME_SET_COMPOSITION"],
+      "cmux": "setMarkedText, on the ordered stream",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.ImeCommitText": {
+      "ops": ["IME_COMMIT_TEXT"],
+      "cmux": "insertText, on the ordered stream",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.ImeFinishComposingText": {
+      "ops": ["IME_FINISH"],
+      "cmux": "unmarkText, on the ordered stream",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.ImeCancelCompositionFromCocoa": {
+      "ops": ["IME_CANCEL"],
+      "cmux": "the input context discarded the composition",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.LookUpDictionaryOverlayAtPoint": {
+      "ops": ["LOOKUP_AT_POINT"],
+      "events": ["DICTIONARY_OVERLAY"],
+      "cmux": "force click and Look Up at a point; the host answers with the word",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.LookUpDictionaryOverlayFromRange": {
+      "ops": ["LOOKUP_RANGE"],
+      "events": ["DICTIONARY_OVERLAY"],
+      "cmux": "Look Up for a character range",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.SyncGetCharacterIndexAtPoint": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "characterIndexForPoint hit-tests the pushed per-character rects; ime_sync_requests stays 0",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.SyncGetFirstRectForRange": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "firstRectForCharacterRange reads the pushed composition rects and caret rect",
+      "task": "p01-process-043"
+    },
+    "RenderWidgetHostNSViewHost.ExecuteEditCommand": {
+      "ops": ["EDIT"],
+      "cmux": "doCommandBySelector edit commands by name",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.Undo": {"ops": ["EDIT"], "cmux": "undo:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.Redo": {"ops": ["EDIT"], "cmux": "redo:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.Cut": {"ops": ["EDIT"], "cmux": "cut:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.Copy": {"ops": ["EDIT"], "cmux": "copy:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.CopyToFindPboard": {
+      "events": ["TEXT_INPUT_STATE"],
+      "cmux": "Use Selection for Find writes the pushed selection text to the find pasteboard, no round trip",
+      "task": "p01-process-048"
+    },
+    "RenderWidgetHostNSViewHost.CenterSelection": {"ops": ["EDIT"], "cmux": "centerSelectionInVisibleArea:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.Paste": {"ops": ["EDIT"], "cmux": "paste:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.PasteAndMatchStyle": {"ops": ["EDIT"], "cmux": "pasteAndMatchStyle:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.SelectAll": {"ops": ["EDIT"], "cmux": "selectAll:", "task": "p01-process-047"},
+    "RenderWidgetHostNSViewHost.StartSpeaking": {
+      "ops": ["EDIT"],
+      "events": ["SPEAKING_STATE"],
+      "cmux": "startSpeaking:; the host pushes the speaking state",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.StopSpeaking": {
+      "ops": ["EDIT"],
+      "events": ["SPEAKING_STATE"],
+      "cmux": "stopSpeaking:",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.SyncIsSpeaking": {
+      "events": ["SPEAKING_STATE"],
+      "cmux": "Edit menu validation reads the pushed speaking state",
+      "task": "p01-process-047"
+    },
+    "RenderWidgetHostNSViewHost.GetRenderWidgetAccessibilityToken": {
+      "ops": ["AX_EMBEDDER_TOKENS"],
+      "events": ["AX_PAGE_TOKEN"],
+      "cmux": "sends its tokens on first AX access; accessibilityChildren returns the remote element once the page token arrives",
+      "task": "p01-process-049"
+    },
+    "RenderWidgetHostNSViewHost.SetRemoteAccessibilityWindowToken": {
+      "ops": ["AX_EMBEDDER_TOKENS"],
+      "cmux": "resent when the page view moves to another window",
+      "task": "p01-process-049"
+    }
+  }
+}
