@@ -7,7 +7,9 @@ const SOLO = "22222222-2222-4222-8222-222222222222";
 const CROWDED = "33333333-3333-4333-8333-333333333333";
 const EMPTY = "44444444-4444-4444-8444-444444444444";
 
-function fakeSource(members: Record<string, string[]>, admins: Record<string, string>) {
+const ANON = "55555555-5555-4555-8555-555555555555";
+
+function fakeSource(members: Record<string, string[]>, admins: Record<string, string>, anonymous: ReadonlySet<string> = new Set()) {
   const memberReads: { teamId: string; limit: number }[] = [];
   const source: TeamAdminBackfillSource = {
     listTeamsPage: async (cursor) => {
@@ -19,7 +21,7 @@ function fakeSource(members: Record<string, string[]>, admins: Record<string, st
     listTeamMembersPage: async (teamId, _cursor, limit) => {
       memberReads.push({ teamId, limit });
       const all = members[teamId] ?? [];
-      return { items: all.slice(0, limit).map((id) => ({ id }) as HexclaveServerUser), nextCursor: all.length > limit ? "more" : null };
+      return { items: all.slice(0, limit).map((id) => ({ id, is_anonymous: anonymous.has(id) }) as HexclaveServerUser), nextCursor: all.length > limit ? "more" : null };
     },
     listAllTeamPermissions: async () =>
       Object.entries(admins).map(([teamId, userId]) => ({ id: "team_admin", team_id: teamId, user_id: userId }) as HexclaveTeamPermission),
@@ -43,6 +45,12 @@ describe("team admin backfill", () => {
     // Administered teams are never read; orphans read at most two members.
     expect(memberReads.some((read) => read.teamId === ADMINED)).toBe(false);
     expect(memberReads.every((read) => read.limit === 2)).toBe(true);
+  });
+
+  test("an anonymous sole member is never proposed as admin", async () => {
+    const { source } = fakeSource({ [ANON]: ["u-anon"] }, {}, new Set(["u-anon"]));
+    const report = await findTeamsWithoutAdmin({ source, concurrency: 1, pageSize: 10 });
+    expect(report.orphans).toEqual([{ teamId: ANON, memberCount: 1, action: "needs_human", proposedAdminUserId: null }]);
   });
 
   test("apply grants proposals, skips a team whose sole member changed, and records failures", async () => {
