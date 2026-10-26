@@ -305,9 +305,32 @@ mod tests {
             resolve(task().as_raw_fd(), AT_FDCWD, "/proc/self/mem", O_WRONLY, &nspid()),
             Err(EACCES)
         ));
-        let fd = resolve(task().as_raw_fd(), AT_FDCWD, "/proc/self/fd/1", O_WRONLY, &nspid())
-            .expect("stdout fd alias");
-        assert!(fd.object.is_some());
+        // CI stdout may be an anonymous pipe, which the resolver deliberately
+        // refuses. Use a named object, as the forked supervisor fixture does,
+        // without replacing the test process's shared stdout descriptor.
+        let fixture = Fixture::new();
+        let target = fixture.0.join("output");
+        let output = fs::File::create(&target).expect("named output");
+        let number = output.as_raw_fd();
+        let pid = nspid();
+        // The finite alias table covers the same proc-fd route as /dev/stdout.
+        for alias in [
+            format!("/proc/self/fd/{number}"),
+            format!("/proc/thread-self/fd/{number}"),
+            format!("/proc/{pid}/fd/{number}"),
+            format!("/dev/fd/{number}"),
+        ] {
+            let resolved = resolve(task().as_raw_fd(), AT_FDCWD, &alias, O_WRONLY, &pid)
+                .expect("named fd alias");
+            assert_eq!(Path::new(&resolved.logical), target.as_path());
+            assert!(resolved.object.is_some());
+        }
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().expect("anonymous socket");
+        let alias = format!("/proc/self/fd/{}", socket.as_raw_fd());
+        assert!(matches!(
+            resolve(task().as_raw_fd(), AT_FDCWD, &alias, O_WRONLY, &pid),
+            Err(EACCES)
+        ));
     }
 
     #[test]
