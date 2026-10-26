@@ -62,8 +62,9 @@ extension BookmarkService {
         return true
     }
 
-    /// Redraws the bars that drew the folder symbol for a stored icon when it lands. `visible`: the icons show
-    /// on the bars.
+    /// Forgets each stored icon that landed (model work, while nothing shows too) and redraws the bars
+    /// that drew the folder symbol for it through their tabs' nodes (``reloadBar(_:)``). `visible`: the
+    /// icons show on the bars.
     func followFolderIcons() {
         folderIconObservation = ServiceObservation(.visible, owner: "BookmarkService.folderIcons", on: services.mainWork) { [weak self] in
             self?.landedAwaitedFolderIcons() ?? []

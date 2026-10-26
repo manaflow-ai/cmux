@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextFilesUI
 import CmuxNextWakeups
 import Foundation
@@ -34,7 +35,8 @@ struct FileExplorerVisibleRenderTests {
                                            rootFolder: { root }, perform: { _ in }, rowMenu: { _ in nil })
         // The follow is a service: the hidden section's model still roots at the folder and lists it.
         await FileExplorerFollowTests.root(of: model, becomes: root.standardizedFileURL)
-        for _ in 0..<200 where model.rows.isEmpty { await Task.yield() }
+        // The listing ends after the git read (a process), so wait for the rows, not a yield count.
+        for await rows in ObservationStream({ model.rows }) where !rows.isEmpty { break }
         #expect(model.rows.map(\.name) == ["Sources", "b.txt", "README.md"])
         #expect(view.table.numberOfRows == 0, "a hidden Files section rendered its rows")
         let window = VisibilityNode(root: "test.window", own: .visible)

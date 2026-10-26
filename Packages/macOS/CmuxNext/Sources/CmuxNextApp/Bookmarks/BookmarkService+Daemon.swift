@@ -25,7 +25,7 @@ extension BookmarkService {
 
     /// One switch at a time, in order: the copy and the reads run off main, each main step is one posted task, and
     /// a step of a switch a later change replaced does nothing.
-    private func switchHome(serves: Bool) {
+    func switchHome(serves: Bool) {
         homeGeneration &+= 1
         let generation = homeGeneration, previous = homeSwitch, mainWork = services.mainWork
         // task-owner: the service's one switch at a time; each waits for the one before it
@@ -36,7 +36,7 @@ extension BookmarkService {
                 self.resetHome(serves: serves, generation: generation)
             }
             guard copies else { return }
-            await self.migrateFileToDaemon()
+            await self.copyFileToDaemon()
             let reading = await mainWork.apply(.visible, owner: "BookmarkService.homeSettled") { () -> [Task<Void, Never>]? in
                 guard generation == self.homeGeneration else { return nil }
                 self.homeSettled = true
@@ -50,6 +50,11 @@ extension BookmarkService {
                 for profile in Set(self.trees.keys).union([BrowserProfileRecord.defaultID]) { self.fetch(profile) }
             }
         }
+    }
+
+    /// The switch's copy step: ``homeCopy`` when set, else ``migrateFileToDaemon()``.
+    private func copyFileToDaemon() async {
+        if let homeCopy { await homeCopy() } else { await migrateFileToDaemon() }
     }
 
     /// Forgets the daemon's reads for a capability change; true when the file copies into the daemon next.

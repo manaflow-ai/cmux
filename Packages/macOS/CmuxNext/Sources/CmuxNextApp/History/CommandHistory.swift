@@ -19,6 +19,7 @@ final class CommandHistory {
     private var mirrors: [String: TerminalCommandMirror] = [:]
     private var refreshing: Task<Void, Never>?
     private var observation: ServiceObservation<SyncState>?
+    private var recordingObservation: ServiceObservation<Bool>?
     /// What each connected daemon was last sent, by machine; a restarted
     /// daemon (new boot generation) starts with recording off and is told again.
     private var sent: [String: Sent] = [:]
@@ -36,8 +37,9 @@ final class CommandHistory {
     }
 
     /// Starts keeping the daemons' switch and retention in step with the settings. Releasing the
-    /// service releases the observation, which stops it. `background`: the daemons are told whether
-    /// or not anything shows; turning recording off still asks at once, a person's change.
+    /// service releases the observations, which stops them. The daemon sync is `background`: nobody
+    /// waits on it. The deletion offer is `userBlocking`: it answers the person's own toggle, whose
+    /// settings write ends after an await, so its will-set carries no person cause.
     func start(settings: SettingsController) {
         let machines = services.machines
         observation = ServiceObservation(.background, owner: "CommandHistory.state", on: services.mainWork) {
@@ -45,6 +47,17 @@ final class CommandHistory {
         } apply: { [weak self] state in
             self?.sync(state)
         }
+        recordingObservation = ServiceObservation(.userBlocking, owner: "CommandHistory.recording", on: services.mainWork) {
+            settings.snapshot.recordsTerminalCommands
+        } apply: { [weak self] enabled in
+            self?.recordingChanged(enabled, retentionDays: settings.snapshot.commandRetentionDays)
+        }
+    }
+
+    /// Recording turned from on to off: offer to delete what was recorded.
+    private func recordingChanged(_ enabled: Bool, retentionDays: Int) {
+        if lastEnabled == true, !enabled { offerDeletion(retentionDays: retentionDays) }
+        lastEnabled = enabled
     }
 
     /// What a sync depends on: the two settings and each connected daemon's
@@ -67,8 +80,6 @@ final class CommandHistory {
     }
 
     private func sync(_ state: SyncState) {
-        if lastEnabled == true, !state.enabled { offerDeletion(retentionDays: state.retentionDays) }
-        lastEnabled = state.enabled
         for (machine, generation) in state.machines {
             let next = Sent(generation: generation, enabled: state.enabled, retentionDays: state.retentionDays)
             // Sent on every connect, off too: the retention reaches the daemon.

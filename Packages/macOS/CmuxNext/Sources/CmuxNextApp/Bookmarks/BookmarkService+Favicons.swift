@@ -33,7 +33,8 @@ extension BookmarkService {
     }
 
     /// Redraws the bars that wait on an icon when one lands (no polling). A service observation: it fans out
-    /// to every chrome's bar, none of which owns it. `visible`: the icons show on the bars.
+    /// to every chrome's bar, none of which owns it, and each bar redraws through its tab's node
+    /// (``reloadBar(_:)``), so a hidden one waits for its show. `visible`: the icons show on the bars.
     func followFavicons() {
         let favicons = services.favicons
         faviconObservation = ServiceObservation(.visible, owner: "BookmarkService.favicons", on: services.mainWork) {
@@ -46,7 +47,7 @@ extension BookmarkService {
     /// Redraws the bars that drew a stand-in for an icon still loading.
     func reloadBarsAwaitingIcons() {
         guard showsBar else { return }
-        for chrome in chromes.values where chrome.entry != nil && chrome.source.awaitsFavicons { chrome.bar.reload() }
+        for chrome in chromes.values where chrome.source.awaitsFavicons { reloadBar(chrome) }
     }
 
     /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).

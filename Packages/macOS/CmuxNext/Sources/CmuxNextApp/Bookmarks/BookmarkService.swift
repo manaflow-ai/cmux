@@ -43,6 +43,9 @@ final class BookmarkService {
     @ObservationIgnored var homeSwitch: Task<Void, Never>?
     /// Bumped by every capability change: a switch step of an older one does nothing.
     @ObservationIgnored var homeGeneration: UInt64 = 0
+    /// The switch's copy of the file into the home daemon; nil: ``migrateFileToDaemon()``. A test sets it
+    /// to change the capability while a switch copies.
+    @ObservationIgnored var homeCopy: (@MainActor () async -> Void)?
     @ObservationIgnored var barObservation: ServiceObservation<Bool>?
     @ObservationIgnored var faviconObservation: ServiceObservation<Int>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
@@ -64,10 +67,14 @@ final class BookmarkService {
         weak var entry: BrowserEntry?
         let bar: BookmarksBarView
         let source: BookmarkBarSourceAdapter
-        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
+        /// The tab's visibility node (`TabContentCache.node(for:)`), held so a reload waiting for
+        /// the tab to show is not dropped with it.
+        let node: VisibilityNode
+        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter, node: VisibilityNode) {
             self.entry = entry
             self.bar = bar
             self.source = source
+            self.node = node
         }
     }
 

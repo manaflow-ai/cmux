@@ -26,16 +26,18 @@ final class BookmarkChromiumSync {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
     private var waiting: [String: String] = [:]
-    /// Each store's settle debounce. `background`: Chromium's model serves extensions, which nobody watches redraw.
-    private var scheduled: [String: MainDeadline] = [:]
-    private let mainWork: MainWorkScheduler
-    private let deadlines: MainDeadlineScheduler
+    /// Each store's settle, then its sync in idle time. `background`: Chromium's model serves extensions,
+    /// which nobody watches redraw.
+    private let settles: BookmarkSyncSettle
     private var homeObservation: ServiceObservation<String>?
 
     init(service: BookmarkService) {
         self.service = service
-        mainWork = service.services.mainWork
-        deadlines = service.services.mainDeadlines
+        let mainWork = service.services.mainWork
+        settles = BookmarkSyncSettle(settle: Self.settle, maxDelay: Self.idleMaxDelay,
+                                     deadlines: service.services.mainDeadlines) { owner, maxDelay, body in
+            mainWork.postIdle(owner: owner, maxDelay: maxDelay) { _ in body() }
+        }
         bridge.onEvent = { [weak self] profile, store, event in
             self?.handle(event, profile: BrowserProfileRecord.wireID(for: profile), store: store)
         }
@@ -128,19 +130,9 @@ final class BookmarkChromiumSync {
 
     /// Syncs `store` in the main thread's idle time once its events have
     /// settled for `settle`; a later call starts the wait again. The sync
-    /// serializes the whole tree, which is idle work (Chrome's
-    /// `ThreadScheduler::PostIdleTask`, third_party/blink/public/platform/scheduler).
+    /// serializes the whole tree, which is idle work (``BookmarkSyncSettle``).
     private func schedule(_ store: String, profile: String) {
-        // One debounce per store: a later schedule replaces the pending deadline.
-        let timer = scheduled[store] ?? MainDeadline(owner: "BookmarkChromiumSync.settle", workClass: .background, scheduler: deadlines)
-        scheduled[store] = timer
-        timer.schedule(after: Self.settle) { [weak self, mainWork] in
-            mainWork.postIdle(owner: "BookmarkChromiumSync.sync", maxDelay: Self.idleMaxDelay) { [weak self] _ in
-                // An event after the settle started the wait again: that deadline's sync is the one to send.
-                guard let self, self.scheduled[store]?.isScheduled != true else { return }
-                self.sync(store, profile: profile)
-            }
-        }
+        settles.schedule(store) { [weak self] in self?.sync(store, profile: profile) }
     }
 
     /// The longest a settled sync waits for idle time before it runs as background work.

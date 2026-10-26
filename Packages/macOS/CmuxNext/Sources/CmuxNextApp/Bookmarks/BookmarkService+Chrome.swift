@@ -19,7 +19,7 @@ extension BookmarkService {
         let adapter = BookmarkBarSourceAdapter(service: self, tabKey: key)
         let bar = BookmarksBarView()
         bar.source = adapter
-        chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
+        chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter, node: services.cache.node(for: key))
         entry.chrome.addressBar.onPageURLChange = { [weak self, weak entry] url in
             guard let self, let entry else { return }
             updateStar(entry, url: url)
@@ -38,9 +38,22 @@ extension BookmarkService {
             }
             guard profiles.contains(profile(of: entry.tab.profileID)) else { continue }
             updateStar(entry, url: entry.tab.state.url)
-            if showsBar { chrome.bar.reload() }
+            if showsBar { reloadBar(chrome) }
         }
     }
+
+    /// Reloads `chrome`'s bar now while its tab shows, else once when the tab's node next shows
+    /// (p06-scheduler.md rule 4: a hidden tab's bar does no view work).
+    func reloadBar(_ chrome: WeakChrome) {
+        guard chrome.entry != nil else { return }
+        chrome.node.deferUntilVisible(key: Self.barReloadKey) { [weak self, weak chrome] in
+            guard let self, let chrome, chrome.entry != nil, showsBar else { return }
+            chrome.bar.reload()
+        }
+    }
+
+    /// The key of a bar's reload held on its hidden tab's node: a hidden bar reloads once on show.
+    static let barReloadKey = "BookmarkService.barReload"
 
     /// `browser.showBookmarksBar` changed (cmux.json or the toggle action).
     func setBarShown(_ shown: Bool) {
@@ -48,7 +61,7 @@ extension BookmarkService {
         showsBar = shown
         for chrome in chromes.values {
             guard let entry = chrome.entry else { continue }
-            if shown { chrome.bar.reload() }
+            if shown { reloadBar(chrome) }
             entry.chrome.setAccessoryView(shown ? chrome.bar : nil, height: BookmarksBarView.height)
         }
     }

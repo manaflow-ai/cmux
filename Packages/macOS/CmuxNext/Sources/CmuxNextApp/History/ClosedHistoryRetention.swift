@@ -20,9 +20,9 @@ final class ClosedHistoryRetention {
     /// Each machine's recheck. `background`: nobody waits on a prune.
     private var deadlines: [String: MainDeadline] = [:]
     private var lastPrune: [String: ContinuousClock.Instant] = [:]
-    private var limits = ClosedRetention(maxGroups: 0, maxAgeDays: 0)
-    /// The closed list revision each machine was last checked at.
-    private var checked: [String: UInt64] = [:]
+    /// The limits and each machine's closed list revision at its last check.
+    private var checks = ClosedRetentionChecks()
+    private var limits: ClosedRetention { checks.limits }
     private static let interval = Duration.seconds(60)
     private static let retry = Duration.seconds(3600)
 
@@ -64,16 +64,13 @@ final class ClosedHistoryRetention {
 
     /// Checks the machines whose closed list changed, or every one when the limits did.
     private func sync(_ state: SyncState) {
-        let limitsChanged = limits != state.limits
-        limits = state.limits
+        let machines = checks.advance(limits: state.limits, machines: state.machines)
         lastPrune = lastPrune.filter { state.machines[$0.key] != nil }
         for (machine, timer) in deadlines where state.machines[machine] == nil {
             timer.cancel()
             deadlines[machine] = nil
         }
-        let changed = state.machines.filter { limitsChanged || checked[$0.key] != $0.value }
-        checked = state.machines
-        check(Set(changed.keys))
+        check(machines)
     }
 
     private func check(_ machines: Set<String>) {
