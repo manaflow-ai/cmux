@@ -1253,6 +1253,17 @@ async fn dispatch_request(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
+        // this machine's clients read, so for the app and the unix socket only.
+        "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
+            "_acpmux/peer_snapshot answers this machine's app and unix socket only",
+        )),
+        "_acpmux/peer_snapshot" => {
+            let (hub, params) = (hub.clone(), params.clone());
+            tokio::task::spawn_blocking(move || hub.peer_snapshot(&params))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+        }
         // Names every machine and its numbers: this machine's own clients only.
         "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/place answers on this machine's unix socket only",
