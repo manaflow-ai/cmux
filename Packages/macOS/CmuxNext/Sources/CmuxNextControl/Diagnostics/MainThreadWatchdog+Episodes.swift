@@ -1,6 +1,5 @@
 import os
 import CmuxNextCompat
-import CmuxNextTrace
 import CmuxNextWakeups
 
 extension MainThreadWatchdog {
