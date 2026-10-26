@@ -72,7 +72,7 @@ fn platform_profile_id(linux: bool) -> String {
     let identity = if linux {
         // Hash the implemented policy and protocol, including the bwrap argv shape.
         format!(
-            "{identity}\nlinux-keeper-v1; loader-env-v1\n{}\n{}\n{}\n{}\n{}",
+            "{identity}\nlinux-keeper-v1; loader-env-v2\n{}\n{}\n{}\n{}\n{}",
             include_str!("../linux_sandbox/bwrap.rs"),
             include_str!("../linux_sandbox/keeper.rs"),
             include_str!("../linux_sandbox/init.rs"),
@@ -86,7 +86,8 @@ fn platform_profile_id(linux: bool) -> String {
     crate::sha256::sha256_hex(identity.as_bytes())
 }
 
-/// Loader and glibc startup controls must never reach an unsandboxed Linux exec.
+/// glibc sysdeps/generic/unsecvars.h (including legacy MALLOC_CHECK_) plus
+/// every LD_* control: none may reach an unsandboxed Linux exec.
 #[cfg(target_os = "linux")]
 pub(crate) fn loader_env_key(key: &str) -> bool {
     key.starts_with("LD_")
@@ -100,6 +101,10 @@ pub(crate) fn loader_env_key(key: &str) -> bool {
                 | "LOCPATH"
                 | "MALLOC_ARENA_MAX"
                 | "MALLOC_ARENA_TEST"
+                | "MALLOC_CHECK_"
+                | "MALLOC_TCACHE_COUNT"
+                | "MALLOC_TCACHE_MAX"
+                | "MALLOC_TCACHE_UNSORTED_LIMIT"
                 | "MALLOC_PERTURB_"
                 | "MALLOC_TOP_PAD_"
                 | "MALLOC_TRACE"
@@ -110,6 +115,7 @@ pub(crate) fn loader_env_key(key: &str) -> bool {
                 | "NLSPATH"
                 | "RESOLV_HOST_CONF"
                 | "RES_OPTIONS"
+                | "TMPDIR"
                 | "TZDIR"
         )
 }
@@ -699,7 +705,7 @@ fn claude_args(
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
     #[cfg(target_os = "linux")]
-    if let Some(bad) = profile.env.keys().find(|k| loader_env_key(k)) {
+    if let Some(bad) = profile.env.keys().find(|k| k.as_str() != "TMPDIR" && loader_env_key(k)) {
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     if let Some(bad) = REFUSED_ENV.iter().find(|k| profile.env.contains_key(**k)) {
