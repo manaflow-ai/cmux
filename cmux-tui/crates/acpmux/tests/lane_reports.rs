@@ -139,3 +139,23 @@ async fn lane_link_a_closed_parent_gets_no_new_lane() {
     let id = r["result"]["sessionId"].as_str().expect("session/new");
     assert_eq!(tag(&hub, id), None);
 }
+
+#[tokio::test]
+async fn lane_link_a_purged_callers_connection_never_links_to_a_session_named_its_id() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    // A connection proven as session A stays open while A is purged; another session then takes
+    // A's id as its name.
+    let gone = person.new_session("a", json!({})).await;
+    let mut from_gone = Client::as_session(&hub, &gone).await;
+    person.ok("_acpmux/kill", json!({"sessionId": gone, "purge": true})).await;
+    let impostor = person.new_session(&gone, json!({})).await;
+    let r = from_gone
+        .call(
+            "session/new",
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "lane-g"}}}),
+        )
+        .await;
+    let lane = r["result"]["sessionId"].as_str().expect("session/new");
+    assert_eq!(tag(&hub, lane), None, "linked to {impostor}");
+}

@@ -125,6 +125,15 @@ mod tests {
         hub.kill(&parent, false).await.unwrap();
         hub.lane_link(&parent.id, &child.id);
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
+        // A child that closed after `lane_link` read it and before the link went in is not
+        // linked again: its close retired its links already.
+        let closing = hub.new_session(start()).await.unwrap();
+        let open_parent = hub.new_session(start()).await.unwrap();
+        hub.kill(&closing, false).await.unwrap();
+        hub.lane_link(&open_parent.id, &closing.id);
+        assert!(!hub.lane_links(|l| l.contains_key(&closing.id)));
+        hub.kill(&closing, true).await.unwrap();
+        hub.kill(&open_parent, true).await.unwrap();
         // An open parent is linked.
         let open = hub.new_session(start()).await.unwrap();
         hub.lane_link(&open.id, &child.id);
