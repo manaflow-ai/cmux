@@ -983,6 +983,7 @@ name = "cmux-blocking"
 version = "0.1.0"
 dependencies = [
  "cmux-panic-log",
+ "cmux-threads",
  "serde_json",
  "tokio",
 ]

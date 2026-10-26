@@ -30,7 +30,6 @@ use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, RuntimeFlavor, TaskMeta};
 
 use crate::RecordSink;
-use crate::sites::{self, Seen};
 
 /// The lab's slow-poll threshold.
 pub const LAB_THRESHOLD: Duration = Duration::from_millis(2);
@@ -211,7 +210,7 @@ impl PollWatch {
         Self(Arc::new(Inner {
             threshold,
             target,
-            sites: (0..sites::CAPACITY).map(|_| AtomicU64::new(0)).collect(),
+            sites: (0..SITE_CAPACITY).map(|_| AtomicU64::new(0)).collect(),
             slow: AtomicU64::new(0),
             slow_nanos: AtomicU64::new(0),
             recorded: AtomicU64::new(0),
@@ -269,7 +268,7 @@ impl PollWatch {
             return;
         };
         let spawned_at = meta.spawned_at();
-        match sites::insert(&inner.sites, sites::site_key(spawned_at)) {
+        match first_at_site(&inner.sites, spawned_at) {
             Seen::First => {}
             Seen::Before => return,
             Seen::TableFull => {
@@ -292,6 +291,51 @@ impl PollWatch {
         inner.recorded.fetch_add(1, Ordering::Relaxed);
         sink.slow_poll(&record);
     }
+}
+
+/// Distinct slow spawn sites one watch records; later ones are counted in
+/// [`PollCounts::sites_dropped`].
+const SITE_CAPACITY: usize = 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+enum Seen {
+    First,
+    Before,
+    TableFull,
+}
+
+/// Whether `location` had a slow poll before: a fixed, lock-free
+/// open-addressing set of site hashes (0 marks an empty slot), so the poll
+/// hook takes no lock and allocates nothing.
+fn first_at_site(table: &[AtomicU64], location: &Location<'_>) -> Seen {
+    let key = site_key(location);
+    let len = table.len();
+    let start = usize::try_from(key % len as u64).unwrap_or(0);
+    for probe in 0..len {
+        let slot = &table[(start + probe) % len];
+        match slot.compare_exchange(0, key, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return Seen::First,
+            Err(existing) if existing == key => return Seen::Before,
+            Err(_) => {}
+        }
+    }
+    Seen::TableFull
+}
+
+/// FNV-1a over `file:line:col`, never 0. Keyed by value, not by the
+/// `Location` address, which the compiler may duplicate across codegen units.
+fn site_key(location: &Location<'_>) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let bytes = location
+        .file()
+        .bytes()
+        .chain(location.line().to_le_bytes())
+        .chain(location.column().to_le_bytes());
+    for byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash.max(1)
 }
 
 /// The hooks run inside the runtime's context.
@@ -440,13 +484,20 @@ mod tests {
         assert!(counts.slow_nanos >= 3 * u64::try_from(SLEEP.as_nanos()).unwrap_or(u64::MAX));
     }
 
-    /// cmux-blocking's runtime: its workers are `NoBlock`, so a wrapper call
-    /// there runs inside `block_in_place`.
-    fn no_block_multi_thread(watch: &PollWatch) -> tokio::runtime::Runtime {
+    /// cmux-blocking's runtime: a wrapper call in one of its tasks runs
+    /// inside `block_in_place`.
+    fn compensating_multi_thread(watch: &PollWatch) -> tokio::runtime::Runtime {
         let mut builder = crate::runtime::multi_thread();
         builder.worker_threads(2);
         watch.instrument(&mut builder);
         builder.build().expect("build a multi_thread runtime")
+    }
+
+    /// Calls that ran in `block_in_place` (a worker not yet seen unparking
+    /// counts as unconfirmed; both are compensated).
+    fn compensated_calls() -> u64 {
+        let counts = crate::counts();
+        counts.compensated + counts.unconfirmed
     }
 
     #[test]
@@ -455,17 +506,17 @@ mod tests {
         let watch = PollWatch::with_sink(LAB_THRESHOLD, collector.clone());
         // A join can return before the worker runs its after-poll hook;
         // dropping the runtime joins the workers.
-        let runtime = no_block_multi_thread(&watch);
-        let compensated_before = crate::counts().compensated;
+        let runtime = compensating_multi_thread(&watch);
+        let compensated_before = compensated_calls();
         runtime
             .block_on(runtime.spawn(async { crate::thread::sleep(SLEEP) }))
             .expect("the compensated task ends");
         drop(runtime);
-        assert!(crate::counts().compensated > compensated_before);
+        assert!(compensated_calls() > compensated_before);
         assert!(collector.polls().is_empty(), "{:?}", collector.polls());
         assert_eq!(watch.counts().slow, 0);
 
-        let runtime = no_block_multi_thread(&watch);
+        let runtime = compensating_multi_thread(&watch);
         let line = line!() + 1;
         let task = runtime.spawn(async { std::thread::sleep(SLEEP) });
         runtime.block_on(task).expect("the sleeping task ends");
@@ -517,6 +568,17 @@ mod tests {
         drop(runtime);
         drop(watch);
         assert_eq!(collector.summaries().len(), 1);
+    }
+
+    #[test]
+    fn the_site_set_dedupes_by_value_and_reports_full() {
+        let table: Vec<AtomicU64> = (0..2).map(|_| AtomicU64::new(0)).collect();
+        let (first, second, third) = (Location::caller(), Location::caller(), Location::caller());
+        assert_eq!(first_at_site(&table, first), Seen::First);
+        assert_eq!(first_at_site(&table, first), Seen::Before);
+        assert_eq!(first_at_site(&table, second), Seen::First);
+        assert_eq!(first_at_site(&table, third), Seen::TableFull);
+        assert_ne!(site_key(first), site_key(second));
     }
 
     #[test]
