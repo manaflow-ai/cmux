@@ -82,6 +82,54 @@ fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
                 CHECKER.command_names()
             self.assertIn("needs #[serde(rename", errors.getvalue())
 
+    def test_command_names_include_literal_only_modules(self) -> None:
+        table = {
+            "connection_frame/machine_catalog": {
+                "literals": {
+                    "machine-catalog-publish": {"handler": "try_handle"}
+                },
+                "authority": "local-admin",
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text("enum Command {\n    Ping,\n}\n")
+            frame = server.parent / "server/connection_frame/machine_catalog.rs"
+            frame.parent.mkdir(parents=True)
+            frame.write_text(
+                "fn try_handle(mux: &Mux, client: u64, m: &str) -> bool {\n"
+                "    if !mux.control_clients.is_unix(client) { return false; }\n"
+                '    m == "machine-catalog-publish"\n}\n'
+            )
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "module_commands", lambda: table),
+            ):
+                self.assertEqual(CHECKER.command_names(), {"ping", "machine-catalog-publish"})
+                self.assertEqual(
+                    CHECKER.module_command_profiles(), {"machine-catalog-publish": "local-admin"}
+                )
+            frame.write_text("fn try_handle(m: &str) -> bool { false }\n")
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "module_commands", lambda: table),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_names()
+            self.assertIn("no longer matches 'machine-catalog-publish'", errors.getvalue())
+
+    def test_hello_gate_transport_check_is_a_non_unix_refusal(self) -> None:
+        source = (
+            CHECKER.TUI / "crates/cmux-tui-core/src/server/client_hello.rs"
+        ).read_text()
+        body = CHECKER.rust_function_body(CHECKER.strip_rust_comments(source), "observe")
+        self.assertRegex(body, CHECKER.NON_UNIX_REFUSAL)
+        self.assertNotRegex("_ if matches!(self.transport, ClientTransport::Unix)", CHECKER.NON_UNIX_REFUSAL)
+
     def test_module_local_admin_needs_the_guard_in_every_handler(self) -> None:
         guarded = """\
 enum Command {
