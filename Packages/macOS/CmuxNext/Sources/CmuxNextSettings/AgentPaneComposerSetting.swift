@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false }
+/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "subagentPanes": false }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -12,6 +12,9 @@ import CmuxNextDesign
 /// in every composer (a chat's and the New Tab page's); its right-click hides it, Settings shows it
 /// again. A bad value is the default plus a diagnostic.
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
+/// `subagentPanes`: subagents open in agent panes of their own right of the chat, and a click on
+/// one opens its pane; off (the default), they show in the chat. The summary card's Open subagents
+/// in panes switch writes it (webviews/src/agent-session/acpmux/subagents/subagentPanes.ts).
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -22,10 +25,12 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showContextUsagePath = ["agentPane", "showContextUsage"]
     public static let showDictationPath = ["agentPane", "showDictation"]
     public static let spellCheckingPath = ["agentPane", "spellChecking"]
+    public static let subagentPanesPath = ["agentPane", "subagentPanes"]
 
     public var showContextUsage = true
     public var showDictation = true
     public var spellChecking = false
+    public var subagentPanes = false
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -35,12 +40,13 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, subagentPanes, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
             "showDictation": .bool(showDictation),
             "spellChecking": .bool(spellChecking),
+            "subagentPanes": .bool(subagentPanes),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -58,6 +64,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
+            if descriptor.path == subagentPanesPath { setting.subagentPanes = flag }
         }
         return setting
     }
@@ -91,6 +98,14 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                                          "Underlines misspellings and offers system suggestions in the composer."),
                 kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.spellChecking),
                 keywords: ["spell", "spelling", "grammar", "misspelling", "composer", "suggestions", "typing"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.subagentPanesPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.subagentPanes", "Open Subagents in Panes"),
+                help: SettingsText.keyed("settings.agentPane.subagentPanes.help",
+                                         "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat."),
+                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.subagentPanes),
+                keywords: ["subagent", "subagents", "pane", "panes", "split", "agent", "chat"]
             ),
         ]
     }

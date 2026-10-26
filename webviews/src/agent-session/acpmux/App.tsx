@@ -185,6 +185,7 @@ import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter } from "./summary/foldWorkflows";
 import type { WorkflowSummary } from "./summary/workflow";
 import {
+  adoptStoredSubagentPanes,
   showSubagent as showSubagentIn,
   revealedSubagent,
   useAutoOpenSubagents,
@@ -847,6 +848,8 @@ const changesSource: ChangesSource = {
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
 registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
+// A switch turned on before Open subagents in panes was a cmux.json setting moves into it.
+adoptStoredSubagentPanes();
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).

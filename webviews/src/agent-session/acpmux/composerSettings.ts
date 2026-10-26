@@ -18,6 +18,9 @@
 // `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
+// `subagentPanes` is `agentPane.subagentPanes` in cmux.json (off by default): subagents open in panes
+// of their own right of the chat (subagents/subagentPanes.ts). The summary card's switch sets it
+// at once and asks the host to write it (`pane.subagentPanes`), which pushes it back.
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
@@ -30,6 +33,7 @@ export type ComposerSettings = {
   plainFooter: boolean;
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
+  subagentPanes: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -41,6 +45,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   plainFooter: true,
   harnessSwitch: false,
   escapeDoublePress: true,
+  subagentPanes: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -50,7 +55,8 @@ type ComposerFlag =
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
-  | "escapeDoublePress";
+  | "escapeDoublePress"
+  | "subagentPanes";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -66,6 +72,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     plainFooter: flag("plainFooter"),
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
+    subagentPanes: flag("subagentPanes"),
   };
 }
 
@@ -87,6 +94,7 @@ export function useComposerSettings(): ComposerSettings {
       return () => listeners.delete(listener);
     },
     () => current,
+    () => current,
   );
 }
 
@@ -98,8 +106,9 @@ declare global {
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
 
-/// The host's write of a composer setting: `pane.showContextUsage` or `pane.showDictation` with `show`.
-type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation", show: boolean) => void;
+/// The host's write of a composer setting: `pane.showContextUsage`, `pane.showDictation` or
+/// `pane.subagentPanes` with `show`.
+type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation" | "pane.subagentPanes", show: boolean) => void;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
@@ -111,4 +120,11 @@ export function registerComposerHost(write: ComposerHost | undefined) {
 export function showComposerControl(key: "showContextUsage" | "showDictation", show: boolean) {
   setComposerSettings({ [key]: show });
   composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
+}
+
+/// Turns opening subagents in panes on or off in every page, and asks the host to persist it
+/// (`agentPane.subagentPanes`).
+export function setSubagentPanes(on: boolean) {
+  setComposerSettings({ subagentPanes: on });
+  composerHost?.("pane.subagentPanes", on);
 }
