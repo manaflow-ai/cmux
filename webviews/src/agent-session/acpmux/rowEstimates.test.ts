@@ -69,6 +69,80 @@ test("a reply estimated alone, then with its footer after it, is estimated again
   expect(second.tops[1]).toBe(second.heights[0]);
 });
 
+test("a live footer slot keeps short, long, and tool-ending turns at the settled height", () => {
+  for (const text of ["Done.", "A longer answer that wraps. ".repeat(40)]) {
+    const source = [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Go" },
+      { id: "a", version: 1, at: 2_000, kind: "assistant", text },
+    ];
+    const live = turnView(source as never, new Set(), {
+      now: 3_000,
+      working: true,
+      lineBelow: true,
+      liveRuns: true,
+      sessionStatus: true,
+    });
+    const settled = turnView(
+      [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
+      new Set(),
+      { now: 4_000, lineBelow: true, liveRuns: true, sessionStatus: true },
+    );
+    expect(live.at(-1)).toMatchObject({ below: true });
+    expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
+    expect(layoutConversation(live, 720).heights.at(-1)).toBe(48);
+    expect(layoutConversation(settled, 720).heights.at(-1)).toBe(48);
+  }
+
+  const liveSource = [
+    { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
+    { id: "a", version: 1, at: 2_000, kind: "assistant", text: "The command is ready." },
+    { id: "p", version: 1, at: 3_000, kind: "plan", plan: [{ content: "Run", status: "in_progress" }] },
+    {
+      id: "t",
+      version: 1,
+      at: 4_000,
+      kind: "activity",
+      items: [{ kind: "tool", text: "", tool: { id: "call", title: "Run", kind: "execute", status: "in_progress" } }],
+    },
+  ];
+  const live = turnView(liveSource as never, new Set(), {
+    now: 5_000,
+    working: true,
+    lineBelow: true,
+    liveRuns: true,
+    sessionStatus: true,
+  });
+  const settledSource = [
+    ...liveSource.slice(0, -1),
+    {
+      ...liveSource.at(-1)!,
+      items: [{ kind: "tool", text: "", tool: { id: "call", title: "Run", kind: "execute", status: "completed" } }],
+    },
+    { id: "s", version: 1, at: 5_000, kind: "turnSummary", status: "completed", text: "The command is ready." },
+  ];
+  const settled = turnView(settledSource as never, new Set(), {
+    now: 6_000,
+    lineBelow: true,
+    liveRuns: true,
+    sessionStatus: true,
+  });
+  expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
+  expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
+  expect(layoutConversation(live, 720).heights.at(-1)).toBe(48);
+  expect(layoutConversation(settled, 720).heights.at(-1)).toBe(48);
+
+  const legacy = turnView(liveSource as never, new Set(), {
+    now: 5_000,
+    working: true,
+    lineBelow: false,
+    liveRuns: false,
+    sessionStatus: true,
+  });
+  expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
+  expect(legacy.at(-1)?.below).toBeUndefined();
+  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(34);
+});
+
 test("the chat's last footer is placed again when a prompt follows it", () => {
   const rows = [reply("a", "Done."), footer("f")];
   const first = layoutConversation(rows as never, 720);
@@ -195,9 +269,14 @@ test("another agent's message is its 26px line in 2px margins, its card cut to e
   // The card: 4px above, 8px padding each side and 6px below its text.
   const [short] = heightsOf([row("Draft is up.")]);
   expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
-  // A long message's card shows RECEIVED_LINES lines, however long the message.
-  const [long] = heightsOf([row(Array.from({ length: 40 }, (_, i) => `Line ${i} of the report.`).join("\n"))]);
-  expect(long).toBe(2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 8 + 6 + 8);
+  // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
+  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
+  const estimated = layoutConversation(rows as never, 720);
+  const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
+  const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));
+  expect(estimated.heights[0]).toBe(renderedHeight);
+  expect(rendered.tops[1]).toBe(estimated.tops[1]);
+  expect(rendered.totalHeight).toBe(estimated.totalHeight);
 });
 
 test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {

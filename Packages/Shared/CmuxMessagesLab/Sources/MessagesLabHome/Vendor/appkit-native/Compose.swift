@@ -89,6 +89,8 @@ final class FieldTextView: NSTextView {
             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
             onSend(); return
         }
+        // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
+        if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
         if event.keyCode == 53 { onEscape(); return }
         super.keyDown(with: event)
     }
@@ -264,6 +266,14 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
+    func setSpellCheckingEnabled(_ enabled: Bool) {
+        if DeferredSpellChecker.useAppKit {
+            isContinuousSpellCheckingEnabled = enabled
+        } else {
+            spell.enabled = enabled
+        }
+    }
     override func toggleContinuousSpellChecking(_ sender: Any?) {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }

@@ -8,8 +8,21 @@
 mod daemon_env;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+#[path = "durable_agents/restart_reattach.rs"]
+mod restart_reattach;
+#[path = "durable_agents/stalled_turn.rs"]
+mod stalled_turn;
+// This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
+// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_REATTACH_LIVE",
+    "ACPMUX_REATTACH_IDLE",
+    "ACPMUX_REATTACH_CLOSED",
+    "ACPMUX_REATTACH_RECORDS",
+    "ACPMUX_REATTACH_SCAN_DELAY_MS",
+    "ACPMUX_REATTACH_BUDGET_MS",
+    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -378,6 +391,89 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
+}
+
+/// A daemon whose turns stall after 300 ms (`stalledTurnMs`) runs `mode: GATE` (fake_agent.py)
+/// until `ready` logs, is killed and started again, and adopts the turn: the chat's summary
+/// 600 ms after that, with the daemon, the chat and the gate that ends the turn.
+async fn adopted_after(
+    tag: &str,
+    mode: &str,
+    ready: impl Fn(&Value) -> bool,
+) -> (Daemon, String, PathBuf, Value) {
+    let mut daemon = Daemon::new(tag, "approve-all");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "stalledTurnMs": 300}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("{mode}: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the running tool call", ready);
+
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    until_turn_restored(&daemon, &session).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let all = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
+    let entry = all["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    (daemon, session, gate, entry)
+}
+
+/// Opens `gate` and waits for the turn to complete.
+fn ends_its_turn(daemon: &Daemon, session: &str, gate: &Path) {
+    std::fs::write(gate, b"go").unwrap();
+    let result = daemon.wait_event(session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
+/// Goal 8 (`lane.stalledSince`, hub/activity.rs): a tool call still running across a daemon
+/// restart is still in flight once the next daemon adopts its host, so the turn waiting on it
+/// does not read as stalled. The adopting daemon rebuilt the turn with no tool calls in flight.
+#[tokio::test]
+async fn a_tool_call_running_across_a_restart_keeps_its_turn_from_stalling() {
+    let (daemon, session, gate, entry) =
+        adopted_after("stall-up", "work-gate", |e| e["kind"] == "tool_call").await;
+    assert_eq!(entry["lane"]["state"], "working", "{entry}");
+    assert!(entry["lane"]["stalledSince"].is_null(), "its tool call still runs: {entry}");
+    assert_eq!(entry["turn"]["activity"], "Run cargo test", "its tool call, from the log: {entry}");
+    ends_its_turn(&daemon, &session, &gate);
+}
+
+/// A subagent's tool call is not its parent turn's: rebuilt after a restart, the parent turn
+/// still stalls while only its subagent's tool call runs, and does not take its activity. The
+/// log's own subagents say whose an update is, not the update's `_meta`: a tool call of the
+/// turn's own that names a subagent there is still the turn's.
+#[tokio::test]
+async fn a_subagents_tool_call_across_a_restart_is_not_its_parent_turns() {
+    let (daemon, session, gate, entry) = adopted_after("stall-sub", "child-gate", |e| {
+        e["kind"] == "tool_call" && e["msg"].pointer("/params/_meta/acpmux/subagent").is_some()
+    })
+    .await;
+    assert!(entry["lane"]["stalledSince"].is_u64(), "only its subagent's call runs: {entry}");
+    assert!(entry["turn"]["activity"].is_null(), "the subagent's activity: {entry}");
+    ends_its_turn(&daemon, &session, &gate);
+
+    let (daemon, session, gate, entry) =
+        adopted_after("stall-meta", "meta-gate", |e| e["kind"] == "tool_call").await;
+    assert!(entry["lane"]["stalledSince"].is_null(), "its own call runs: {entry}");
+    assert_eq!(entry["turn"]["activity"], "Own build", "{entry}");
+    ends_its_turn(&daemon, &session, &gate);
 }
 
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
@@ -1471,6 +1567,8 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held
         assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
         assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
     } else {
+        // The lost turn's continuation goes first (`restart_resume.rs`), then the queue.
+        let queue: Vec<&str> = queue.into_iter().skip_while(|id| id.contains("~resume-")).collect();
         assert!(["q-1", "q-2"].ends_with(&queue), "the queue came back out of order: {attached:#}");
     }
 
@@ -1857,8 +1955,9 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
-/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
-/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+/// holds; a large log store takes longer to read. Without the flag info still waits for the
+/// chat's log (#22916), which it reads itself instead of waiting for every other chat's
+/// (`hub/log_load.rs`). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
 #[tokio::test]
 async fn info_answers_while_the_chat_logs_load() {
     const HOLD: Duration = Duration::from_secs(6);
@@ -1880,6 +1979,6 @@ async fn info_answers_while_the_chat_logs_load() {
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
-    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
-    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+    assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
 }

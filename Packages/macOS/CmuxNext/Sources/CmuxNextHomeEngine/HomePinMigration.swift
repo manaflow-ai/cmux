@@ -68,7 +68,7 @@ public final class HomePinMigration {
         store.save(pins, account: account)
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.home.drive {action: legacy_pins}`): the pins this Mac keeps for the account, after
     /// setting them to `pins` when given (a GUI proof seeds the old store, then relaunches).
     public func debugPins(_ pins: [String]?) -> [String] {

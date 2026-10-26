@@ -38,7 +38,6 @@ SCRIPT = ROOT / "scripts/ci/cmux_next_fast_gates.py"
 GATE_SCRIPTS = {
     "web lint": "scripts/web_lint_prepush.py",
     "crash ratchet": "scripts/ci/crash_ratchet_compare.py",
-    "defaults stamp": "scripts/ci/defaults_guard.py",
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
@@ -198,7 +197,8 @@ class WorkflowShape(unittest.TestCase):
         bun = next(s for s in steps if s.get("uses", "").startswith("oven-sh/setup-bun@"))
         self.assertIn("steps.prepare.outputs.web == 'true'", bun["if"])
         self.assertIn("steps.prepare.outputs.checks == 'true'", bun["if"])
-        self.assertEqual(bun["with"]["bun-version"], "1.4.2")
+        package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(bun["with"]["bun-version"], package["devEngines"]["packageManager"]["version"])
         run = step_named(steps, "Fast gates")
         self.assertIn('--checks "$CHECKS"', run["run"])
         self.assertEqual(run["env"]["CHECKS"], "${{ steps.prepare.outputs.checks }}")
@@ -612,7 +612,6 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
-        self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
@@ -919,6 +918,31 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(f"error: Type errors found\n{a}Found 1 error and 0 warnings in 9 files (1.0s)\n",
                                            f"error: Type errors found\n{a}{b}Found 2 errors and 0 warnings in 9 files (2.1s)\n"),
                          [])
+
+    def test_vp_lint_count_that_falls_adds_nothing(self):
+        # #24538's web lint: `vp lint` puts warnings first. The base said 4 errors; the merge fixed 3 of them, and
+        # its `Found 0 warnings and 1 error.` failed the job as "1 finding over the base".
+        errors = [type_error("TS2307", f"Cannot find module './{n}.json'.", f"src/{n}.ts:4:21") for n in "abcd"]
+        self.assertEqual(self.module.added(f"{errors[0]}Found 0 warnings and 1 error.\n",
+                                           "".join(errors) + "Found 0 warnings and 4 errors.\n"), [])
+        self.assertEqual(self.module.added(f"{errors[0]}Found 2 warnings and 1 error.\n",
+                                           f"{errors[0]}Found 1 warning and 1 error.\n"), [])
+        # a line that only starts like the summary is still a finding, and so is text after a whole summary
+        self.assertEqual(self.module.added("Found 1 warning and the rest\n", ""), ["Found 1 warning and the rest"])
+        for crash in ("Found 1 warning and 1 error: panic", "Found 1 error and 0 warnings in 9 files (1.0s) then a panic",
+                      "Found 1 warning and 1 error (panic)"):
+            self.assertEqual(self.module.added(f"{errors[0]}{crash}\n", f"{errors[0]}Found 0 warnings and 1 error.\n"),
+                             [crash])
+
+    def test_a_wrapped_message_that_reads_like_the_summary_is_message_text(self):
+        # An unframed diagnostic's message wraps onto the next line with no blank line between; a line there that
+        # reads like the run's count is part of that message, so a new one is still a finding.
+        summary = "Found 0 warnings and 1 error.\n"
+        merge = "  x eslint(no-restricted-syntax): banned pattern\n  Found 0 warnings and 1 error.\n\n" + summary
+        base = "  x eslint(no-restricted-syntax): banned pattern\n\n" + summary
+        self.assertEqual(self.module.added(merge, base),
+                         ["eslint(no-restricted-syntax): banned pattern Found 0 warnings and 1 error."])
+        self.assertEqual(self.module.added(base, base), [])
 
     def test_vp_lint_warning_summary_in_either_order_is_noise(self):
         summary = "Found 5 warnings and 0 errors in 2481 files (1.0s)\n"

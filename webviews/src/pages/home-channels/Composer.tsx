@@ -24,6 +24,7 @@ import { MAX_ATTACHMENTS, attachmentClass, attachmentType, refusal, type Attachm
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
 export interface ComposerProps {
@@ -107,6 +108,9 @@ export function Composer({
   const nextFile = useRef(1);
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
+  // WEB-SWAP: staged files live only in this composer (an upload aborts on unmount), so a web
+  // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const empty = !value.trim() && ready.length === 0;
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));

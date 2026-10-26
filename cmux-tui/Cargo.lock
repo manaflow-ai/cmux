@@ -1102,6 +1102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-focus-core"
 version = "0.1.0"
 dependencies = [
@@ -1136,6 +1143,8 @@ dependencies = [
 name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
+ "cmux-process",
  "libc",
 ]
 
@@ -1280,6 +1289,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1462,6 +1479,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1555,12 +1573,14 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-build-identity",
  "cmux-config",
  "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1644,6 +1664,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-flow-trace",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -1651,6 +1672,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1745,6 +1767,7 @@ name = "cmux-tui-platform"
 version = "0.1.0"
 dependencies = [
  "cmux-link",
+ "cmux-process",
  "cmux-pty",
  "cmux-sdk",
  "cmux-unix-socket",

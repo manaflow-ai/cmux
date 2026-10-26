@@ -105,7 +105,6 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
-@media (prefers-reduced-motion:no-preference){.acpmux-file-menu-list{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* Commit and Push: text buttons in the toolbar pill, the commit form and the latest write's status line under the header. */
 .acpmux-diff-notice-text{flex:1;min-width:0}
 /* Pull request review threads (cx-ncc.77.2): under their line in the diff, or above it when the line is gone. */

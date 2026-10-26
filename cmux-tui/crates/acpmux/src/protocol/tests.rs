@@ -68,7 +68,10 @@ fn protocol_registry_names_every_served_method() {
     // Prefixes the dispatcher matches on, not method names.
     let prefixes = ["_acpmux/chat", "_acpmux/transfer_"];
     for source in sources {
-        for capture in literal.captures_iter(source) {
+        // The served code, not the test modules at the end of each file: a test may name a
+        // method the server doesn't serve (`request_admission_tests` sends `_acpmux/unknown`).
+        let served = source.split("\n#[cfg(test)]\nmod ").next().unwrap_or_default();
+        for capture in literal.captures_iter(served) {
             let name = &capture[1];
             if !names.contains(name) && !prefixes.contains(&name) {
                 missing.insert(name.to_owned());

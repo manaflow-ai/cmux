@@ -88,6 +88,30 @@ const host: Partial<HostLists> = {
     },
   ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
+  // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every
+  // host list since fe482b41. Without it the category draws nothing (serverCard.gallery.ts has its states).
+  server: {
+    title: "Server",
+    empty: "No server has answered yet.",
+    socket_title: "Local Socket",
+    tailnet_title: "Tailscale Address",
+    copy_title: "Copy",
+    pair_title: "Pair",
+    servers: [
+      {
+        id: "cmux-tui|local",
+        kind: "cmux-tui",
+        host: null,
+        name: "cmux-tui",
+        running: true,
+        status: "Running",
+        version_line: "Version 0.67.0 · Build 7a3c9e1 · Protocol 12",
+        restart: null,
+        socket: "/Users/sample/.cmux/sockets/main.sock",
+        tailnet: "100.64.0.7:7777",
+      },
+    ],
+  },
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
   // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
@@ -298,6 +322,15 @@ Object.assign(variants, {
           attribution: "macOS system wallpaper · Grid Green",
           collection: "apple",
           collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
           downloaded: false,
         },
       ],

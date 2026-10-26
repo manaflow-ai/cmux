@@ -74,6 +74,9 @@ enum AgentHandlers {
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
         }
+        registry.bindAgentPaneSessionInfo { invocation in
+            focusedAgentView(context, invocation)?.toggleSessionInfo()
+        }
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
@@ -81,6 +84,10 @@ enum AgentHandlers {
             }
             view.toggleInspector()
         }
+        registry.bind(.stopTurn, run: { invocation in
+            guard let view = focusedAgentView(context, invocation) else { return }
+            view.stopTurn()
+        })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
                 "UI pointer inspector is off. Turn it on in Debug Settings."

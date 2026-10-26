@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0. */
+/* cmux-tui mux protocol 12, IR ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -204,6 +204,11 @@ export type CloseTerminalResult = {
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
+};
+
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
 };
 
 export type ColorHex = string;
