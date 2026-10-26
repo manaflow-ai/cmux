@@ -23,8 +23,10 @@ The script reads the version from files. The version is not written in the scrip
 1. **CI pin (used).** This is the `swift:<major.minor>-noble@sha256:...` container in
    [`.github/workflows/swift-packages-linux.yml`](../../../.github/workflows/swift-packages-linux.yml).
    The tag gives only major.minor. The script reads the patch release (`SWIFT_VERSION` in the
-   image config) for the pinned digest from the registry, and does not pull the image. It keeps
-   the result in `~/.cache/cmux/swift-image/<digest>-<arch>`, so a later run does not use the network.
+   image config) for the pinned digest from the registry, and does not pull the image. An x.y.0
+   image says only `x.y`; the script uses `x.y.0`. When the value is a release of the tag's
+   major.minor, the script keeps it in `~/.cache/cmux/swift-image/<digest>-<arch>`, so a later
+   run does not use the network. `--check` does not write the cache.
 2. **hq pin (compared).** This is `SWIFT_VERSION` in cmuxterm-hq
    `build-fleet/swift-linux-builder/setup.sh`, read from `origin/main` of the hq checkout
    (`$CMUX_HQ`, a `cmuxterm-hq` folder next to the clone, or `~/fun`, `~`, `~/Projects`).

@@ -97,16 +97,40 @@ resolve_image_version() {
     | jq -er '.config.Env[] | select(startswith("SWIFT_VERSION=")) | sub("^SWIFT_VERSION=swift-"; "") | sub("-RELEASE$"; "")'
 }
 
+# Swift x.y.0 images and toolchains say "x.y"; swiftly reads a bare "x.y" as the newest
+# x.y patch. Compare and pass only full x.y.z versions.
+full_version() {
+  if [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; then printf '%s.0\n' "$1"; else printf '%s\n' "$1"; fi
+}
+# A release of the tag's major.minor: x.y or x.y.z, nothing else (no snapshot suffix).
+is_ci_release() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ && ( "$1" == "$ci_minor" || "$1" == "$ci_minor".* ) ]]
+}
+
 cache_file="$cache_dir/${ci_digest#sha256:}-$oci_arch"
-if [[ -s "$cache_file" ]]; then
-  ci_version="$(cat "$cache_file")"
+ci_version=""
+if [[ -s "$cache_file" ]] && cached="$(head -1 "$cache_file")" && is_ci_release "$cached"; then
+  ci_version="$(full_version "$cached")"
+elif ! command -v curl >/dev/null || ! command -v jq >/dev/null; then
+  # Only --check gets here: step 1 installs both otherwise.
+  (( check_only )) || die "curl and jq are needed to resolve the CI pin and are not on PATH"
+  pending+=("install curl/jq")
+  say "would: install curl/jq; CI pin not resolved"
 else
-  ci_version="$(resolve_image_version)" || die "could not read SWIFT_VERSION of $registry_repo@$ci_digest ($oci_arch)"
-  mkdir -p "$cache_dir" && printf '%s\n' "$ci_version" >"$cache_file"
+  resolved="$(resolve_image_version)" \
+    || die "could not read SWIFT_VERSION of $registry_repo@$ci_digest ($oci_arch) from the registry"
+  is_ci_release "$resolved" \
+    || die "image $ci_digest reports Swift '$resolved', not a $ci_minor.x release as its tag says"
+  ci_version="$(full_version "$resolved")"
+  if (( ! check_only )); then
+    mkdir -p "$cache_dir"
+    tmp_cache="$(mktemp "$cache_file.XXXXXX")"
+    printf '%s\n' "$ci_version" >"$tmp_cache" && mv -f "$tmp_cache" "$cache_file"
+  fi
 fi
-[[ "$ci_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ && ( "$ci_version" == "$ci_minor" || "$ci_version" == "$ci_minor".* ) ]] \
-  || die "image $ci_digest reports Swift '$ci_version', not $ci_minor.x as its tag says"
-say "CI pin: Swift $ci_version (swift:$ci_minor-noble@${ci_digest:0:19}..., $workflow)"
+if [[ -n "$ci_version" ]]; then
+  say "CI pin: Swift $ci_version (swift:$ci_minor-noble@${ci_digest:0:19}..., $workflow)"
+fi
 
 # --- 3. The hq pin, for comparison.
 find_hq() {
@@ -125,7 +149,9 @@ if hq="$(find_hq)"; then
   hq_version="$(sed -nE 's/^SWIFT_VERSION="\$\{SWIFT_VERSION:-([0-9.]+)\}".*/\1/p' <<<"$hq_text" | head -1)"
   if [[ -z "$hq_version" ]]; then
     say "hq pin: no SWIFT_VERSION default in $hq/$hq_setup; using the CI pin"
-  elif [[ "$hq_version" == "$ci_version" ]]; then
+  elif [[ -z "$ci_version" ]]; then
+    say "hq pin: Swift $hq_version; CI pin not resolved"
+  elif [[ "$(full_version "$hq_version")" == "$ci_version" ]]; then
     say "hq pin: Swift $hq_version, same as CI"
   else
     say "hq pin: Swift $hq_version ($hq/$hq_setup) differs from the CI pin $ci_version; using CI's $ci_version"
@@ -156,10 +182,14 @@ fi
 
 # --- 5. The toolchain, as swiftly's global default (in_root: see its definition).
 swift_version() {
-  in_root "$SWIFTLY_BIN_DIR/swift" --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9.]+).*/\1/p' | head -1
+  local v
+  v="$(in_root "$SWIFTLY_BIN_DIR/swift" --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9.]+).*/\1/p' | head -1)"
+  [[ -n "$v" ]] && full_version "$v"
 }
 current="$(swift_version || true)"
-if [[ "$current" == "$ci_version" ]]; then
+if [[ -z "$ci_version" ]]; then
+  say "toolchain: not checked (CI pin not resolved)"
+elif [[ "$current" == "$ci_version" ]]; then
   say "toolchain: Swift $ci_version is the default"
 elif [[ ! -x "$swiftly" ]]; then
   needs "install Swift $ci_version and make it the default" || true
@@ -177,6 +207,7 @@ if (( check_only )); then
   say "${#pending[@]} change(s) needed"; exit 1
 fi
 version_line="$(in_root "$SWIFTLY_BIN_DIR/swift" --version 2>&1 | head -1)"
-[[ "$version_line" == *"Swift version $ci_version"* ]] || die "after setup, swift reports: $version_line"
+[[ "$(swift_version || true)" == "$ci_version" ]] \
+  || die "after setup, swift reports '$version_line', not Swift $ci_version"
 say "${#pending[@]} change(s) made; $version_line"
 say "use it: . \"$SWIFTLY_HOME_DIR/env.sh\""
