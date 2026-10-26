@@ -1,0 +1,78 @@
+// Several people in one chat (hq plans/cmux-next/chat-multiplayer/DESIGN.md). Leo, 2026-10-26: "we
+// can still do the regular chat multiplayer". The pane reads who sent a prompt, who answered an
+// ask, and who is here and typing from acpmux's records through these readers only, so the rows
+// and the header render from plain fields (and from gallery fixtures) before the sync lands.
+//
+// The author is stamped by the host's daemon, never named by a client: a prompt's
+// `_meta.provenance` of kind `person_message` `{from, fromName}`, and a decision's
+// `answeredBy {person, name}` beside acpmux's `{session, name}` and `{device}`. Presence and typing
+// are ephemeral (`_acpmux/presence`), never in the log.
+
+/// One person in a chat. `avatar` is a picture's data URL; none draws their initials.
+export type Participant = { id: string; name: string; avatar?: string };
+
+/// Who else has the chat open, and who of them is typing; this reader is never in either list.
+export type ChatPresence = { viewing: Participant[]; typing: Participant[] };
+
+/// Longest name the pane draws, as acpmux bounds a surface's name.
+const MAX_NAME = 64;
+
+const text = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, MAX_NAME) : undefined;
+};
+
+/// Only an inline picture: a link would load from wherever a record points.
+const picture = (value: unknown): string | undefined =>
+  typeof value === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/.test(value) ? value : undefined;
+
+function participant(id: unknown, name: unknown, avatar: unknown): Participant | undefined {
+  const key = text(id);
+  if (!key) return undefined;
+  const shown = picture(avatar);
+  return { id: key, name: text(name) ?? key, ...(shown && { avatar: shown }) };
+}
+
+/// The person who sent a `user_message` or `queued` record, or undefined for the chat owner's own.
+export function promptAuthor(msg: { _meta?: { provenance?: unknown } } | undefined): Participant | undefined {
+  const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  if (provenance?.kind !== "person_message") return undefined;
+  return participant(provenance.from, provenance.fromName, provenance.fromAvatar);
+}
+
+/// The person who answered an ask (`permission_decision.answeredBy`), or undefined when acpmux
+/// names a session, a device or nobody.
+export function answeredBy(value: unknown): Participant | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const by = value as Record<string, unknown>;
+  return participant(by.person, by.name, by.avatar);
+}
+
+/// The chat's presence from `_acpmux/presence {participants: [{id, name, viewing, typing, self?}]}`.
+/// The reader's own entry (`self`) is left out: nobody needs to see they are here.
+export function chatPresence(value: unknown): ChatPresence {
+  const list = (value as { participants?: unknown } | undefined)?.participants;
+  const viewing: Participant[] = [];
+  const typing: Participant[] = [];
+  if (!Array.isArray(list)) return { viewing, typing };
+  const seen = new Set<string>();
+  for (const entry of list) {
+    if (!entry || typeof entry !== "object") continue;
+    const raw = entry as Record<string, unknown>;
+    const person = participant(raw.id, raw.name, raw.avatar);
+    if (!person || raw.self === true || seen.has(person.id)) continue;
+    seen.add(person.id);
+    if (raw.viewing === true || raw.typing === true) viewing.push(person);
+    if (raw.typing === true) typing.push(person);
+  }
+  return { viewing, typing };
+}
+
+/// Up to two initials of a name, by grapheme, so an accent or an emoji stays whole.
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const first = (word: string) => Array.from(new Intl.Segmenter().segment(word), (part) => part.segment);
+  const letters = words.length > 1 ? [first(words[0]!)[0], first(words[1]!)[0]] : first(words[0] ?? "?").slice(0, 2);
+  return letters.join("").toUpperCase();
+}

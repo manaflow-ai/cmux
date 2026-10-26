@@ -1,4 +1,5 @@
 import type { ChatUnavailable } from "./chatUnavailable";
+import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -212,6 +213,11 @@ export type AcpmuxRow = {
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
+  /// The person who sent a prompt in a shared chat (multiplayer/participants.ts `promptAuthor`);
+  /// unset for the chat owner's own, which draws as it always has.
+  author?: Participant;
+  /// The person who answered a `permissionRecord` row's ask (`answeredBy`).
+  answeredBy?: Participant;
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
@@ -536,6 +542,8 @@ export type AcpmuxSnapshot = {
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
+  /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
+  presence?: ChatPresence;
   /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
   workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
@@ -831,8 +839,15 @@ const userMetaHeight = (row: AcpmuxRow) => {
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
+/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
+const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow) =>
-  row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
+  row.kind === "user"
+    ? USER_BUBBLE_PADDING +
+      userMetaHeight(row) +
+      (row.status ? USER_STATUS_HEIGHT : 0) +
+      (row.author ? AUTHOR_HEIGHT : 0)
+    : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 24;
