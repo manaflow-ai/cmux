@@ -153,7 +153,7 @@ mod remote_cli_docs {
     fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
         let mut missing = Vec::new();
         for words in command_lines(text, "cmux") {
-            let mut parser_words = words[1..]
+            let parser_words = words[1..]
                 .iter()
                 .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
                 .cloned()
@@ -164,8 +164,11 @@ mod remote_cli_docs {
                 continue;
             }
             let action = action_name(&words, names);
-            let parser =
-                parse(&parser_words, Surface::Cmux).is_ok() || builtin_command(&parser_words);
+            // Cloud verbs are app actions whose existence is checked by the
+            // socket. Require a catalog match rather than generic parsing.
+            // Resource commands still resolve through the CLI parser.
+            let parser = builtin_command(&parser_words)
+                || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
             } else if let Some(action) = action {
@@ -181,7 +184,6 @@ mod remote_cli_docs {
                     }
                 }
             }
-            parser_words.clear();
         }
         missing
     }
@@ -217,7 +219,7 @@ mod remote_cli_docs {
     #[test]
     fn a_deliberately_stale_cmux_line_is_rejected() {
         let names = action_names();
-        let missing = missing_commands("cmux cloud deliberately-stale-action", &names);
+        let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
         assert_eq!(missing, vec!["cmux cloud deliberately-stale-action"]);
     }
 
@@ -246,8 +248,10 @@ mod remote_cli_docs {
     #[test]
     fn documented_action_flag_typos_are_rejected() {
         let names = action_names();
-        let missing =
-            missing_commands("cmux cloud exec --target machine:builder --comand uname", &names);
+        let missing = missing_commands(
+            "```sh\ncmux cloud exec --target machine:builder --comand uname\n```",
+            &names,
+        );
         assert_eq!(
             missing,
             vec!["cmux cloud exec --target machine:builder --comand uname (flag --comand)"]

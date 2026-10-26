@@ -459,7 +459,7 @@ padding are never highlighted or copied. The composer grows to 12 rows before it
 ## Bring your own harness
 
 Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
-with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+with `acpmux harness doctor <id>` (also available under the `cmux harness` scope). Schema, secrets, terminal harnesses,
 folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
 
 Your own model endpoint is a harness too (a Chief can use it as its backend):
