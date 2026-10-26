@@ -60,7 +60,8 @@ public final class MainFrameBudget {
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
     public let turns: MainTurnMeter
     private let input: any InputPendingSource
-    private let uptimeNanos: () -> UInt64
+    /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
+    let uptimeNanos: () -> UInt64
     /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an
     /// injected ``init(budgets:input:board:signposts:starvation:clock:turns:)`` clock): an off-main post reads its
     /// enqueue time with it on the posting thread, as Chrome sets `PendingTask::queue_time` at
