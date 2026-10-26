@@ -196,16 +196,20 @@ Allowed at Home idle: app, daemon, the Chromium engine processes when Chromium i
 about:blank renderer, the WebKit Settings spare, the WebKit warmup page, a WebKit process for the update card, and
 the ad-blocker background page before the first browser tab.
 
-Chromium's own spare renderer, proposed (task 020, manaflow-ai/cef `cp/p13-webui-020` at `3c4616b2`, on 017's
+Chromium's own spare renderer, proposed (task 020, manaflow-ai/cef `cp/p13-webui-020` at `5d16aa91`, on 017's
 `1cb02dc4`). Nobody has built or run it. Chrome keeps one spare for the profile that last took a new process
 (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc` PrepareForFutureRequests), with no
 destroy timer on desktop (only Android's kAndroidWarmUpSpareRendererWithTimeout sets one) and
 kKillSpareRenderOnMemoryPressure disabled by default. The fork patch `cmux_spare_renderer_policy` adds
 `ContentBrowserClient::ShouldWarmupSpareRenderProcessHost`; with `--cmux-spare-renderer-after-first-tab`
 (`CEFSwitches.spareRendererAfterFirstTab`) a profile gets a spare only after one of its browser tabs starts an
-http(s) navigation. The pages profile never gets one, a page open keeps the browser profile's spare, and Home with no
-browser tab has none. The spare has no timeout, as Chrome desktop, until the bench-webui.py home and open runs give a
-number (`CEFSwitches.spareRendererTimeoutMilliseconds`, `--cmux-spare-renderer-timeout-ms`).
+http(s) navigation. The spare keeps Chrome desktop's lifetime (no timeout). The app passes the switch only with the
+default-off feature `chromiumSpareAfterFirstTab`. Expected, not yet measured: the pages profile gets no spare, a page
+open keeps the browser profile's spare, and Home with no browser tab has none. A cost to measure: today the default
+profile's spare comes from the ad-blocker background page at launch and the first browser tab takes it; with the
+policy, that first tab starts a renderer cold. The feature turns on by default only after a fork build gives these
+numbers: bench-webui.py home (0 spare renderers with no browser tab) and open (first-tab and later
+`cef_tab.new.visible` within the noise band), with the feature off and on. No fork ceftest checks the spare count yet.
 
 ### 3.7 Observability
 

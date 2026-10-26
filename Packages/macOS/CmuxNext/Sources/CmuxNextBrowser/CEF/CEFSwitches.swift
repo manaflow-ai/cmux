@@ -7,6 +7,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
+    /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
+    /// (`spareRendererAfterFirstTab`).
+    var spareAfterFirstTab = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -39,23 +42,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
     /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
     /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
-    /// profile, extension background pages and the spare windows never make one: Home with no
-    /// browser tab has none, and a page open no longer replaces the browser profile's spare.
-    /// Older forks ignore it.
+    /// profile, extension background pages and the spare windows should never make one. The
+    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
     static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
-
-    /// How long an unused spare lives after its start, in milliseconds; nil keeps it, as Chrome
-    /// desktop does. Set from the bench-webui.py home and open runs (p13-webui-020): a number here
-    /// needs its measured idle wakeups and footprint against `cef_tab.new.visible` beside it.
-    static let spareRendererTimeoutMilliseconds: Int? = nil
-
-    static var spareRendererSwitches: [String] {
-        var result = [spareRendererAfterFirstTab]
-        if let milliseconds = spareRendererTimeoutMilliseconds {
-            result.append("cmux-spare-renderer-timeout-ms=\(milliseconds)")
-        }
-        return result
-    }
 
     var arguments: [String] {
         var result: [String] = []
@@ -99,7 +88,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
-        result.append(contentsOf: Self.spareRendererSwitches)
+        if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -179,6 +168,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static func current(
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
+        spareAfterFirstTab: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -198,6 +188,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
+            spareAfterFirstTab: spareAfterFirstTab,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

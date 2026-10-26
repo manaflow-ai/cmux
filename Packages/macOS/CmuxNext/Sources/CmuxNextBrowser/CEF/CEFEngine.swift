@@ -351,6 +351,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
     }
 
+    /// The feature `chromiumSpareAfterFirstTab`: Chromium's spare renderer only for a profile a
+    /// browser tab opened (`CEFSwitches.spareRendererAfterFirstTab`); asked once, when Chromium starts.
+    public var spareAfterFirstTab: @MainActor () -> Bool {
+        get { CEFRuntime.shared.spareAfterFirstTabFeature }
+        set { CEFRuntime.shared.spareAfterFirstTabFeature = newValue }
+    }
+
     /// What modified link clicks do (cmux.json `browser.links.*`;
     /// process-wide, read on each request).
     public var linkClicks: BrowserLinkClickMapping {
