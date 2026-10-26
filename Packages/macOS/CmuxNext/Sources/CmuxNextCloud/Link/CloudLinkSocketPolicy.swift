@@ -14,7 +14,8 @@ enum CloudLinkSocketPolicy {
     /// `sun_path` holds 104 bytes with the terminating NUL.
     static let maxPathBytes = 103
 
-    /// Throws ``CloudLinkError/unsafeSocket(_:)`` unless `path` passes.
+    /// Throws ``CloudLinkError/unsafeSocket(_:)`` or
+    /// ``CloudLinkError/openDirectory(path:parent:)`` unless `path` passes.
     public static func check(_ path: String, uid: uid_t = getuid()) throws {
         guard path.hasPrefix("/") else { throw CloudLinkError.unsafeSocket("not an absolute path") }
         guard !path.utf8.contains(0) else { throw CloudLinkError.unsafeSocket("path has a NUL byte") }
@@ -35,7 +36,7 @@ enum CloudLinkSocketPolicy {
         guard let dir = status(directory.isEmpty ? "/" : directory) else { throw CloudLinkError.unsafeSocket("no directory") }
         guard dir.st_mode & S_IFMT == S_IFDIR else { throw CloudLinkError.unsafeSocket("directory is not a directory") }
         guard dir.st_uid == uid else { throw CloudLinkError.unsafeSocket("directory has another owner") }
-        guard dir.st_mode & 0o077 == 0 else { throw CloudLinkError.unsafeSocket("directory is open to others") }
+        guard dir.st_mode & 0o077 == 0 else { throw CloudLinkError.openDirectory(path: directory.isEmpty ? "/" : directory, parent: false) }
         guard let socket = status(path) else { throw CloudLinkError.unsafeSocket("no socket") }
         guard socket.st_mode & S_IFMT == S_IFSOCK else { throw CloudLinkError.unsafeSocket("not a socket") }
         guard socket.st_uid == uid else { throw CloudLinkError.unsafeSocket("socket has another owner") }
@@ -50,7 +51,7 @@ enum CloudLinkSocketPolicy {
             guard let info = status(prefix) else { throw CloudLinkError.unsafeSocket("no directory") }
             guard info.st_uid == 0 || info.st_uid == uid else { throw CloudLinkError.unsafeSocket("a parent has another owner") }
             if info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o022 != 0, info.st_mode & S_ISVTX == 0 {
-                throw CloudLinkError.unsafeSocket("a parent is open to others")
+                throw CloudLinkError.openDirectory(path: prefix, parent: true)
             }
         }
     }

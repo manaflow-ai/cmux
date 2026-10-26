@@ -56,6 +56,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "bookmark",
     "accounts",
     "open",
+    "cloud",
     "keybinding",
     "ghostty",
     "errors",
@@ -190,6 +191,26 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         pick: None,
     };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("cloud", Some("exec")) => {
+            let has_command = rest.iter().enumerate().any(|(index, argument)| {
+                argument.starts_with("--command=")
+                    || argument.strip_prefix("--arg=").is_some_and(|value| {
+                        value.starts_with("command=") && value.len() > "command=".len()
+                    })
+                    || (argument == "--command"
+                        && rest.get(index + 1).is_some_and(|value| !value.starts_with('-')))
+                    || (argument == "--arg"
+                        && rest.get(index + 1).is_some_and(|value| {
+                            value.starts_with("command=") && value.len() > "command=".len()
+                        }))
+            });
+            if rest.iter().any(|argument| argument == "--") || !has_command {
+                return Err(UsageError::new(
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
+                ));
+            }
+            run_action("cloud exec", &rest[1..], ActionName::Cli)?
+        }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
@@ -216,8 +237,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("action.list", Value::Object(params))
         }
         ("action", Some("describe")) => {
-            let [id] = positional::<1>(&rest[1..], messages.action_describe_usage)?;
-            call("action.describe", json!({ "action": id }))
+            // CLI names contain spaces (for example `cloud exec`), so the
+            // shell's natural unquoted spelling remains one action name.
+            let words = &rest[1..];
+            if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
+                return Err(UsageError::new(messages.action_describe_usage));
+            }
+            call("action.describe", json!({ "action": words.join(" ") }))
         }
         ("action", Some("run")) => {
             let Some((id, tail)) = rest[1..].split_first() else {
@@ -1125,10 +1151,6 @@ pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: 
         output,
         exit_code,
     )
-}
-
-fn positional<const N: usize>(args: &[String], usage: &str) -> Result<[String; N], UsageError> {
-    <[String; N]>::try_from(args.to_vec()).map_err(|_| UsageError::new(usage))
 }
 
 /// `--key value` / `--key=value` options (repeatable) and boolean flags.

@@ -31,6 +31,7 @@ impl Hub {
             route,
             subsession,
             disallowed_tools,
+            checked_cwd,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -153,13 +154,16 @@ impl Hub {
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
-        // A pooled session of exactly this shape (`pool/`) gives the session
-        // its id; `ensure_child` then takes it instead of starting cold.
-        // A pooled harness started without this session's env: never claimed.
+        // A pooled session of exactly this shape (`pool/`) gives the session its id; `ensure_child`
+        // then takes it instead of starting cold. Never with this session's own env, route or
+        // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
+        // wherever the path led.
         let pooled = match &adopt {
-            // A pooled harness was started without this chat's route or its
-            // disallowed tools: never claimed.
-            None if meta.session_env.is_empty() && route.is_none() && meta.tools.off.is_empty() => {
+            None if meta.session_env.is_empty()
+                && route.is_none()
+                && meta.tools.off.is_empty()
+                && checked_cwd.is_none() =>
+            {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -246,7 +250,7 @@ impl Hub {
             return Ok(self.begin_watch(&session, &family, file.clone()));
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Ok(spawn) => self.ensure_checked_child(&session, &spawn, checked_cwd.as_ref()).await,
             Err(e) => Err(e),
         };
         if let Err(e) = spawned {
@@ -466,6 +470,7 @@ impl Hub {
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.

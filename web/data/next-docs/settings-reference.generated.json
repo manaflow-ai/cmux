@@ -154,7 +154,7 @@
         {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
-          "help": "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+          "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
           "kind": "choice",
           "default": "fullAccess",
           "group": "Agent Chat",

@@ -132,7 +132,7 @@ const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id ==
  * thread), then the text, with mentions shown as @name and attachments as one line each. Empty
  * when the message carries nothing a model can read.
  */
-export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean } = {}): string => {
+export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean; readonly owner?: string } = {}): string => {
   const lines: Array<string> = []
   for (const part of m.parts) {
     if (part.type === "text") {
@@ -149,7 +149,10 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
   const kind = head.kind ?? "group"
   const where = head.title?.trim() ? head.title.trim() : kind
   const thread = m.thread_root ? " · in a thread" : ""
-  return `[${where} · ${kind} · ${nameOf(head, m.author)}${thread}] ${lines.join("\n")}`
+  // In a shared conversation the Chief must tell its owner from everyone else (CHIEF-DONE B3: the owner's
+  // requests run, anyone else's keep the approval rule); the owner's own Chief line has only the owner.
+  const owner = kind !== "chief" && opts.owner !== undefined && m.author === opts.owner ? " (your owner)" : ""
+  return `[${where} · ${kind} · ${nameOf(head, m.author)}${owner}${thread}] ${lines.join("\n")}`
 }
 
 /**
