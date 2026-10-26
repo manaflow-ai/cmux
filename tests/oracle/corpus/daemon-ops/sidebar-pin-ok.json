@@ -39,7 +39,7 @@
         "method": "sidebar.pin",
         "params": {
           "items": [
-            "oracle"
+            "itm_home"
           ]
         },
         "idempotencyKey": "sidebar-pin-ok.call"
@@ -52,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "Home moves to the end of Pinned"
     }
   ],
   "invariants": [
@@ -61,8 +61,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.items[0] is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

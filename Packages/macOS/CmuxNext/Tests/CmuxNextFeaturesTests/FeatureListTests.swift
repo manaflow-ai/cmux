@@ -232,6 +232,13 @@ struct FeatureListTests {
         #expect(!slot.isEnabled(Self.perf))
     }
 
+    /// A duration param reads as its declared default; another name or another type reads as nil.
+    @Test func aDurationParamReadsItsDefault() {
+        #expect(Feature.intentPrewarmHover.durationParam("dwell") == .milliseconds(200))
+        #expect(Feature.intentPrewarmHover.durationParam("missing") == nil)
+        #expect(Self.perf.durationParam("dwell") == nil)
+    }
+
     /// Readers on other threads race install: when a reader answered the
     /// default and the installed list says otherwise, install reports that
     /// feature (the handshake in Slot.isEnabled and Slot.install).

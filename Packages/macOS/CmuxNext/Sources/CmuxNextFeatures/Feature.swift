@@ -148,6 +148,16 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
     }
+
+    /// Duration param `name`'s value, to the microsecond: its declared default, since params have no
+    /// override source yet. Nil when the feature declares no duration param of that name.
+    public func durationParam(_ name: String) -> Duration? {
+        for param in params where param.name == name {
+            // Whole microseconds: `.seconds(0.2)` would carry the double's error into the attoseconds.
+            if case let .duration(seconds, _, _) = param.value { return .microseconds(Int64((seconds * 1_000_000).rounded())) }
+        }
+        return nil
+    }
 }
 
 /// The default value per channel, the last step of the resolution order.

@@ -50,6 +50,9 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
+    /// The view entered a window (true) or left its window (false): a hosted page is live only
+    /// while its view is in one.
+    var onWindowChange: ((Bool) -> Void)?
     /// The shown context, 0 while none.
     var contextID: UInt32 { surface.contextID }
     /// The page's background, shown wherever the page's own pixels are not
@@ -63,6 +66,8 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
     private(set) var crashOverlay: NSView?
+    /// The page's last picture while no host shows it; only ``showStandIn(_:)`` and ``removeStandIn()`` set it.
+    var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
 
@@ -130,7 +135,7 @@ public final class ChromiumHostPageView: NSView {
         guard let overlay else { return true }
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
-        addSubview(overlay, positioned: .above, relativeTo: surface)
+        addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
         return true
     }
 
@@ -166,6 +171,7 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindow()
+        onWindowChange?(window != nil)
         if window == nil {
             lastGeometry = nil
             onLeftWindow?()

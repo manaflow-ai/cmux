@@ -29,49 +29,29 @@
   ],
   "steps": [
     {
-      "id": "fx-sidebar-view",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "sidebar_view.ensure",
-        "params": {
-          "cols": 80,
-          "rows": 24
-        },
-        "idempotencyKey": "sidebar-view-input-error.fx-sidebar-view"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "sidebar_view": "$step:fx-sidebar-view#/value/id"
+        "sidebar_view": "sidebar"
       },
       "args": {
         "method": "sidebar_view.input",
         "params": {
-          "data_base64": "!"
+          "data_base64": "b3JhY2xl"
         },
         "idempotencyKey": "sidebar-view-input-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "data_base64 breaks its catalog type (value must use canonical base64); the daemon's catalog check refuses it"
+      "note": "no view was started (no plugin), so the sidebar view selector matches nothing"
     }
   ],
   "invariants": [

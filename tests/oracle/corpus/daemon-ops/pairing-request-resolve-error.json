@@ -39,19 +39,24 @@
       "args": {
         "method": "pairing_request.resolve",
         "params": {
-          "decision": "oracle-not-in-enum"
+          "decision": "accept"
         },
         "idempotencyKey": "pairing-request-resolve-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user",
+          "reason": "pairing_approval_needs_human"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "decision breaks its catalog type (value is outside the allowed enum); the daemon's catalog check refuses it"
+      "note": "only the cmux app or the daemon's own TUI may accept a pairing (origin_gate.rs check_pairing_accept); the gate refuses before it looks the request up"
     }
   ],
   "invariants": [

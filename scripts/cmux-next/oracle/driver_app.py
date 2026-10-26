@@ -843,6 +843,10 @@ class CaseRun:
         if kind == "error":
             if detail != expect["error"]:
                 raise CaseError("Failure", f"expected error {expect['error']}, got {detail}", step_id)
+            if "errorDetails" in expect:
+                # The app's control, cli and mcp replies reach this driver as a typed code only.
+                raise CaseError("Crash", f"errorDetails: the {step['op']} reply gives this driver no error details",
+                                step_id)
             return
         receipt = expect.get("receipt")
         if receipt is not None:

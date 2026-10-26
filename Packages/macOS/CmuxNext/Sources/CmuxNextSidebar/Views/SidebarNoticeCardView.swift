@@ -45,15 +45,26 @@ final class SidebarNoticeCardView: NSView {
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     private let motionPolicy: @MainActor () -> MotionPolicy
+    /// A change of the motion settings (Energy Saver, Reduce Motion, the speed) lays the progress
+    /// row out again: a running sweep stops, or a still one starts, with no new notice.
+    private var motionWatch: AppearanceSignals.Subscription?
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 
-    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
+    /// - Parameters:
+    ///   - motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
+    ///   - motionSignals: Where a change of those settings is announced (``AppearanceSignals/Signal/motion``).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
-         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy },
+         motionSignals: AppearanceSignals = DesignSettings.shared.signals) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
+        // One card per sidebar; the layout it asks for runs only when the card draws.
+        motionWatch = motionSignals.subscribe([.motion], owner: "SidebarNoticeCard") { [weak self] in
+            guard let self, notice?.progress == .indeterminate else { return }
+            needsLayout = true
+        }
         wantsLayer = true
         addSubview(surface)
         addSubview(content)

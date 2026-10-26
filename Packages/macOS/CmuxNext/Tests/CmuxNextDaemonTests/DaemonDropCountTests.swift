@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -17,6 +18,7 @@ struct DaemonDropCountTests {
         let environment = LoginEnvironment.shared.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment,
                                                                     overrides: [:])
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-drop-\(id)", stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         _ = try await launcher.ensure()

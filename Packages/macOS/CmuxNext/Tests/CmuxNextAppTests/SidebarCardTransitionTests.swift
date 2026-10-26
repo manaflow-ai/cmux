@@ -114,7 +114,7 @@ import Testing
     static func edgeSprings(_ sidebar: SidebarView) -> [CASpringAnimation] {
         let mask = sidebar.edgeFade.shownMask
         return (mask.animationKeys() ?? []).compactMap { mask.animation(forKey: $0) as? CASpringAnimation }
-            .filter { $0.keyPath == SidebarCardSlotMotion.edgeKeyPath }
+            .filter { $0.keyPath == SidebarCardSlotMotion.edgeKey.path }
     }
 
     static func from(_ spring: CASpringAnimation?) -> CGFloat? {
@@ -183,7 +183,7 @@ import Testing
         // A spring left on the edge from before the sidebar left its window.
         Self.withOverlayMotion {
             Motion.overlays.renderSpring(.appear).animateGroup(
-                [RenderSpring.Move(mask, SidebarCardSlotMotion.edgeKeyPath, from: full + 40, to: full)], in: nil)
+                [RenderSpring.Move(mask, SidebarCardSlotMotion.edgeKey, from: full + 40, to: full)], in: nil)
         }
         try #require(!Self.edgeSprings(windowless).isEmpty, "the setup added no spring")
         Self.withOverlayMotion {
