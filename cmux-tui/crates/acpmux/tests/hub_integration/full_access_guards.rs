@@ -27,11 +27,31 @@ async fn chat_in(c: &mut TestClient, mode: &str) -> String {
 }
 
 async fn claude_hub() -> (Arc<Hub>, TestClient) {
-    setup_env(
-        PermissionPolicy::Ask,
-        BTreeMap::from([("FAKE_PICKER_MODES".to_owned(), "claude".to_owned())]),
-    )
-    .await
+    hub_with(&[("FAKE_PICKER", "1"), ("FAKE_PICKER_MODES", "claude")]).await
+}
+
+/// A hub whose one harness is the stand-in with `env`, under the daemon default policy `ask` and
+/// the start level Full access (a new chat starts in the harness's full-access mode, set by cmux).
+async fn hub_with(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let env: BTreeMap<&str, &str> = env.iter().copied().collect();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake], "env": env}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "defaultPermissionMode": "fullAccess",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client.become_person().await;
+    (hub, client)
 }
 
 fn guard(id: &str) -> Value {
@@ -182,11 +202,7 @@ async fn questions_and_lasting_only_allows_still_ask_in_full_access() {
 async fn another_familys_full_access_mode_approves_too() {
     // The stand-in's own `full-access` (the shared rule's "fullaccess" marker, as Codex's
     // `agent-full-access`), not Claude Code's bypassPermissions.
-    let (hub, mut c) = setup_env(
-        PermissionPolicy::Ask,
-        BTreeMap::from([("FAKE_FULL_ACCESS".to_owned(), "1".to_owned())]),
-    )
-    .await;
+    let (hub, mut c) = hub_with(&[("FAKE_FULL_ACCESS", "1")]).await;
     let id = chat_in(&mut c, "full-access").await;
     c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
     let session = hub.resolve(&id).unwrap();
@@ -196,4 +212,64 @@ async fn another_familys_full_access_mode_approves_too() {
     let id = chat_in(&mut c, "normal").await;
     let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
     asks_the_person(&mut c, &hub, &id, rid).await;
+}
+
+#[tokio::test]
+async fn a_chat_that_starts_in_full_access_approves_without_a_pick() {
+    let (hub, mut c) = claude_hub().await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let info = c.request("_acpmux/info", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
+    c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &id)[0]["fullAccess"], "bypassPermissions");
+}
+
+#[tokio::test]
+async fn a_fork_of_a_full_access_chat_approves_its_guards() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "bypassPermissions").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, guard(&fid)).await.unwrap();
+    let fork = hub.resolve(&fid).unwrap();
+    assert_eq!(hub.session_summary(&fork)["currentModeId"], "bypassPermissions");
+    assert_eq!(hub.session_summary(&fork)["preview"], "chose once");
+    assert_eq!(autos(&hub, &fid)[0]["fullAccess"], "bypassPermissions");
+}
+
+/// A harness whose mode is only its `mode` config option: the person's pick through the option
+/// approves; the harness moving the option away and back by itself does not.
+#[tokio::test]
+async fn full_access_picked_through_the_mode_option_and_its_drift() {
+    let (hub, mut c) = hub_with(&[("FAKE_MODE_OPTION", "1"), ("FAKE_NO_MODES", "1")]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "mode", "value": "full-access"}),
+    )
+    .await
+    .unwrap();
+    c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &id)[0]["fullAccess"], "full-access");
+    c.request(method::SESSION_PROMPT, prompt(&id, "set-mode-option: normal", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "set-mode-option: full-access", None))
+        .await
+        .unwrap();
+    let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == json!(id)).await;
+    assert_eq!(autos(&hub, &id).len(), 1, "{:?}", autos(&hub, &id));
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": id, "permissionId": pending["permissionId"]}),
+    )
+    .await
+    .unwrap();
+    assert!(c.response(rid).await.0.is_ok());
 }

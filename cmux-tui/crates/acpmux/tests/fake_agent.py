@@ -647,6 +647,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-option: X" (FAKE_MODE_OPTION=1): the harness moves its own mode option to X.
+    if text.startswith("set-mode-option:"):
+        MODE_OPTION[sid] = text[16:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -981,6 +987,19 @@ def handle_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+# FAKE_MODE_OPTION=1: a harness whose mode is its "mode" config option (with FAKE_NO_MODES=1, its
+# only mode): normal, strict or full-access, per session.
+MODE_OPTION = {}
+
+
+def mode_options(sid):
+    return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
+             "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
+            {"id": "mode", "name": "Mode", "type": "select", "category": "mode",
+             "currentValue": MODE_OPTION.get(sid, "normal"),
+             "options": [{"value": v, "name": v} for v in ("normal", "strict", "full-access")]}]
+
+
 # FAKE_PICKER_MODES=claude: each session's model (session/set_model), and the models it offers.
 PICKER_MODELS = {}
 PICKER_EFFORTS = {}
@@ -1164,6 +1183,8 @@ def main():
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                result["configOptions"] = mode_options(new_sid)
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
@@ -1258,6 +1279,10 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
+            if os.environ.get("FAKE_MODE_OPTION") == "1" and params.get("configId") == "mode":
+                MODE_OPTION[params.get("sessionId")] = v
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
