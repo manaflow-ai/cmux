@@ -1309,6 +1309,27 @@ mod help_contract_tests {
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
     }
 
+    /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
+    /// taken as the listing (review of #25602).
+    #[test]
+    fn host_hold_needs_a_name_to_change_anything() {
+        for argv in [
+            &["acpmux", "host", "hold", "--release"][..],
+            &["acpmux", "host", "hold", "--reason", "x"][..],
+            &["acpmux", "host", "hold", "--until", "2026-10-28T23:59:59Z"][..],
+            &["acpmux", "host", "hold", "m", "--release", "--reason", "x"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} parsed");
+        }
+        for argv in [
+            &["acpmux", "host", "hold"][..],
+            &["acpmux", "host", "hold", "m", "--release"][..],
+            &["acpmux", "host", "hold", "m", "--reason", "x", "--until", "2026-10-28T23:59:59Z"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+    }
+
     #[test]
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);

@@ -29,6 +29,8 @@
 # is an error, so a stale selection never passes by running nothing.
 # CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
 # (webviews_test_results.py), for webviews-tests-new-reds.sh.
+# CMUX_WEB_TEST_RAW_LOG_DIR: optional artifact directory for complete per-attempt logs. The public
+# step output is bounded, while this directory keeps the raw evidence for diagnosis and parsing.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -100,6 +102,38 @@ test_timeout_ms="${CMUX_WEB_TEST_TIMEOUT_MS:-30000}"
 [[ "$test_timeout_ms" =~ ^[1-9][0-9]*$ ]] || test_timeout_ms=30000
 export CMUX_WEB_TEST_TIMEOUT_MS="$test_timeout_ms"
 
+log_display_bytes="${CMUX_WEB_TEST_LOG_DISPLAY_BYTES:-200000}"
+[[ "$log_display_bytes" =~ ^[1-9][0-9]*$ ]] || log_display_bytes=200000
+
+# A browser can write one giant diagnostic line (for example a WPE inspector trace). Keep the
+# complete log on disk, but never copy it into the Actions console more than the configured byte
+# budget. The tail retains the final named assertion after a flood of diagnostics.
+print_bounded_log() {
+  python3 - "$1" "$log_display_bytes" <<'PY'
+import os
+import sys
+
+path, requested = sys.argv[1], int(sys.argv[2])
+with open(path, "rb") as stream:
+    size = os.fstat(stream.fileno()).st_size
+    if size <= requested:
+        sys.stdout.buffer.write(stream.read())
+        raise SystemExit
+    if os.environ.get("CMUX_WEB_TEST_RAW_LOG_DIR"):
+        note = b"complete log is in the configured webviews raw-log artifact"
+    else:
+        note = b"complete log remains in the runner's per-file log"
+    marker = b"\n... output truncated; " + note + b" ...\n"
+    available = max(0, requested - len(marker))
+    head_size = available // 2
+    tail_size = available - head_size
+    head = stream.read(head_size)
+    stream.seek(max(0, size - tail_size))
+    tail = stream.read(tail_size)
+    sys.stdout.buffer.write(head + marker + tail)
+PY
+}
+
 if [ "${1:-}" = --one-cached ]; then
   # xargs -n 3 appends FILE CACHE SEED after the fixed arguments.
   exec bash "$0" --one "$4" "$2" "$3" "$5" "${6:-}"
@@ -131,12 +165,8 @@ if [ "${1:-}" = --one ]; then
     *) result=FAIL ;;
   esac
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
-  echo "$result $file"
-  if [ "$result" != PASS ]; then
-    echo "::group::$result $file (hard limit ${timeout_seconds}s)"
-    cat "$log"
-    echo "::endgroup::"
-  fi
+  # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
+  echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
 fi
 
@@ -342,16 +372,32 @@ while read -r result file log; do
   fi
 done < "$first"
 
+# Keep complete attempts in the existing head-results artifact directory. This runs before the
+# parser and final display, so raw files remain available even when a named failure is enormous.
+if [ -n "${CMUX_WEB_TEST_RAW_LOG_DIR:-}" ]; then
+  mkdir -p "$CMUX_WEB_TEST_RAW_LOG_DIR"
+  for log in "$results"/*.log "$results"/*.log.first; do
+    [ -f "$log" ] || continue
+    cp "$log" "$CMUX_WEB_TEST_RAW_LOG_DIR/$(basename "$log")"
+  done
+  for summary in "$results"/summary "$results"/first-summary; do
+    [ -f "$summary" ] || continue
+    cp "$summary" "$CMUX_WEB_TEST_RAW_LOG_DIR/$(basename "$summary")"
+  done
+fi
+
 failed=0
 while read -r result file log; do
   # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
   if [ "$result" = PASS ]; then
-    grep -E '^::(warning|notice)( |::)' "$log" || true
+    annotations="$results/$(basename "$log").annotations"
+    grep -E '^::(warning|notice)( |::)' "$log" > "$annotations" || true
+    if [ -s "$annotations" ]; then print_bounded_log "$annotations"; fi
     continue
   fi
   failed=$((failed + 1))
   echo "::group::$result $file"
-  cat "$log"
+  print_bounded_log "$log"
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
 
