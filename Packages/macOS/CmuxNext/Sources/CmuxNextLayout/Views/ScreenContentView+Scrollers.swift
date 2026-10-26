@@ -222,9 +222,14 @@ extension ScreenContentView {
                 let scroll = rowScrolls[column]
                 translation = CGVector(dx: 0, dy: (scroll?.laidOutOffset ?? 0) - (scroll?.state.spring.value ?? 0))
             case let .area(id):
-                if let window = laidOutAreaWindow(id, strip: strip), container.place(window) { clipsChanged = true }
-                if container.setClips(clips) { clipsChanged = true }
+                if let window = laidOutAreaWindow(id, strip: strip), container.place(window) { changed = true }
+                container.setClips(clips)
                 let scroll = areaScrolls[id]
+                let placed = ScrollerPanContainerView.PlacedClip(size: container.frame.size, offset: scroll?.laidOutOffset ?? 0, clips: clips)
+                if container.placedClip != placed {
+                    container.placedClip = placed
+                    clipsChanged = true
+                }
                 translation = CGVector(dx: (scroll?.laidOutOffset ?? 0) - (scroll?.state.spring.value ?? 0), dy: 0)
             }
             if container.translation != translation {
@@ -232,7 +237,8 @@ extension ScreenContentView {
                 changed = true
             }
         }
-        // A page in an area's pane re-reads its clip shape, which carries the container's clip.
+        // A page in an area's pane re-reads its clip shape, which carries the container's clip, when the
+        // clip moved against its hosts (the strip or the row moving both changes nothing for it).
         if clipsChanged { context.stripClipsDidChange() }
         return changed || clipsChanged
     }

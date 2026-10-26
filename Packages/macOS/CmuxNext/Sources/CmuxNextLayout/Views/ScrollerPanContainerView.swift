@@ -62,6 +62,18 @@ final class ScrollerPanContainerView: NSView, PanMotionContainer {
     private(set) var showsMoved = false
     /// Called when ``showsMoved`` changes: pointer input then lands the scroller first.
     var onShowsMovedChange: () -> Void = {}
+    /// What the clip covers of the hosts, as last placed (`ScreenContentView.placeScrollerContainers`): a
+    /// page in an area's pane re-reads its clip shape only when it changes, not when the strip or the row
+    /// moves the container and its hosts together.
+    var placedClip: PlacedClip?
+
+    /// The clip relative to the hosts: the window's size, the offset they are laid out at in it, and
+    /// whether it clips.
+    struct PlacedClip: Hashable {
+        var size: CGSize
+        var offset: CGFloat
+        var clips: Bool
+    }
 
     init(scroller: Scroller) {
         self.scroller = scroller
@@ -108,16 +120,23 @@ final class ScrollerPanContainerView: NSView, PanMotionContainer {
         guard value != translation else { return }
         translation = value
         translationSets += 1
-        let transform = CATransform3DMakeTranslation(value.dx, value.dy, 0)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.sublayerTransform = transform
-        chromePlane.layer?.sublayerTransform = transform
+        Self.setSublayerTranslation(value, of: self)
+        Self.setSublayerTranslation(value, of: chromePlane)
         CATransaction.commit()
         let moved = value != .zero
         guard moved != showsMoved else { return }
         showsMoved = moved
         onShowsMovedChange()
+    }
+
+    /// Sets `view`'s layer `sublayerTransform` to the translation `value` (the view's own axes), mapped to
+    /// the layer's axes (`RenderLayerAxes`: a flipped view's y runs the other way in its layer).
+    private static func setSublayerTranslation(_ value: CGVector, of view: NSView) {
+        guard let layer = view.layer else { return }
+        let axes = RenderLayerAxes(view)
+        layer.sublayerTransform = CATransform3DMakeTranslation(value.dx * axes.x, value.dy * axes.y, 0)
     }
 
     /// Clicks outside every host go to the screen, as they do with no container.

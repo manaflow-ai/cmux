@@ -125,8 +125,8 @@ import Testing
     @Test func withoutTheRenderServerEachHostIsMaskedToTheWindow() throws {
         let w = try Window(renderServer: false)
         #expect(w.screen.scrollerContainers.isEmpty)
-        let p2 = try #require(w.root.context.hosts["p2"])
-        #expect(p2.layer?.mask != nil, "p2 reaches past the window: its own mask clips it")
+        let p3 = try #require(w.root.context.hosts["p3"])
+        #expect(p3.layer?.mask != nil, "p3 is past the window: its own mask clips it")
     }
 
     @Test func twentyAreaPanEventsSetOneLayerPropertyEachAndNoFrame() throws {
@@ -157,6 +157,7 @@ import Testing
         #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
         #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(container.translationSets - sets == 19, "one translation per event")
+        #expect(container.layer?.sublayerTransform.m41 == container.translation.dx, "the container's layer holds the translation")
         #expect(container.chromePlane.layer?.sublayerTransform.m41 == container.translation.dx, "the rings' plane takes the same translation")
         let shownAfter = try #require(w.root.frame(of: "p2"))
         #expect(abs(shownAfter.minX - (shownBefore.minX - 80)) < 0.5, "the area shows 80 pt further: \(shownBefore) -> \(shownAfter)")

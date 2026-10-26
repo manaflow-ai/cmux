@@ -27,8 +27,10 @@ import Testing
         for _ in 0..<events { scroll(w, at: point, dy: dy, phase: .changed) }
     }
 
-    /// The vertical translation `layer`'s `sublayerTransform` holds.
-    static func translationY(of layer: CALayer?) -> CGFloat { layer?.sublayerTransform.m42 ?? .nan }
+    /// The vertical translation `view`'s layer `sublayerTransform` holds, in the view's own axes.
+    static func translationY(of view: NSView) -> CGFloat {
+        (view.layer?.sublayerTransform.m42 ?? .nan) * RenderLayerAxes(view).y
+    }
 
     /// `pane`'s host frame in the root's coordinates, where it is laid out.
     static func laidOut(_ w: Window, _ pane: PaneID) throws -> CGRect {
@@ -102,7 +104,9 @@ import Testing
         #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(container.translationSets - sets == 20, "one translation per event")
         #expect(screen.stripContainer.translation == 0, "the strip stays")
-        #expect(Self.translationY(of: container.chromePlane.layer) == container.translation.dy, "the rings' plane takes the same translation")
+        #expect(Self.translationY(of: container) == container.translation.dy, "the container's layer holds the translation")
+        #expect(Self.translationY(of: container.chromePlane) == container.translation.dy, "the rings' plane takes the same translation")
+        #expect(container.translation.dy < -79, "the rows show moved up: \(container.translation)")
         let shownAfter = try #require(w.root.frame(of: "top"))
         #expect(abs(shownAfter.minY - (shownBefore.minY - 80)) < 0.5, "the rows show 80 pt further: \(shownBefore) -> \(shownAfter)")
         let placedTop = w.root.convert(screen.placedFrame(of: hosts[0]), from: screen)
@@ -149,7 +153,7 @@ import Testing
         #expect(screen.rowScrolls["c1"]?.panBase != nil, "the pan holds the rows where they were laid out")
         Self.scroll(w, at: point, phase: .ended)
         #expect(screen.rowScrolls["c1"]?.panBase == nil)
-        #expect(container.translation == .zero && Self.translationY(of: container.chromePlane.layer) == 0)
+        #expect(container.translation == .zero && Self.translationY(of: container.chromePlane) == 0)
         let shown = try #require(w.root.frame(of: "top"))
         let laidOut = try Self.laidOut(w, "top")
         #expect(abs(laidOut.minY - shown.minY) < 0.5, "laid out where it shows")

@@ -71,8 +71,7 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
-    /// The motion containers of the strip's row columns and scroll areas, and the ones the layout gives a
-    /// container now (`ScreenContentView+Scrollers.swift`).
+    /// Row and scroll area motion containers, and the scrollers the layout gives one now (`+Scrollers`).
     var scrollerContainers: [NestedScroller: ScrollerPanContainerView] = [:], wantedScrollers: Set<NestedScroller> = []
     /// Row and area offsets a remount gave before their scrolls were built (`restoreScroll`).
     var pendingScroll = LayoutScreenScroll()
@@ -273,8 +272,7 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
-        // The rows' and scroll areas' containers exist before a new host is put in one (`hostParent`).
-        reconcileScrollerContainers()
+        reconcileScrollerContainers() // before `hostParent` puts a new host in one
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
