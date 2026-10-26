@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Foundation
@@ -94,7 +95,7 @@ import Testing
     @Test func noAutomationsSaysHowToMakeOne() {
         let rows = HomeChiefAutomationRows(width: 288)
         rows.show([])
-        let texts = rows.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let texts = rows.arrangedSubviews.compactMap { ($0 as? ThemedLabel)?.stringValue }
         #expect(texts == [HomeEngineStrings.automationsEmpty])
     }
 
