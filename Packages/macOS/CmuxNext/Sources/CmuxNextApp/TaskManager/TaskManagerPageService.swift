@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextResources
@@ -107,7 +108,7 @@ final class TaskManagerPageService: InternalPageProvider {
         tables[key] = table
         liveViews.insert(key)
         model.start()
-        return NSHostingView(rootView: TaskManagerView(model: model, table: table))
+        return VisibilityGatedHostingView(owner: "TaskManagerPage") { TaskManagerView(model: model, table: table) }
     }
 
     func tabClosed(_ key: String) {
@@ -174,7 +175,7 @@ final class TaskManagerPageService: InternalPageProvider {
                 let row = tableView.row(at: top)
                 return rows.indices.contains(row) ? rows[row].id : nil
             }
-            queue.append(contentsOf: next.subviews)
+            queue.append(contentsOf: next.subviewsIncludingGated)
         }
         return nil
     }

@@ -6,9 +6,11 @@ struct TasksView: View {
     let model: TasksModel
     let layout: TasksLayout
     @Environment(\.tasksColors) private var colors
+    @Environment(\.hostingBodyCounter) private var bodyCounter
 
     var body: some View {
-        VStack(spacing: 0) {
+        bodyCounter?.record()
+        return VStack(spacing: 0) {
             if model.neverConnected, case .disconnected = model.connection {
                 OwnerNotRunningView()
             } else {
