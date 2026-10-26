@@ -52,6 +52,17 @@ pub struct ServiceConfig {
     pub chief_socket: Option<PathBuf>,
     /// The `browser` service: who starts browser hosts, and the running ones.
     pub browser: crate::browser::BrowserConfig,
+    /// The `surface` service: who starts simulator surface sources, and the running hosts.
+    pub surface: crate::surface::SurfaceConfig,
+}
+
+impl ServiceConfig {
+    /// The app's own daemon socket: `default_socket`, else `<tui_socket_dir>/<default_session>.sock`.
+    pub fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+    }
 }
 
 /// The default `upload` size cap: 100 MiB.
@@ -257,6 +268,44 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
     ids
 }
 
+/// The other builds a registration names: [`sibling_device_ids`], or none
+/// when the machine id is an override. An override (a hidden test rig) says
+/// this build is its own computer; claiming this Mac's folders as its
+/// siblings would make the backend give its id to every same-owner record
+/// that has none yet (old builds, other rigs) and fold them into it for good.
+pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+    if overridden {
+        return Vec::new();
+    }
+    sibling_device_ids(app_support, own, machine_id)
+}
+
+/// [`HostConfig::machine`] on the fields it reads: the machine id to register
+/// (`id`, nil when the host has none), whether it is an override, this
+/// build's state folder (its marker) and the folders its siblings live in.
+pub fn registration_machine(
+    id: Option<String>,
+    overridden: bool,
+    state_dir: &Path,
+    app_support: &Path,
+    device_id: &str,
+) -> (Option<String>, Vec<String>) {
+    let Some(id) = id else {
+        tracing::info!("no machine id on this host: the phone lists this build as its own Mac");
+        return (None, Vec::new());
+    };
+    let marker = state_dir.join(MACHINE_MARKER);
+    // An override (tests, the rig) is not this computer's id: never written as its marker.
+    if !overridden
+        && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
+        && let Err(error) = std::fs::create_dir_all(state_dir).and_then(|()| std::fs::write(&marker, &id))
+    {
+        tracing::warn!("could not write the machine marker: {error}");
+    }
+    let siblings = registration_siblings(app_support, device_id, &id, overridden);
+    (Some(id), siblings)
+}
+
 /// `~/Library/Application Support` (`CMUX_MOBILE_APP_SUPPORT_DIR` in tests).
 pub fn app_support_dir() -> PathBuf {
     env("CMUX_MOBILE_APP_SUPPORT_DIR")
@@ -274,20 +323,13 @@ impl HostConfig {
     /// other builds' device ids, after writing this build's marker. Nothing
     /// without a machine id (logged once per registration).
     pub fn machine(&self, owner: &str) -> (Option<String>, Vec<String>) {
-        let Some(id) = self.machine_id(owner) else {
-            tracing::info!("no machine id on this host: the phone lists this build as its own Mac");
-            return (None, Vec::new());
-        };
-        let marker = self.state_dir.join(MACHINE_MARKER);
-        // An override (tests, the rig) is not this computer's id: never written as its marker.
-        if self.machine_id_override.is_none()
-            && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
-            && let Err(error) = std::fs::create_dir_all(&self.state_dir).and_then(|()| std::fs::write(&marker, &id))
-        {
-            tracing::warn!("could not write the machine marker: {error}");
-        }
-        let siblings = sibling_device_ids(&self.app_support, &self.device_id, &id);
-        (Some(id), siblings)
+        registration_machine(
+            self.machine_id(owner),
+            self.machine_id_override.is_some(),
+            &self.state_dir,
+            &self.app_support,
+            &self.device_id,
+        )
     }
 
     /// Reads the environment. `supplied` (supervised mode) replaces the token
@@ -328,6 +370,12 @@ impl HostConfig {
                 std::sync::Arc::new(|event| crate::control::emit(&event)),
             )
             .with_identity(supplied.identity.clone())
+            .with_push_keys(std::sync::Arc::new(crate::push_keys::PushKeys::load(
+                default_state_dir().join("push-keys.json"),
+            )))
+            .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
+                default_state_dir().join("mailbox-spent.json"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {
@@ -345,6 +393,14 @@ impl HostConfig {
                 max_tabs,
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
+        };
+        // Supervised: the app streams its phone tabs' simulators when this build
+        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        let surface = match &supplied {
+            Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
+                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+            }
+            _ => crate::surface::SurfaceConfig::default(),
         };
         let file_roots = env("CMUX_MOBILE_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
@@ -390,6 +446,7 @@ impl HostConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(DEFAULT_UPLOAD_MAX_BYTES),
                 browser,
+                surface,
             },
         })
     }

@@ -109,11 +109,20 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// A group member pinned inside its group (`extra.pinned`): the reducer
     /// lists it first among the members (plans/cmux-next/pinning-DESIGN.md).
     public var pinnedInGroup: Bool
+    /// Archived (`extra.archived`): the reducer lists it after its unarchived
+    /// siblings and its row draws dimmed (plans/cmux-next/archiving-DESIGN.md).
+    public var archived: Bool
+    /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
+    /// nil when it follows the setting.
+    public var autoArchive: SidebarDocAutoArchiveRule?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
+                autoArchive: SidebarDocAutoArchiveRule? = nil) {
         self.iconURL = iconURL
+        self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil
+        self.archived = archived
         self.id = id
         self.section = section
         self.parent = parent
@@ -135,10 +144,13 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
     public var item: String?
     /// A closed workspace kept by a section that keeps closed items.
     public var dimmed: Bool
+    /// An archived item, or a row under an archived group: drawn dimmed.
+    public var archived: Bool
     public var ref: SidebarDocWorkspaceRef?
 
     public init(key: String, kind: String, section: String, parent: String? = nil, depth: Int = 0, item: String? = nil, dimmed: Bool = false,
-                ref: SidebarDocWorkspaceRef? = nil) {
+                archived: Bool = false, ref: SidebarDocWorkspaceRef? = nil) {
+        self.archived = archived
         self.key = key
         self.kind = kind
         self.section = section
@@ -149,7 +161,7 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
         self.ref = ref
     }
 
-    enum CodingKeys: String, CodingKey { case key, kind, section, parent, depth, item, dimmed, ref }
+    enum CodingKeys: String, CodingKey { case key, kind, section, parent, depth, item, dimmed, archived, ref }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -160,6 +172,7 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
         depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? 0
         item = try c.decodeIfPresent(String.self, forKey: .item)
         dimmed = try c.decodeIfPresent(Bool.self, forKey: .dimmed) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         ref = try? c.decodeIfPresent(SidebarDocWorkspaceRef.self, forKey: .ref)
     }
 }
@@ -244,6 +257,8 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
     /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
     /// pin): at the top level of Pinned, or pinned inside its group. A member
     /// of a pinned group is not pinned itself; Pin pins it in that group.
+    public func isArchived(item id: String) -> Bool { items[id]?.archived == true }
+
     public func isPinned(item id: String) -> Bool {
         guard let item = items[id] else { return false }
         return item.pinnedInGroup || (item.parent == nil && item.section == SidebarDocStore.pinnedSection)

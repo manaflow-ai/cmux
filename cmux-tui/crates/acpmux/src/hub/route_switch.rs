@@ -83,7 +83,8 @@ impl Hub {
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; restore it or pick another (`cmux route use`)"
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
+                 or pick another account in the chat's Account menu"
             )))
         })?;
         if !route.serves(&family) {
@@ -313,6 +314,19 @@ fn is_chief(meta: &SessionMeta) -> bool {
         || meta.harness.starts_with("optchat-compact-")
 }
 
+/// Whether another route can solve a failed turn: auth, limits, an overloaded or full
+/// provider (`is_capacity_error`, with or without its status code), server errors, an
+/// unreachable proxy. A capacity error retries in place too (`auto_resume.rs`); the route's
+/// diagnostics, probe and `autoFallback` still see it.
+fn is_route_failure(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    super::turn_errors::is_limit_error(message)
+        || super::turn_errors::is_capacity_error(message)
+        || ["500", "502", "connection refused", "unreachable", "timed out", "agent process closed"]
+            .iter()
+            .any(|w| lower.contains(w))
+}
+
 impl Hub {
     /// A failed turn on a bound route (ROUTES R3): name the route, offer its
     /// first fallback that serves this harness (`fallback: {routeId, name}`),
@@ -325,21 +339,7 @@ impl Hub {
         session: &Arc<Session>,
         message: &str,
     ) -> Option<Value> {
-        let lower = message.to_lowercase();
-        let route_class = super::turn_errors::is_limit_error(message)
-            || [
-                "500",
-                "502",
-                "503",
-                "529",
-                "connection refused",
-                "unreachable",
-                "timed out",
-                "agent process closed",
-            ]
-            .iter()
-            .any(|w| lower.contains(w));
-        if !route_class {
+        if !is_route_failure(message) {
             return None;
         }
         let (dir, state) = routes::places(&*self.config.read().await);
@@ -395,5 +395,26 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
     match e.reason() {
         Some(reason) => base.with_data(json!({"reason": reason})),
         None => base,
+    }
+}
+
+#[cfg(test)]
+mod route_failure_tests {
+    use super::is_route_failure;
+
+    #[test]
+    fn overloads_with_or_without_a_status_are_route_failures() {
+        for m in [
+            "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "Selected model is at capacity. overloaded",
+            "API Error: 529 overloaded_error",
+            "API Error: 503 no non-exhausted claude accounts available",
+            "You've reached your usage limit for this account",
+            "API Error: 500 Internal server error",
+            "connection refused",
+        ] {
+            assert!(is_route_failure(m), "{m}");
+        }
+        assert!(!is_route_failure("simulated internal error"));
     }
 }

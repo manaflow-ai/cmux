@@ -106,7 +106,7 @@ extension PaletteModel {
     /// off the main actor. An empty query shows its last rank or its
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
-    func search(_ state: PageState) {
+    func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -190,16 +190,16 @@ extension PaletteModel {
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
             let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
-            // One block per section, in the order the sections first appear.
-            var sections: [PaletteResultSection] = []
+            // One block per section, in the order the sections first appear (linear: a search
+            // can return thousands of terminal lines, and copying a section per row was quadratic).
+            var order: [PaletteSection] = []
+            var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
             for item in items {
                 let row = PaletteRow(item: item, highlights: Self.wordHighlights(in: item.title, words: words), score: 0)
-                if let index = sections.firstIndex(where: { $0.section == item.section }) {
-                    sections[index] = PaletteResultSection(section: item.section, rows: sections[index].rows + [row])
-                } else {
-                    sections.append(PaletteResultSection(section: item.section, rows: [row]))
-                }
+                if rowsBySection[item.section] == nil { order.append(item.section) }
+                rowsBySection[item.section, default: []].append(row)
             }
+            let sections = order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
             if state === self.current { self.isLoading = false }
             self.deliver(sections, to: state, generation: generation)
             if self.pendingClose {

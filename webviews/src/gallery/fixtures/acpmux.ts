@@ -37,8 +37,8 @@ export const CATALOG: AcpmuxSnapshot["catalog"] = [
     id: "codex",
     name: "Codex",
     models: [
-      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true },
-      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true },
+      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
+      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
       { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: GPT_EFFORTS, fast: false },
     ],
   },

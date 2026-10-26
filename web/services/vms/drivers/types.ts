@@ -5,9 +5,9 @@
 import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
-export type ProviderId = "freestyle";
+export type ProviderId = "freestyle" | "gcp";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
+const PROVIDER_IDS: readonly ProviderId[] = ["freestyle", "gcp"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
@@ -20,7 +20,11 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
  * passes `signal` to every request the read makes, so no request outlives
  * the route's answer.
  */
-export type ProviderReadOptions = { readonly signal?: AbortSignal };
+export type ProviderReadOptions = {
+  readonly signal?: AbortSignal;
+  /** Short-lived user credential; never persist this in providerMetadata. */
+  readonly credential?: ProviderCredential;
+};
 
 /**
  * A provider's raw pause state, see `VMProvider.getPauseState`. `stopped` is
@@ -103,6 +107,22 @@ export type CreateOptions = {
   /** Current prompt name, written into the guest rather than a shell environment. */
   promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
+  /**
+   * A short-lived credential handed off by the user's local client. Providers
+   * must use it only for this operation and never copy it to a VM row.
+   */
+  providerCredential?: ProviderCredential;
+  /**
+   * The workflow's durable record of the allocation. A driver whose cleanup
+   * needs a short-lived user credential names its provider id with `record`
+   * before it sends the allocation request (and must not allocate when that
+   * rejects), so an interrupted create still leaves a row naming its instance.
+   * It calls `released` once its own rollback confirmed the allocation gone.
+   */
+  createCleanupIntent?: {
+    readonly record: (providerVmId: string) => Promise<void>;
+    readonly released: () => void;
+  };
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
@@ -217,6 +237,8 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  /** Provider-neutral dial metadata for clients that open a local proxy first. */
+  proxy?: { readonly kind: "gcp-iap"; readonly project: string; readonly zone: string; readonly instance: string; readonly port: number };
   daemon?: {
     url: string;
     headers: Record<string, string>;
@@ -411,6 +433,7 @@ const REDACTED = "[redacted]";
  */
 export class SecretBytes {
   #bytes: Uint8Array;
+  #wiped = false;
 
   constructor(bytes: Uint8Array) {
     this.#bytes = bytes;
@@ -425,9 +448,20 @@ export class SecretBytes {
     return Buffer.from(this.#bytes.buffer, this.#bytes.byteOffset, this.#bytes.byteLength).toString("base64");
   }
 
+  /** The bytes as UTF-8 for a provider request or attach handoff only. */
+  utf8(): string {
+    return Buffer.from(this.#bytes.buffer, this.#bytes.byteOffset, this.#bytes.byteLength).toString("utf8");
+  }
+
   /** Overwrites the bytes with zeros (the caller's buffer, which this object does not copy). */
   wipe(): void {
     this.#bytes.fill(0);
+    this.#wiped = true;
+  }
+
+  /** True once {@link wipe} has run; a wiped secret must never be sent. */
+  get wiped(): boolean {
+    return this.#wiped;
   }
 
   toJSON(): string {
@@ -441,6 +475,31 @@ export class SecretBytes {
   [Symbol.for("nodejs.util.inspect.custom")](): string {
     return REDACTED;
   }
+}
+
+/**
+ * A local-client credential for a user-owned provider. The server may hold
+ * this object only for the current request. `SecretBytes` keeps accidental
+ * traces, JSON responses, and error inspection redacted.
+ */
+export type ProviderCredential = {
+  readonly provider: "gcp";
+  readonly accessToken: SecretBytes;
+  readonly expiresAtUnix: number;
+  /** Public key is safe to send to Compute Engine instance metadata. */
+  readonly sshPublicKey?: string;
+  /** Private key is returned only to the caller's attach session. */
+  readonly sshPrivateKeyPem?: SecretBytes;
+  readonly sshUsername?: string;
+  /** Aborted by {@link wipeProviderCredential}, cancelling in-flight provider requests. */
+  readonly lifetime?: AbortController;
+};
+
+/** Zero-fills the credential's secrets. Safe to call more than once. */
+export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
+  credential?.lifetime?.abort();
+  credential?.accessToken.wipe();
+  credential?.sshPrivateKeyPem?.wipe();
 }
 
 export type SnapshotRef = {
@@ -490,7 +549,7 @@ export type ProviderNetwork = {
   /** IPv4 CIDR, when the network has one. */
   readonly cidr: string | null;
   /** IPv6 CIDR. Always present: provider networks are dual-stack. */
-  readonly cidrV6: string;
+  readonly cidrV6: string | null;
 };
 
 /**
@@ -597,6 +656,10 @@ export type EnsureProviderNetworkOptions = {
    * network's range is fixed for its life.
    */
   readonly cidr?: string;
+  /** User-owned provider credential and placement for providers such as GCP. */
+  readonly providerCredential?: ProviderCredential;
+  readonly providerProject?: string;
+  readonly providerRegion?: string;
 };
 
 export interface VMProvider {
@@ -607,6 +670,8 @@ export interface VMProvider {
    * on drivers whose machines are only reachable at a public address.
    */
   readonly privateNetworking?: VMPrivateNetworking;
+  /** Set false when the provider provisions a VPC but has no tunnel/tailnet transport yet. */
+  readonly privateNetworkingTunnels?: boolean;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
    * throw NotImplementedError declares that here; `fork` defaults to whether the method
@@ -615,7 +680,11 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
-  destroy(vmId: string): Promise<void>;
+  /**
+   * Delete the machine; a machine already gone counts as deleted. `strict`: only the provider's
+   * own "no such machine" answer counts as gone (not any 404, which can be an endpoint error).
+   */
+  destroy(vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }): Promise<void>;
 
   /**
    * Optional: delete a persistent home volume by name. Implementations must treat
@@ -641,7 +710,7 @@ export interface VMProvider {
    * neither. Unlike {@link getStatus} this never folds a transition or a
    * powered-off machine into `paused`; pause retries reconcile on it.
    */
-  getPauseState?(vmId: string): Promise<VmPauseState>;
+  getPauseState?(vmId: string, credential?: ProviderCredential): Promise<VmPauseState>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
@@ -654,8 +723,8 @@ export interface VMProvider {
   /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
   applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
-  pause(vmId: string): Promise<void>;
-  resume(vmId: string): Promise<VMHandle>;
+  pause(vmId: string, credential?: ProviderCredential): Promise<void>;
+  resume(vmId: string, credential?: ProviderCredential): Promise<VMHandle>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
@@ -723,7 +792,7 @@ export interface VMProvider {
   // Optional: a live SSH endpoint the client can dial into. Drivers are responsible for
   // ensuring sshd is running (some providers need an explicit start step). Only drivers
   // listing `ssh` in attachTransports implement this.
-  openSSH?(vmId: string): Promise<SSHEndpoint>;
+  openSSH?(vmId: string, credential?: ProviderCredential): Promise<SSHEndpoint>;
   prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op

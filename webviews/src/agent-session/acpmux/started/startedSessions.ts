@@ -49,6 +49,8 @@ export type StartedSession = {
   /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
   /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
   doing?: string;
+  /// The tool part of `doing` (sessionList.ts `doingTool`), with it.
+  doingTool?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -143,6 +145,7 @@ export function startedSessions(
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
+        ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

@@ -15,6 +15,7 @@ fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 graph=Packages/macOS/CmuxNext/ci-target-graph.json
 schema=schemas/settings/settings-schema.json
+cap=plans/cmux-next/daemon-capabilities.json
 drift() { printf '%s\n' "$@" > "$tmp/changed"; python3 "$OUTPUTS" drift --changed "$tmp/changed" > "$tmp/out"; }
 
 # An output with none of its inputs is drift, and the message says how to drop it.
@@ -29,20 +30,25 @@ drift cmux-tui/bindings/go/.cmux-resource-api.json && fail "an SDK manifest with
 # Package.swift change already routes every tier, so no pull request carries it.
 drift "$graph" Packages/macOS/CmuxNext/Package.swift && fail "the graph is bot-only, even with Package.swift"
 grep -q "only the base autofix writes it" "$tmp/out" || fail "a bot-only file says so"
-drift "$schema" schemas/settings-export/settings-schema.sources.sha256 \
+drift "$schema" docs/mdm/managed-preferences.md \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tabs.swift || fail "a settings source causes its exports"
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
-drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift \
+drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/AttentionSettings.swift \
   || fail "a setting declared in another CmuxNext module causes the settings exports"
 drift schemas/defaults/cmux-next.json Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift \
   || fail "a default binding change causes the defaults snapshot"
 drift cmux-tui/bindings/go/.cmux-resource-api.json cmux-tui/spec/resource-operations-v2.json || fail "a spec change causes the SDK files"
+drift "$cap" Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
+  || fail "a capability source change causes the daemon export"
+drift "$cap" scripts/cmux-next/base-autofix.sh \
+  && fail "the capability export is drift without its source"
 # An output never causes another output: the exports alone do not own the defaults snapshot.
 drift schemas/defaults/cmux-next.json "$schema" && fail "the settings export alone must not cause the defaults snapshot"
 # Every output the autofix may push is in the table, so the push never drops a repair the
 # pull request caused (the Java SDK sources and the namespace ratchet were missing once).
 for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/bindings/go/raw/generated_ops.go \
   scripts/lint-namespace-types-ratchet.txt web/data/cmux-shortcuts.generated.json clients/ts/cloud/src/generated.ts \
+  plans/cmux-next/daemon-capabilities.json \
   cmux-tui/crates/cmux-cloud-wire/src/generated/ops.rs scripts/ghosttykit-checksums.txt; do
   python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
     "$ROOT_DIR/scripts/cmux-next" "$path" || fail "$path is an autofix output missing from the table"

@@ -77,10 +77,10 @@ class RetryPolicyTests(unittest.TestCase):
                 self.assertEqual(decision.action, "skip")
                 self.assertIn("published", decision.reason)
 
-    def test_only_feat_and_pin_pushes_are_retried(self):
+    def test_only_feat_pushes_are_retried(self):
         # The runs nightly-next promotes from; a lane branch or PR red is usually a real failure.
         for overrides, action in (
-            ({"head_branch": "cmux-tui-pin-0123456789ab"}, "rerun-failed-jobs"),
+            ({"head_branch": "cmux-tui-pin-0123456789ab"}, "skip"),
             ({"head_branch": "op-next-theme/accent"}, "skip"),
             ({"event": "pull_request_target", "head_branch": "op-next-theme/accent"}, "skip"),
             ({"event": "workflow_dispatch"}, "skip"),

@@ -1,5 +1,6 @@
 public import CmuxTheme
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The one tooltip surface, native and pages (Leo, 2026-10-14): frosted
 /// glass, a strong blur under a tint dense enough that the text reads over

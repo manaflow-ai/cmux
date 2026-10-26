@@ -28,7 +28,17 @@ pub(super) struct NewRowParams {
     /// Echoed in the result and in the `screen-changed` delta.
     #[serde(default)]
     transaction: Option<String>,
+    /// `row-client-keys-v1`: caller-minted id of the new pane.
+    #[serde(default)]
+    pane_id: Option<String>,
+    /// `row-client-keys-v1`: caller-minted id of the new pane's tab.
+    #[serde(default)]
+    tab_id: Option<String>,
 }
+
+/// `new-row` takes client-minted `pane_id` and `tab_id`, as `split` does
+/// (`split-client-keys-v1`): the app shows the row before the reply.
+pub(super) const ROW_CLIENT_KEYS_CAPABILITY: &str = "row-client-keys-v1";
 
 pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyhow::Result<Value> {
     let NewRowParams {
@@ -42,15 +52,18 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         terminal_id,
         shell_args,
         transaction,
+        pane_id,
+        tab_id,
     } = params;
     validate_client_transaction(transaction.as_deref())?;
-    let spawn = placement_spawn_options(
+    let mut spawn = placement_spawn_options(
         cwd,
         env.as_ref(),
         terminal_id,
         shell_args,
         frontend_shell(mux, client),
     )?;
+    split_kind::PaneClientIds { pane_id, tab_id }.apply(&mut spawn)?;
     let size = optional_surface_size(cols, rows);
     let surface = mux.new_row_with_options_as(
         &origin_gate::connection_actor(mux, client),
@@ -61,7 +74,16 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         transaction.clone(),
     )?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
-    result.insert("pane", json!(mux.with_state(|state| state.pane_of(surface.id))));
+    let pane = mux.with_state(|state| state.pane_of(surface.id));
+    result.insert("pane", json!(pane));
+    if let Some(pane_id) = mux.with_state(|state| {
+        pane.and_then(|pane| state.panes.get(&pane)).map(|pane| pane.public_id.to_string())
+    }) {
+        result.insert("pane_id", json!(pane_id));
+    }
+    if let Some(identity) = surface.resource_identity() {
+        result.insert("tab_id", json!(identity.tab_id.to_string()));
+    }
     if let Some(transaction) = transaction {
         result.insert("transaction", json!(transaction));
     }

@@ -4,7 +4,7 @@
    same controls out as Codex desktop: one row inside the box under the prompt, + and the mode on the
    left, the context ring, the model and effort, the mic and Send on the right, and the folder and
    computer strip a tray tucked under the box's top edge. Our glass and the theme's accent (never
-   Codex's orange), Send our plain glyph (no disc). test/composer-look-dots.test.ts checks it. */
+   Codex's orange), Send our plain glyph (no disc). test/composer-look.test.tsx checks it. */
 
 /* The box's row: + first, then the mode, pushing the rest right; the ring before the model, as Codex
    draws its own; the mic and Send last. The chips lay out as the row's own items. */
@@ -36,12 +36,15 @@
 
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
-   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). */
+   the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). The plain
+   top strip (data-top-strip="plain", composerLocation.css) keeps the chat's strip bare text in this
+   look too: this sheet loads after that one, so the tray's rules skip it rather than outrank it
+   (:where adds no specificity, so every other rule wins or loses here as before). */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
   --acpmux-tray-inset: 22px;
   --acpmux-tray-tuck: 10px;
 }
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
+:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
   position: relative;
   z-index: var(--layer-base, 0);
@@ -59,6 +62,22 @@
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;
+}
+/* On an opaque window the chat's tray is the card's glass, not the solid composer surface: glass
+   is never opaque, and the card and its strip are glass on every window (composerStates.css, Leo
+   2026-10-21 "a bit more glass on the input box"). The wash goes over the card's tint (70% of the
+   surface) and the strip keeps the card's blur (--glass-backdrop). Over art or a see-through window
+   the surface rule above is already glass. Reduce Transparency, by the app's attribute or the
+   system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches
+   neither value of prefers-reduced-transparency, so this is scoped to `not reduce`, never to
+   `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
+   this leaves it alone. New Tab's tray is masked at the box edge when it tucks beneath the glass. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
+    .acpmux-composer[data-composer-look="codex"]
+    > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box,
 .nt-composer[data-composer-look="codex"] > .nt-box {
@@ -123,4 +142,77 @@
   left: auto;
   max-width: none;
   transform: none;
+}
+
+/* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),
+   centered on the composer, in one element that survives a look change (ComposerBox.tsx), so a look
+   switch keeps the dots and their focus. With Claude's look the element is empty height after the
+   quiet row and the dots sit over the row's empty middle, out of its flow, so the row lays out as
+   without them; with Codex's it is the box's internal dead-space row at its bottom edge. They show while the pointer is over that area or a
+   dot has the keyboard, at once, and fade when it leaves (an exit, never an entry). */
+.acpmux-look-slot {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 24px;
+}
+.nt-style.acpmux-look-dots {
+  top: 0;
+  bottom: auto;
+  max-width: none;
+  opacity: 0;
+  transition: opacity var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots,
+.acpmux-composer-under:hover .acpmux-look-dots,
+.acpmux-look-dots:focus-within {
+  opacity: 1;
+  transition: none;
+}
+/* The name shows after the two dots, on their line (DotSwitch nameAside). */
+.acpmux-look-dots .nt-style-name {
+  bottom: auto;
+  top: 50%;
+  padding: 0 0 0 4px;
+  transform: translateY(-50%);
+}
+/* Codex's look: the stable sibling host is positioned over the box's own dead-space row. The box
+   keeps the 16px row inside its glass; the parent has no extra bottom gutter, so the dots cannot
+   fall below the composer edge or remount when the look changes. */
+.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
+  padding-bottom: 0;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(+ .acpmux-composer-under) {
+  padding-bottom: 16px;
+}
+.acpmux-composer-under {
+  position: relative;
+  height: 16px;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under {
+  position: absolute;
+  /* Match the card's content column so the floating dock's gutters still pass
+     pointer and wheel input through to the transcript. */
+  inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)));
+  bottom: 0;
+  z-index: calc(var(--layer-raised, 1) + 1);
+}
+.acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
+  height: 16px;
+}
+.acpmux-composer-under:not([data-beside-foot]) :is(.nt-style-option, .nt-style-mark) {
+  height: 16px;
+}
+/* Claude's look: no height of its own after the quiet row; the 24px dots ride up over the row's
+   middle (the row is 28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
+.acpmux-composer-under[data-beside-foot] {
+  height: 0;
+}
+.acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
+  bottom: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-style.acpmux-look-dots {
+    transition: none;
+  }
 }

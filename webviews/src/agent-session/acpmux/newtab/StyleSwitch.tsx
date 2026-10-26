@@ -3,7 +3,7 @@
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
 // fades it. Native radios carry the names (the browser owns arrows and focus) and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
-// composer's look dots (newtab/PageDots.tsx; Leo 2026-10-22) are the same dots
+// composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
 // (DotSwitch) over other options.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
@@ -46,6 +46,7 @@ export function DotSwitch<Option extends string>({
   name,
   radioName,
   className = "nt-style",
+  nameAside = false,
   onPick,
   onCancel,
   onPointerPick = () => onCancel(),
@@ -59,6 +60,8 @@ export function DotSwitch<Option extends string>({
   /// The radios' group name; unset, one of the switch's own.
   radioName?: string;
   className?: string;
+  /// The name shows after the row, not over the dot (a chat's bottom area has no room over it).
+  nameAside?: boolean;
   onPick(option: Option): void;
   /// Escape or Return in the group.
   onCancel(): void;
@@ -69,7 +72,8 @@ export function DotSwitch<Option extends string>({
   const group = useRef<HTMLDivElement>(null);
   const mark = useRef<HTMLSpanElement>(null);
   const label = useRef<HTMLSpanElement>(null);
-  const pointed = useRef(0);
+  // A pointer pressed a dot and no key has gone down since: the next pick is the pointer's.
+  const pressed = useRef(false);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
   // The dot whose name shows: the one pointed at, else the one just picked.
@@ -98,8 +102,11 @@ export function DotSwitch<Option extends string>({
 
   useLayoutEffect(() => {
     const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
-    if (option && label.current) label.current.style.left = `${option.offsetLeft + option.offsetWidth / 2}px`;
-  }, [shown]);
+    if (option && label.current)
+      label.current.style.left = nameAside
+        ? `${group.current!.offsetWidth}px`
+        : `${option.offsetLeft + option.offsetWidth / 2}px`;
+  }, [shown, nameAside]);
 
   return (
     <ChoiceGroup label={groupLabel} className={className} onSubmit={onCancel} onCancel={onCancel}>
@@ -121,7 +128,7 @@ export function DotSwitch<Option extends string>({
             className="nt-style-option"
             data-style={style}
             onPointerOver={() => setHovered(style)}
-            onPointerDown={() => (pointed.current = performance.now())}
+            onPointerDown={() => (pressed.current = true)}
           >
             <input
               className="nt-style-input"
@@ -130,8 +137,16 @@ export function DotSwitch<Option extends string>({
               value={style}
               aria-label={name(style)}
               checked={style === current}
+              onKeyDown={() => (pressed.current = false)}
               onChange={(event) => {
-                const fromKeys = performance.now() - pointed.current > 500;
+                // From the events, never a clock: a pointer's pick follows its press on a dot (a key
+                // since clears it) or is a click that counts its presses (detail 1 or more); the
+                // arrow keys' pick is a click of detail 0, or a plain change event. (By type, not
+                // instanceof: the dots may sit in another window than this code's.)
+                const native = event.nativeEvent;
+                const clicked = native.type === "click" && (native as MouseEvent).detail > 0;
+                const fromKeys = !pressed.current && !clicked;
+                pressed.current = false;
                 const input = event.currentTarget;
                 onPick(style);
                 setPicked(style);

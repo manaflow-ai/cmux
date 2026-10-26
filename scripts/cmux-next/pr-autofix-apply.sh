@@ -24,7 +24,22 @@ if [[ "${3:-}" == --changed ]]; then
   changed="$(cd "$(dirname "${4:?usage: $0 PATCH REPO [--changed FILE]}")" && pwd)/$(basename "$4")"
 fi
 
+# The settings exports, from scripts/cmux-next/settings-exports.txt beside this script: the one
+# list of what regenerate-settings-exports.sh writes, so `allowed` cannot drift from it by holding
+# a short copy and leaving an export out of the repair push (review of #23915).
+settings_exports=()
+while IFS= read -r line; do settings_exports+=("$line"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#settings_exports[@]} )) || {
+  echo "scripts/cmux-next/settings-exports.txt lists no export" >&2
+  exit 1
+}
+
 allowed() { # repository-relative path -> 0 when an autofix repair writes it
+  local export
+  for export in "${settings_exports[@]}"; do
+    [[ "$1" == "$export" ]] && return 0
+  done
   case "$1" in
     .github/*|*/Cargo.lock|*/Cargo.toml|*/package.json|*.lock|*/package-lock.json|*/rust-toolchain.toml|*/node_modules/*) return 1 ;;
     Packages/macOS/CmuxNext/ci-target-graph.json) return 0 ;;
@@ -33,11 +48,8 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
+    plans/cmux-next/daemon-capabilities.json) return 0 ;; # daemon capability export
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
-    # The settings exports and their source stamp: exactly the files regenerate-settings-exports.sh writes.
-    schemas/settings/settings-schema.json|schemas/settings-export/settings-schema.sources.sha256) return 0 ;;
-    docs/mdm/com.manaflow.cmux.json|docs/mdm/com.manaflow.cmux.plist|docs/mdm/com.manaflow.cmux.intune.plist) return 0 ;;
-    docs/mdm/cmux-example.mobileconfig|docs/mdm/managed-preferences.md) return 0 ;;
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
