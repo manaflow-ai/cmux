@@ -173,7 +173,7 @@ public final class CallbackRegistry<Target: AnyObject & Sendable>: @unchecked Se
 
     /// ``target(for:)`` for the context a C callback received.
     @safe public func target(forContext context: UnsafeMutableRawPointer?) -> Target? {
-        target(for: unsafe CallbackToken(context: context))
+        target(for: CallbackToken(context: unsafe context))
     }
 
     /// The callbacks and unregisters whose token named no live entry: a callback after its owner went away, a
