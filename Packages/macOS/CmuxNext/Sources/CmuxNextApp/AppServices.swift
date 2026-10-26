@@ -13,12 +13,14 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
+import CmuxNextKeepAwake
 import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
@@ -389,6 +391,11 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
     var glassWatch: GlassModeWatch?
+    /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
+    /// its Low Power Mode goes out by init and its inputs are pushed (end of `init`), never a shared instance.
+    let energyMonitor = EnergyMonitor()
+    /// Pushes the monitor's inputs to WebKit's render rate and KeepAwake's battery rule.
+    private var energyLink: MainActorHandlerRegistration<EnergyInputs>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -654,6 +661,11 @@ final class AppServices {
             keyRouter.cancelChord()
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+        energyMonitor.start()
+        energyLink = energyMonitor.follow { [weak self] inputs in
+            self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
+            KeepAwakeService.shared.setOnBattery(inputs.onBattery)
+        }
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
