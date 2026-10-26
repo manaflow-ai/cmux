@@ -232,6 +232,8 @@ jobs:
             echo "taken=true" >> "$GITHUB_OUTPUT"
             echo "reason=live load admitted (${cores} cores, load ${load}, memory free ${free_pct}%)" >> "$GITHUB_OUTPUT"
             echo "Live GUI load admitted: cores=$cores load=$load memory_free=${free_pct}%"
+            printf '## Agent pane frame pacing admission\n\n| cores | load | memory_free |\n| --- | --- | --- |\n| %s | %s | %s%% |\n\n' \
+              "$cores" "$load" "$free_pct" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "taken=false" >> "$GITHUB_OUTPUT"
             reason="insufficient or unreadable live load (cores=${cores:-?}, load=${load:-?}, memory_free=${free_pct:-?}%)"
