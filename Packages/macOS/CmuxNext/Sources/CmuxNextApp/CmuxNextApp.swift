@@ -7,11 +7,15 @@ import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        // First: the launch's one watchdog and the startup tag it reads, so every launch stall is listed
+        // with its phase and step (Chrome makes its HangWatcher in process start-up: base/threading/hang_watcher.h).
+        let watchdog = MainThreadWatchdog(startupTasks: StartupTaskTag())
         DebugTimings.markLaunch("main_start")
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
@@ -33,9 +37,12 @@ public struct CmuxNextApp {
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
+        // Its thread is the launch's first, after the freeze; the turn it measures began at its creation.
+        watchdog.start(measuringSinceCreation: true)
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        watchdog.startupStep("main.warmup"); LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
+        watchdog.startupStep("main.environment")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
@@ -47,21 +54,27 @@ public struct CmuxNextApp {
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The daemon connect overlaps AppKit's start (off the main thread).
+        watchdog.startupStep("main.daemon_prestart")
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked)
         DebugTimings.markLaunch("main.prestart")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        watchdog.startupStep("bench.launch_stall"); BenchLaunchStall(environment: ProcessInfo.processInfo.environment).run()
+        #endif
+        watchdog.startupStep("main.nsapp")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, watchdog: watchdog)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
         DebugTimings.markLaunch("main.run")
+        watchdog.startupStep("main.run") // AppKit's own start, up to applicationDidFinishLaunching
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()

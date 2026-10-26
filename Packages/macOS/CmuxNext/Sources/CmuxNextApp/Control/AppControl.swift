@@ -12,12 +12,13 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
-/// watchdog (from launch), the socket server with a display-link frame
+/// watchdog (made and started in `main()`, handed in), the socket server with a display-link frame
 /// source for the main-actor work queue, the snapshot publisher, and the
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    let watchdog = MainThreadWatchdog()
+    /// The launch's main-thread watchdog, running since `main()` (``CmuxNextApp/main()``).
+    let watchdog: MainThreadWatchdog
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -43,16 +44,19 @@ final class AppControl {
 
     private var inputMonitor: Any?
 
-    /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board.
-    init(mainWork: MainWorkScheduler) {
+    /// - Parameters:
+    ///   - mainWork: The app's one main-thread scheduler: control requests are its
+    ///     automation tasks, and the watchdog reads its board.
+    ///   - watchdog: The launch's watchdog, made and started first in `main()`.
+    init(mainWork: MainWorkScheduler, watchdog: MainThreadWatchdog) {
         self.mainWork = mainWork
+        self.watchdog = watchdog
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
     }
 
-    /// Starts stall and busy detection. Call first thing at launch.
-    func startWatchdog() {
-        watchdog.start()
+    /// Connects the running watchdog to the app: the scheduler's board, the helper processes and
+    /// the input monitor. Call first thing in `applicationDidFinishLaunching`.
+    func attachWatchdog() {
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.

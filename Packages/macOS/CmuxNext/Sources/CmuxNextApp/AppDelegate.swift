@@ -56,17 +56,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+    /// `watchdog` is the one `main` made and started first.
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, watchdog: MainThreadWatchdog,
+         launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        control = AppControl(mainWork: mainWork, watchdog: watchdog)
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        control.watchdog.enterStartupPhase(.critical) // a new watchdog turn: the run loop has not run yet
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -77,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
         })
-        control.startWatchdog()
+        control.attachWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
@@ -137,6 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
+        // Startup ends at the first live terminal frame or after 10 s (StartupScheduler's failsafe takes it over).
+        Task { [launchSettle, startup = control.watchdog.startupTasks] in
+            await launchSettle.settled(within: .seconds(10)); startup?.enter(.complete)
+        }
         daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
@@ -162,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
+                    self?.control.watchdog.startupTasks?.enter(.afterFirstFrame)
                     self?.firstFrame.open()
                 }
             }
