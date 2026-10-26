@@ -159,11 +159,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # Outputs advertise an artifact only after the required-output guard passed;
-      # a failed settings export must not make repair download a skipped upload.
-      exports: ${{ steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true' }}
-      verified: ${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}
-      settings-verified: ${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}
+      # Changed exports are available and verified only after upload succeeds.
+      # A verified no-op needs no artifact; a failed upload withholds changed exports.
+      exports: ${{ steps.upload-exports.outcome == 'success' }}
+      verified: ${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' && (steps.require-exports.outputs.exports != 'true' || steps.upload-exports.outcome == 'success') }}
+      settings-verified: ${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' && (steps.require-exports.outputs.exports != 'true' || steps.upload-exports.outcome == 'success') }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -329,6 +329,7 @@ jobs:
           echo "exports=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload-exports
         if: steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true'
         with:
           name: action-exports
