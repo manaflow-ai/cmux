@@ -1868,7 +1868,8 @@ extension Workspace {
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
+            let deferredAgentResumeCandidateInput: String? = if restoredRemotePTYSessionID == nil,
+                restoreStartupBlocked || liveSessionOwner != nil,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
