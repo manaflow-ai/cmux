@@ -28,8 +28,9 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
   driver           what the scenario did and when: every key sent, every CLI call of the storm
   trace rings      the Release trace rings (ring v1, plans/cmux-next/trace.md) of every role: app, daemon, holder,
                    terminal hosts, acpmux, the Chromium host, the CLI. `record --release` gets them from
-                   `cmux trace record`; any `*.cmxtrace` in DIR or DIR/rings is read. Each thread's records are a
-                   `ring <thread>` track (B/E slices, instants, flow records), async pairs a `ring async <name>` track
+                   `cmux trace record`; any `*.cmxtrace` in DIR, DIR/rings or DIR/flows is read, each ring once. Each
+                   ring thread's records are a `ring <thread>` track (B/E slices, instants, flow records), async
+                   pairs a `ring async <name>` track
   key-press flows  one chain per terminal key press, from the app's dispatch to the echo's estimated present. A hop
                    with the press's flow id is exact (the rings carry one at every hop: the app's key.flow, the 12
                    echo handoffs, the PTY write and read, ghostty.render through key.echo.renderer, its
@@ -124,8 +125,8 @@ Usage (a fleet GUI host, never Lawrence's Mac):
 
 Docs: plans/cmux-next/trace.md (how to record, open in ui.perfetto.dev, read it). Not a CI gate.
 """
-import argparse, bisect, collections, contextlib, gzip, importlib.util, json, os, re, select, shutil, signal, statistics, \
-    struct, subprocess, sys, tempfile, threading, time
+import argparse, bisect, collections, contextlib, gzip, importlib.util, json, math, os, re, select, shutil, signal, \
+    statistics, struct, subprocess, sys, tempfile, threading, time
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -169,10 +170,14 @@ CHROME_BUFFER_KB = 128 * 1024
 RELEASE_DIR = "rings"
 RELEASE_CHROMIUM_FILE = "chromium-trace.json"
 RELEASE_LOG = "cmux-trace.log"
-RELEASE_START_S = 5  # trace.start's reply: the rings are mapped off the main thread, the daemon forwards to its children
+# `cmux trace record` says it records once trace.start replied: the CLI waits up to 15 s for that reply
+# (cli/trace.rs START_TIMEOUT: the daemon waits for its children, the app adds Chromium's start).
+RELEASE_START_S = 20
 RELEASE_COLLECT_S = 300  # after the window: trace.stop, the ring copies, Chromium's JSON (64 MB) and the export (022)
 RELEASE_WINDOW_SETTLE_S = 2  # run_window's second before the scenario and its second after it
-TRACE_START_CAP_S = 600  # trace.start's seconds_cap at most (p09-observability 020)
+# `cmux trace record --seconds` takes whole seconds, 1 to 590: trace.start's 600 s cap less the CLI's 10 s of stop
+# slack (cli/trace.rs MAX_RECORD_SECONDS = MAX_SECONDS_CAP - STOP_SLACK_SECONDS; check_release_trace reads them).
+RELEASE_RECORD_MAX_S = 590
 ROLE_ORDER = ["app", "daemon", "holder", "terminal-host", "acpmux", "cef-gpu", "cef-utility", "cef-renderer",
               "cli", "windowserver", "bundle-other", "other"]
 
@@ -282,8 +287,10 @@ STAGE_BOUNDS_S = {
     "light-build": 300,
     # 4 group creates (CLI_SETUP_S each), snapshot.get, debug.cef, debug.window_list.
     "storm-setup": 4 * CLI_SETUP_S + 2 * RPC_S + RPC_SHORT_S + STAGE_MARGIN_S,
-    # log stream attach, xctrace start (and its --attach fallback), CDP connect and Tracing.start, debug.hangs clear.
-    "recorders-start": LOG_ATTACH_S + 2 * XCTRACE_START_S + CDP_CONNECT_S + CDP_START_S + RPC_SHORT_S + STAGE_MARGIN_S,
+    # log stream attach, xctrace start (and its --attach fallback), CDP connect and Tracing.start, debug.hangs clear,
+    # `cmux trace record`'s note that it records (--release).
+    "recorders-start": LOG_ATTACH_S + 2 * XCTRACE_START_S + CDP_CONNECT_S + CDP_START_S + RPC_SHORT_S + RELEASE_START_S
+    + STAGE_MARGIN_S,
     # Added to --seconds (or --seconds-cap): the window's 2 s of settle and the typist's and storm's joins (30 s each,
     # after the call each has in flight). Also xctrace's own --time-limit past the window.
     "window-margin": 2 + 30 + 30 + STAGE_MARGIN_S,
@@ -881,31 +888,53 @@ class ReleaseTrace:
     file, the DevTools port). `cmux trace record` (p09-observability 021) calls the app's trace.start with key flows
     (`--keys`) and Chromium tracing (`--chromium`); the daemon forwards the start to the holder, the terminal hosts and
     acpmux. At the end the CLI copies every ring and Chromium's JSON into OUT/rings. The CLI times the recording
-    itself (`--seconds`), so it starts last among the recorders, right before the window, and the stop waits for it."""
+    itself (`--seconds`, whole seconds from its trace.start reply), so it starts last among the recorders, the window
+    starts once it says it records, and the stop waits for it."""
 
     def __init__(self, cli, socket, out, seconds, chromium, env=None):
-        self.cli, self.socket, self.seconds, self.chromium, self.env = cli, socket, seconds, chromium, env
+        self.cli, self.socket, self.chromium, self.env = cli, socket, chromium, env
+        self.seconds = math.ceil(seconds)
         self.dir = os.path.join(out, RELEASE_DIR)
         self.log_path = os.path.join(out, RELEASE_LOG)
-        self.process = self.started = self.log = None
+        self.process = self.started = self.log = self.reader = None
+        self.spoke = threading.Event()  # the CLI's first line came, or its output ended
+        self.silent_end = False  # its output ended before any line
 
     def command(self):
-        return [self.cli, "--app-socket", self.socket, "trace", "record", "--seconds", f"{self.seconds:g}",
+        return [self.cli, "--app-socket", self.socket, "trace", "record", "--seconds", str(self.seconds),
                 "--out", self.dir, "--keys"] + (["--chromium"] if self.chromium else [])
 
-    def start(self, hold=contextlib.nullcontext):
+    def start(self, hold=contextlib.nullcontext, start_s=RELEASE_START_S):
+        """Starts the CLI and waits, at most `start_s`, for its first line: the note it prints once trace.start
+        replied and the rings record (a CLI whose start failed prints its error instead and ends with a nonzero exit,
+        which the stop reports). Its window counts from then. Returns False when it said nothing in time or ended
+        saying nothing."""
         os.makedirs(self.dir, exist_ok=True)
-        self.log = open(self.log_path, "w")
+        self.log = open(self.log_path, "wb")
         with hold():
-            self.process = subprocess.Popen(self.command(), stdout=self.log, stderr=subprocess.STDOUT,
+            self.process = subprocess.Popen(self.command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                             stdin=subprocess.DEVNULL, env=self.env)
-            self.started = time.monotonic()
+        self.reader = threading.Thread(target=self.copy_output, name="cmux-trace-record-log", daemon=True)
+        self.reader.start()
+        spoke = self.spoke.wait(start_s)
+        self.started = time.monotonic()
+        return spoke and not self.silent_end
+
+    def copy_output(self):
+        """The reader thread: the CLI's output into its log file; the first line (or the end) sets `spoke`."""
+        for line in self.process.stdout:
+            self.log.write(line)
+            self.log.flush()
+            if line.strip():
+                self.spoke.set()
+        self.silent_end = not self.spoke.is_set()
+        self.spoke.set()
 
     def remaining_s(self):
         """The rest of the CLI's own window, from now."""
         if self.started is None:
             return 0.0
-        return max(0.0, self.started + RELEASE_START_S + self.seconds - time.monotonic())
+        return max(0.0, self.started + self.seconds - time.monotonic())
 
     def stop(self, collect_s=RELEASE_COLLECT_S):
         """Waits for the CLI to end its window and collect: {exit, command, files, log_tail}. A CLI that does not end
@@ -913,19 +942,26 @@ class ReleaseTrace:
         if not self.process:
             return None
         code = self.process.wait(timeout=self.remaining_s() + collect_s)
-        self.log.close()
+        self.close_log()
         with open(self.log_path, errors="replace") as f:
             tail = f.read()[-1200:]
         files = sorted(os.listdir(self.dir)) if os.path.isdir(self.dir) else []
         return {"exit": code, "command": self.command(), "files": files, "log_tail": tail}
+
+    def close_log(self):
+        """Closes the log once the reader copied the CLI's last line (its output ends when it exits), waiting
+        RPC_SHORT_S at most."""
+        if self.reader:
+            self.reader.join(RPC_SHORT_S)
+        if self.log and not (self.reader and self.reader.is_alive()):
+            self.log.close()
 
     def kill(self):
         """SIGKILL the CLI this run started (its stop passed the bound or failed)."""
         if self.process and self.process.poll() is None:
             self.process.kill()
             self.process.wait()
-        if self.log:
-            self.log.close()
+        self.close_log()
 
 
 # ---------------------------------------------------------------- scenario
@@ -1612,12 +1648,14 @@ class Recording:
             self.sampler = Sampler(self.out)
             pids = [(pid, info["role"]) for pid, info in self.processes["start"].items() if info["role"] in ("app", "daemon")]
             self.sampler.start(pids, opts.seconds, hold=hold)
-        if opts.release:  # last: the CLI's own window starts now, and the window below starts right after it
+        if opts.release:  # last: the window below starts once the CLI says its own window runs
             self.release = ReleaseTrace(self.app.bench.cli, self.app.bench.socket, self.out,
                                         opts.seconds + RELEASE_WINDOW_SETTLE_S, chromium=not opts.no_cef,
                                         env=self.app.cli_env())
-            self.release.start(hold=hold)
             meta["release_trace"] = {"command": self.release.command()}
+            if not self.release.start(hold=hold):
+                self.warn(f"`cmux trace record` did not say it records within {RELEASE_START_S} s, or ended: the "
+                          f"window may have no rings (its log: {RELEASE_LOG})")
 
     def start_xctrace(self):
         """The all-process recording, or the app process only when xctrace refuses --all-processes. Each XcTrace
@@ -1714,7 +1752,7 @@ class Recording:
                 self.xc.interrupt()
         if self.release:
             release = self.release
-            bound = STAGE_BOUNDS_S["release-trace-stop"] + release.remaining_s() + RELEASE_START_S
+            bound = STAGE_BOUNDS_S["release-trace-stop"] + release.remaining_s() + RPC_SHORT_S  # + the log's reader
             with stages.run("release-trace-stop", bound=bound, on_abort=release.kill):
                 note("cmux trace record: waiting for its window and the ring copies")
                 done = meta["sources"]["release_trace"] = release.stop()
@@ -2626,24 +2664,37 @@ def ring_thread(ring, key):
 
 
 def ring_paths(out):
-    """The ring files of a recording: those `cmux trace record` copied into OUT/rings (RELEASE_DIR), and any in OUT."""
+    """The ring files of a recording: those `cmux trace record` copied into OUT/rings (RELEASE_DIR), the
+    `<role>-<pid>.recording.cmxtrace` rings the daemon, hosts and holder write into OUT/flows when the DEBUG record
+    path sets CMUX_NEXT_TRACE_FLOWS (cmux-flow-trace, p09-observability 011), and any in OUT."""
     paths = []
-    for folder in (out, os.path.join(out, RELEASE_DIR)):
+    for folder in (out, os.path.join(out, RELEASE_DIR), os.path.join(out, "flows")):
         if os.path.isdir(folder):
             paths += [os.path.join(folder, name) for name in sorted(os.listdir(folder)) if name.endswith(RING_SUFFIX)]
     return paths
 
 
+def ring_identity(ring):
+    """What tells one ring from another: its process, kind and start. Two files with the same identity are copies of
+    one ring (the same ring in OUT and in OUT/rings)."""
+    header = ring["header"]
+    return header["pid"], header["ring_kind"], header["start_unix_ns"], header["start_uptime_ns"]
+
+
 def read_rings(out):
-    """Every ring of the recording decoded, and {file name: why} for each file that is not a ring v1 this reader
-    knows."""
-    rings, unreadable = [], {}
+    """Every ring of the recording decoded, each once (a copy of a ring already read is skipped), and {file name:
+    why} for each file that is not a ring v1 this reader knows."""
+    rings, unreadable, seen = [], {}, set()
     for path in ring_paths(out):
         try:
             with open(path, "rb") as f:
-                rings.append(decode_ring(f.read(), path))
+                ring = decode_ring(f.read(), path)
         except (OSError, RingError, struct.error) as error:
-            unreadable[os.path.basename(path)] = str(error)
+            unreadable[os.path.relpath(path, out)] = str(error)
+            continue
+        if ring_identity(ring) not in seen:
+            seen.add(ring_identity(ring))
+            rings.append(ring)
     return rings, unreadable
 
 
@@ -2652,20 +2703,26 @@ def signed64(value):
 
 
 def ring_events(rings, tracks, lane_names):
-    """The rings' records as trace events on `ring <thread>` tracks of their process. A B/E pair becomes one slice
-    (an E closes the newest open B of its name on its thread). Instants, flow records and counters stay where they
-    were written. An AB/AE pair (matched by name and async id) becomes a slice on a `ring async <name>` track of the
-    process, in lanes where pairs overlap. Returns the events and the counts of what did not pair."""
-    events, unpaired = [], collections.Counter()
+    """The rings' records as trace events on `ring <thread>` tracks of their process. A thread index names a thread
+    only within its ring (trace.md: "Thread index = entry index, per ring"), so each ring's threads get their own
+    tracks, named with the ring's kind when the process has more than one ring. A B/E pair becomes one slice (an E
+    closes the newest open B of its name on its thread). Instants, flow records and counters stay where they were
+    written. An AB/AE pair (matched by name and async id within its ring) becomes a slice on a `ring async <name>`
+    track of the process, in lanes where pairs of any of its rings overlap. Returns the events and the counts of
+    what did not pair."""
+    events, unpaired, pairs = [], collections.Counter(), []
     us = lambda ns: round(ns / 1000.0, 3)
+    per_pid = collections.Counter(ring["info"]["pid"] for ring in rings)
     for ring in rings:
         pid = ring["info"]["pid"]
-        stacks, opened, pairs = collections.defaultdict(list), collections.defaultdict(list), []
+        stacks, opened = collections.defaultdict(list), collections.defaultdict(list)
+        ident = ring_identity(ring)
+        suffix = f" ({ring['info']['kind']})" if per_pid[pid] > 1 else ""
 
         def track(thread):
             tid, name = ring_thread(ring, thread)
-            synthetic = tracks.tid(pid, ("ring", thread))
-            lane_names[(pid, synthetic)] = f"ring {name}"
+            synthetic = tracks.tid(pid, ("ring", ident, thread))
+            lane_names[(pid, synthetic)] = f"ring {name}{suffix}"
             return synthetic, tid
 
         for record in ring["records"]:
@@ -2702,19 +2759,38 @@ def ring_events(rings, tracks, lane_names):
                     unpaired["async_end_without_begin"] += 1
                     continue
                 begin_ns, begin_args = begins.pop()
-                pairs.append((begin_ns, -t_ns, name, record["arg1"], begin_args, args))
-        # Lanes nest what it is given in start order (the longest first at one start).
-        async_lanes = collections.defaultdict(Lanes)
-        for begin_ns, minus_end, name, ident, begin_args, args in sorted(pairs, key=lambda p: p[:2]):
-            lane = async_lanes[name].place(begin_ns, -minus_end)
-            synthetic = tracks.tid(pid, ("ring async", name, lane))
-            lane_names[(pid, synthetic)] = f"ring async {name}" + (f" {lane + 1}" if lane else "")
-            events.append({"ph": "X", "pid": pid, "tid": synthetic, "ts": us(begin_ns), "dur": us(-minus_end - begin_ns),
-                           "name": name, "cat": "ring.async",
-                           "args": {"id": f"0x{ident:x}", "begin": begin_args, "end": args}})
+                pairs.append((begin_ns, -t_ns, pid, name, record["arg1"], begin_args, args))
         unpaired["begin_without_end"] += sum(len(stack) for stack in stacks.values())
         unpaired["async_begin_without_end"] += sum(len(begins) for begins in opened.values())
+    # One set of lanes per process and name, across its rings. Lanes nest what it is given in start order (the
+    # longest first at one start).
+    async_lanes = collections.defaultdict(Lanes)
+    for begin_ns, minus_end, pid, name, async_id, begin_args, args in sorted(pairs, key=lambda p: p[:2]):
+        lane = async_lanes[(pid, name)].place(begin_ns, -minus_end)
+        synthetic = tracks.tid(pid, ("ring async", name, lane))
+        lane_names[(pid, synthetic)] = f"ring async {name}" + (f" {lane + 1}" if lane else "")
+        events.append({"ph": "X", "pid": pid, "tid": synthetic, "ts": us(begin_ns), "dur": us(-minus_end - begin_ns),
+                       "name": name, "cat": "ring.async",
+                       "args": {"id": f"0x{async_id:x}", "begin": begin_args, "end": args}})
     return events, {key: n for key, n in unpaired.items() if n}
+
+
+TERMINAL_KEY_DIGITS = 16
+
+
+def ring_terminal_key(arg0):
+    """A ring hop's terminal: arg0 is the terminal key, the first 8 bytes of the 16-byte id read big-endian
+    (cmux-flow-trace `terminal_key`), as 16 lowercase hex digits; "" for 0 (no terminal identity)."""
+    return f"{arg0:0{TERMINAL_KEY_DIGITS}x}" if arg0 else ""
+
+
+def text_terminal_key(terminal):
+    """The same key from a CMUX_TRACE_FLOWS record's hex terminal id: its first 16 digits, a shorter id
+    left-aligned, as cmux-flow-trace's `terminal_key` reads it; "" for an id that is empty or not hex."""
+    digits = (terminal or "")[:TERMINAL_KEY_DIGITS].lower()
+    if not digits or any(c not in "0123456789abcdef" for c in digits):
+        return ""
+    return digits.ljust(TERMINAL_KEY_DIGITS, "0")
 
 
 def ring_flow_inputs(rings):
@@ -2723,7 +2799,8 @@ def ring_flow_inputs(rings):
     - the app's `key.flow` hops as signpost-shaped events (hop from KEY_FLOW_CODES, flow from arg1, age from the top
       56 bits of arg0);
     - flow records of the other hops: the 12 echo handoffs (`<name>.queued` at the flow out, `<name>.taken` at the
-      flow in), the legacy hop names under `key.` (LEGACY_FLOW_HOPS) and frame.present_estimate (flow in arg0);
+      flow in), cmux-flow-trace's hops under their own names (LEGACY_FLOW_HOPS) and frame.present_estimate (flow in
+      arg0), each record's terminal as ring_terminal_key gives it;
     - the ghostty.render slices, each with the frame.gpu_done that completed it."""
     app_events, records, renders, gpu_done = [], [], [], []
     for ring in rings:
@@ -2741,11 +2818,12 @@ def ring_flow_inputs(rings):
                                        "message": f"hop={hop} flow={record['arg1']} age_us={age}"})
             elif name in ECHO_HANDOFFS and phase in ("s", "f") and record["arg1"]:
                 records.append({"hop": f"{name}{'.queued' if phase == 's' else '.taken'}", "flow": record["arg1"],
-                                "terminal": f"{record['arg0']:x}", "pid": pid, "tid": thread, "at_us": at_us,
-                                "ring": True})
-            elif name.startswith("key.") and name[4:] in LEGACY_FLOW_HOPS and phase in ("s", "f", "I"):
-                records.append({"hop": name[4:], "flow": record["arg1"], "terminal": f"{record['arg0']:x}", "pid": pid,
-                                "tid": thread, "at_us": at_us, "ring": True})
+                                "terminal": ring_terminal_key(record["arg0"]), "pid": pid, "tid": thread,
+                                "at_us": at_us, "ring": True})
+            elif name in LEGACY_FLOW_HOPS and phase in ("f", "I"):
+                # cmux-flow-trace's step: `f` (the hop's time) then `s` with the flow id; `I` with flow 0.
+                records.append({"hop": name, "flow": record["arg1"], "terminal": ring_terminal_key(record["arg0"]),
+                                "pid": pid, "tid": thread, "at_us": at_us, "ring": True})
             elif name == "frame.present_estimate" and phase == "I" and record["arg0"]:
                 records.append({"hop": name, "flow": record["arg0"], "terminal": "", "pid": pid, "tid": thread,
                                 "at_us": at_us, "ring": True})
@@ -2795,13 +2873,18 @@ FLOW_HOPS = [
     ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
     ("host.pty.read", "holder.pty.read"), *_echo("host_pty_read"), *_echo("host_client_write"), *_echo("daemon_frames"),
     ("daemon.output.host", "daemon.output.holder"), *_echo("surface_parse"), *_echo("attach_encode"),
-    ("daemon.output.attach",), *_echo("line_out"), *_echo("app_transport_read"),
-    ("app.output.decoded",), *_echo("main_actor"), ("app.output.received",), *_echo("output_lane"),
-    ("app.output.parsed",), *_echo("renderer"), ("ghostty.render",), *_echo("gpu_done"), ("frame.gpu_done",),
-    *_echo("contents"), ("app.frame.contents",), ("app.frame.commit",), ("frame.present_estimate",),
+    ("daemon.output.attach",), *_echo("line_out"),
+    # Three handoffs' taking threads write their own hop before the `.taken` mark, so it sits between the two: the
+    # transport reader's decode, the Metal completion handler's gpu_done, main's setContents.
+    ("key.echo.app_transport_read.queued",), ("app.output.decoded",), ("key.echo.app_transport_read.taken",),
+    *_echo("main_actor"), ("app.output.received",), *_echo("output_lane"),
+    ("app.output.parsed",), *_echo("renderer"), ("ghostty.render",),
+    ("key.echo.gpu_done.queued",), ("frame.gpu_done",), ("key.echo.gpu_done.taken",),
+    ("key.echo.contents.queued",), ("app.frame.contents",), ("key.echo.contents.taken",),
+    ("app.frame.commit",), ("frame.present_estimate",),
 ]
-# The CMUX_TRACE_FLOWS hop names of the daemon, hosts and holder; in a ring they are `key.<hop>` (cmux-flow-trace's
-# hops as cmux-trace flow records, p09-observability 011).
+# The hop names of the daemon, hosts and holder: their CMUX_TRACE_FLOWS records' `hop`, and the names cmux-flow-trace
+# interns in their rings (`hop_name`, p09-observability 011; check_flow_hop_names_match_the_rust reads it).
 LEGACY_FLOW_HOPS = frozenset(hop for alternatives in FLOW_HOPS for hop in alternatives
                              if hop.split(".")[0] in ("daemon", "host", "holder"))
 RING_HOPS = frozenset(f"{name}.{end}" for name in ECHO_HANDOFFS for end in ("queued", "taken")) \
@@ -2818,6 +2901,9 @@ FLOW_ANCHOR = {"host.pty.write": "daemon.send.write", "daemon.pty.write": "daemo
                "host.pty.read": "pty.write", "holder.pty.read": "pty.write",
                "daemon.output.host": "pty.read", "daemon.output.holder": "pty.read",
                "daemon.output.attach": "output"}
+# Hops that run concurrently with the hop before them in FLOW_HOPS, so the per-hop table measures each from its own
+# cause instead (flow_hop_steps): the daemon's send returns when the frame is on the host's socket (see FLOW_ANCHOR).
+FLOW_STEP_FROM = {"daemon.send.written": "daemon.send.write"}
 FLOW_GROUP = {"host.pty.write": "pty.write", "daemon.pty.write": "pty.write", "host.pty.read": "pty.read",
               "holder.pty.read": "pty.read", "daemon.output.host": "output", "daemon.output.holder": "output"}
 # Hops a complete press may lack. `app.key.terminal` (TerminalSurfaceView.keyDown) is drawn when the app emits it,
@@ -2831,11 +2917,15 @@ FLOW0_STAGES = [(FLOW_GROUP.get(alternatives[0], alternatives[0]), alternatives,
 
 
 def read_flow_records(out):
-    """The daemon's, hosts' and holder's CMUX_TRACE_FLOWS records (OUT/flows/flows-<pid>.jsonl), times in us,
-    and the dropped counts each process reported."""
+    """The CMUX_TRACE_FLOWS records of an older daemon, host or holder (OUT/flows/flows-<pid>.jsonl), times in us,
+    and the dropped counts each process reported. A newer one writes a ring into OUT/flows instead (ring_paths).
+    Each record's terminal is its terminal key (text_terminal_key), so it meets a ring's record of the same
+    terminal."""
     records, dropped = [], {}
     folder = os.path.join(out, "flows")
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if not name.endswith(".jsonl"):
+            continue
         with open(os.path.join(folder, name), errors="replace") as f:
             for line in f:
                 try:
@@ -2845,7 +2935,8 @@ def read_flow_records(out):
                 if "dropped" in row:
                     dropped[name] = row["dropped"]
                 elif row.get("hop"):
-                    records.append({"hop": row["hop"], "flow": int(row.get("flow") or 0), "terminal": row.get("terminal") or "",
+                    records.append({"hop": row["hop"], "flow": int(row.get("flow") or 0),
+                                    "terminal": text_terminal_key(row.get("terminal")),
                                     "pid": row.get("pid"), "tid": row.get("tid"), "at_us": float(row["t_ns"]) / 1000.0})
     return records, dropped
 
@@ -3030,6 +3121,26 @@ def flow_events(flows, tracks, lane_names, started=frozenset()):
     return events
 
 
+def flow_hop_steps(entry):
+    """[(hop, us from the previous hop the press has, in FLOW_HOPS order)]; a FLOW_STEP_FROM hop is measured from
+    its own cause and is no hop's previous. Negative where the clocks or a writer disagree with FLOW_HOPS's causal
+    order."""
+    at = {h["hop"]: h["at_us"] for h in entry["hops"]}
+    steps, previous = [], None
+    for alternatives in FLOW_HOPS:
+        hop = next((hop for hop in alternatives if hop in at), None)
+        if hop is None:
+            continue
+        if hop in FLOW_STEP_FROM:
+            if FLOW_STEP_FROM[hop] in at:
+                steps.append((hop, at[hop] - at[FLOW_STEP_FROM[hop]]))
+            continue
+        if previous:
+            steps.append((hop, at[hop] - at[previous]))
+        previous = hop
+    return steps
+
+
 def flow_summary(flows, dropped, warnings=()):
     """Per hop: the time from the previous hop the press has (FLOW_HOPS order) over the complete presses; key to
     the frame's commit; the incomplete presses with what they miss and which flow-0 hops were ambiguous; and
@@ -3038,11 +3149,9 @@ def flow_summary(flows, dropped, warnings=()):
     steps = collections.defaultdict(list)
     totals = []
     for entry in complete:
+        for hop, step_us in flow_hop_steps(entry):
+            steps[hop].append(step_us / 1000)
         at = {h["hop"]: h["at_us"] for h in entry["hops"]}
-        ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS
-                   if any(hop in at for hop in alternatives)]
-        for previous, hop in zip(ordered, ordered[1:]):
-            steps[hop].append((at[hop] - at[previous]) / 1000)
         totals.append((at["app.frame.commit"] - at["app.key.dispatch"]) / 1000)
     return {"presses": len(flows), "complete": len(complete), "key_to_commit_ms": pct(totals),
             "echo_complete": sum(1 for f in flows if f.get("echo_complete")),
@@ -3320,12 +3429,16 @@ def chromium_key_latencies(chrome):
 
 
 def chromium_key_links(app_events, slots, latencies):
-    """Each Chromium key EventLatency joined to the cmux key it measures, one to one, the closest pair first:
-    - exact: an input.latency keyPress slot whose gen_ns (the NSEvent timestamp) equals the slice's kGenerated within
+    """Each Chromium key EventLatency joined to the cmux key it measures. One NSEvent key-down becomes a RawKeyDown
+    and a Char WebInputEvent, both ui KEY_PRESSED (ui/events/blink/blink_event_util.cc WebEventTypeToEventType), so
+    Chromium can write two key EventLatency slices with one kGenerated. The slices that share a kGenerated are one
+    key event: it joins one cmux key, the closest pair first, and each of its slices links to that key:
+    - exact: an input.latency keyPress slot whose gen_ns (the NSEvent timestamp) equals the kGenerated within
       CHROMIUM_JOIN_US; the slot's key.flow press (input_flow_links) names the flow;
     - else a key.flow press without a slot, by its dispatch hop minus its age, within INPUT_FLOW_MATCH_US.
-    Each link: {flow, generated_us, exact, slot, latency}. A joined slice's begin gets a `cmux` argument (its flow
-    and how it joined), which the trace shows on the Chromium slice."""
+    Each link: {flow, generated_us, exact, slot, latency, primary}. Per key, `primary` marks the slice that ends
+    last: the frame that shows the character. A joined slice's begin gets a `cmux` argument (its flow and how it
+    joined), which the trace shows on the Chromium slice."""
     hops = app_key_hops(app_events)
     presses = [{"flow": flow, "hops": [hop["app.key.dispatch"]]} for flow, hop in hops.items() if "app.key.dispatch" in hop]
     slot_flows = input_flow_links(slots, presses)
@@ -3345,50 +3458,66 @@ def chromium_key_links(app_events, slots, latencies):
             keys.append((at, False, None, press["flow"]))
     keys.sort(key=lambda k: k[0])
     times = [k[0] for k in keys]
+    events = collections.defaultdict(list)  # kGenerated (us, as Chromium's JSON gives it) -> that key event's slices
+    for latency in latencies:
+        events[latency["ts_us"]].append(latency)
     pairs = []
-    for index, latency in enumerate(latencies):
-        lo = bisect.bisect_left(times, latency["ts_us"] - INPUT_FLOW_MATCH_US)
-        hi = bisect.bisect_right(times, latency["ts_us"] + INPUT_FLOW_MATCH_US)
+    for ts in events:
+        lo = bisect.bisect_left(times, ts - INPUT_FLOW_MATCH_US)
+        hi = bisect.bisect_right(times, ts + INPUT_FLOW_MATCH_US)
         for key in range(lo, hi):
             at, exact, _, _ = keys[key]
-            gap = abs(at - latency["ts_us"])
+            gap = abs(at - ts)
             if gap <= (CHROMIUM_JOIN_US if exact else INPUT_FLOW_MATCH_US):
-                pairs.append((not exact, gap, index, key))
+                pairs.append((not exact, gap, ts, key))
     links, joined, used = [], set(), set()
-    for _, _, index, key in sorted(pairs):
-        if index in joined or key in used:
+    for _, _, ts, key in sorted(pairs):
+        if ts in joined or key in used:
             continue
-        joined.add(index)
+        joined.add(ts)
         used.add(key)
         at, exact, slot, flow = keys[key]
-        latency = latencies[index]
-        latency["event"].setdefault("args", {})["cmux"] = {"flow": f"0x{flow:x}" if flow else None,
-                                                           "join": "exact" if exact else "dispatch_minus_age",
-                                                           "generated_us": round(at, 3)}
-        links.append({"flow": flow, "generated_us": at, "exact": exact, "slot": slot, "latency": latency})
-    links.sort(key=lambda link: link["generated_us"])
+        slices = events[ts]
+        last = max(slices, key=lambda latency: latency["end_us"])
+        for latency in slices:
+            latency["event"].setdefault("args", {})["cmux"] = {"flow": f"0x{flow:x}" if flow else None,
+                                                               "join": "exact" if exact else "dispatch_minus_age",
+                                                               "generated_us": round(at, 3)}
+            links.append({"flow": flow, "generated_us": at, "exact": exact, "slot": slot, "latency": latency,
+                          "primary": latency is last})
+    links.sort(key=lambda link: (link["generated_us"], not link["primary"]))
     return links
 
 
 def chromium_join_summary(latencies, links, slots):
-    """How many of Chromium's key EventLatency slices joined a cmux key, how (exact, with a flow), and Chromium's
-    generated -> end next to cmux's own generated -> presented for the same keys (ms, p50/p95/p99/max)."""
+    """How many of Chromium's key EventLatency slices joined a cmux key, per event type; how many keys joined and how
+    (exact, with a flow); and per joined key, its primary slice's generated -> end (Chromium) next to cmux's own
+    generated -> presented for that key (ms, p50/p95/p99/max)."""
     chromium_ms, cmux_ms, rows = [], [], []
+    by_type = collections.defaultdict(lambda: {"latencies": 0, "linked": 0})
+    for latency in latencies:
+        by_type[latency["type"]]["latencies"] += 1
     for link in links:
         latency = link["latency"]
+        by_type[latency["type"]]["linked"] += 1
         total = (latency["end_us"] - latency["ts_us"]) / 1000.0
-        chromium_ms.append(total)
         own = None
         if link["slot"] is not None:
             start, end, _, _ = input_stage_spans(slots[link["slot"]])
             own = (end - start) / 1e6
-            cmux_ms.append(own)
+        if link["primary"]:
+            chromium_ms.append(total)
+            if own is not None:
+                cmux_ms.append(own)
         rows.append({"flow": f"0x{link['flow']:x}" if link["flow"] else None, "exact": link["exact"],
                      "generated_us": round(link["generated_us"], 3), "type": latency["type"],
-                     "chromium_total_ms": round(total, 3), "cmux_total_ms": None if own is None else round(own, 3)})
-    return {"key_latencies": len(latencies), "linked": len(links), "exact": sum(1 for l in links if l["exact"]),
-            "with_flow": sum(1 for l in links if l["flow"]), "chromium_total_ms": pct99(chromium_ms),
-            "cmux_total_ms": pct99(cmux_ms), "links": rows[:60]}
+                     "primary": link["primary"], "chromium_total_ms": round(total, 3),
+                     "cmux_total_ms": None if own is None else round(own, 3)})
+    keys = [link for link in links if link["primary"]]
+    return {"key_latencies": len(latencies), "linked": len(links), "keys": len(keys),
+            "exact": sum(1 for link in keys if link["exact"]), "with_flow": sum(1 for link in keys if link["flow"]),
+            "by_type": dict(by_type), "chromium_total_ms": pct99(chromium_ms), "cmux_total_ms": pct99(cmux_ms),
+            "links": rows[:60]}
 
 
 # ---------------------------------------------------------------- startup trace files (launch scenarios)
@@ -4365,9 +4494,12 @@ def summary_text(s):
     joined = s.get("chromium_event_latency") or {}
     if joined.get("key_latencies"):
         chromium, own = joined.get("chromium_total_ms") or {}, joined.get("cmux_total_ms") or {}
+        types = ", ".join(f"{kind} {row['linked']}/{row['latencies']}"
+                          for kind, row in sorted((joined.get("by_type") or {}).items()))
         lines.append(f"Chromium EventLatency (keys): {joined['linked']} of {joined['key_latencies']} joined to a cmux key "
-                     f"({joined['exact']} on the NSEvent timestamp, {joined['with_flow']} with a key.flow); Chromium "
-                     f"total p50/p95/max {chromium.get('p50')}/{chromium.get('p95')}/{chromium.get('max')} ms, cmux "
+                     f"({types}); {joined.get('keys', joined['linked'])} keys, {joined['exact']} on the NSEvent "
+                     f"timestamp, {joined['with_flow']} with a key.flow; Chromium total (the slice that ends last) "
+                     f"p50/p95/max {chromium.get('p50')}/{chromium.get('p95')}/{chromium.get('max')} ms, cmux "
                      f"generated -> presented {own.get('p50')}/{own.get('p95')}/{own.get('max')} ms")
     rings = s.get("rings") or {}
     if rings.get("files") or rings.get("unreadable"):
@@ -4777,13 +4909,17 @@ def check_stop_survives_a_failing_source():
 def check_record_ends_cleanly():
     """Review 1: an error outside any stage still stops every source and writes SUMMARY.txt with exit 3; a
     signal's SystemExit (TagTeardown's SIGTERM handler) stops every source, writes SUMMARY.txt without an
-    export and exits 128 + N."""
+    export and exits 128 + N. A --release recording's `cmux trace record` is one of those sources: its stop
+    collects it."""
     for raised, code, line in ((RuntimeError("size_window: the display cannot hold STRESS"), 3, "ERROR: stage record failed"),
                                (SystemExit(143), 143, "TERMINATED by a signal (exit 143)")):
         with tempfile.TemporaryDirectory() as out:
             log = []
-            rec = quiet_recording(out)
+            rec = quiet_recording(out, release=True)
             rec.signposts = FakeSource("signposts", log)
+            rec.release = ReleaseTrace(fake_trace_cli(out, 'echo "Recording for 1 s" >&2\n: > "$out/app-1.recording.cmxtrace"\n'),
+                                       "s", out, 1, chromium=False)
+            assert rec.release.start(start_s=10)
 
             def setup(error=raised):
                 raise error
@@ -4795,6 +4931,8 @@ def check_record_ends_cleanly():
                 for number, handler in previous.items():
                     signal.signal(number, handler)
             assert log == ["signposts stop"], log
+            done = rec.meta["sources"]["release_trace"]
+            assert done["exit"] == 0 and done["files"] == ["app-1.recording.cmxtrace"], done
             text = open(os.path.join(out, "SUMMARY.txt")).read()
             assert line in text, text
 
@@ -5548,11 +5686,13 @@ def check_input_tables_match_the_swift(swift_root=INPUT_SWIFT):
 REPO = os.path.dirname(os.path.dirname(HERE))
 RING_GOLDEN = os.path.join(REPO, "Packages", "macOS", "CmuxNext", "Tests", "CmuxNextTraceTests", "Fixtures",
                            "ring-v1-golden.cmxtrace")
-RUST_CATALOG = os.path.join(REPO, "cmux-tui", "crates", "cmux-trace", "src", "names.rs")
+RUST_CRATES = os.path.join(REPO, "cmux-tui", "crates")
+RUST_CATALOG = os.path.join(RUST_CRATES, "cmux-trace", "src", "names.rs")
+RUST_CLI_TRACE = os.path.join(RUST_CRATES, "cmux-tui", "src", "cli", "trace.rs")
 
 
 def ring_fixture(pid=20, role=2, names=(), threads=(), records=(), chunk_count=8, start_ns=1000, start_cursor=0,
-                 version=RING_VERSION):
+                 version=RING_VERSION, kind=2):
     """(bytes, record offsets) of a ring v1 laid out as trace.md says, for the self-test: `names` are the name
     entries from id 1, `threads` the thread entries (tid, qos, name, generation), and `records` (thread index, t_ns,
     name id, phase, flags, arg0, arg1) are written in order, each thread into its own chunks (31 records each, claimed
@@ -5584,7 +5724,7 @@ def ring_fixture(pid=20, role=2, names=(), threads=(), records=(), chunk_count=8
         RING_RECORD.pack_into(data, at, t_ns, (2 * chunk["lap"] + 2) & 0xFFFF_FFFF, name, codes[phase], flags, arg0, arg1)
         offsets.append(at)
     header = dict.fromkeys(RING_HEADER_FIELDS, 0)
-    header.update(magic=RING_MAGIC, version=version, header_bytes=RING_HEADER_BYTES, pid=pid, role=role, ring_kind=2,
+    header.update(magic=RING_MAGIC, version=version, header_bytes=RING_HEADER_BYTES, pid=pid, role=role, ring_kind=kind,
                   clock_domain=1, start_uptime_ns=start_ns, boot_session_uuid=bytes(16), build_uuid=bytes(16),
                   build_version=b"self-test", chunk_bytes=RING_CHUNK_BYTES, chunk_count=chunk_count,
                   chunks_offset=chunks_at, chunk_cursor=cursor, name_table_offset=names_at, name_capacity=64,
@@ -5652,6 +5792,27 @@ def check_ring_parse():
     assert counter["args"] == {"value": -5}, counter
     assert sorted(set(lane_names.values())) == ["ring async daemon.request", "ring async daemon.request 2",
                                                 "ring main"], lane_names
+    # The same process's black box: its thread 0 is another OS thread than the recording's thread 0, and its async
+    # slice overlaps the recording's two. Each ring's threads get their own tracks, and one set of lanes takes the
+    # async slices of both rings, so no track holds two slices that overlap without nesting.
+    box = decode_ring(bytes(ring_fixture(names=names, threads=((201, 0x19, "worker", 0),), kind=1, records=[
+        (0, 2050, 1, "b", 1, 0, 0xB1), (0, 2150, 2, "B", 0, 0, 0), (0, 2450, 2, "E", 0, 0, 0),
+        (0, 2550, 1, "e", 1, 0, 0xB1)])[0]), "box")
+    lane_names = {}
+    events, unpaired = ring_events([ring, box], SyntheticTracks(set()), lane_names)
+    assert {"ring main (recording)", "ring worker (blackbox)"} <= set(lane_names.values()), lane_names
+    by_track = collections.defaultdict(list)
+    for e in events:
+        if e["ph"] == "X":
+            by_track[e["tid"]].append((e["ts"], e["ts"] + e["dur"], e["name"]))
+    assert sum(1 for spans in by_track.values() if any(name == "task.run" for _, _, name in spans)) == 2, by_track
+    for spans in by_track.values():
+        open_ends = []
+        for start, end, _ in sorted(spans, key=lambda s: (s[0], -s[1])):
+            open_ends = [e for e in open_ends if e > start]
+            assert not open_ends or end <= open_ends[-1], ("overlap without nesting", spans)
+            open_ends.append(end)
+    assert unpaired == {"end_without_begin": 1, "begin_without_end": 1}, unpaired
     for broken, why in ((ring_fixture(version=2)[0], "version 2"), (b"NOTARING" + bytes(300), "bad magic"),
                         (ring_fixture()[0][:4096], "truncated")):
         try:
@@ -5663,16 +5824,22 @@ def check_ring_parse():
 
 # The names a press's ring records use (each ring holds its own table; these fixtures give each the same one).
 FLOW_RING_NAMES = ("key.flow", "ghostty.render", "frame.gpu_done", "frame.present_estimate", *ECHO_HANDOFFS,
-                   *(f"key.{hop}" for hop in sorted(LEGACY_FLOW_HOPS)))
+                   *sorted(LEGACY_FLOW_HOPS))
 FLOW_RING_ID = {name: index for index, name in enumerate(FLOW_RING_NAMES, 1)}
-FLOW_APP_PID, FLOW_DAEMON_PID, FLOW_HOST_PID, FLOW_TERMINAL = 10, 20, 30, 0xAA
+FLOW_APP_PID, FLOW_DAEMON_PID, FLOW_HOST_PID = 10, 20, 30
+# A real 16-byte terminal id with a leading zero byte: the JSONL records carry its 32 hex digits, the rings its
+# terminal key (the first 8 bytes, big-endian), whose plain hex would drop the leading zeros.
+FLOW_TERMINAL = "00a1b2c3d4e5f60718293a4b5c6d7e8f"
+FLOW_TERMINAL_KEY = int(FLOW_TERMINAL[:16], 16)
 FLOW_THREADS = ((100, 0x21, "main", 0), (101, 0x2F, "renderer", 0), (102, 0x19, "io", 0))
 
 
 def flow_press_records(flow, base, gpu_done_at=None, legacy=("host.pty.write",), skip=()):
     """{pid: [record]} of one terminal key press written to the app's, daemon's and host's rings, every hop with its
-    flow id, base (ns) the press's dispatch. The hops in `skip` are left out; the `legacy` hops are written as an old
-    recording's CMUX_TRACE_FLOWS records instead (flow 0 when the hop has none: returned under the key "jsonl")."""
+    flow id, base (ns) the press's dispatch. A daemon, host or holder hop is written as cmux-flow-trace writes it: an
+    `f` record then, 0.3 us later, an `s` record with the flow id. The hops in `skip` are left out; the `legacy` hops
+    are written as an old recording's CMUX_TRACE_FLOWS records instead (flow 0 when the hop has none: returned under
+    the key "jsonl")."""
     out = collections.defaultdict(list)
     at = lambda us: base + int(us * 1000)
     key = lambda pid, thread, us, name, phase, arg0, arg1, flags=0: out[pid].append(
@@ -5680,10 +5847,16 @@ def flow_press_records(flow, base, gpu_done_at=None, legacy=("host.pty.write",),
     codes = {hop: code for code, hop in KEY_FLOW_CODES.items()}
     app = lambda us, hop, thread=0: key(FLOW_APP_PID, thread, us, "key.flow", "s" if hop == "app.key.dispatch" else "f",
                                         codes[hop] | (50 << 8), flow)
-    echo = lambda pid, us, short, phase, thread=0: key(pid, thread, us, f"key.echo.{short}", phase, FLOW_TERMINAL, flow)
-    hop = lambda pid, us, name: out["jsonl"].append(
-        {"hop": name, "flow": flow if name.startswith("daemon.send") else 0, "terminal": f"{FLOW_TERMINAL:x}",
-         "pid": pid, "tid": 7, "t_ns": at(us)}) if name in legacy else key(pid, 0, us, f"key.{name}", "s", FLOW_TERMINAL, flow)
+    echo = lambda pid, us, short, phase, thread=0: key(pid, thread, us, f"key.echo.{short}", phase, FLOW_TERMINAL_KEY,
+                                                       flow)
+
+    def hop(pid, us, name):
+        if name in legacy:
+            out["jsonl"].append({"hop": name, "flow": flow if name.startswith("daemon.send") else 0,
+                                 "terminal": FLOW_TERMINAL, "pid": pid, "tid": 7, "t_ns": at(us)})
+            return
+        key(pid, 0, us, name, "f", FLOW_TERMINAL_KEY, flow)
+        key(pid, 0, us + 0.3, name, "s", FLOW_TERMINAL_KEY, flow)
     for us, name in ((0, "app.key.dispatch"), (1, "app.key.terminal"), (2, "app.io_write"), (3, "app.send")):
         app(us, name)
     hop(FLOW_DAEMON_PID, 10, "daemon.send.write")
@@ -5716,33 +5889,36 @@ def flow_press_records(flow, base, gpu_done_at=None, legacy=("host.pty.write",),
     key(FLOW_APP_PID, 1, 65.5, "ghostty.render", "B", 0x5, 0)
     key(FLOW_APP_PID, 1, 70, "ghostty.render", "E", 0x5, 0)
     echo(FLOW_APP_PID, 70.5, "gpu_done", "s", 1)
-    key(FLOW_APP_PID, 1, 75 if gpu_done_at is None else gpu_done_at, "frame.gpu_done", "I", 0x5, 0)
-    echo(FLOW_APP_PID, 76, "gpu_done", "f", 0)
-    echo(FLOW_APP_PID, 77, "contents", "s", 0)
-    app(78, "app.frame.contents")
-    echo(FLOW_APP_PID, 79, "contents", "f", 0)
-    app(80, "app.frame.commit")
-    key(FLOW_APP_PID, 0, 90, "frame.present_estimate", "I", flow, 0, RING_FLAG_ESTIMATED)
+    done = 75 if gpu_done_at is None else gpu_done_at  # what follows the GPU's completion waits for it
+    key(FLOW_APP_PID, 1, done, "frame.gpu_done", "I", 0x5, 0)
+    echo(FLOW_APP_PID, done + 1, "gpu_done", "f", 0)
+    echo(FLOW_APP_PID, done + 2, "contents", "s", 0)
+    app(done + 3, "app.frame.contents")
+    echo(FLOW_APP_PID, done + 4, "contents", "f", 0)
+    app(done + 5, "app.frame.commit")
+    key(FLOW_APP_PID, 0, done + 15, "frame.present_estimate", "I", flow, 0, RING_FLAG_ESTIMATED)
     for pid in list(out):
         if pid != "jsonl":
             out[pid] = [r for r in out[pid] if FLOW_RING_NAMES[r[2] - 1] not in skip]
     return out
 
 
-def flow_recording(out, presses, extra=()):
-    """Writes the presses' rings into OUT/rings (one per process, each thread's records in time order) and their
-    legacy records into OUT/flows/flows-1.jsonl; returns the decoded rings."""
+def flow_recording(out, presses, extra=(), folders=None):
+    """Writes the presses' rings (one per process, each thread's records in time order) into OUT/rings, or the
+    folder under OUT that `folders` gives the process, and their legacy records into OUT/flows/flows-1.jsonl;
+    returns the decoded rings."""
     by_pid = collections.defaultdict(list)
     for press in presses:
         for pid, rows in press.items():
             by_pid[pid] += rows
-    os.makedirs(os.path.join(out, RELEASE_DIR), exist_ok=True)
     roles = {FLOW_APP_PID: 1, FLOW_DAEMON_PID: 2, FLOW_HOST_PID: 4}
     for pid, role in roles.items():
         rows = sorted(by_pid.get(pid, []) + [r for p, r in extra if p == pid], key=lambda r: r[1])
         data, _ = ring_fixture(pid=pid, role=role, names=FLOW_RING_NAMES, threads=FLOW_THREADS, records=rows,
                                chunk_count=16, start_ns=1)
-        with open(os.path.join(out, RELEASE_DIR, f"{RING_ROLES[role]}-{pid}.recording.cmxtrace"), "wb") as f:
+        folder = os.path.join(out, (folders or {}).get(pid, RELEASE_DIR))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, f"{RING_ROLES[role]}-{pid}.recording.cmxtrace"), "wb") as f:
             f.write(data)
     if by_pid.get("jsonl"):
         os.makedirs(os.path.join(out, "flows"), exist_ok=True)
@@ -5780,30 +5956,45 @@ def check_exact_flows():
         at = lambda flow, hop: next(h["at_us"] for h in by[flow]["hops"] if h["hop"] == hop)
         # p2's frame began drawing at 1095.5 us; p1's frame completed at 1097 us, p2's at 1105 us.
         assert (at(p1, "frame.gpu_done"), at(p2, "frame.gpu_done")) == (1097.0, 1105.0)
+        # A cmux-flow-trace hop's time is its `f` record's, not the `s` 0.3 us after it.
         assert at(p1, "host.pty.read") == 1040.0 and at(p2, "host.pty.read") == 1070.0
-        assert at(p1, "app.key.dispatch") == 1000.0 and at(p1, "frame.present_estimate") == 1090.0
+        assert at(p1, "host.pty.write") == 1015.0 and at(p1, "daemon.output.attach") == 1052.0
+        assert at(p1, "app.key.dispatch") == 1000.0 and at(p1, "frame.present_estimate") == 1112.0
+        assert at(p2, "frame.present_estimate") == 1120.0
+        assert by[p1]["terminal"] == FLOW_TERMINAL[:16], by[p1]["terminal"]
+        # FLOW_HOPS is the writers' causal order: no press has a hop before the one FLOW_HOPS puts ahead of it.
+        for flow in (p1, p2):
+            backwards = [(hop, step) for hop, step in flow_hop_steps(by[flow]) if step < 0]
+            assert not backwards, (hex(flow), backwards)
         summary = flow_summary(list(by.values()), {})
         assert summary["complete"] == summary["echo_complete"] == 2 and summary["windowed_presses"] == 0, summary
         assert summary["hop_ms"]["frame.present_estimate"]["n"] == 2, summary["hop_ms"].keys()
 
 
 def check_mixed_flows():
-    """Case 'mixed': a recording with rings and an old process's CMUX_TRACE_FLOWS file. The PTY write the host
-    wrote only to the file (flow 0) is placed by its window; a stage with an exact ring record keeps it even when the
-    file has another candidate in the window; a ring record with flow 0 is never placed by a window; and the whole
-    recording builds into one trace with the rings' tracks and a summary that says what it read."""
+    """Case 'mixed': a recording with rings and an old process's CMUX_TRACE_FLOWS file, as the DEBUG record path
+    leaves it: the new daemon's ring in OUT/flows next to an old host's flows-<pid>.jsonl. The file's terminal is the
+    full 32-digit id, the rings' its terminal key (with a leading zero byte). The PTY write the host wrote only to
+    the file (flow 0) is placed by its window on the terminal of the press's ring daemon.send.write; a stage with an
+    exact ring record keeps it even when the file has another candidate in the window; a ring record with flow 0 is
+    never placed by a window; and the whole recording builds into one trace with the rings' tracks and a summary that
+    says what it read, each ring once though a copy of one is in OUT too."""
     p1 = (10 << 32) | 1
     with tempfile.TemporaryDirectory() as out:
-        press = flow_press_records(p1, 1_000_000, legacy=("daemon.send.write", "host.pty.write"))
+        press = flow_press_records(p1, 1_000_000, legacy=("host.pty.write",))
         # The file's own read of the echo, 2 us after the ring's: the exact one wins.
-        press["jsonl"].append({"hop": "host.pty.read", "flow": 0, "terminal": f"{FLOW_TERMINAL:x}", "pid": 30,
+        press["jsonl"].append({"hop": "host.pty.read", "flow": 0, "terminal": FLOW_TERMINAL, "pid": 30,
                                "tid": 7, "t_ns": 1_042_000})
-        # A ring PTY write with no flow (a host without WRITE_FLOW): not a window candidate.
-        extra = [(FLOW_HOST_PID, (0, 1_016_000, FLOW_RING_ID["key.host.pty.write"], "s", 0, FLOW_TERMINAL, 0))]
-        rings = flow_recording(out, [press], extra)
+        # A ring PTY write with no flow (a host without WRITE_FLOW, cmux-flow-trace's `I`): not a window candidate.
+        extra = [(FLOW_HOST_PID, (0, 1_016_000, FLOW_RING_ID["host.pty.write"], "I", 0, FLOW_TERMINAL_KEY, 0))]
+        rings = flow_recording(out, [press], extra, folders={FLOW_DAEMON_PID: "flows"})
+        assert [r["info"]["role"] for r in rings] == ["app", "terminal-host", "daemon"], [r["info"] for r in rings]
+        assert os.path.dirname(rings[2]["info"]["path"]) == os.path.join(out, "flows"), rings[2]["info"]
+        shutil.copy(rings[1]["info"]["path"], os.path.join(out, "host-copy.cmxtrace"))
         by = flows_of(out, rings)
         entry = by[p1]
         hops = {h["hop"]: h["at_us"] for h in entry["hops"]}
+        assert entry["terminal"] == FLOW_TERMINAL[:16], entry["terminal"]
         assert entry["complete"] and entry["echo_complete"], entry["missing"]
         assert entry["windowed"] == ["host.pty.write"] and hops["host.pty.write"] == 1015.0, (entry["windowed"], hops)
         assert hops["host.pty.read"] == 1040.0 and hops["daemon.send.write"] == 1010.0, hops
@@ -5825,9 +6016,11 @@ def check_mixed_flows():
 def check_chromium_join():
     """Case 'Chromium join': Chromium's key EventLatency slices join cmux's keys. One begins at a keyPress slot's
     NSEvent timestamp (gen_ns, to the microsecond Chromium's JSON keeps): exact, and the slot's key.flow press names
-    the flow. One begins near a press that has no slot: joined by its dispatch hop minus its age. A mouse
-    EventLatency and a key one 2 us off a slot's timestamp do not join. The joined begins carry the flow, and the
-    summary counts them."""
+    the flow. A second KEY_PRESSED slice at the same kGenerated (the Char of that RawKeyDown) joins the same key and,
+    as the one that ends last, is the key's primary slice, the one its Chromium total measures, in either JSON order.
+    One begins near a press that has no slot: joined by its dispatch hop minus its age. A mouse EventLatency and a
+    key one 2 us off a slot's timestamp do not join. The joined begins carry the flow, and the summary counts them
+    per type and per key."""
     f1, f3 = (10 << 32) | 1, (10 << 32) | 3
     slot = lambda gen, presented: {"pid": 10, "generated_ns": gen, "kind": "keyPress", "target": "chromiumPage",
                                    "entrypoint": "person", "source": "pageEstimated", "update": True, "vrr": False,
@@ -5847,19 +6040,33 @@ def check_chromium_join():
               {"ph": "X", "pid": 42, "tid": 1, "name": "EventLatency", "ts": 6_000_002.0, "dur": 9000.0,
                "args": {"event_latency": {"event_type": "KEY_PRESSED"}}},
               {"ph": "B", "pid": 42, "tid": 2, "name": "EventLatency", "ts": 7_000_050.0, "args": {"event": "KeyPressed"}},
-              {"ph": "E", "pid": 42, "tid": 2, "name": "EventLatency", "ts": 7_011_050.0}]
+              {"ph": "E", "pid": 42, "tid": 2, "name": "EventLatency", "ts": 7_011_050.0},
+              {"ph": "X", "pid": 42, "tid": 1, "name": "EventLatency", "ts": 5_000_000.0, "dur": 15000.0,
+               "args": {"event_latency": {"event_type": "KEY_PRESSED"}}}]
     latencies = chromium_key_latencies(chrome)
-    assert [(l["ts_us"], l["type"]) for l in latencies] == [(5_000_000.0, "KEY_PRESSED"), (6_000_002.0, "KEY_PRESSED"),
-                                                             (7_000_050.0, "KeyPressed")], latencies
+    assert [(l["ts_us"], l["type"]) for l in latencies] == [(5_000_000.0, "KEY_PRESSED"), (5_000_000.0, "KEY_PRESSED"),
+                                                             (6_000_002.0, "KEY_PRESSED"), (7_000_050.0, "KeyPressed")], \
+        latencies
+    reverse = chromium_key_links(app_events, slots, latencies[::-1])
+    assert [(l["latency"]["end_us"], l["primary"]) for l in reverse] == [(5_015_000.0, True), (5_012_000.0, False),
+                                                                          (7_011_050.0, True)], reverse
     links = chromium_key_links(app_events, slots, latencies)
-    got = [(l["flow"], l["exact"], l["slot"], l["latency"]["ts_us"]) for l in links]
-    assert got == [(f1, True, 0, 5_000_000.0), (f3, False, None, 7_000_050.0)], got
-    assert chrome[0]["args"]["cmux"] == {"flow": f"0x{f1:x}", "join": "exact", "generated_us": 5_000_000.123}, chrome[0]
+    got = [(l["flow"], l["exact"], l["slot"], l["latency"]["end_us"], l["primary"]) for l in links]
+    assert got == [(f1, True, 0, 5_015_000.0, True), (f1, True, 0, 5_012_000.0, False),
+                   (f3, False, None, 7_011_050.0, True)], got
+    joined = {"flow": f"0x{f1:x}", "join": "exact", "generated_us": 5_000_000.123}
+    assert chrome[0]["args"]["cmux"] == chrome[7]["args"]["cmux"] == joined, (chrome[0], chrome[7])
     assert "cmux" not in chrome[4]["args"], chrome[4]
     summary = chromium_join_summary(latencies, links, slots)
-    assert (summary["key_latencies"], summary["linked"], summary["exact"], summary["with_flow"]) == (3, 2, 1, 2), summary
-    assert summary["chromium_total_ms"]["max"] == 12.0 and summary["cmux_total_ms"]["n"] == 1, summary
-    assert "2 of 3 joined to a cmux key (1 on the NSEvent timestamp" in summary_text({"chromium_event_latency": summary})
+    assert (summary["key_latencies"], summary["linked"], summary["keys"], summary["exact"], summary["with_flow"]) == \
+        (4, 3, 2, 1, 2), summary
+    assert summary["by_type"] == {"KEY_PRESSED": {"latencies": 3, "linked": 2},
+                                  "KeyPressed": {"latencies": 1, "linked": 1}}, summary["by_type"]
+    assert summary["chromium_total_ms"]["max"] == 15.0 and summary["chromium_total_ms"]["n"] == 2, summary
+    assert summary["cmux_total_ms"]["n"] == 1, summary
+    text = summary_text({"chromium_event_latency": summary})
+    assert "3 of 4 joined to a cmux key (KEY_PRESSED 2/3, KeyPressed 1/1); 2 keys, 1 on the NSEvent timestamp" in text, \
+        text
 
 
 def check_key_flow_codes_match_the_swift(swift_root=INPUT_SWIFT, catalog=RUST_CATALOG):
@@ -5877,31 +6084,87 @@ def check_key_flow_codes_match_the_swift(swift_root=INPUT_SWIFT, catalog=RUST_CA
     assert wanted <= names, sorted(wanted - names)
 
 
-def check_release_trace():
-    """`record --release`: the CLI call (`cmux trace record` with the window's length, OUT/rings, key flows and
-    Chromium), its stop waiting for the CLI's window and returning its exit code and files, and the parser refusing
-    --release where trace.start cannot run (wrap mode, a launch scenario) or past trace.start's cap."""
+def check_flow_hop_names_match_the_rust(crates=RUST_CRATES):
+    """The hop names trace.py reads from the daemon's, hosts' and holder's rings and files against their writer:
+    every name a `cmux_flow_trace::hop` / `hop_id` call site passes is in LEGACY_FLOW_HOPS, and once cmux-flow-trace
+    interns them in the ring (p09-observability 011), its `hop_name` table is exactly LEGACY_FLOW_HOPS."""
+    calls = set()
+    for crate in sorted(os.listdir(crates)):
+        for root, _, files in os.walk(os.path.join(crates, crate, "src")):
+            for name in files:
+                if name.endswith(".rs"):
+                    with open(os.path.join(root, name), errors="replace") as f:
+                        calls |= set(re.findall(r'cmux_flow_trace::hop(?:_id)?\(\s*"([^"]+)"', f.read()))
+    assert calls and calls <= LEGACY_FLOW_HOPS, sorted(calls - LEGACY_FLOW_HOPS)
+    with open(os.path.join(crates, "cmux-flow-trace", "src", "lib.rs")) as f:
+        table = set(re.findall(r'InternedName::new\(\s*"([^"]+)"', f.read())) - {"flow.hop.unknown"}
+    if not table:
+        return "cmux-flow-trace interns no hop names in this tree (p09-observability-011): call sites compared only"
+    assert table == LEGACY_FLOW_HOPS, (sorted(table - LEGACY_FLOW_HOPS), sorted(LEGACY_FLOW_HOPS - table))
+    return None
+
+
+def fake_trace_cli(folder, script):
+    """A `cmux` stand-in for `cmux trace record`: /bin/sh running `script` with $out the --out folder."""
+    cli = os.path.join(folder, "cmux")
+    with open(cli, "w") as f:
+        f.write('#!/bin/sh\nwhile [ "$1" != "--out" ]; do shift; done\nout="$2"\n' + script)
+    os.chmod(cli, 0o755)
+    return cli
+
+
+def check_release_trace(cli_source=RUST_CLI_TRACE):
+    """`record --release`: the CLI call (`cmux trace record` with the window's length in whole seconds, OUT/rings,
+    key flows and Chromium); its start waiting for the CLI's note that it records and counting the window from
+    there, and returning False for a CLI that says nothing in time or ends saying nothing; its stop waiting for the
+    CLI's window and returning its exit code, files and log; the Recording's stop path reporting a failed CLI; and
+    the parser refusing --release where trace.start cannot run (wrap mode, a launch scenario) or past the CLI's
+    --seconds limit, which is the CLI's own (cli/trace.rs) when this tree has it."""
     with tempfile.TemporaryDirectory() as out:
-        cli = os.path.join(out, "cmux")
-        with open(cli, "w") as f:
-            f.write('#!/bin/sh\nwhile [ "$1" != "--out" ]; do shift; done\n: > "$2/app-1.recording.cmxtrace"\n'
-                    'echo recorded\n')
-        os.chmod(cli, 0o755)
+        cli = fake_trace_cli(out, 'echo "Recording for 22 s" >&2\nsleep 0.5\n: > "$out/app-1.recording.cmxtrace"\n'
+                                  'echo recorded\n')
         release = ReleaseTrace(cli, "/tmp/s.sock", out, 22, chromium=True)
         assert release.command() == [cli, "--app-socket", "/tmp/s.sock", "trace", "record", "--seconds", "22", "--out",
                                      os.path.join(out, RELEASE_DIR), "--keys", "--chromium"], release.command()
         assert "--chromium" not in ReleaseTrace(cli, "s", out, 1, chromium=False).command()
-        release.start()
-        assert RELEASE_START_S + 21 < release.remaining_s() <= RELEASE_START_S + 22
+        # `record --seconds 7.5`: the window and its 2 s of settle, in the whole seconds the CLI takes.
+        assert ReleaseTrace(cli, "s", out, 7.5 + RELEASE_WINDOW_SETTLE_S, chromium=False).command()[6] == "10"
+        assert release.start(start_s=10)
+        assert 21 < release.remaining_s() <= 22, release.remaining_s()
         done = release.stop(collect_s=30)
         assert done["exit"] == 0 and done["files"] == ["app-1.recording.cmxtrace"], done
-        assert "recorded" in done["log_tail"], done
+        assert "Recording for 22 s" in done["log_tail"] and "recorded" in done["log_tail"], done
+    with tempfile.TemporaryDirectory() as out:
+        silent = ReleaseTrace(fake_trace_cli(out, "sleep 30\n"), "s", out, 3, chromium=False)
+        began = time.monotonic()
+        assert not silent.start(start_s=0.3) and time.monotonic() - began < 5
+        silent.kill()
+        ended = ReleaseTrace(fake_trace_cli(out, "exit 2\n"), "s", out, 3, chromium=False)
+        assert not ended.start(start_s=10)
+        assert ended.stop(collect_s=10)["exit"] == 2
+    with tempfile.TemporaryDirectory() as out:
+        rec = quiet_recording(out, release=True)
+        rec.release = ReleaseTrace(fake_trace_cli(out, 'echo "trace.start refused: already recording" >&2\nexit 3\n'),
+                                   "s", out, 3, chromium=False)
+        rec.release.start(start_s=10)
+        rec.stop()
+        assert rec.meta["sources"]["release_trace"]["exit"] == 3, rec.meta["sources"]
+        assert any("exited 3" in w and "already recording" in w for w in rec.meta["warnings"]), rec.meta["warnings"]
+    if os.path.exists(cli_source):
+        with open(cli_source) as f:
+            source = f.read()
+        constants = {name: int(value) for name, value in re.findall(r"const (\w+): u32 = (\d+);", source)}
+        assert constants["MAX_SECONDS_CAP"] - constants["STOP_SLACK_SECONDS"] == RELEASE_RECORD_MAX_S, constants
+    largest = RELEASE_RECORD_MAX_S - RELEASE_WINDOW_SETTLE_S
     for argv, why in ((["--bundle", "b", "--release", "--", "true"], "stress-storm or light-storm"),
                       (["--app", "a", "--release", "--scenario", "launch-warm"], "stress-storm or light-storm"),
-                      (["--app", "a", "--release", "--seconds", "599"], "at most 598")):
+                      (["--app", "a", "--release", "--seconds", f"{largest + 0.5}"], f"at most {largest} s")):
         done = subprocess.run([sys.executable, os.path.abspath(__file__), "record", "--out", "/nonexistent", *argv],
                               capture_output=True, text=True, timeout=60)
         assert done.returncode == 2 and why in done.stderr, (argv, done.returncode, done.stderr[-300:])
+    if not os.path.exists(cli_source):
+        return f"no {os.path.relpath(cli_source, REPO)} in this tree (p09-observability-021): its --seconds limit not read"
+    return None
 
 
 FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
@@ -5974,7 +6237,7 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_flow_gaps_warn, check_focus_quiet_terminal, check_launch_trace, check_input_latency_slices,
               check_input_tables_match_the_swift, check_ring_reads_the_golden_file, check_ring_parse,
               check_exact_flows, check_mixed_flows, check_chromium_join, check_key_flow_codes_match_the_swift,
-              check_release_trace]
+              check_flow_hop_names_match_the_rust, check_release_trace]
 
 
 def self_test():
@@ -6040,9 +6303,9 @@ def main():
             parser.error("wrap mode takes --bundle, not --app (the COMMAND launches the app)")
         if opts.release and (opts.command or opts.scenario in LAUNCH_SCENARIOS):
             parser.error("--release records a stress-storm or light-storm window (trace.start needs the running app)")
-        if opts.release and opts.seconds + RELEASE_WINDOW_SETTLE_S > TRACE_START_CAP_S:
-            parser.error(f"--release records at most {TRACE_START_CAP_S - RELEASE_WINDOW_SETTLE_S:g} s "
-                         f"(trace.start's cap is {TRACE_START_CAP_S} s)")
+        if opts.release and math.ceil(opts.seconds + RELEASE_WINDOW_SETTLE_S) > RELEASE_RECORD_MAX_S:
+            parser.error(f"--release records at most {RELEASE_RECORD_MAX_S - RELEASE_WINDOW_SETTLE_S} s "
+                         f"(`cmux trace record --seconds` takes at most {RELEASE_RECORD_MAX_S})")
         return record(opts)
     if opts.verb == "export":
         export_xctrace(opts.dir)
