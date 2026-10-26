@@ -105,7 +105,11 @@ function reported(sessionId: string, currentModeId: string): Summary {
   };
 }
 
-async function render(summary: Summary, onMode: (modeId: string) => void | Promise<unknown>) {
+async function render(
+  summary: Summary,
+  onMode: (modeId: string) => void | Promise<unknown>,
+  where: Record<string, unknown> = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -122,6 +126,7 @@ async function render(summary: Summary, onMode: (modeId: string) => void | Promi
     canLoadOlder: false,
     catalog: [],
     summary,
+    ...where,
   } as unknown as Snapshot;
   function Host() {
     const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" });
@@ -321,10 +326,10 @@ test("a refusal other than method-not-found keeps the managed mark", async () =>
 test("a full-access pick the agent refused says managed once full access is managed off", async () => {
   const startMode = await import("../src/agent-session/acpmux/startMode");
   await act(async () => startMode.setStartModeSource(async () => undefined));
-  const summary = reported("s1", "default")!;
-  const modes = summary.modes as { availableModes: { id: string; name: string }[] };
-  modes.availableModes.push({ id: "acceptEdits", name: "Accept edits" });
-  await render(summary, () => Promise.reject(new Error("bypassPermissions is disabled by managed settings")));
+  // The two-row menu: refusing Bypass leaves nothing else to pick, but managed keeps its row.
+  await render(reported("s1", "default"), () =>
+    Promise.reject(new Error("bypassPermissions is disabled by managed settings")),
+  );
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Mode"));
   await act(async () => item("Bypass permissions")!.click());
@@ -333,6 +338,25 @@ test("a full-access pick the agent refused says managed once full access is mana
   await act(async () => void openPicker("Mode"));
   expect(disabled("Bypass permissions")).toBe(true);
   expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
+test("the managed mark is this Mac's: a peer's or another host's chat keeps its full access", async () => {
+  // Review 37: the mark comes from this Mac's daemon, so a chat another machine runs (a peer, a
+  // cloud or remote host) shown in the same pane is not managed by it.
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  for (const [where, summary] of [
+    [{ origin: "peer" }, reported("s1", "default")],
+    [{}, { ...reported("s2", "default"), host: "studio" }],
+    [{}, { ...reported("s3", "default"), hostKind: "cloud" }],
+  ] as const) {
+    await render(summary, () => undefined, where);
+    await act(async () => void openPicker("Mode"));
+    expect(disabled("Bypass permissions")).toBe(false);
+    expect(caption("Bypass permissions")).toBe("Accepts all permissions");
+    act(() => root?.unmount());
+    root = undefined;
+  }
 });
 
 test("a new connection forgets the managed mark, and a late answer from the old one changes nothing", async () => {
