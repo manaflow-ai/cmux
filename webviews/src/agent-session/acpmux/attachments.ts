@@ -165,8 +165,9 @@ type InlineRun = { type: "text"; text: string } | { type: "token"; id: string };
 /// wrote between two U+FFFC, and their words are never taken for one.
 function inlineRuns(text: string, known: InlineKnownIds, dropped?: InlineKnownIds): InlineRun[] {
   if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : [];
-  const spans = inlineTokenSpans(text, (id, placed) => known(id) && !placed.has(id));
-  const composers = spans.some((span) => span.known);
+  // Removed IDs still resolve shared delimiters; they never become attachment placements.
+  const spans = inlineTokenSpans(text, (id, placed) => (known(id) || dropped?.(id) === true) && !placed.has(id));
+  const composers = spans.some((span) => known(span.id));
   const runs: InlineRun[] = [];
   let words = "";
   let start = 0;
@@ -174,7 +175,7 @@ function inlineRuns(text: string, known: InlineKnownIds, dropped?: InlineKnownId
     if (!span.known && !composers && !dropped?.(span.id)) continue;
     words += text.slice(start, span.from);
     start = span.to;
-    if (!span.place) continue;
+    if (!span.place || !known(span.id)) continue;
     if (words) runs.push({ type: "text", text: words });
     words = "";
     runs.push({ type: "token", id: span.id });
