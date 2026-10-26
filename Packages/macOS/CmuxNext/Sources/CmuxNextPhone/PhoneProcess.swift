@@ -50,7 +50,10 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         guard fd >= 0 else { return }
         _ = fcntl(fd, F_SETNOSIGPIPE, 1)
         let channel = DispatchIO(type: .stream, fileDescriptor: fd, queue: queue) { _ in close(fd) }
-        let data = bytes.withUnsafeBytes { DispatchData(bytes: $0) }
+        let data = bytes.withUnsafeBytes { raw in
+            // SAFETY: DispatchData(bytes:) copies raw's bytes during the call, while `bytes` keeps them alive.
+            unsafe DispatchData(bytes: raw)
+        }
         channel.write(offset: 0, data: data, queue: queue) { done, _, _ in
             if done { channel.close() }
         }
