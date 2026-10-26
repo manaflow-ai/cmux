@@ -41,6 +41,11 @@ mod event_bus;
 mod event_cause;
 #[cfg(unix)]
 pub mod fs_ops;
+/// Decoder entry points of the cmux-tui/fuzz targets; only the fuzz
+/// workspace builds them.
+#[cfg(all(feature = "fuzz", any(unix, windows)))]
+#[doc(hidden)]
+pub mod fuzz_entry;
 mod git_ops;
 mod history_ops;
 pub mod history_search;

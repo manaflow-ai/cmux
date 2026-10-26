@@ -223,7 +223,7 @@ mod cmd_workspaces;
 mod column_move;
 mod command_history;
 mod page_credential;
-mod page_files;
+pub(crate) mod page_files;
 mod page_listener;
 pub use page_files::page_bundle_dir;
 pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
