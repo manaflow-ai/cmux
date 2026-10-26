@@ -63,6 +63,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
+    /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
+    /// age in us in the top 24; end arg0 how it ended.
     case keyToFrame = 6
     /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
     /// while `CMUX_NEXT_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
@@ -175,7 +177,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
-    /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
+    /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`. Ring: I; arg0 the owner id in
+    /// bits 0-31, the class code in bits 32-39 and the budget in us in the top 24; arg1 the task's own time in ns.
     case stallOverBudget = 17
     /// Reserved (task 035, PL-ghostty). Creating a terminal surface on main (`TerminalTimings`). Ring: B/E.
     case stallCreateSurface = 41
