@@ -83,7 +83,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, copy, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -112,6 +112,8 @@ def load_by_path(name, path):
 # process's search path, not a switch.
 bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
+# The cmux.json a BenchApp writes when its caller passes none: an opaque window, so frames cost the same on any desktop.
+DEFAULT_CONFIG = {"appearance": {"backgroundOpacity": 1}}
 # The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
 # stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
 # with these opt-ins; hang reports also need ``seed_hang_report_consent`` and the setting on), and
@@ -1091,7 +1093,7 @@ class BenchApp:
         os.makedirs(self.out, exist_ok=True)
         self.scratch = tempfile.mkdtemp(prefix=f"bench-{self.tag}-")
         self.extra_env = dict(env or {})
-        self.config = {"appearance": {"backgroundOpacity": 1}} if config is None else config
+        self.config = copy.deepcopy(DEFAULT_CONFIG) if config is None else config
         self.window, self.screen = window, screen
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None

@@ -146,6 +146,7 @@ struct ForkApi {
   int (*browser_exit_keyboard_lock)(int) = nullptr;
   int (*browser_send_locked_mouse_move)(int, double, double, int) = nullptr;
   int (*browser_set_page_display)(int, uint32_t, double, double) = nullptr;
+  int (*browser_set_page_visibility)(int, int) = nullptr;  // shim_browser.mm
   char* (*tab_entry_page_state)(int, int) = nullptr;
   int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
   int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;

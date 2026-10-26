@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -101,6 +102,24 @@ import Testing
         #expect(!window.makeFirstResponder(view))
         #expect(changes.isEmpty)
     }
+
+    #if DEBUG
+    /// The pane's page view asks its pane which page shows (p01-process-230): no macOS caret accessory while the
+    /// shown tab is a cmux page (``CEFTab/pageThemeSurface``), the system's placement for a web page.
+    @Test func hostModePageViewHidesTheCaretAccessoryOnACmuxPage() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        let page = try #require(host.hostedPageView)
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .unspecified)
+
+        tab.pageThemeSurface = .internalPage
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .invisible)
+
+        tab.pageThemeSurface = nil
+        #expect(try ChromiumHostPasswordInputTests.accessoryPlacement(of: page) == .unspecified)
+    }
+    #endif
 
     // MARK: Fixtures
 

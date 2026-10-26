@@ -53,7 +53,9 @@ nonisolated extension CEFShimLibrary {
             return ChromiumHostAccessibilityToken(length: length, buffer: buffer)
         }
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
+        browserSetPageVisibility = try r("cmux_shim_browser_set_page_visibility")
         tabSetVisibility = r.optional("cmux_shim_tab_set_visibility")
+        browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
