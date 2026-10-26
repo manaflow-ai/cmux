@@ -623,8 +623,11 @@ void HostContext::InstallHostPolicies() {
 }
 
 // The host's own policies stay in place whatever cmux installs: the shim's
-// embedder-active rule decides focus and the host decides windows (above);
-// keys go on to Chromium until cmux routes them first (tasks 030 and 033).
+// embedder-active rule decides focus and the host decides windows (above).
+// cmux routes keys first in its own process: with no unhandled-key handler,
+// a chord the page leaves unhandled goes back as KEY_UNHANDLED with its
+// frame's input seq (SendHostKeyEvent and OnKeyEvent in shim_client.mm,
+// task 030); DevTools keys follow in task 033.
 void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool) {
   ctx.InstallHostPolicies();
 }
