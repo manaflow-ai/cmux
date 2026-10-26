@@ -88,7 +88,7 @@ export function PullRequestDock({
   const { pullRequest: live } = useHeaderState();
   // Same options and membership selector as Session Info. Retain the parse cache across
   // streaming chunks with unchanged PR findings; a new verified mention still updates the count.
-  const parsed = useRef<{ key: string; repository?: string; prs: SummaryPullRequest[] }>(undefined);
+  const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
   const key = transcriptPullRequestKey(rows, true);
   if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
     parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: true }) };

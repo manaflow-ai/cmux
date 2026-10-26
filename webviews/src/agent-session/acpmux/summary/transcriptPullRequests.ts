@@ -202,21 +202,36 @@ function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
   return findings;
 }
 
-// Cache each row's semantic fingerprint too. A streaming reply with unchanged PR references
-// must not invalidate the dock's transcript aggregation just because its row version changed.
+// Live snapshots carry a producer-maintained PR activity revision. Reading it is O(1):
+// deriving a fingerprint by walking the transcript in render would cost O(rows) per token.
+const activityVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
+export const markPullRequestActivityVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
+  activityVersions.set(rows, version);
+};
 const fingerprints = new WeakMap<AcpmuxRow, string>();
-export function transcriptPullRequestKey(rows: readonly AcpmuxRow[], replies = false): string {
+
+// The producer asks only about the row it changed. A reply chunk with the same PR references
+// leaves the revision alone; a new mention updates it without scanning historical replies.
+export function pullRequestRowKey(row: AcpmuxRow | undefined, replies = true): string {
+  if (!row) return "";
+  const findings = rowFindings(row, replies);
+  if (findings.length === 0) return "";
+  let fingerprint = fingerprints.get(row);
+  if (fingerprint === undefined) {
+    fingerprint = JSON.stringify(findings);
+    fingerprints.set(row, fingerprint);
+  }
+  return fingerprint;
+}
+
+export function transcriptPullRequestKey(rows: readonly AcpmuxRow[], replies = false): string | symbol {
+  const version = replies ? activityVersions.get(rows) : undefined;
+  if (version !== undefined) return version;
+  // Static/gallery rows have no producer. Their fallback keeps the same parsing semantics.
   return rows
     .flatMap((row, index) => {
-      const findings = rowFindings(row, replies);
-      if (findings.length === 0) return [];
-      let fingerprint = fingerprints.get(row);
-      if (fingerprint === undefined) {
-        fingerprint = JSON.stringify(findings);
-        fingerprints.set(row, fingerprint);
-      }
-      // Keep the position: touched ordering uses the transcript row index.
-      return [`${index}:${fingerprint}`];
+      const fingerprint = pullRequestRowKey(row, replies);
+      return fingerprint ? [`${index}:${fingerprint}`] : [];
     })
     .join("\n");
 }
