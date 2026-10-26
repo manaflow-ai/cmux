@@ -29,6 +29,20 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 /// receive before the finish reads it, and no receive of it starts after.
 static RECEIVES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
+    if !super::transfer::is_plain_id(agent_id) || !super::transfer::is_plain_id(outer_id) {
+        return false;
+    }
+    for candidate in [root.join(outer_id), root.join(format!(".{outer_id}.replacement-backup"))] {
+        let path = candidate.join("session.json");
+        let Ok(raw) = std::fs::read(path) else { continue };
+        let Ok(meta) = serde_json::from_slice::<SessionMeta>(&raw) else { continue };
+        return meta.harness == "cmux-harness"
+            && meta.agent_session_id.as_deref() == Some(agent_id);
+    }
+    false
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
@@ -110,7 +124,10 @@ impl Hub {
             let state = entry.path().with_extension("replacement-state.json");
             let Ok(raw) = std::fs::read(&state) else { continue };
             let Ok(value) = serde_json::from_slice::<Value>(&raw) else { continue };
-            if value.get("id").and_then(Value::as_str) != Some(id) {
+            let owner_agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
+            if value.get("id").and_then(Value::as_str) != Some(id)
+                || !recovery_owner(root, owner_agent, id)
+            {
                 continue;
             }
             let committed = value.get("phase").and_then(Value::as_str) == Some("committed");
@@ -142,8 +159,19 @@ impl Hub {
                 let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
                 let replace_durable =
                     value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
-                if !replace_durable && super::transfer::is_plain_id(outer_id) {
-                    let _ = std::fs::remove_dir_all(root.join(outer_id));
+                let target = root.join(outer_id);
+                let backup = root.join(format!(".{outer_id}.replacement-backup"));
+                if target.join("session.json").exists() || backup.join("session.json").exists() {
+                    if !recovery_owner(
+                        root,
+                        value.get("agentId").and_then(Value::as_str).unwrap_or(""),
+                        outer_id,
+                    ) {
+                        continue;
+                    }
+                    if !replace_durable {
+                        let _ = std::fs::remove_dir_all(target);
+                    }
                 }
                 let _ = std::fs::remove_file(entry.path());
                 continue;
@@ -155,6 +183,16 @@ impl Hub {
             let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
             let replace_durable =
                 value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
+            if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
+                || !recovery_owner(root, agent_id, outer_id)
+            {
+                continue;
+            }
+            if !filename.is_empty()
+                && (Path::new(filename).components().count() != 1 || !filename.ends_with(".jsonl"))
+            {
+                continue;
+            }
             let Some(had_journal) = value.get("hadJournal").and_then(Value::as_bool) else {
                 continue;
             };
@@ -443,6 +481,7 @@ impl Hub {
         } else {
             None
         };
+        let transfer_id = manifest["transferId"].clone();
         let name = text("name").map(str::to_owned);
         let guarded = guard
             .as_ref()
@@ -454,7 +493,7 @@ impl Hub {
             Ok(session) => {
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
-                    let commit = serde_json::to_value(json!({"id": id, "phase": "committed"}))
+                    let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "phase": "committed"}))
                         .map_err(|e| transfer_error("store", format!("encode commit state: {e}")))
                         .and_then(|value| {
                             super::transfer::write_json_atomic(&state, &value)
@@ -466,7 +505,14 @@ impl Hub {
                         return Err(error);
                     }
                 }
+                self.append(
+                    &session,
+                    "mux",
+                    "transferred_in",
+                    json!({"transferId": transfer_id, "from": from}),
+                );
                 if let Err(error) = self.finalize_harness_state(&session.meta()) {
+                    let _ = self.mark_harness_state_committed(&session.meta());
                     tracing::warn!(session = %session.id, "durable transfer finalization deferred: {error:#}");
                 }
                 if let Some((_, backup)) = source_store_backup.as_ref() {
@@ -487,13 +533,6 @@ impl Hub {
         if let Some(g) = &guard {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }
-        let transfer_id = manifest["transferId"].clone();
-        self.append(
-            &session,
-            "mux",
-            "transferred_in",
-            json!({"transferId": transfer_id, "from": from}),
-        );
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
         let _ = std::fs::remove_dir_all(&dir);

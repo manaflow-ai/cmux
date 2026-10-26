@@ -243,8 +243,11 @@ impl Hub {
         );
         self.save_meta(&session);
         if !defer_finalize {
-            self.finalize_harness_state(&session.meta())
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            if let Err(error) = self.finalize_harness_state(&session.meta()) {
+                let _ = self.kill(&session, true).await;
+                self.recover_staged_replacements();
+                return Err(RpcError::internal(error.to_string()));
+            }
         }
         Ok(session)
     }
@@ -622,6 +625,19 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    pub(super) fn mark_harness_state_committed(&self, meta: &SessionMeta) -> Result<()> {
+        if meta.harness != "cmux-harness" {
+            return Ok(());
+        }
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return Ok(()) };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
+        let Some(root) = session_dir.parent() else { return Ok(()) };
+        let state = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
+        marker["phase"] = json!("committed");
+        write_json_atomic(&state, &marker)
     }
 
     pub(super) fn finalize_harness_state(&self, meta: &SessionMeta) -> Result<()> {
