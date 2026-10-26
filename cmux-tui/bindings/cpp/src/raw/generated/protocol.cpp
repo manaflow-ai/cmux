@@ -32530,6 +32530,107 @@ Result<TerminalResumeCommandRequest> Codec<TerminalResumeCommandRequest>::decode
     return result;
 }
 
+Result<Json> Codec<TraceStartRequest>::encode(const TraceStartRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.categories.is_absent()) {
+        auto encoded = encode_value(value.categories);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("categories", std::move(encoded).value());
+    }
+    if (value.keys) {
+        auto encoded = encode_value(*value.keys);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keys", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TraceStartRequest> Codec<TraceStartRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TraceStartRequest result{};
+    const Json* field_categories = value.find("categories");
+    if (field_categories) {
+        if (field_categories->is_null()) {
+            result.categories = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_categories);
+            if (!decoded) return std::move(decoded).error();
+            result.categories = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_keys = value.find("keys");
+    if (field_keys) {
+        auto decoded = decode_value<bool>(*field_keys);
+        if (!decoded) return std::move(decoded).error();
+        result.keys = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "categories" && key != "keys") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<TraceStartResult>::encode(const TraceStartResult& value) {
+    return encode_value(value.value);
+}
+
+Result<TraceStartResult> Codec<TraceStartResult>::decode(const Json& value) {
+    auto decoded = decode_value<Json>(value);
+    if (!decoded) return std::move(decoded).error();
+    return TraceStartResult{std::move(decoded).value()};
+}
+
+Result<Json> Codec<TraceStatusRequest>::encode(const TraceStatusRequest& value) {
+    (void)value;
+    Json::Object object;
+    return Json(std::move(object));
+}
+
+Result<TraceStatusRequest> Codec<TraceStatusRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TraceStatusRequest result{};
+    return result;
+}
+
+Result<Json> Codec<TraceStatusResult>::encode(const TraceStatusResult& value) {
+    return encode_value(value.value);
+}
+
+Result<TraceStatusResult> Codec<TraceStatusResult>::decode(const Json& value) {
+    auto decoded = decode_value<Json>(value);
+    if (!decoded) return std::move(decoded).error();
+    return TraceStatusResult{std::move(decoded).value()};
+}
+
+Result<Json> Codec<TraceStopRequest>::encode(const TraceStopRequest& value) {
+    (void)value;
+    Json::Object object;
+    return Json(std::move(object));
+}
+
+Result<TraceStopRequest> Codec<TraceStopRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TraceStopRequest result{};
+    return result;
+}
+
+Result<Json> Codec<TraceStopResult>::encode(const TraceStopResult& value) {
+    return encode_value(value.value);
+}
+
+Result<TraceStopResult> Codec<TraceStopResult>::decode(const Json& value) {
+    auto decoded = decode_value<Json>(value);
+    if (!decoded) return std::move(decoded).error();
+    return TraceStopResult{std::move(decoded).value()};
+}
+
 Result<Json> Codec<UndoLayoutRequest>::encode(const UndoLayoutRequest& value) {
     (void)value;
     Json::Object object;
@@ -42545,16 +42646,16 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand250FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand268FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand271FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand274FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand277FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand275FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand278FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 285> kCommands{{
+constexpr std::array<CommandMetadata, 288> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -42816,6 +42917,9 @@ constexpr std::array<CommandMetadata, 285> kCommands{{
     {"terminal-read-range", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resources", "control", 12U, "terminal-resources-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resume-command", "control", 12U, "resume-command", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"trace-start", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"trace-status", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"trace-stop", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"ungroup-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"ungroup-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -42823,14 +42927,14 @@ constexpr std::array<CommandMetadata, 285> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand268FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand271FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand274FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand275FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand277FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand278FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -45812,6 +45916,39 @@ Result<TerminalResumeCommandResult> Client::terminal_resume_command(
     auto response = core_.request("terminal-resume-command", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<TerminalResumeCommandResult>(response.value());
+}
+
+Result<TraceStartResult> Client::trace_start(
+    const TraceStartRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("trace-start", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TraceStartResult>(response.value());
+}
+
+Result<TraceStatusResult> Client::trace_status(
+    const TraceStatusRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("trace-status", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TraceStatusResult>(response.value());
+}
+
+Result<TraceStopResult> Client::trace_stop(
+    const TraceStopRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("trace-stop", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TraceStopResult>(response.value());
 }
 
 Result<LayoutUndoResult> Client::undo_layout(

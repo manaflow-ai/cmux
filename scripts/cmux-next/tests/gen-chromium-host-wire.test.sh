@@ -253,10 +253,10 @@ has "$client" '(void)PostPreinit(kOpSetBackgroundColor, 0, op_w);' "a void prein
 has "$client" 'return PostPreinit(kOpPageSchemeAdd, op_token, op_w);' \
   "a non-void preinit does not return the client's check or await the host's verdict"
 has "$client" '(void)PostInput(kOpSendBytes, 0, op_w);' "an input-channel op goes on the control channel"
-has "$client" 'PostAwaitingReply(kOpRendererClientIds, op_token, op_w);' "a wire:REPLY async op is not sent"
+has "$client" 'PostForReply(kOpRendererClientIds, op_token, op_w);' "a wire:REPLY async op is not sent"
 has "$client" 'if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;' \
   "an async op leaves its out-parameter uninitialized"
-has "$client" 'PostAwaitingReply(kOpVisitCookies, op_token, op_w);' "an event-answered async op is not sent"
+has "$client" 'PostForReply(kOpVisitCookies, op_token, op_w);' "an event-answered async op is not sent"
 has "$client" 'MintID(kOpCreateWindow)' "create_window does not mint"
 grep -A12 'cmux_shim_create_window(' "$client" | grep -qF 'return op_sent ? 1 : 0;' ||
   fail "a mint_returns sent export does not return 1 when sent"
@@ -277,6 +277,8 @@ has "$host" '{-1, -1, kOpTabNavigationState},  // attach' "attach does not refre
 has "$host" '{5, 3, kOpTabNavigationState},  // CMUX_SHIM_TAB_EVENT:3' "sub-kind refresh missing"
 has "$host" 'if (call_result != nullptr) cmux_shim_free(call_result);' "the host leaks a char* mirror result"
 has "$host" '{kOpTabSetFrozen, "cmux_shim_tab_set_frozen"},' "the optional export is not in kOptionalExports"
+has "$client" '{kOpTabSetFrozen, "cmux_shim_tab_set_frozen"},' \
+  "the client cannot refuse an optional export the host's HELLO does not list"
 has "$host" 'reinterpret_cast<int (*)(int, int)>(ctx.OptionalExport(kOpTabSetFrozen))' \
   "the host calls an optional export the header does not declare"
 # A C argument named token or reply never stands for the frame's token or the reply writer.
@@ -324,7 +326,7 @@ struct TlvReader {
 };
 bool Post(uint16_t op, uint32_t token, const TlvWriter&);
 bool PostInput(uint16_t op, uint32_t token, const TlvWriter&);
-bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter&);
+bool PostForReply(uint16_t op, uint32_t token, const TlvWriter&);
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter&);
 uint32_t NextToken();
 int32_t MintID(uint16_t op);

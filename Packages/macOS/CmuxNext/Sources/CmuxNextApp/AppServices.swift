@@ -62,15 +62,15 @@ final class AppServices {
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
     let crashReporting: AppCrashReporting
-    /// The local daemon. Cloud machines are in `machines`; code acting on a
-    /// workspace, pane, or tab resolves its daemon through `machines`.
-    /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
+    /// The local daemon (a build with the sidebar document orders rows from it only: placement-shift-v1). Cloud machines
+    /// are in `machines`; code acting on a workspace, pane, or tab resolves its daemon through `machines`.
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
+    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -344,7 +344,7 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
-    private(set) lazy var uiInspector = UIInspectorController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(services: self, tap: inputTap)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or

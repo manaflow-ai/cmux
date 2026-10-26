@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 14
+   "next_ordinal": 17
   },
   "clients": {
    "id": 2,
@@ -18128,6 +18128,104 @@
    "durability": "read_only",
    "clients": [
     "cli",
+    "sdk"
+   ]
+  },
+  "trace-start": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "categories": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "keys": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": true
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root.",
+    "The key category records per-key records and needs keys: true."
+   ],
+   "method_id": 270,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-stop": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 271,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 272,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
     "sdk"
    ]
   },

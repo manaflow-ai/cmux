@@ -4,6 +4,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/*.dylib
 #   Contents/Frameworks/Chromium Embedded Framework.framework
 #   Contents/Frameworks/libcmux_cef_shim.dylib
+#   Contents/Frameworks/libcmux_cef_shim_remote.dylib      (Debug builds only, with the host)
 #   Contents/Frameworks/<product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
 #   Contents/MacOS/<product> Chromium Host            (Debug builds only, prototype)
 #
@@ -51,9 +52,9 @@ for lib in "$framework/Versions/A/Libraries/"*.dylib; do
   [[ -f "$lib" ]] && codesign "${flags[@]}" "$lib"
 done
 codesign "${flags[@]}" "$framework"
-if [[ -f "$frameworks/libcmux_cef_shim.dylib" ]]; then
-  codesign "${flags[@]}" "$frameworks/libcmux_cef_shim.dylib"
-fi
+for shim in "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"; do
+  if [[ -f "$shim" ]]; then codesign "${flags[@]}" "$shim"; fi
+done
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] || continue
   case "$helper" in
