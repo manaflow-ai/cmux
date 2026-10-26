@@ -126,7 +126,8 @@ struct KeyFrameSignpostAllocationTests {
 
     private func stallTasks(_ signposter: Signposter, count: Int) {
         for index in 0..<count {
-            let task = signposter.begin(.stallMainTask, taskClass: classes[index % classes.count], owner: owners[index % owners.count],
+            let task = signposter.begin(.stallMainTask, taskClass: classes[index % classes.count],
+                                        owner: owners[index % owners.count],
                                         classID: UInt8(index % classes.count), ownerID: UInt32(index % owners.count + 1))
             signposter.end(.stallMainTask, task)
         }
@@ -222,7 +223,8 @@ struct KeyFrameSignpostAllocationTests {
     @Test("KeyFrameSignpost ends every open key at the observer's next callout: committed, or missed after a wake")
     func keyFrameSignpostEndsOpenKeysAtTheCallout() throws {
         let log = StubRecords()
-        let keyFrames = KeyFrameSignpost(signposter: Signposter(category: .key, mirror: mirror, trace: log.runtime(.key)), capacity: 2)
+        let key = Signposter(category: .key, mirror: mirror, trace: log.runtime(.key))
+        let keyFrames = KeyFrameSignpost(signposter: key, capacity: 2)
         keyFrames.begin(target: .view, eventTimestamp: 0)
         keyFrames.begin(target: .terminal, eventTimestamp: 0)
         keyFrames.begin(target: .view, eventTimestamp: 0)
@@ -256,7 +258,8 @@ struct KeyFrameSignpostAllocationTests {
     func stallRecords() throws {
         let log = StubRecords()
         let stall = Signposter(category: .stall, mirror: mirror, trace: log.runtime(.stall))
-        stall.end(.stallMainTask, stall.begin(.stallMainTask, taskClass: "visible", owner: "Control.frames", classID: 2, ownerID: 9))
+        let task = stall.begin(.stallMainTask, taskClass: "visible", owner: "Control.frames", classID: 2, ownerID: 9)
+        stall.end(.stallMainTask, task)
         stall.event(.stallOverBudget, taskClass: "visible", owner: "Control.frames", classID: 2, ownerID: 9,
                     ownNanos: 6_250_000, budgetNanos: 4_000_000)
         let records = log.all

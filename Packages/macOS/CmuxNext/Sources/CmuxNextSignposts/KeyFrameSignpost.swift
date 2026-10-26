@@ -88,8 +88,8 @@ public final class KeyFrameSignpost {
         let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
             | CFRunLoopActivity.afterWaiting.rawValue
         let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CommitBoundary.order) {
-            [weak self] observer, activity in
-            guard let self else { return CFRunLoopObserverInvalidate(observer) }
+            [weak self] firing, activity in
+            guard let self else { return CFRunLoopObserverInvalidate(firing) }
             // main-proof: the observer is added to the main run loop only (below).
             MainActor.assumeIsolated { self.runLoopReached(activity) }
         }

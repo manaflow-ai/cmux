@@ -3,6 +3,7 @@
 #include <dispatch/dispatch.h>
 #include <os/log.h>
 #include <os/signpost.h>
+#include <stddef.h>
 
 #define SUBSYSTEM "com.cmuxterm.app.next"
 #define KEY_CATEGORY "key"
