@@ -25,6 +25,7 @@ struct MobileHostRPCExecutionContext: Sendable {
     let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+    var hostDeviceID: String? = nil
 
     func issueArtifactTransfer(
         canonicalPath: String
@@ -96,6 +97,19 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     private let irohBindingConnectionQuota = CmxIrohActiveBindingConnectionQuota()
     private var connections: [UUID: Entry] = [:]
     private var nextInsertionSequence: UInt64 = 0
+    private var stackBearerGeneration = UUID()
+
+    func currentStackBearerGeneration() -> UUID {
+        lock.lock()
+        defer { lock.unlock() }
+        return stackBearerGeneration
+    }
+
+    func isCurrentStackBearerGeneration(_ generation: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == stackBearerGeneration
+    }
 
     var count: Int {
         lock.lock()
@@ -107,9 +121,14 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         _ connection: MobileHostConnection,
         id: UUID,
         authorization: MobileHostConnectionAuthorizationContext,
-        limit: Int
+        limit: Int,
+        stackBearerGeneration: UUID? = nil
     ) -> Bool {
         lock.lock()
+        if let stackBearerGeneration, stackBearerGeneration != self.stackBearerGeneration {
+            lock.unlock()
+            return false
+        }
         guard connections.count < limit else {
             lock.unlock()
             return false
@@ -154,6 +173,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
 
     func removeAll() -> [MobileHostConnection] {
         lock.lock()
+        stackBearerGeneration = UUID()
         let values = connections.values.map(\.connection)
         connections.removeAll()
         lock.unlock()
@@ -164,7 +184,7 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 
     func removeStackBearerConnections() -> [MobileHostConnection] {
-        removeConnections { authorization in
+        removeConnections(invalidateStackBearerGeneration: true) { authorization in
             authorization == .stackBearer
         }
     }
@@ -223,9 +243,11 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 
     private func removeConnections(
+        invalidateStackBearerGeneration: Bool = false,
         where shouldRemove: (MobileHostConnectionAuthorizationContext) -> Bool
     ) -> [MobileHostConnection] {
         lock.lock()
+        if invalidateStackBearerGeneration { stackBearerGeneration = UUID() }
         let selected = connections.filter { shouldRemove($0.value.authorization) }
         for id in selected.keys { connections[id] = nil }
         lock.unlock()

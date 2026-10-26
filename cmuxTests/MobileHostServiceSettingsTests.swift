@@ -178,6 +178,11 @@ struct MobileHostV2LifecycleTests {
             #expect(service.statusSnapshot().pendingPortChange)
             #expect(await service.applyConfiguredPort(52_074) == .applied(52_074))
             #expect(!service.statusSnapshot().pendingPortChange)
+            service.beginSignOutPreparation()
+            #expect(!service.statusSnapshot().tailscaleIsRunning)
+            #expect(service.statusSnapshot().tailscaleRoutes.isEmpty)
+            service.syncToSettings()
+            #expect(!service.statusSnapshot().tailscaleIsRunning)
             service.stop()
         }
     }

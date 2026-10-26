@@ -12,6 +12,80 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test("Tailscale tickets and status retain their identity with and without Iroh", arguments: [false, true])
+    func tailscaleTicketAndStatusIdentity(irohPublished: Bool) async throws {
+        let tailscale = try CmxAttachRoute(id: "tailscale", kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 7777))
+        let iroh = try CmxAttachRoute(id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []))
+        let published = MobileHostPublicStatusCache.PublishedStatus(
+            routes: [iroh, tailscale], v2DeviceID: irohPublished ? "v2-device" : nil
+        )
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: published, transportRouteKind: .tailscale,
+            routeID: nil, routeKind: nil, target: .ticketOnly
+        )
+        #expect(subject.routes == [tailscale])
+        #expect(subject.deviceID == MobileHostIdentity.deviceID())
+        MobileHostPublicStatusCache.updateV2DeviceID(published.v2DeviceID)
+        defer { MobileHostPublicStatusCache.removeAll() }
+        let response = await MobileHostService.connectionStatusResult(
+            for: MobileHostRPCRequest(id: "status", method: "mobile.host.status", params: [:], auth: nil),
+            authorization: .stackBearer, hostDeviceID: subject.deviceID,
+            stackStatus: { _, deviceID in
+                MobileHostPublicStatusCache.result(includeIdentity: true, deviceID: deviceID)
+            }
+        )
+        guard case let .ok(payload as [String: Any]) = response else {
+            Issue.record("The TCP identity must not depend on an Iroh publication")
+            return
+        }
+        #expect(payload["mac_device_id"] as? String == subject.deviceID)
+    }
+
+    @Test func revokedTailscaleGenerationRejectsAnAcceptThatAlreadyPassedItsCheck() async {
+        let registry = MobileHostConnectionRegistry()
+        let generation = registry.currentStackBearerGeneration()
+        #expect(registry.isCurrentStackBearerGeneration(generation))
+        _ = registry.removeStackBearerConnections()
+        let id = UUID()
+        let session = MobileHostConnection(
+            id: id, transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) }, onClose: { _ in }
+        )
+        #expect(!registry.insert(session, id: id, authorization: .stackBearer, limit: 4,
+            stackBearerGeneration: generation))
+        #expect(registry.count == 0)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func signOutRevokesTailscaleSubscriptionsBeforeAsynchronousClose() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        let generation = registry.currentStackBearerGeneration()
+        let id = UUID()
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: id, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            isSessionCurrent: { registry.isCurrentStackBearerGeneration(generation) },
+            handleRequest: { _ in .ok([:]) }, onClose: { registry.remove(id: $0) }
+        )
+        try #require(registry.insert(session, id: id, authorization: .stackBearer, limit: 64,
+            stackBearerGeneration: generation))
+        await session.subscribe(streamID: "sign-out", topics: ["terminal.updated"])
+        let defaultsName = "MobileSignOutTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let service = MobileHostService(defaults: defaults)
+        service.beginSignOutPreparation()
+        #expect(!registry.isCurrentStackBearerGeneration(generation))
+        #expect(registry.connection(id: id) == nil)
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["content": "private"]) == false)
+        #expect(await transport.waitForSentBufferCount(0).isEmpty)
+        await session.close(reason: "test complete")
+    }
+
     @Test func authenticatedStatusRetriesUntilTheCurrentIdentityExists() throws {
         MobileHostPublicStatusCache.removeAll()
         defer { MobileHostPublicStatusCache.removeAll() }
