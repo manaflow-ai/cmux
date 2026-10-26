@@ -217,6 +217,7 @@ extension CmuxSettingsFileStore {
         "browser.urlAllowlist",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "mobile.iOSPairingHost.enabled",
         "mobile.artifactFolderAccess",
         "mobile.browserTunnel.allowOtherHosts",
         "markdown.fontSize",

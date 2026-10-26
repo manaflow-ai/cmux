@@ -542,6 +542,20 @@ extension CmuxSettingsFileStore {
                 logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
             }
         }
+        if section.keys.contains("iOSPairingHost") {
+            // A Mac reached only over SSH cannot reach the Settings toggle.
+            // Managed device policy still overrides this opt-in.
+            if let pairing = section["iOSPairingHost"] as? [String: Any] {
+                if let value = jsonBool(pairing["enabled"]) {
+                    let key = SettingCatalog().mobile.iOSPairingHost
+                    snapshot.managedUserDefaults[key.userDefaultsKey] = .bool(value)
+                } else if pairing.keys.contains("enabled") {
+                    logInvalid("mobile.iOSPairingHost.enabled", sourcePath: sourcePath)
+                }
+            } else {
+                logInvalid("mobile.iOSPairingHost", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("browserTunnel") {
             guard let tunnel = section["browserTunnel"] as? [String: Any] else {
                 logInvalid("mobile.browserTunnel", sourcePath: sourcePath)

@@ -268,7 +268,7 @@ public struct MobileSection: View {
     @ViewBuilder
     private var iOSPairingHostRow: some View {
         SettingsCardRow(
-            configurationReview: .settingsOnly,
+            configurationReview: .json("mobile.iOSPairingHost.enabled"),
             searchAnchorID: "setting:mobile:iOSPairingHost",
             String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
             subtitle: String(localized: "settings.mobile.iOSPairingHost.subtitle", defaultValue: "Lets iPhone and iPad pair with and connect to this Mac.")

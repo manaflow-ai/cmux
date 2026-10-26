@@ -264,6 +264,9 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "mobile": [
+                    "iOSPairingHost": [
+                        "enabled": SettingCatalog().mobile.iOSPairingHost.defaultValue,
+                    ],
                     "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
                     "browserTunnel": [
                         "allowOtherHosts": SettingCatalog().mobile.browserTunnelAllowOtherHosts.defaultValue,

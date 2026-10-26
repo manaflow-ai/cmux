@@ -419,7 +419,7 @@ extension Array where Element == CuratedSettingEntry {
                 ),
                 synonyms: "push notification privacy hide content generic message terminal text forwardNotificationsHideContent"
             ),
-            .init(section: .mobile, id: "iOSPairingHost", title: String(localized: "settings.mobile.iOSPairingHost", defaultValue: "iOS Pairing"), synonyms: "iOS Pairing ios iphone ipad mobile pairing local network permission sync"),
+            .init(section: .mobile, id: "iOSPairingHost", title: String(localized: "settings.mobile.iOSPairingHost", defaultValue: "iOS Pairing"), paths: ["mobile.iOSPairingHost.enabled"], synonyms: "iOS Pairing ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
             .init(

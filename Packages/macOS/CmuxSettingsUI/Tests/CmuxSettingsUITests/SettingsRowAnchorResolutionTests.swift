@@ -110,6 +110,7 @@ struct SettingsRowAnchorResolutionTests {
         "fileEditor.tabWidth",
         "fileEditor.wordWrap",
         "mobile.artifactFolderAccess",
+        "mobile.iOSPairingHost.enabled",
         "mobile.browserTunnel.allowOtherHosts",
         "notifications.agentIdleReminder",
         "notifications.agentPermissionPrompt",

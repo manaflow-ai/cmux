@@ -2382,6 +2382,18 @@ enum CmuxEmbeddedConfigSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "iOSPairingHost": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "iOS pairing host for this Mac.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Let iPhone and iPad apps signed in to the same cmux account pair with and connect to this Mac. Same as Settings > Mobile > Enable iOS pairing; set it here to enable a Mac you reach only over SSH. A configuration profile that disables incoming device access still wins."
+            }
+          }
+        },
         "artifactFolderAccess": {
           "type": "string",
           "enum": ["subtree", "oneLevel"],
