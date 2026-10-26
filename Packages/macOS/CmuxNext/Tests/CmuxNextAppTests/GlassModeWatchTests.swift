@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextEnergy
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -59,5 +60,25 @@ struct GlassModeWatchTests {
         #expect(mainWork.postedCount(.visible) == 1, "one posted visible flush")
         #expect(runMainLoop { seen.modes == [.plain] }, "the posted flush applies the choice")
         #expect(watch.mode == .plain)
+    }
+
+    /// p06 rule 9, person: a person's Debug choice applies in the input-response pass, in the input's turn and before
+    /// its commit, even while the person's next input is pending; its posted `visible` task then finds nothing to do.
+    @Test func aPersonsGlassChoiceAppliesInTheInputResponsePassWhileInputIsPending() {
+        let store = Self.lensStore()
+        let harness = FollowerHarness()
+        let seen = Seen()
+        let watch = GlassModeWatch(store: store, reduceTransparency: ReduceTransparency(system: { false }),
+                                   lowPowerMode: LowPowerMode(enabled: false), mainWork: harness.work) { seen.modes.append($0) }
+        harness.input.pending = true
+        harness.work.causes.withCause(.person) { GlassLensMode.choose(.plain, in: store) }
+        #expect(seen.modes.isEmpty, "nothing applies inside the change")
+        #expect(harness.work.causes.flushPersonCaused() == 1, "the pass applies the person's change")
+        #expect(seen.modes == [.plain], "applied before the commit, with input pending")
+        harness.frame()
+        harness.frame()
+        #expect(seen.modes == [.plain], "the pass flushed it: its visible task applies nothing more")
+        #expect(watch.mode == .plain)
+        harness.stop()
     }
 }

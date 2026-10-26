@@ -20,17 +20,32 @@ struct ManagedPolicyBridge {
     /// The app's one observer per app notice (`AppServices.appEvents`).
     let appEvents: AppEvents
 
+    /// The managed keys this bridge hands on; a policy change of other keys applies nothing.
+    struct Values: Equatable {
+        let channel: String?
+        let minimumVersion: String?
+        /// `ManagedTeam` while `RestrictToManagedTeam` is on.
+        let team: String?
+
+        init(_ policy: [String: JSONValue]) {
+            channel = policy["UpdateChannel"]?.stringValue
+            minimumVersion = policy["MinimumVersion"]?.stringValue
+            team = policy["RestrictToManagedTeam"]?.boolValue == true ? policy["ManagedTeam"]?.stringValue : nil
+        }
+    }
+
     /// Applies the current values now, before Cloud starts, then follows changes. The caller keeps the returned
     /// followers for the app's lifetime.
     func start() -> [AnyObject] {
         let settings = settings
-        Self.apply(settings.forcedManagedValuesNow(), updater: updater, auth: auth)
-        // `automation`: the device management profile (another process) changes the policy.
+        // Until the first load the launch's forced values are the policy (`managedPolicy` is still empty), so the
+        // values applied now are never cleared before the load. `automation`: the device management profile
+        // (another process) changes the policy.
         let policy = ServiceObservation(.automation, owner: "ManagedPolicyBridge.policy", on: mainWork) {
-            settings.managedPolicy
-        } apply: { [weak updater, weak auth] policy in
+            Values(settings.loadCount >= 1 ? settings.managedPolicy : settings.forcedManagedValuesNow())
+        } apply: { [weak updater, weak auth] values in
             guard let updater, let auth else { return }
-            Self.apply(policy, updater: updater, auth: auth)
+            Self.apply(values, updater: updater, auth: auth)
         }
         // A required update dismissed with Escape comes back when the app is next activated.
         // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
@@ -40,10 +55,8 @@ struct ManagedPolicyBridge {
         return [policy, activation]
     }
 
-    private static func apply(_ policy: [String: JSONValue], updater: UpdaterService, auth: CloudAuth) {
-        updater.applyManagedPolicy(channel: policy["UpdateChannel"]?.stringValue,
-                                   minimumVersion: policy["MinimumVersion"]?.stringValue)
-        let team = policy["RestrictToManagedTeam"]?.boolValue == true ? policy["ManagedTeam"]?.stringValue : nil
-        if auth.managedTeamID != team { auth.managedTeamID = team }
+    private static func apply(_ values: Values, updater: UpdaterService, auth: CloudAuth) {
+        updater.applyManagedPolicy(channel: values.channel, minimumVersion: values.minimumVersion)
+        if auth.managedTeamID != values.team { auth.managedTeamID = values.team }
     }
 }
