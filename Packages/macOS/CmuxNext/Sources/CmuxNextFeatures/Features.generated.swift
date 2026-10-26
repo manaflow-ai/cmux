@@ -1404,6 +1404,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.
+    public static let visibilityGatedHosting = Feature(
+        index: 80,
+        name: "visibilityGatedHosting",
+        owner: "Performance Lead",
+        description: "A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["script-storm", "tab-switch"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
         index: 81,
@@ -1600,6 +1617,7 @@ nonisolated extension Feature {
         .terminalHolder,
         .terminalPointerFrames,
         .topPageDiscard,
+        .visibilityGatedHosting,
         .vsyncHub,
         .cefHelperHost,
         .cefLayerHostingEveryPage,
@@ -1691,6 +1709,7 @@ nonisolated extension Feature {
         .terminalHolder,
         .terminalPointerFrames,
         .topPageDiscard,
+        .visibilityGatedHosting,
         .vsyncHub,
     ]
     #endif
