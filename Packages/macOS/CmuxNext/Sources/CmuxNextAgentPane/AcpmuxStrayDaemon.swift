@@ -65,8 +65,10 @@ nonisolated enum AcpmuxStrayDaemon {
               let pid = status.pid, peer.pid == pid,
               isStray(runningPath: peer.executablePath, executable: environment.executable) else { return false }
         let path = peer.executablePath
-        guard status.agentHosts else {
-            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and has no agent hosts; its agents would end, so it keeps running")
+        // Without agent hosts its agents end, but chats it keeps on disk resume in the bundled
+        // daemon; only a memory store's would be lost.
+        guard AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk) else {
+            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and keeps its chats in memory without agent hosts; they would be lost, so it keeps running")
             return false
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }

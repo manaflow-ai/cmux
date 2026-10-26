@@ -7,10 +7,14 @@ import CmuxNextCompat
 /// After an update: hand a running acpmux daemon of another build off to the
 /// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
 /// executable was replaced with the app's bundle whatever its build
-/// (``replaced(pid:)``). Only a daemon that runs its agents under agent hosts
-/// (`_acpmux/status` `agentHosts`) is handed off: its SIGTERM detaches every
-/// agent and the new daemon adopts them. An older daemon would end its agents,
-/// so it keeps running until it exits on its own.
+/// (``replaced(pid:)``), also mid-turn, with no wait for idle. A daemon that runs
+/// its agents under agent hosts (`_acpmux/status` `agentHosts`) detaches them on
+/// SIGTERM and the new daemon adopts them. One without agent hosts (a build from
+/// before them, or `ACPMUX_AGENT_HOSTS=0`) ends its agents, but keeps its chats on
+/// disk (`store.mode` `local`): the new daemon reads them back and each agent
+/// resumes its chat on its next prompt, a turn running then is cut. Only a daemon
+/// that keeps neither (a memory store without agent hosts) keeps running until it
+/// exits on its own: its chats would be lost (``keepsItsChats(agentHosts:chatsOnDisk:)``).
 nonisolated enum AcpmuxVersionHandoff {
     enum Decision: Equatable, Sendable {
         case keep(String)
@@ -34,12 +38,20 @@ nonisolated enum AcpmuxVersionHandoff {
         return build.isEmpty ? nil : build
     }
 
-    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, replaced: Bool = false) -> Decision {
-        if replaced { return agentHosts ? .restart : .keep("its agents would end: no agent hosts") }
+    /// Whether a daemon keeps its chats across a restart: its agents under agent hosts, or its
+    /// chats on disk to resume from. False only for a memory store without agent hosts.
+    static func keepsItsChats(agentHosts: Bool, chatsOnDisk: Bool) -> Bool {
+        agentHosts || chatsOnDisk
+    }
+
+    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, chatsOnDisk: Bool,
+                       replaced: Bool = false) -> Decision {
+        let keeps = keepsItsChats(agentHosts: agentHosts, chatsOnDisk: chatsOnDisk)
+        if replaced { return keeps ? .restart : .keep("its chats would be lost: a memory store without agent hosts") }
         guard let running else { return .keep("running build unknown") }
         guard let bundled else { return .keep("bundled build unknown") }
         if running == bundled { return .keep("same build") }
-        guard agentHosts else { return .keep("its agents would end: no agent hosts") }
+        guard keeps else { return .keep("its chats would be lost: a memory store without agent hosts") }
         return .restart
     }
 
@@ -96,7 +108,8 @@ nonisolated enum AcpmuxVersionHandoff {
         #else
         let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
         #endif
-        guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
+        guard decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
+              let pid = status.pid else {
             return false
         }
         let key = "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
@@ -104,7 +117,7 @@ nonisolated enum AcpmuxVersionHandoff {
             logger.error("acpmux \(pid) at \(environment.socketPath, privacy: .public) still runs build \(status.build ?? "?", privacy: .public) after this app handed that socket off to \(bundled ?? "?", privacy: .public) once")
             return false
         }
-        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
+        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
