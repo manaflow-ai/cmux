@@ -23,6 +23,11 @@ cmux-rd-proto = { path = "../crates/cmux-rd-proto" }
 cmux-transport = { path = "../crates/cmux-transport" }
 cmux-wg = { path = "../crates/cmux-wg", features = ["fuzzing"] }
 serde = "1"
+# Batch 3 (task 019): acpmux.
+acpmux = { path = "../crates/acpmux" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time"] }
+toml = "0.8"
 
 # A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
 # build with DCHECKs on.
@@ -140,6 +145,49 @@ bench = false
 [[bin]]
 name = "link_owner_session"
 path = "fuzz_targets/link_owner_session.rs"
+test = false
+doc = false
+bench = false
+
+# Batch 3 (task 019): acpmux.
+[[bin]]
+name = "acpmux_rpc_parse"
+path = "fuzz_targets/acpmux_rpc_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_claude_stdio_lines"
+path = "fuzz_targets/acpmux_claude_stdio_lines.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_pairing_ticket"
+path = "fuzz_targets/acpmux_pairing_ticket.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_catalog_parse"
+path = "fuzz_targets/acpmux_catalog_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_routes_parse"
+path = "fuzz_targets/acpmux_routes_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_parse_answers"
+path = "fuzz_targets/acpmux_parse_answers.rs"
 test = false
 doc = false
 bench = false
