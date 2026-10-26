@@ -50,19 +50,6 @@ extension MobileTerminalRenderGridReplay {
         }
     }
 
-    /// Replay order for mouse report formats, least to most capable: UTF-8,
-    /// urxvt, SGR, SGR pixels. `nil` for every other mode.
-    func mouseFormatRank(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Int? {
-        guard !mode.ansi else { return nil }
-        switch mode.code {
-        case 1005: return 0
-        case 1015: return 1
-        case 1006: return 2
-        case 1016: return 3
-        default: return nil
-        }
-    }
-
     func isReplayExcludedMode(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Bool {
         guard !mode.ansi else { return false }
         switch mode.code {
