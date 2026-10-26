@@ -14,15 +14,12 @@ extension MainPaneGutterSuites {
     /// chrome around the curved main pane are shaded darker than the pane. The setting applies live,
     /// from cmux.json through the settings applier to the open window.
     @MainActor @Suite(.serialized) struct SidebarSurfaceTests {
-        /// The window's node, shown: the root follows the settings while it shows (``WindowRootView/follow(on:work:)``).
-        let node = shownNode()
-
         /// A window root in a titled, full-size-content window, as the app shows it, sidebar shown.
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
             let work = linklessMainWork()
             let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work))
-            root.follow(on: node, work: work)
+            root.follow(on: shownNode(), work: work) // the root follows the settings while its window shows
             let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

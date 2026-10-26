@@ -100,7 +100,7 @@ extension UpdaterService {
         settingsObservation = ServiceObservation(.visible, owner: "UpdaterService.settings", on: mainWork) { [weak settings] in
             guard let settings, settings.loadCount > 0 else { return }
             _ = (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
-        } apply: { [weak self, weak settings] in
+        } apply: { [weak self, weak settings] _ in
             guard let self, let settings, settings.loadCount > 0 else { return }
             followed(settings.snapshot)
         }
