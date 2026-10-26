@@ -17,7 +17,7 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    shape, one slice per input event from generated to presented on an `input latency` track of the
                    app, a child per stage step it has (cross-process ones too), an arrow into its key.flow chain,
                    and a summary p50/p95/p99/max per kind x target x presentation source
-  stalls         the app's main-thread watchdog (`debug.hangs`, threshold --hang-ms): every stall with its
+  stalls           the app's main-thread watchdog (`debug.hangs`, threshold --hang-ms): every stall with its
                    main-thread stack sample and CPU time, on a track of the app
   daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks; set as CMUX_NEXT_TUI_DEBUG_SPANS on the app): each request's marks as
                    nested slices on a track of the daemon (placed by when its line was written; see the doc)
@@ -2568,54 +2568,101 @@ def flow_summary(flows, dropped, warnings=()):
 
 # ---------------------------------------------------------------- input latency (Chrome's EventLatency)
 
-# InputLatencyTracker (p04-input-004) emits one `input.latency` signpost event per closed slot, when it closes:
-#   id=<slot> kind=<key|click|scroll|...> target=<terminal|textView|...> entrypoint=<person|automation>
-#   source=<estimatedVsync|metalPresented|hostFeedback|pageEstimated> coalesced=<n> update=<0|1> flow=<id|0>
-#   <stage>_ns=<CLOCK_UPTIME_RAW ns> for each stage below, 0 (or absent) when the slot skipped it.
-# The stage times are uptime ns, the trace clock already: no signpost clock offset applies to them.
-# The stages, in pipeline order (InputLatencySlot); `last_generated` is the newest coalesced event: an argument,
-# not a stage boundary, as in Chrome, whose EventLatency starts at the oldest coalesced event.
-INPUT_STAGES = ("generated", "arrived_main", "dispatch_start", "text_input_start", "text_input_end", "dispatch_end",
-                "daemon_received", "pty_written", "echo_read", "echo_sent", "main_commit", "content_submitted",
-                "presented")
+# InputLatencyTracker (CmuxNextInput) emits one `input.latency` signpost event per closed slot, numbers only
+# (Signposter.event(_:_:) with an InputLatencySignpostMessage): `kind target entry source vrr coalesced frame gen_ns`,
+# then each stage as microseconds after gen_ns, -1 when the slot skipped it. kind, target, entry and source are the
+# raw values (case order) of CmuxNextInputCore's InputEventKind, InputTarget, InputEntrypoint and
+# InputPresentationSource. gen_ns is CLOCK_UPTIME_RAW ns (NSEvent.timestamp's clock), the trace clock already.
+INPUT_KINDS = ("keyPress", "keyRelease", "flags", "mousePress", "mouseRelease", "pointerMove", "drag", "scrollBegin",
+               "scrollFirstUpdate", "scrollUpdate", "scrollMomentum", "scrollEnd", "magnify")
+INPUT_KEY_KINDS = ("keyPress", "keyRelease")
+INPUT_TARGETS = ("terminal", "textView", "chromiumPage", "webkitPage", "agentPane", "layout", "sidebar", "palette",
+                 "other")
+INPUT_ENTRYPOINTS = ("person", "automation")
+INPUT_SOURCES = ("estimatedVsync", "metalPresented", "hostFeedback", "pageEstimated", "extrapolatedVsync",
+                 "nominalRefresh")
+# (stage, message field) in InputStage order after `generated` (gen_ns itself). `last_gen_us`, the newest coalesced
+# event, is an argument, not a stage boundary: Chrome's EventLatency starts at the oldest coalesced event.
+INPUT_STAGES = (("arrived_main", "arrived_us"), ("dispatch_start", "dispatch_start_us"),
+                ("text_input_start", "ti_start_us"), ("text_input_end", "ti_end_us"),
+                ("dispatch_end", "dispatch_end_us"), ("main_commit", "commit_us"),
+                ("content_submitted", "content_us"), ("daemon_received", "daemon_us"), ("pty_written", "pty_us"),
+                ("echo_read", "echo_read_us"), ("echo_sent", "echo_sent_us"), ("presented", "presented_us"))
+INPUT_STAGE_ORDER = ("generated",) + tuple(stage for stage, _ in INPUT_STAGES)
 INPUT_TRACK = "input latency"
+# TypingLatencyProbe takes a key's `app.key.dispatch` age just before it writes the hop, so the hop's time minus
+# its age is the key's OS timestamp plus that write (microseconds); keys are milliseconds apart.
+INPUT_FLOW_MATCH_US = 1000.0
 
 
 def camel(stage):
     return "".join(part.capitalize() for part in stage.split("_"))
 
 
+def input_int(fields, key, default=-1):
+    try:
+        return int(fields.get(key, default))
+    except ValueError:
+        return default
+
+
+def input_name(names, raw):
+    """The case name of an enum raw value; `unknown#<raw>` for a case this script does not know yet."""
+    return names[raw] if 0 <= raw < len(names) else f"unknown#{raw}"
+
+
 def input_latency_slots(signposts):
-    """The tracker's closed slots from read_signposts' events (and intervals, whose begin and end fields merge):
-    {pid, fields, stages: {stage: ns}, flow, kind, target, entrypoint, source, update}. A slot with no
-    `generated` stage cannot be placed and is counted in `unplaced`."""
-    raw = [(e["pid"], signposts_lib.fields(e.get("message") or "")) for e in signposts["events"]
-           if e["name"] == "input.latency"]
-    raw += [(i["pid"], {**i["fields"], **signposts_lib.fields(i.get("end_message") or "")})
-            for i in signposts["intervals"] if i["name"] == "input.latency"]
+    """The tracker's closed slots from read_signposts' events: {pid, generated_ns, stages: {stage: ns}, kind, target,
+    entrypoint, source, update, vrr, coalesced, last_generated_ns}. A slot with no gen_ns cannot be placed and is
+    counted in `unplaced`."""
     slots, unplaced = [], 0
-    for pid, fields in raw:
-        stages = {}
-        for stage in INPUT_STAGES + ("last_generated",):
-            try:
-                value = int(fields.get(f"{stage}_ns") or 0)
-            except ValueError:
-                value = 0
-            if value > 0:
-                stages[stage] = value
-        if "generated" not in stages:
+    for event in signposts["events"]:
+        if event["name"] != "input.latency":
+            continue
+        fields = signposts_lib.fields(event.get("message") or "")
+        generated = input_int(fields, "gen_ns", 0)
+        if generated <= 0:
             unplaced += 1
             continue
-        try:
-            flow = int(fields.get("flow") or "0")  # decimal, as the key.flow hops write it (assemble_flows)
-        except ValueError:
-            flow = 0
-        slots.append({"pid": pid, "fields": fields, "stages": stages, "flow": flow,
-                      "kind": fields.get("kind") or "unknown", "target": fields.get("target") or "unknown",
-                      "entrypoint": fields.get("entrypoint") or "person", "source": fields.get("source") or "unknown",
-                      "update": fields.get("update", "1") != "0"})
-    slots.sort(key=lambda s: s["stages"]["generated"])
+        stages = {"generated": generated}
+        for stage, field in INPUT_STAGES:
+            offset = input_int(fields, field)
+            if offset >= 0:
+                stages[stage] = generated + offset * 1000
+        last = input_int(fields, "last_gen_us")
+        slots.append({"pid": event.get("pid"), "generated_ns": generated, "stages": stages,
+                      "kind": input_name(INPUT_KINDS, input_int(fields, "kind")),
+                      "target": input_name(INPUT_TARGETS, input_int(fields, "target")),
+                      "entrypoint": input_name(INPUT_ENTRYPOINTS, input_int(fields, "entry")),
+                      "source": input_name(INPUT_SOURCES, input_int(fields, "source")),
+                      "update": input_int(fields, "frame", 0) == 1, "vrr": input_int(fields, "vrr", 0) == 1,
+                      "coalesced": input_int(fields, "coalesced", 1),
+                      "last_generated_ns": generated + last * 1000 if last >= 0 else None})
+    slots.sort(key=lambda s: s["generated_ns"])
     return slots, unplaced
+
+
+def input_flow_links(slots, flows):
+    """{index of a key slot: flow id} for each key.flow chain whose `app.key.dispatch` hop is that key: the same
+    process and, within INPUT_FLOW_MATCH_US, the same OS timestamp (the hop's time minus its age). The nearest pair
+    links first and each slot and chain links once."""
+    pairs = []
+    for flow in flows:
+        dispatch = next((h for h in flow["hops"] if h["hop"] == "app.key.dispatch"), None)
+        try:
+            event_us = dispatch["at_us"] - float(dispatch.get("age_us"))
+        except (TypeError, ValueError):
+            continue
+        for index, slot in enumerate(slots):
+            gap = abs(event_us - slot["generated_ns"] / 1000.0)
+            if slot["kind"] == "keyPress" and slot["pid"] == dispatch["pid"] and gap <= INPUT_FLOW_MATCH_US:
+                pairs.append((gap, index, flow["flow"]))
+    links, taken = {}, set()
+    for _, index, flow in sorted(pairs):
+        if index not in links and flow not in taken:
+            links[index] = flow
+            taken.add(flow)
+    return links
 
 
 def input_stage_spans(slot):
@@ -2626,7 +2673,7 @@ def input_stage_spans(slot):
     outside [generated, end] is left out and counted, so every child nests in the slice."""
     stages = slot["stages"]
     start = stages["generated"]
-    present = [(stages[s], INPUT_STAGES.index(s), s) for s in INPUT_STAGES if s in stages]
+    present = [(stages[s], INPUT_STAGE_ORDER.index(s), s) for s in INPUT_STAGE_ORDER if s in stages]
     end = stages.get("presented") or max(at for at, _, _ in present)
     inside = sorted(p for p in present if start <= p[0] <= end)
     children = [(f"{camel(a)}To{camel(b)}", a_at, b_at)
@@ -2634,16 +2681,15 @@ def input_stage_spans(slot):
     return start, end, children, len(present) - len(inside)
 
 
-def input_latency_events(slots, app_pid, tracks, lane_names, linked):
+def input_latency_events(slots, app_pid, tracks, lane_names, links):
     """One `EventLatency <kind> <target>` slice per slot on an `input latency` track of its process, with its
     stage children nested inside. Overlapping slots (a key typed before the previous one presented) go to the
     next lane: a slot never nests in another (Lanes would nest one held inside another's span, and their stage
-    children would then cross). Times are whole ns written as us with 3 decimals, so the JSON text is exact and
-    the last child ends where the slice ends. A slot whose flow id has a key.flow chain (`linked`) starts that
-    chain's Perfetto arrow."""
+    children would then cross). Times are whole us written with 3 decimals, so the JSON text is exact and the last
+    child ends where the slice ends. A slot in `links` (input_flow_links) starts its key.flow chain's arrow."""
     us = lambda ns: round(ns / 1000.0, 3)
-    events, lane_ends, bound = [], collections.defaultdict(list), set()
-    for slot in slots:
+    events, lane_ends = [], collections.defaultdict(list)
+    for index, slot in enumerate(slots):
         start_ns, end_ns, children, out_of_order = input_stage_spans(slot)
         end_ns = max(end_ns, start_ns + 1000)
         pid = slot["pid"] or app_pid
@@ -2652,25 +2698,25 @@ def input_latency_events(slots, app_pid, tracks, lane_names, linked):
         ends[lane:lane + 1] = [end_ns]
         tid = tracks.tid(pid, (INPUT_TRACK, lane))
         lane_names[(pid, tid)] = INPUT_TRACK + (f" {lane + 1}" if lane else "")
-        skipped = [s for s in INPUT_STAGES if s not in slot["stages"]]
+        args = {"kind": slot["kind"], "target": slot["target"], "entrypoint": slot["entrypoint"],
+                "presentation_source": slot["source"], "variable_refresh": slot["vrr"],
+                "caused_frame_update": slot["update"], "presented": "presented" in slot["stages"],
+                "coalesced": slot["coalesced"], "total_ms": round((end_ns - start_ns) / 1e6, 3),
+                "skipped_stages": [s for s in INPUT_STAGE_ORDER if s not in slot["stages"]],
+                "stages_out_of_order": out_of_order}
+        if slot["last_generated_ns"] is not None:
+            args["oldest_to_newest_coalesced_ms"] = round((slot["last_generated_ns"] - start_ns) / 1e6, 3)
         parent = {"ph": "X", "pid": pid, "tid": tid, "ts": us(start_ns), "dur": us(end_ns - start_ns),
-                  "name": f"EventLatency {slot['kind']} {slot['target']}", "cat": "input.latency",
-                  "args": {"kind": slot["kind"], "target": slot["target"], "entrypoint": slot["entrypoint"],
-                           "presentation_source": slot["source"], "caused_frame_update": slot["update"],
-                           "presented": "presented" in slot["stages"], "coalesced": slot["fields"].get("coalesced"),
-                           "slot": slot["fields"].get("id"), "total_ms": round((end_ns - start_ns) / 1e6, 3),
-                           "skipped_stages": skipped, "stages_out_of_order": out_of_order,
-                           **({"oldest_to_newest_coalesced_ms": round((slot["stages"]["last_generated"] - start_ns) / 1e6, 3)}
-                              if "last_generated" in slot["stages"] else {}),
-                           **({"flow": f"0x{slot['flow']:x}"} if slot["flow"] else {})}}
-        if slot["flow"] in linked and slot["flow"] not in bound:
-            bound.add(slot["flow"])
-            parent.update({"bind_id": f"0x{slot['flow']:x}", "flow_out": True})
+                  "name": f"EventLatency {slot['kind']} {slot['target']}", "cat": "input.latency", "args": args}
+        flow = links.get(index)
+        if flow is not None:
+            args["flow"] = f"0x{flow:x}"
+            parent.update({"bind_id": f"0x{flow:x}", "flow_out": True})
         events.append(parent)
         for name, a, b in children:
             events.append({"ph": "X", "pid": pid, "tid": tid, "ts": us(a), "dur": us(b - a),
                            "name": name, "cat": "input.latency.stage", "args": {"ms": round((b - a) / 1e6, 3)}})
-    return events, bound
+    return events
 
 
 def pct99(values):
@@ -2681,12 +2727,13 @@ def pct99(values):
     return row
 
 
-def input_latency_summary(slots, unplaced):
+def input_latency_summary(slots, unplaced, links):
     """generated -> presented per kind x target x presentation source (ms, p50/p95/p99/max) and each stage
     child's time, over the person's presented slots that changed the frame (keys always count, as Chrome's
-    caused_frame_update keeps them). Automation, unpresented and no-update slots are counted, not folded in."""
+    caused_frame_update keeps them). Automation, unpresented and no-update slots are counted, not folded in;
+    `linked_to_key_flow` counts the key slots joined to their key.flow chain."""
     rows = collections.defaultdict(lambda: {"total": [], "stages": collections.defaultdict(list)})
-    counts = collections.Counter(slots=len(slots), unplaced=unplaced)
+    counts = collections.Counter(slots=len(slots), unplaced=unplaced, linked_to_key_flow=len(links))
     for slot in slots:
         if slot["entrypoint"] == "automation":
             counts["automation"] += 1
@@ -2694,7 +2741,7 @@ def input_latency_summary(slots, unplaced):
         if "presented" not in slot["stages"]:
             counts["unpresented"] += 1
             continue
-        if not slot["update"] and not slot["kind"].startswith("key"):
+        if not slot["update"] and slot["kind"] not in INPUT_KEY_KINDS:
             counts["no_update"] += 1
             continue
         start, end, children, out_of_order = input_stage_spans(slot)
@@ -2706,6 +2753,8 @@ def input_latency_summary(slots, unplaced):
     return {**counts, "rows": {key: {"total_ms": pct99(row["total"]),
                                      "stage_ms": {name: pct99(values) for name, values in row["stages"].items()}}
                                for key, row in sorted(rows.items())}}
+
+
 # ---------------------------------------------------------------- startup trace files (launch scenarios)
 
 def read_trace_file(path):
@@ -3245,12 +3294,11 @@ def build(out):
     flow_signposts = [e for e in signposts["events"] if e["name"] == "key.flow"]
     key_flows = assemble_flows(flow_signposts, flow_records)
     flow_gaps = flow_warnings(flow_signposts, flow_records, key_flows)
-    # Input latency: one slice per closed slot, generated -> presented, its key.flow chain linked by flow id.
+    # Input latency: one slice per closed slot, generated -> presented; a key's slice opens its key.flow chain's arrow.
     input_slots, input_unplaced = input_latency_slots(signposts)
-    input_events, input_linked = input_latency_events(input_slots, app_pid, tracks, lane_names,
-                                                      {f["flow"] for f in key_flows})
-    events += input_events
-    events += flow_events(key_flows, tracks, lane_names, input_linked)
+    input_links = input_flow_links(input_slots, key_flows)
+    events += input_latency_events(input_slots, app_pid, tracks, lane_names, input_links)
+    events += flow_events(key_flows, tracks, lane_names, frozenset(input_links.values()))
     for pid in {r["pid"] for r in flow_records if r.get("pid")}:
         roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
     # Metadata: names and order.
@@ -3285,7 +3333,7 @@ def build(out):
     summary = summarize(meta, roles, app_pid, samples, offset_us, signposts, stall_records, blocked, span_rows, chrome,
                         chrome_info, threads_by_pid)
     summary["key_flows"] = flow_summary(key_flows, flow_dropped, flow_gaps)
-    summary["input_latency"] = input_latency_summary(input_slots, input_unplaced)
+    summary["input_latency"] = input_latency_summary(input_slots, input_unplaced, input_links)
     if meta.get("scenario") in LAUNCH_SCENARIOS:
         summary["launch"] = launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stall_records,
                                            app_trace, hangs.get("dropped"))
@@ -4680,12 +4728,13 @@ def check_focus_quiet_terminal():
 
 
 def check_input_latency_slices():
-    """Case 'input latency slices', end to end through build() on trace_fixtures' input.latency recording: one
-    slice per placed slot from generated to presented (to its last stage when unpresented) on an `input latency`
-    track, a child per step between the stages it has (a skipped stage joins its neighbours; a stage outside the
-    slice is left out), every child inside its slice with no gap and no overlap, slots that overlap in time on
-    separate lanes, the terminal key's slice opening the arrow into its key.flow chain, and the summary per kind x
-    target x presentation source over the person's presented, frame-changing slots."""
+    """Case 'input latency slices', end to end through build() on trace_fixtures' input.latency recording (the
+    message InputLatencySignpostMessage writes): one slice per placed slot from generated to presented (to its last
+    stage when unpresented) on an `input latency` track, named by its kind and target, a child per step between the
+    stages it has (a skipped stage joins its neighbours; a stage outside the slice is left out), every child inside
+    its slice with no gap and no overlap, slots that overlap in time on separate lanes, the terminal key's slice
+    opening the arrow into the key.flow chain with its OS timestamp (a chain 1.5 ms off stays apart), and the summary
+    per kind x target x presentation source over the person's presented, frame-changing slots."""
     fixtures = load("trace_fixtures", "trace_fixtures.py")
     with tempfile.TemporaryDirectory() as out:
         open(os.path.join(out, "signposts.ndjson"), "w").write(fixtures.input_latency_ndjson())
@@ -4694,15 +4743,16 @@ def check_input_latency_slices():
         with gzip.open(os.path.join(out, "trace.json.gz"), "rt") as f:
             trace = json.load(f)["traceEvents"]
     names = {(e["pid"], e["tid"]): e["args"]["name"] for e in trace if e.get("name") == "thread_name"}
-    slices = [e for e in trace if e.get("cat") == "input.latency"]
+    slices = sorted((e for e in trace if e.get("cat") == "input.latency"), key=lambda e: e["ts"])
     stages = [e for e in trace if e.get("cat") == "input.latency.stage"]
-    assert len(slices) == len(fixtures.INPUT_SLOTS) - 1, [s["name"] for s in slices]
-    by_slot = {s["args"]["slot"]: s for s in slices}
+    placed = [s for s in fixtures.INPUT_SLOTS if s["gen_ns"]]
+    assert len(slices) == len(placed), [s["name"] for s in slices]
+    full, text_key, click, held, scroll, scripted, no_echo, text_key_2, unknown = slices
     assert {names[(s["pid"], s["tid"])] for s in slices} == {"input latency", "input latency 2"}, names
     ms = lambda e: e["dur"] / 1000
-    full = by_slot["1"]
-    assert full["name"] == "EventLatency key terminal" and full["ts"] == 5_000_000.0 and ms(full) == 12, full
+    assert full["name"] == "EventLatency keyPress terminal" and full["ts"] == 5_000_000.0 and ms(full) == 12, full
     assert full["args"]["presentation_source"] == "estimatedVsync" and full["args"]["skipped_stages"] == [], full
+    assert full["args"]["entrypoint"] == "person" and full["args"]["coalesced"] == 1, full["args"]
     children = lambda s: sorted((e for e in stages if (e["pid"], e["tid"]) == (s["pid"], s["tid"])
                                  and s["ts"] <= e["ts"] and e["ts"] + e["dur"] <= s["ts"] + s["dur"]),
                                 key=lambda e: e["ts"])
@@ -4718,35 +4768,38 @@ def check_input_latency_slices():
         assert kids[0]["ts"] == slot["ts"] and round(kids[-1]["ts"] + kids[-1]["dur"], 3) == round(slot["ts"] + slot["dur"], 3), slot
         assert all(round(a["ts"] + a["dur"], 3) == b["ts"] for a, b in zip(kids, kids[1:])), [(k["name"], k["ts"]) for k in kids]
     assert len(stages) == sum(len(children(s)) for s in slices), "a stage child outside its slot's slice"
-    skipped = by_slot["3"]
-    assert "dispatch_start" in skipped["args"]["skipped_stages"] and skipped["args"]["coalesced"] == "3", skipped
-    assert [e["name"] for e in children(skipped)] == [
+    assert click["name"] == "EventLatency mousePress chromiumPage" and click["args"]["variable_refresh"], click
+    assert "dispatch_start" in click["args"]["skipped_stages"] and click["args"]["coalesced"] == 3, click
+    assert [e["name"] for e in children(click)] == [
         "GeneratedToArrivedMain", "ArrivedMainToDispatchEnd", "DispatchEndToMainCommit", "MainCommitToPresented"]
-    assert skipped["args"]["oldest_to_newest_coalesced_ms"] == 2.0, skipped["args"]
-    late = by_slot["2"]
-    assert ms(late) == 8 and late["args"]["stages_out_of_order"] == 1, late
-    assert (late["pid"], late["tid"]) != (full["pid"], full["tid"]), "two overlapping slots share a lane"
-    held = by_slot["4"]
-    assert (held["pid"], held["tid"]) != (skipped["pid"], skipped["tid"]), "a slot nested in another's slice"
-    no_echo = by_slot["7"]
+    assert click["args"]["oldest_to_newest_coalesced_ms"] == 2.0, click["args"]
+    assert ms(text_key) == 8 and text_key["args"]["stages_out_of_order"] == 1, text_key
+    assert (text_key["pid"], text_key["tid"]) != (full["pid"], full["tid"]), "two overlapping slots share a lane"
+    assert (held["pid"], held["tid"]) != (click["pid"], click["tid"]), "a slot nested in another's slice"
+    assert scroll["name"] == "EventLatency scrollUpdate layout" and not scroll["args"]["caused_frame_update"], scroll
+    assert scripted["args"]["entrypoint"] == "automation", scripted
     assert not no_echo["args"]["presented"] and ms(no_echo) == 0.9, no_echo
-    # The terminal key's slice opens the arrow its key.flow chain takes in.
+    assert unknown["name"] == "EventLatency unknown#200 other", unknown
+    # The terminal key's slice opens the arrow its key.flow chain takes in; the stray chain stays unlinked.
     linked = f"0x{fixtures.INPUT_FLOW:x}"
-    assert full.get("bind_id") == linked and full.get("flow_out"), full
+    assert full.get("bind_id") == linked and full.get("flow_out") and full["args"]["flow"] == linked, full
     hops = sorted((e for e in trace if e.get("cat") == "key.flow" and e.get("bind_id") == linked), key=lambda e: e["ts"])
     assert hops and hops[0].get("flow_in"), hops
+    stray = [e for e in trace if e.get("cat") == "key.flow" and e.get("bind_id") == f"0x{fixtures.INPUT_STRAY_FLOW:x}"]
+    assert stray and not stray[0].get("flow_in"), stray
     assert not any(s.get("flow_out") for s in slices if s is not full), "an unlinked slot opened an arrow"
     latency = summary["input_latency"]
-    assert (latency["slots"], latency["unplaced"], latency["automation"], latency["unpresented"], latency["no_update"]) \
-        == (len(fixtures.INPUT_SLOTS) - 1, 1, 1, 1, 1), latency
+    assert (latency["slots"], latency["unplaced"], latency["automation"], latency["unpresented"], latency["no_update"],
+            latency["linked_to_key_flow"]) == (len(placed), 1, 1, 1, 1, 1), latency
     rows = latency["rows"]
-    assert set(rows) == {"key terminal estimatedVsync", "key textView metalPresented", "click chromiumPage pageEstimated"}, rows
-    text_view = rows["key textView metalPresented"]["total_ms"]
+    assert set(rows) == {"keyPress terminal estimatedVsync", "keyPress textView metalPresented",
+                         "mousePress chromiumPage pageEstimated", "unknown#200 other nominalRefresh"}, rows
+    text_view = rows["keyPress textView metalPresented"]["total_ms"]
     assert (text_view["n"], text_view["p50"], text_view["p99"], text_view["max"]) == (2, 8.0, 10.0, 10.0), text_view
-    assert rows["key terminal estimatedVsync"]["stage_ms"]["PtyWrittenToEchoRead"]["p95"] == 1.0, rows
-    assert rows["click chromiumPage pageEstimated"]["total_ms"]["n"] == 2, rows
+    assert rows["keyPress terminal estimatedVsync"]["stage_ms"]["PtyWrittenToEchoRead"]["p95"] == 1.0, rows
+    assert rows["mousePress chromiumPage pageEstimated"]["total_ms"]["n"] == 2, rows
     text = summary_text(summary)
-    assert "Input latency, generated -> presented" in text and "key textView metalPresented" in text, text
+    assert "Input latency, generated -> presented" in text and "keyPress textView metalPresented" in text, text
 
 
 FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")

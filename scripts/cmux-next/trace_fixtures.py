@@ -61,60 +61,70 @@ TABLES = {"profile": ["time-profile", "os-signpost"], "system": ["syscall"]}
 
 
 INPUT_PID = 42
-INPUT_FLOW = (10 << 32) | 77  # the terminal key's flow id: its key.flow hops carry the same one
 MS = 1_000_000
-# (fields, {stage: ns after `generated`}) per closed slot; a stage not listed is one the slot skipped.
+# InputLatencySignpostMessage's fields in the order Signposter.event(_:_:) writes them, each stage microseconds after
+# gen_ns (-1: skipped). Raw values: kind keyPress 0, mousePress 3, scrollUpdate 9; target terminal 0, textView 1,
+# chromiumPage 2, layout 5, other 8; entry person 0, automation 1; source estimatedVsync 0, metalPresented 1,
+# pageEstimated 3, nominalRefresh 5.
+INPUT_FIELDS = ("kind", "target", "entry", "source", "vrr", "coalesced", "frame", "gen_ns", "last_gen_us", "arrived_us",
+                "dispatch_start_us", "ti_start_us", "ti_end_us", "dispatch_end_us", "commit_us", "content_us",
+                "daemon_us", "pty_us", "echo_read_us", "echo_sent_us", "presented_us")
 INPUT_SLOTS = [
     # 0: a terminal key with every stage, the cross-process ones included, linked to its key.flow chain.
-    ({"id": 1, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync",
-      "update": 1, "flow": INPUT_FLOW, "generated_ns": 5_000 * MS},
-     {"arrived_main": 0.3 * MS, "dispatch_start": 0.4 * MS, "text_input_start": 0.45 * MS, "text_input_end": 0.6 * MS,
-      "dispatch_end": 0.7 * MS, "daemon_received": 0.9 * MS, "pty_written": 1 * MS, "echo_read": 2 * MS,
-      "echo_sent": 2.1 * MS, "main_commit": 3 * MS, "content_submitted": 3.5 * MS, "presented": 12 * MS}),
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 5_000 * MS, "arrived_us": 300,
+     "dispatch_start_us": 400, "ti_start_us": 450, "ti_end_us": 600, "dispatch_end_us": 700, "daemon_us": 900,
+     "pty_us": 1_000, "echo_read_us": 2_000, "echo_sent_us": 2_100, "commit_us": 3_000, "content_us": 3_500,
+     "presented_us": 12_000},
     # 1: a text view key typed before key 0 presented (its own lane): no text input, no cross-process stages, and
-    # a content_submitted after presented (left out, counted).
-    ({"id": 2, "kind": "key", "target": "textView", "entrypoint": "person", "source": "metalPresented", "update": 1,
-      "generated_ns": 5_004 * MS},
-     {"arrived_main": 0.2 * MS, "dispatch_start": 0.25 * MS, "dispatch_end": 1.25 * MS, "main_commit": 2 * MS,
-      "presented": 8 * MS, "content_submitted": 9 * MS}),
-    # 2: a coalesced click that skipped dispatch_start (a stage in the middle).
-    ({"id": 3, "kind": "click", "target": "chromiumPage", "entrypoint": "person", "source": "pageEstimated",
-      "update": 1, "coalesced": 3, "generated_ns": 5_020 * MS},
-     {"last_generated": 2 * MS, "arrived_main": 3 * MS, "dispatch_end": 4 * MS, "main_commit": 5 * MS,
-      "presented": 20 * MS}),
+    # a content_us after presented (left out, counted).
+    {"kind": 0, "target": 1, "entry": 0, "source": 1, "frame": 1, "gen_ns": 5_004 * MS, "arrived_us": 200,
+     "dispatch_start_us": 250, "dispatch_end_us": 1_250, "commit_us": 2_000, "presented_us": 8_000,
+     "content_us": 9_000},
+    # 2: three coalesced clicks on a variable-refresh display that skipped dispatch_start (a stage in the middle).
+    {"kind": 3, "target": 2, "entry": 0, "source": 3, "vrr": 1, "coalesced": 3, "frame": 1, "gen_ns": 5_020 * MS,
+     "last_gen_us": 2_000, "arrived_us": 3_000, "dispatch_end_us": 4_000, "commit_us": 5_000, "presented_us": 20_000},
     # 3: a click held inside click 2's span: it goes to another lane, never nested in it.
-    ({"id": 4, "kind": "click", "target": "chromiumPage", "entrypoint": "person", "source": "pageEstimated",
-      "update": 1, "generated_ns": 5_025 * MS},
-     {"arrived_main": 0.5 * MS, "dispatch_start": 0.6 * MS, "dispatch_end": 1 * MS, "presented": 5 * MS}),
+    {"kind": 3, "target": 2, "entry": 0, "source": 3, "frame": 1, "gen_ns": 5_025 * MS, "arrived_us": 500,
+     "dispatch_start_us": 600, "dispatch_end_us": 1_000, "presented_us": 5_000},
     # 4: a scroll that changed nothing on screen: drawn, not folded (Chrome's caused_frame_update).
-    ({"id": 5, "kind": "scroll", "target": "layout", "entrypoint": "person", "source": "estimatedVsync",
-      "update": 0, "generated_ns": 5_050 * MS},
-     {"arrived_main": 1 * MS, "dispatch_start": 1.1 * MS, "dispatch_end": 2 * MS, "presented": 9 * MS}),
+    {"kind": 9, "target": 5, "entry": 0, "source": 0, "frame": 0, "gen_ns": 5_050 * MS, "arrived_us": 1_000,
+     "dispatch_start_us": 1_100, "dispatch_end_us": 2_000, "presented_us": 9_000},
     # 5: a scripted key: drawn, not folded into the person's rows.
-    ({"id": 6, "kind": "key", "target": "terminal", "entrypoint": "automation", "source": "estimatedVsync",
-      "update": 1, "generated_ns": 5_070 * MS},
-     {"arrived_main": 0.1 * MS, "dispatch_start": 0.2 * MS, "dispatch_end": 0.5 * MS, "presented": 5 * MS}),
-    # 6: a terminal key whose echo never came (noEcho): no presented, its slice ends at its last stage.
-    ({"id": 7, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync",
-      "update": 1, "generated_ns": 5_090 * MS},
-     {"arrived_main": 0.2 * MS, "dispatch_start": 0.3 * MS, "dispatch_end": 0.9 * MS}),
+    {"kind": 0, "target": 0, "entry": 1, "source": 0, "frame": 1, "gen_ns": 5_070 * MS, "arrived_us": 100,
+     "dispatch_start_us": 200, "dispatch_end_us": 500, "presented_us": 5_000},
+    # 6: a terminal key whose echo never came: no presented, its slice ends at its last stage. A stray key.flow
+    # chain 1.5 ms after it is not this key's.
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 5_090 * MS, "arrived_us": 200,
+     "dispatch_start_us": 300, "dispatch_end_us": 900},
     # 7: a second text view key, so its row has two samples.
-    ({"id": 8, "kind": "key", "target": "textView", "entrypoint": "person", "source": "metalPresented", "update": 1,
-      "generated_ns": 5_100 * MS},
-     {"arrived_main": 0.2 * MS, "dispatch_start": 0.3 * MS, "dispatch_end": 1 * MS, "main_commit": 1.5 * MS,
-      "presented": 10 * MS}),
-    # 8: no generated stage: it cannot be placed.
-    ({"id": 9, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync", "update": 1},
-     {"presented": 5_200 * MS}),
+    {"kind": 0, "target": 1, "entry": 0, "source": 1, "frame": 1, "gen_ns": 5_100 * MS, "arrived_us": 200,
+     "dispatch_start_us": 300, "dispatch_end_us": 1_000, "commit_us": 1_500, "presented_us": 10_000},
+    # 8: a kind this script does not know yet (a case added after it), presented from a nominal refresh.
+    {"kind": 200, "target": 8, "entry": 0, "source": 5, "frame": 1, "gen_ns": 5_150 * MS, "arrived_us": 100,
+     "presented_us": 4_000},
+    # 9: no generated time: it cannot be placed.
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 0, "presented_us": 5_000},
 ]
-# The terminal key's key.flow hops (TypingLatencyProbe): enough for trace.py to assemble its chain.
-INPUT_FLOW_HOPS = [("app.key.dispatch", 5_000 * MS + 0.4 * MS), ("app.key.terminal", 5_000 * MS + 0.5 * MS)]
+INPUT_FLOW = (INPUT_PID << 32) | 1  # TypingLatencyProbe's flow id: pid << 32 | the press's index
+INPUT_STRAY_FLOW = (INPUT_PID << 32) | 2
+# (flow, hop, written at ns, age_us): each chain's app.key.dispatch hop is written a few us after the probe took its
+# age, so its time minus its age is the key's OS timestamp plus that write.
+INPUT_FLOW_HOPS = [(INPUT_FLOW, "app.key.dispatch", 5_000 * MS + 403_000, 400),
+                   (INPUT_FLOW, "app.key.terminal", 5_000 * MS + 500_000, 500),
+                   (INPUT_STRAY_FLOW, "app.key.dispatch", 5_091 * MS + 800_000, 300),
+                   (INPUT_STRAY_FLOW, "app.key.terminal", 5_091 * MS + 900_000, 400)]
+
+
+def input_latency_message(slot):
+    """One slot's `input.latency` message, as Signposter.event(_:_:) formats an InputLatencySignpostMessage."""
+    defaults = {"vrr": 0, "coalesced": 1}
+    return " ".join(f"{name}={slot.get(name, defaults.get(name, -1))}" for name in INPUT_FIELDS)
 
 
 def input_latency_ndjson():
     """The input latency recording as `log stream --signpost --style ndjson` writes it (timebase 1/1: the
-    machTimestamp is ns; no sleep since boot): each slot one `input.latency` event when it closed, its stage
-    times as `<stage>_ns` uptime fields, and the terminal key's key.flow hops."""
+    machTimestamp is ns; no sleep since boot): each slot one `input.latency` event when it closed and the two
+    key.flow chains' app hops."""
     lines = ["#timebase 1/1", "#continuous-minus-uptime-us 0"]
 
     def event(signpost_id, name, category, at_ns, message):
@@ -123,13 +133,11 @@ def input_latency_ndjson():
                                  "signpostType": "event", "processID": INPUT_PID, "threadID": 259,
                                  "machTimestamp": int(at_ns), "eventMessage": message}))
 
-    for index, (fields, offsets) in enumerate(INPUT_SLOTS):
-        generated = fields.get("generated_ns", 0)
-        stages = {f"{stage}_ns": int(generated + offset) for stage, offset in offsets.items()}
-        message = " ".join(f"{key}={value}" for key, value in {**fields, **stages}.items())
-        event(100 + index, "input.latency", "input", max(stages.values()), message)
-    for index, (hop, at_ns) in enumerate(INPUT_FLOW_HOPS):
-        event(200 + index, "key.flow", "keyFlow", at_ns, f"hop={hop} flow={INPUT_FLOW} age_us=5")
+    for index, slot in enumerate(INPUT_SLOTS):
+        closed = slot["gen_ns"] + max(slot.get(f, -1) for f in INPUT_FIELDS if f.endswith("_us")) * 1000
+        event(100 + index, "input.latency", "input", closed, input_latency_message(slot))
+    for index, (flow, hop, at_ns, age_us) in enumerate(INPUT_FLOW_HOPS):
+        event(200 + index, "key.flow", "keyFlow", at_ns, f"hop={hop} flow={flow} age_us={age_us}")
     return "\n".join(lines) + "\n"
 # The launch fixture (``write_launch_fixture``): pid 42 starts at CLOCK_UPTIME_RAW 10 s; marks in ms since then.
 LAUNCH_PID, LAUNCH_MAIN_TID, LAUNCH_START_US = 42, 26, 10_000_000.0
