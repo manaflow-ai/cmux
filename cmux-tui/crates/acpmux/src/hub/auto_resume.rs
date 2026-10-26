@@ -43,6 +43,8 @@
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
+//! - `_acpmux/retry` fires a waiting continuation now, or retries a failed turn on demand
+//!   ([`retry_turn`]).
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -54,6 +56,9 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 use crate::protocol::session::{RetryReason, RetrySummary};
+
+/// `_acpmux/retry`: a failed turn retried on demand.
+pub(crate) mod retry_turn;
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
@@ -88,7 +93,8 @@ fn continue_text(error: &str, reason: &str) -> String {
     let cause = match reason {
         "agent_exited" => "an agent process exit",
         "capacity" => "a capacity error upstream (the provider or the gateway was full)",
-        _ => "a connection error",
+        "transport" => "a connection error",
+        _ => "an error",
     };
     format!(
         "Your previous turn was cut off by {cause} ({error}). Check what already \
@@ -119,7 +125,7 @@ impl Drop for Wake {
 /// What a chat's continuation state is.
 enum Mark {
     /// A continuation waits to answer for this cut turn; `retry` once its wait is set.
-    Waiting { turn: String, retry: Option<RetrySummary>, _wake: Wake },
+    Waiting { turn: String, retry: Option<RetrySummary>, wake: Wake },
     /// The continuation of this cut turn fired and has not started its turn yet; Stop or
     /// close now still counts for it.
     Firing(String),
@@ -277,7 +283,7 @@ impl Hub {
         };
         let wake = Arc::new(Notify::new());
         let mark =
-            Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            Mark::Waiting { turn: turn_id.to_owned(), retry: None, wake: Wake(wake.clone()) };
         pending.insert(session.id.clone(), mark);
         drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);

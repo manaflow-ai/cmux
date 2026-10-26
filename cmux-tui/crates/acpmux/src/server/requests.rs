@@ -1531,7 +1531,7 @@ async fn dispatch_request(
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             super::outbox::handle(hub, conn, m, &params).await
         }
-        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
+        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME | method::MUX_RETRY => {
             super::agent_messages::handle(hub, conn, m, &params).await
         }
         method::MUX_PERMISSION_GROUPS => {

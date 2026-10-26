@@ -128,6 +128,18 @@ fn tools() -> Value {
             }
         },
         {
+            "name": "retry_session",
+            "description": "Retry a sub-session's failed last turn now, in the same session: a retry that waits after a transient error (a 503, an overload, a dropped connection) fires at once; otherwise its failed prompt is sent again, or a continuation when the turn had already done some work. Refused while a turn runs (retry.busy) or when its last turn did not fail (retry.nothing_failed). Returns the retry's promptId; use wait_for_sessions to read the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "The sub-session's sessionId."},
+                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Not supported yet: refused with retry.subagent_unsupported."}
+                },
+                "required": ["session"]
+            }
+        },
+        {
             "name": "answer_question",
             "description": "Answer a question one of your sub-sessions (or a session under them) is asking: a Claude Code AskUserQuestion or a Grok or Cursor ask, listed under questions in get_session and wait_for_sessions with answerable true. Any other ask (answerable false, such as a Codex user-input request) only the user answers. Its agent gets your answer as its user's answer, and its transcript says you gave it. Permission requests and plan approvals are not questions: only the user allows those, in cmux NEXT, so tell the user which sub-session is waiting. It works only after the user turned it on (Settings > Agents > Sub-sessions); otherwise it is refused and you tell the user what the sub-session asks.",
             "inputSchema": {
@@ -244,6 +256,29 @@ async fn with_attachments(mut args: Value) -> Result<Value> {
     Ok(args)
 }
 
+/// `retry_session`'s `{session, subagent?}` (`sessionId` taken too) as the daemon's params.
+fn retry_params(args: &Value) -> Value {
+    let session = args.get("session").or_else(|| args.get("sessionId"));
+    let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
+    if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
+        params["subagentId"] = subagent.clone();
+    }
+    params
+}
+
+/// `retry_session`'s one line.
+fn retried_text(r: &Value) -> String {
+    let prompt = r["promptId"].as_str().unwrap_or_default();
+    match r["turnId"].as_str() {
+        Some(turn) => format!(
+            "Retrying: prompt {prompt} started turn {turn}. Use wait_for_sessions to get its result."
+        ),
+        None => format!(
+            "Retrying: its waiting retry (prompt {prompt}) fires now. Use wait_for_sessions to get its result."
+        ),
+    }
+}
+
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
 fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
@@ -277,6 +312,10 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+            Err(e) => refusal(e),
+        },
+        "retry_session" => match request(method::MUX_SUBSESSION_RETRY, retry_params(&args)).await {
+            Ok(r) => ok(retried_text(&r), r),
             Err(e) => refusal(e),
         },
         "answer_question" => match request(method::MUX_SUBSESSION_ANSWER, args).await {
@@ -382,6 +421,27 @@ mod tests {
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TOOL}(")), "{rules}");
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TAB_TOOL}(")), "{rules}");
         assert!(!rules.contains("agent_report"), "agent.report needs a terminal: {rules}");
+    }
+
+    /// `retry_session` takes the contract's `{session, subagent?}` and sends `_acpmux/subsession/retry`'s
+    /// `{sessionId, subagentId?}`.
+    #[test]
+    fn retry_session_names_the_session_and_maps_its_arguments() {
+        let tools = tools();
+        let retry = tools
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == "retry_session"))
+            .expect("retry_session")
+            .clone();
+        assert_eq!(retry["inputSchema"]["required"], json!(["session"]), "{retry}");
+        assert!(retry["inputSchema"]["properties"]["subagent"].is_object(), "{retry}");
+        assert_eq!(
+            retry_params(&json!({"session": "s1", "subagent": "a1"})),
+            json!({"sessionId": "s1", "subagentId": "a1"})
+        );
+        assert_eq!(retry_params(&json!({"sessionId": "s2"})), json!({"sessionId": "s2"}));
+        let fired = retried_text(&json!({"promptId": "p~resume-1", "kind": "turn"}));
+        assert!(fired.contains("fires now"), "{fired}");
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why
