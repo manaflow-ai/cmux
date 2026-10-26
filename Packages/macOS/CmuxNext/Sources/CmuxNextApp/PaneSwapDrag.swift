@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextTabs
 
@@ -15,12 +16,16 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let swap: (LayoutPaneID, LayoutPaneID) -> Void
     /// The last mouse-down starts a pane drag (decided at the press, not where the pan begins).
     private var armed = false
-    private var escapeMonitor: Any?
+    /// The app's input tap: Escape is an intercept on it while a drag runs.
+    private let input: InputEventTap
+    /// The drag's Escape intercept; nil while no drag runs.
+    private var escape: InputSubscription?
 
-    init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
+    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, layout: @escaping () -> LayoutRootView?,
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
         self.strip = strip
         self.pane = pane
+        self.input = input
         self.layout = layout
         self.swap = swap
         super.init()
@@ -35,7 +40,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
 
     /// A pane's drag: a drop sends `swap-pane` to its daemon.
     convenience init(pane: PaneController) {
-        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
+        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, input: pane.services.inputTap,
+                  layout: { [weak pane] in pane?.workspace?.layoutView },
                   swap: { [weak pane] from, to in
                       guard let pane, let content = pane.workspace, let from = content.handles.panes[from],
                             let to = content.handles.panes[to] else { return }
@@ -72,7 +78,11 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
 
     @objc private func pan(_ recognizer: NSPanGestureRecognizer) {
-        guard let layout = layout() else { return }
+        guard let layout = layout() else {
+            // The layout went during the drag: an end still drops the drag's Escape intercept.
+            if recognizer.state != .began, recognizer.state != .changed { end(nil) }
+            return
+        }
         let target = layout.visiblePane(at: recognizer.location(in: layout)).flatMap { $0.pane == pane ? nil : $0 }
         switch recognizer.state {
         case .began, .changed:
@@ -94,21 +104,22 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     }
 
     /// Escape cancels the drag: it ends here (outline gone, disarmed), and the recognizer turned
-    /// off and on stops tracking.
+    /// off and on stops tracking. The intercept lives for the drag only (``end(_:)`` cancels it).
     private func watchEscape(_ recognizer: NSPanGestureRecognizer) {
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak recognizer] event in
-            guard event.keyCode == 53, let self, let recognizer else { return event }
-            if let layout = layout() { end(layout) }
+        escape = input.subscribe(class: .key, phase: .intercept(order: .dragSession)) { [weak self, weak recognizer] event in
+            guard event.type == .keyDown, event.keyCode == 53, let self, let recognizer else { return .pass }
+            end(layout())
             recognizer.isEnabled = false
             recognizer.isEnabled = true
-            return nil
+            return .consume
         }
     }
 
-    private func end(_ layout: LayoutRootView) {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
+    /// Ends the drag on every path: the Escape intercept goes, the drag disarms, the preview hides.
+    private func end(_ layout: LayoutRootView?) {
+        escape?.cancel()
+        escape = nil
         armed = false
-        layout.cancelTabDrag()
+        layout?.cancelTabDrag()
     }
 }

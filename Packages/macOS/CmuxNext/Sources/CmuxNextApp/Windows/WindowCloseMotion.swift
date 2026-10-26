@@ -51,7 +51,7 @@ import CmuxNextDesign
     private var look: Look?
 
     /// The opacity key path the fade springs.
-    static let keyPath = "opacity"
+    static let key = RenderSpringKey<CGFloat>.opacity
 
     /// Whether a close from `origin` is the person's (a click, a key, a page control they drew):
     /// only that close fades. A script, the CLI, MCP or another client closes at once, so the
@@ -79,7 +79,7 @@ import CmuxNextDesign
     /// The fade on `gate`'s `token` spring: the layer's opacity springs to 0 on the render server.
     static func springFade(_ token: MotionSpring, on gate: MotionGate) -> Fade {
         { layer, view, landed in
-            gate.renderSpring(token).animate(layer, WindowCloseMotion.keyPath, to: CGFloat(0), in: view, completion: landed)
+            gate.renderSpring(token).animate(layer, WindowCloseMotion.key, to: CGFloat(0), in: view, completion: landed)
         }
     }
 
@@ -123,7 +123,7 @@ import CmuxNextDesign
         if let look {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            RenderSpring.stop(look.layer, Self.keyPath)
+            RenderSpring.stop(look.layer, Self.key.path)
             look.layer.opacity = 1
             look.layer.allowsGroupOpacity = look.allowsGroupOpacity
             CATransaction.commit()

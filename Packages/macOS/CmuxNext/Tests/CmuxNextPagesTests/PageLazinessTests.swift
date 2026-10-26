@@ -47,7 +47,7 @@ struct PageLazinessTests {
 
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
-                  memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                  memory: QuietMemoryRegistry(),
                   clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
     }
 

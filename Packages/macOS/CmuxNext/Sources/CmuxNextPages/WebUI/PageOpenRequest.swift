@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextWakeups
 public import Foundation
 import WebKit
 
@@ -28,11 +29,13 @@ public struct PageOpenRequest {
     /// (``PageWebView/bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``), and it
     /// never waits for a first show. Its `routes` and `dynamicResources` are those of the claim.
     public var parked: Bool
+    /// The agent chat open the page shows (``PageWebView/chatOpen``), known before its document starts.
+    public var chatOpen: ChatOpenStages?
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                parked: Bool = false) {
+                parked: Bool = false, chatOpen: ChatOpenStages? = nil) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -42,6 +45,7 @@ public struct PageOpenRequest {
         self.surface = surface
         self.dynamicResources = dynamicResources
         self.parked = parked
+        self.chatOpen = chatOpen
     }
 }
 
@@ -83,7 +87,7 @@ extension PageWebView {
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: request.parked, load: true, openRequested: requested, chromium: chromium,
                   openPanel: openPanel, registry: registry, processGroups: groups,
-                  startsAtFirstShow: startsAtFirstShow && !request.parked)
+                  startsAtFirstShow: startsAtFirstShow && !request.parked, chatOpen: request.chatOpen)
         if let parkedOwner {
             parkedOwner.view = self
             pooledOwner = parkedOwner

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 public import CmuxNextSignposts
 
 /// The input event being dispatched now: the one source the key router, the menu key gate, the action
@@ -45,6 +46,8 @@ public final class InputDispatchContext {
     }
 
     private var stack: [Dispatch] = []
+    /// The inputs ``answering(input:_:)`` hands in, innermost last.
+    private var answered: [TimeInterval] = []
     /// Discrete dispatches on ``stack``: while there is one, ``nestedRunLoopObserver`` is on the main run loop.
     private var openDiscrete = 0
     /// Reports the open discrete inputs at the first wait of a run loop nested in their dispatch
@@ -118,8 +121,41 @@ public final class InputDispatchContext {
         stack[stack.count - 1].layoutTook = true
     }
 
+    /// Whether the layout took the scroll event being dispatched (``noteLayoutTookScroll()``); false between dispatches.
+    public var layoutTookScroll: Bool { stack.last?.layoutTook ?? false }
+
     /// The innermost event being dispatched, nil between dispatches.
     public var event: NSEvent? { stack.last?.event }
+
+    /// The input a `switch.*` interval begun now answers (`switch.workspace`, `switch.tab`, `switch.pane_focus`), as an
+    /// `NSEvent.timestamp`, the same input an action run's `action.*` row reads:
+    /// - the key or click being dispatched (`ActionRegistry.inputTimestamp(of:)`);
+    /// - else an input another process took and handed here with its request (``answering(input:_:)``: a page's click
+    ///   or Return, which comes back a turn after its own dispatch);
+    /// - else the press of the person's action run in progress (`ActionRunScope.inputTimestamp`), so a run a gate let
+    ///   through, or a run's task after a daemon reply, switches with its press's age.
+    ///
+    /// Nil otherwise: a switch a socket, the CLI or a script starts has no input age however recent the last click was
+    /// (`NSApp.currentEvent` keeps that click). Chrome stamps an input's latency with the event's own time and carries
+    /// it with the work it causes across threads and processes (`EventMetrics`, cc/metrics/event_metrics.h).
+    public var inputTimestamp: TimeInterval? {
+        ActionRegistry.inputTimestamp(of: event) ?? answered.last ?? ActionRunScope.current?.inputTimestamp
+    }
+
+    /// Runs `body` as the answer to a person's input another process dispatched (a page's click or key, whose request
+    /// arrives here after that event's own dispatch ended): a switch `body` begins takes `input` as its input. Nil runs
+    /// `body` with no such input. Synchronous: a task `body` starts does not keep it.
+    ///
+    /// - Parameters:
+    ///   - input: The input's `NSEvent.timestamp` (seconds of system uptime), or nil.
+    ///   - body: The work that answers it.
+    /// - Returns: What `body` returns.
+    public func answering<T>(input: TimeInterval?, _ body: () throws -> T) rethrows -> T {
+        guard let input else { return try body() }
+        answered.append(input)
+        defer { answered.removeLast() }
+        return try body()
+    }
 
     /// Whether the innermost event being dispatched is a key-down.
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }

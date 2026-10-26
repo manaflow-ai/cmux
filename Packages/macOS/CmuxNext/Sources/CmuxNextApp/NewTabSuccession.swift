@@ -88,7 +88,7 @@ struct NewTabSuccession {
     private func expire(after limit: Duration) {
         guard let pane else { return }
         let timer = expiry, key = ObjectIdentifier(pane)
-        timer.schedule(after: limit) { @MainActor [weak services, weak pane] in
+        timer.scheduleOnMain(after: limit) { [weak services, weak pane] in
             guard Self.active[key]?.expiry === timer else { return }
             Self.active[key] = nil
             if let pane { services?.paneController(for: pane)?.syncStripFromStore() }

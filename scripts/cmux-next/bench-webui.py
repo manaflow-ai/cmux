@@ -21,7 +21,15 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
   pages10   D3. Opens settings, history, cloud, apps, keybindings, files, diff, markdown, editor and chief-usage (the
             last one shown), then: renderers that hold no browser tab, DevTools on page renderers (`unscored` on
             fork < 29: clicks use DevTools there), frozen pages --hide-settle s after hiding, the delivery window
-            (below), discarded pages and footprint at --discard-settle s against the one-page footprint.
+            (below), discarded pages and footprint at --discard-settle s against the one-page footprint, then
+            each discarded page shown again by its action (up to --runs): key to the turn that drew its hide-time
+            snapshot and to its restored document's first frame (`debug.page` `restore`, D4's discarded rows).
+            With --every-page-hidden (task 037, MQ5): the ten pages open, a terminal tab hides the last one too, and
+            after --hide-settle s a --measure s window reads the interrupt wakeups/s of each page renderer (its
+            pages and their states in the note) and of the GPU process. The app runs with browser.freezeHiddenTabs
+            "off", so the pages stay hidden and running; a renderer whose page froze or ended is unscored, and so is
+            the verdict then. A renderer above 0.2/s names the pages whose self-rescheduling requestAnimationFrame
+            loops move to usePageAnimationFrame; none above it and none unscored, none moves.
   open      D4, light or STRESS. Cmd-T into the preloaded New Tab (`debug.new_tab bench_open`: key turn, cover
             frame = `visible_ms`) and its Cmd-W; Cmd-, Settings warm (--runs) and cold (the first open and
             --cold-runs opens after its renderer was killed), timed on the app's uptime clock from the key's
@@ -29,8 +37,9 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             --chat-turns turns shown again --runs times. D4 rows with no app signal yet print `unscored`.
   crash     D5. 5 privileged pages, 1 shown; kill -9 of the shown page's renderer --kills times: cmux survives, the
             shown page paints again (until the group cap, 3 per 600 s), hidden pages do not reload.
-  pressure  D6. A browser tab and a chat, then pages; `debug.webui pressure critical`: the preload slot right after,
-            renderers once discards settle.
+  pressure  D6. A browser tab and a chat, then pages; `debug.hibernation.pressure critical` (the memory coordinator's
+            override, which every web object follows): the preload slot right after, renderers once discards
+            settle. The override is cleared (`none`) at the end.
   priority  D12. Page renderers (or WebContent processes) with every page hidden: backgrounded (`ps` priority <= 4,
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
@@ -77,6 +86,8 @@ PAGES10 = [("cmux.settings", "openSettings", {}), ("cmux.history", "history.show
            ("cmux.editor", "file.open", {"path": "{txt}"}), ("cmux.chief-usage", "chief.openUsage", {})]
 PRIVILEGED5 = PAGES10[:5]  # one capability group (section 3.B): the crash, pressure and priority sessions
 WEB_KINDS = ("renderer", "gpu", "helper")  # procs.kind_of names of CEF processes; utility:* and webkit-* by prefix
+GPU_KINDS = ("gpu", "webkit-gpu")  # procs.kind_of names of the CEF and the WebKit GPU process
+HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the GPU (D2's WebContent bound)
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
@@ -446,6 +457,8 @@ class Bench:
         self.facts.update(window=window, memory=memory)
 
     def pages10(self, discard=True):
+        if self.opts.every_page_hidden:
+            return self.hidden_wakeups()
         first = PAGES10[0][0]
         self.open_pages(PAGES10[:1])
         self.settle(self.opts.hide_settle, "one page")
@@ -479,11 +492,121 @@ class Bench:
                      ("==", len(keepless) if keepless is not None else 9), tier="train"),
                  row("one_page_footprint_mb", one_page, unit="MB", note=f"after {first} only"),
                  row("footprint_at_discard_mb", footprint, ("<=", round((one_page or 0) + 5, 1)), "MB", tier="train"))
+        self.discarded_show_rows(census)
+
+    def restore_times(self, page_id, since):
+        """The page's last restore after a discard (`debug.page` `restore`: host uptime `started`, `covered`,
+        `painted`) once it started at or after `since` and painted, else None."""
+        state = self.rpc("debug.page", {"page": page_id})
+        times = state.get("restore") if isinstance(state, dict) and not state.get("error") else None
+        if not isinstance(times, dict) or not isinstance(times.get("started"), (int, float)) or times["started"] < since:
+            return None
+        return times if isinstance(times.get("painted"), (int, float)) else None
+
+    def discarded_show_rows(self, census):
+        """D4's discarded rows: each discarded page shown again by its action, timed on the app's uptime clock from
+        the action's `debug.action_budget` start (else just before it) to the turn the hide-time snapshot went over
+        the page (`covered`) and to the restored document's first painted frame (`painted`). A page with no kept
+        snapshot gives no snapshot sample."""
+        discarded = set() if census is None else {p.get("page") for p in census.pages("discarded")}
+        snapshot, live = [], []
+        for page_id, name, args in [entry for entry in PAGES10 if entry[0] in discarded][:self.opts.runs]:
+            sequence = self.budget_sequence()
+            sent = self.uptime()
+            self.action(name, {k: self.files.get(v, v) for k, v in args.items()})
+            times = self.until(lambda: self.restore_times(page_id, sent), self.opts.open_timeout, step=LATENCY_STEP)
+            run = self.budget_run(name, sequence) or {}
+            start = run["start_uptime_ns"] / 1e9 if isinstance(run.get("start_uptime_ns"), (int, float)) else sent
+            covered = (times or {}).get("covered")
+            snapshot.append(round((covered - start) * 1000, 1) if isinstance(covered, (int, float)) else None)
+            live.append(round((times["painted"] - start) * 1000, 1) if times else None)
+        note = "" if discarded else "no discarded page to show" if census is not None else "no debug.webui in this build"
+        self.add(series("discarded_page.snapshot_frame_ms", snapshot, ("p99", "<=", 16.7),
+                        note=note or "key to the turn that drew the hide-time snapshot (debug.page restore.covered)"),
+                 series("discarded_page.live_ms", live, ("p95", "<=", 150),
+                        note=note or "key to the restored document's first frame (debug.page restore.painted)"))
+
+    def hidden_wakeups(self):
+        """MQ5 (task 037): wakeups of each page renderer and of the GPU process while all ten pages are hidden and
+        still run. `launch_config` turns `browser.freezeHiddenTabs` off (the planner's freeze_off keep reason): a
+        frozen page runs no task, so it could hide any loop. A renderer is scored only when the census shows each
+        of its pages hidden, not frozen or gone, both before and after the window.
+
+        A hidden page gets no animation frame on either engine: Chromium's scheduler sends no BeginMainFrame to a
+        widget that is not visible (cc/scheduler/scheduler_state_machine.cc ShouldSendBeginMainFrame), which is where
+        PageAnimator::ServiceScriptedAnimations runs rAF callbacks; WebKit throttles a hidden page's
+        ScriptedAnimationController (ThrottlingReason::VisuallyIdle). So a renderer that still wakes names a loop
+        that does not wait for frames, or a document the engine thinks is visible (a parked one)."""
+        tier = "pinned" if self.opts.engine == "webkit" else "train"
+        self.open_pages(PAGES10)
+        self.check_engine("pages10")
+        self.hide_pages()
+        self.settle(self.opts.hide_settle, "every page hidden, none frozen")
+        before = self.census()
+        renderers = self.page_renderers(before)
+        window = self.instance.window(self.opts.measure, per_pid=True)
+        after = self.census()
+        states = None
+        if before is not None and after is not None:
+            states = {}
+            for census in (before, after):
+                for page in census.pages():
+                    states.setdefault(page.get("page"), []).append(page.get("state"))
+        measured = {e.get("pid"): e for e in window.get("pids") or [] if isinstance(e, dict)}
+        over, rates, unmeasured = [], [], []
+        for pid, pages in sorted(renderers.items()):
+            name = "+".join(str(page) for page in pages) if before is not None else f"pid-{pid}"
+            rate, note = self.hidden_rate(pid, pages, measured.get(pid), states)
+            self.add(row(f"hidden_renderer_wakeups_per_s:{name}", rate, ("<=", HIDDEN_WAKEUPS_PER_S), "/s", tier=tier,
+                         note=note))
+            if rate is None:
+                unmeasured.append(name)
+                continue
+            rates.append(rate)
+            if rate > HIDDEN_WAKEUPS_PER_S:
+                over.append(f"{name} ({rate}/s)")
+        notes = ["rAF loops to move are in: " + "; ".join(over)] if over else []
+        if unmeasured:
+            notes.append("not measured: " + ", ".join(unmeasured))
+        elif not over:
+            notes.append("no renderer above the bound: no rAF loop moves" if rates else "no renderer measured")
+        # A measured renderer above the bound is a finding; otherwise one unmeasured renderer leaves the verdict open.
+        verdict = max(rates) if rates and (over or not unmeasured) else None
+        kinds = window.get("kinds") or {}
+        counts = {kind: int((kinds.get(kind) or {}).get("n") or 0) for kind in GPU_KINDS}
+        gpu = sum((kinds.get(kind) or {}).get("wakeups_per_s") or 0 for kind in GPU_KINDS)
+        self.add(row("hidden_page_renderers", len(renderers), (">=", 1), tier=tier,
+                     note="" if before else "renderers holding no browser tab (no debug.webui in this build)"),
+                 row("hidden_page_renderer_wakeups_max_per_s", verdict, ("<=", HIDDEN_WAKEUPS_PER_S), "/s", tier=tier,
+                     note="; ".join(notes)),
+                 row("hidden_gpu_wakeups_per_s", round(gpu, 2) if sum(counts.values()) else None,
+                     ("<=", HIDDEN_WAKEUPS_PER_S), "/s", tier=tier,
+                     note=", ".join(f"{kind} processes {n}" for kind, n in counts.items()) if sum(counts.values())
+                     else "no GPU process counted in the window"),
+                 row("hidden_frozen_pages", None if after is None else len(after.pages("frozen")), ("==", 0), "pages",
+                     note="after the window: freezeHiddenTabs is off, so none may freeze" if after else
+                     "no debug.webui in this build"))
+        self.facts.update(hidden_window=window)
+
+    @staticmethod
+    def hidden_rate(pid, pages, entry, states):
+        """(wakeups/s or None, note) of one page renderer. `states` is {page: [state before, state after]} from the
+        census, None without one. A renderer with no counters, unknown page states or a page that was not hidden
+        and running for the whole window is None: it proves nothing about a loop."""
+        if entry is None:
+            return None, f"pid {pid} gave no counters in the window (it ended, or no per-pid rows)"
+        rate = round(entry.get("wakeups_per_s") or 0, 2)
+        if states is None:
+            return None, f"pid {pid} read {rate}/s, but its page states are unknown (no debug.webui in this build)"
+        seen = ", ".join(f"{page}={'>'.join(states.get(page) or ['gone'])}" for page in pages)
+        if any(states.get(page) != ["hidden", "hidden"] for page in pages):
+            return None, f"pid {pid} read {rate}/s, but not every page stayed hidden and running: {seen}"
+        return rate, f"pid {pid}: {seen}"
 
     @staticmethod
     def acknowledged(reply, keys):
-        """Whether a `debug.webui` verb's reply confirms it ran (one of `keys`), not an error or a census that
-        ignored the verb; else the reason it did not."""
+        """Whether a debug verb's reply confirms it ran (one of `keys`), not an error or a reply that ignored the
+        verb; else the reason it did not."""
         if not isinstance(reply, dict) or reply.get("error"):
             return False, f"refused: {json.dumps(reply)[:120]}"
         if not any(key in reply for key in keys):
@@ -570,9 +693,6 @@ class Bench:
         self.add(row("cef.window_built_on_key_turn", built if isinstance(built, (int, float)) else None, ("==", 0),
                      note="" if isinstance(built, (int, float)) else "debug.cef reports no window_built_on_key_turn"),
                  row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"),
-                 row("discarded_page.snapshot_frame_ms", None, ("p99", "<=", 16.7), "ms",
-                     note="no snapshot-frame timestamp for a discarded page yet"),
-                 row("discarded_page.live_ms", None, ("p95", "<=", 150), "ms", note="no live-frame timestamp for a discarded page yet"),
                  row("settings.cmd_w_engine_close_calls", None, ("==", 0),
                      note="no count of engine close calls in the key's turn yet"))
         if self.opts.chat_turns > 0:
@@ -816,9 +936,21 @@ class Bench:
         if self.census() is None:
             self.add(row("pressure", None, note="no debug.webui in this build"))
             return
-        ran, why = self.acknowledged(self.rpc("debug.webui", {"action": "pressure", "level": "critical"}), ("pressure", "level"))
+        try:
+            self.pressure_rows()
+        finally:
+            self.rpc("debug.hibernation.pressure", {"level": "none"})
+
+    def pressure_rows(self):
+        """Critical pressure through the memory coordinator's override (`debug.hibernation.pressure`), the one path
+        the preload slot, the spare windows and the ranked discard pass follow (p13-webui-047). The caller clears
+        the override."""
+        reply = self.rpc("debug.hibernation.pressure", {"level": "critical"})
+        ran, why = self.acknowledged(reply, ("override",))
+        if ran and reply.get("level") != "critical":
+            ran, why = False, f"the coordinator's level is {reply.get('level')!r}, not critical"
         if not ran:
-            note = f"debug.webui pressure {why}"
+            note = f"debug.hibernation.pressure {why}"
             self.add(row("preload_after_pressure", None, ("==", 0), note=note),
                      row("renderers_after_discard", None, note=note),
                      row("pages_left_undiscarded", None, ("==", 0), note=note))
@@ -887,6 +1019,15 @@ class _Envelope:
 # ---------------------------------------------------------------- command line
 
 
+def launch_config(opts):
+    """The app's cmux-next.json for a run. --every-page-hidden turns page freezing off (p13-webui.md section 3.C:
+    `browser.freezeHiddenTabs` "off" is a freeze-only keep reason), so its window measures pages that still run."""
+    browser = {"defaultEngine": opts.engine}
+    if opts.every_page_hidden:
+        browser["freezeHiddenTabs"] = "off"
+    return {"browser": browser, "appearance": {"backgroundOpacity": 1}}
+
+
 def parse(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=MODES)
@@ -903,6 +1044,8 @@ def parse(argv):
     parser.add_argument("--cold-runs", type=int, default=20, help="Settings opens after its renderer was killed")
     parser.add_argument("--chat-turns", type=int, default=2000, help="turns of the frozen chat (0: no chat row)")
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
+    parser.add_argument("--every-page-hidden", action="store_true",
+                        help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
@@ -910,6 +1053,8 @@ def parse(argv):
             parser.error(f"--{name.replace('_', '-')} must be >= 0")
     if opts.runs < 1 or opts.kills < 1 or opts.cold_runs < 0:
         parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
+    if opts.every_page_hidden and opts.mode != "pages10":
+        parser.error("--every-page-hidden is a pages10 option")
     return opts
 
 
@@ -926,7 +1071,7 @@ def main(argv=None):
     tunables = os.path.join(out, "debug-tunables.json")
     with open(tunables, "w") as handle:  # the React History and App Store pages (bench-pages.py's PAGES tunables)
         json.dump({"version": 1, "values": {"history.surface": "web", pages.PAGES["apps"]["tunable"]: "web"}}, handle)
-    app = launch.BenchApp(opts.app, out=out, config={"browser": {"defaultEngine": opts.engine}, "appearance": {"backgroundOpacity": 1}},
+    app = launch.BenchApp(opts.app, out=out, config=launch_config(opts),
                           env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
     status = 0
     report = {"mode": opts.mode, "rows": []}

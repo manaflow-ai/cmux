@@ -67,6 +67,6 @@ extension MotionGate {
         animation.beginTime = now + timing.delay
         animation.fillMode = .backwards
         animation.isRemovedOnCompletion = true
-        return animation
+        return MotionActivity.began(animation, after: timing.delay)
     }
 }

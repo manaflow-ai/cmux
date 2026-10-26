@@ -164,7 +164,7 @@ public final class StartupPhase {
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
         pendingReferences = Set(Reference.allCases)
-        timer.schedule(after: timing.revealDeadline) { @MainActor [weak self] in self?.revealDeadlinePassed() }
+        timer.scheduleOnMain(after: timing.revealDeadline) { [weak self] in self?.revealDeadlinePassed() }
     }
 
     private init(settledWith ledger: WakeupLedger) {
@@ -259,7 +259,7 @@ public final class StartupPhase {
         if pendingReferences.isEmpty || left <= .zero {
             settle(pendingReferences.isEmpty ? .references : .failsafe)
         } else {
-            timer.schedule(after: left) { @MainActor [weak self] in self?.failsafePassed() }
+            timer.scheduleOnMain(after: left) { [weak self] in self?.failsafePassed() }
         }
     }
 
@@ -282,12 +282,13 @@ public final class StartupPhase {
 
 extension MainWorkClass {
     /// The startup phase that opens this class: input, frame, visible and automation work run
-    /// while launching, and background waits for the reveal. Exhaustive on purpose: a new class
-    /// (idle opens at ``StartupPhase/Phase/settled``) does not compile until it is mapped here.
+    /// while launching, background waits for the reveal and idle work for the settle. Exhaustive
+    /// on purpose: a new class does not compile until it is mapped here.
     public var startupOpening: StartupPhase.Phase {
         switch self {
         case .input, .frame, .visible, .automation: .launching
         case .background: .revealed
+        case .idle: .settled
         }
     }
 }

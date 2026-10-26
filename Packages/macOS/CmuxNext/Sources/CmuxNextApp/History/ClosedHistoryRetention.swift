@@ -71,6 +71,7 @@ final class ClosedHistoryRetention {
     }
 
     private func check(_ machines: Set<String>) {
+        // wall-clock: compared with the daemon's closedAtMs, Unix ms.
         let nowMs = UInt64(max(0, Date().timeIntervalSince1970 * 1000))
         for daemon in services?.machines.daemons ?? [] where machines.contains(daemon.machineID) {
             guard daemon.store.servesStateResources, case .connected = daemon.store.connectionState else { continue }
@@ -105,6 +106,6 @@ final class ClosedHistoryRetention {
     private func recheck(_ machine: String, after delay: Duration) {
         let timer = deadlines[machine] ?? DemandTimer(owner: "closed-retention")
         deadlines[machine] = timer
-        timer.schedule(after: delay) { @MainActor [weak self] in self?.check([machine]) }
+        timer.scheduleOnMain(after: delay) { [weak self] in self?.check([machine]) }
     }
 }

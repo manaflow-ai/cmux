@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
 /// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
@@ -749,7 +750,9 @@ enum VectorAsset {
 
 /// Row measurements keyed by (message id, part, content version, width).
 /// Filled off the main thread when pages load; the main thread only reads.
-final class MeasureCache: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the stores and counters are one lock state (they were
+/// vars under an NSLock in an unchecked class); measuring runs outside the lock, as before.
+final class MeasureCache: Sendable {
     static let shared = MeasureCache()
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
@@ -758,14 +761,21 @@ final class MeasureCache: @unchecked Sendable {
     struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
     struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
-    private var store: [Key: Value] = [:]
-    /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are kept
-    /// (at most 16), never in `store` or `latest` (they grew by one text layout per chunk).
-    private var streamStore: [Key: Value] = [:]
-    /// The latest exact measurement of each part at any width (estimates).
-    private var latest: [PartKey: Value] = [:]
-    private let lock = NSLock()
-    private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
+    private struct State: Sendable {
+        var byKey: [Key: Value] = [:]
+        /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are
+        /// kept (at most 16), never in `byKey` or `latest` (they grew by one text layout per chunk).
+        var streamStore: [Key: Value] = [:]
+        /// The latest exact measurement of each part at any width (estimates).
+        var latest: [PartKey: Value] = [:]
+        var hits = 0, misses = 0, estimates = 0, reuses = 0
+    }
+    // Lock carve-out: the measure threads and main look up and store measurements; no measuring under the lock.
+    private let state = Mutex(State())
+    var hits: Int { state.withLock { $0.hits } }
+    var misses: Int { state.withLock { $0.misses } }
+    var estimates: Int { state.withLock { $0.estimates } }
+    var reuses: Int { state.withLock { $0.reuses } }
 
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
@@ -816,40 +826,41 @@ final class MeasureCache: @unchecked Sendable {
         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
         let streaming = StreamBubble.isStream(m.id)
-        lock.lock()
-        if let v = streaming ? streamStore[k] : store[k] { hits += 1; lock.unlock(); return v }
-        if streaming {
-            misses += 1
-            lock.unlock()
+        // cmux: one lookup under the lock decides the path; the measuring and scaling run outside it.
+        enum Found: Sendable { case hit(Value), measureStream, reused(Value), estimateFrom(Value), measure }
+        let found = state.withLock { s -> Found in
+            if let v = streaming ? s.streamStore[k] : s.byKey[k] { s.hits += 1; return .hit(v) }
+            if streaming { s.misses += 1; return .measureStream }
+            // Plain text that no width wrapped and that fits the new column: the same lines at the new
+            // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
+            // short bubbles' widths only in this way.
+            if let old = s.latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
+                s.reuses += 1
+                s.byKey[k] = v
+                return .reused(v)
+            }
+            if estimate, let old = s.latest[pk] { s.estimates += 1; return .estimateFrom(old) }
+            s.misses += 1
+            return .measure
+        }
+        switch found {
+        case let .hit(v), let .reused(v): return v
+        case let .estimateFrom(old): return MeasureCache.scale(old, to: width, part: part, scale: scale)
+        case .measureStream:
             let v = MeasureCache.measure(m, part, width: width, scale: scale)
-            lock.lock()
-            if streamStore.count >= 16 { streamStore.removeAll() }
-            streamStore.updateValue(v, forKey: k)
-            lock.unlock()
+            state.withLock { s in
+                if s.streamStore.count >= 16 { s.streamStore.removeAll() }
+                s.streamStore.updateValue(v, forKey: k)
+            }
+            return v
+        case .measure:
+            let v = MeasureCache.measure(m, part, width: width, scale: scale)
+            state.withLock { s in
+                s.byKey.updateValue(v, forKey: k) // dictionary writes
+                s.latest.updateValue(v, forKey: pk)
+            }
             return v
         }
-        // Plain text that no width wrapped and that fits the new column: the same lines at the new
-        // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
-        // short bubbles' widths only in this way.
-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
-            reuses += 1
-            store[k] = v
-            lock.unlock()
-            return v
-        }
-        if estimate, let old = latest[pk] {
-            estimates += 1
-            lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part, scale: scale)
-        }
-        misses += 1
-        lock.unlock()
-        let v = MeasureCache.measure(m, part, width: width, scale: scale)
-        lock.lock()
-        store.updateValue(v, forKey: k) // dictionary writes
-        latest.updateValue(v, forKey: pk)
-        lock.unlock()
-        return v
     }
 
     /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
@@ -916,16 +927,16 @@ final class MeasureCache: @unchecked Sendable {
         }
     }
 
-    var count: Int { lock.lock(); defer { lock.unlock() }; return store.count }
+    var count: Int { state.withLock { $0.byKey.count } }
 
     /// LRU-ish bound: drop measurements for messages outside the window.
     func trim(keeping ids: Set<ID>) {
-        lock.lock()
-        if store.count > 4 * ids.count + 2000 {
-            store = store.filter { ids.contains($0.key.id) }
-            latest = latest.filter { ids.contains($0.key.id) }
+        state.withLock { s in
+            if s.byKey.count > 4 * ids.count + 2000 {
+                s.byKey = s.byKey.filter { ids.contains($0.key.id) }
+                s.latest = s.latest.filter { ids.contains($0.key.id) }
+            }
         }
-        lock.unlock()
     }
 }
 

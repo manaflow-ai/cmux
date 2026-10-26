@@ -51,6 +51,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { jumpParams } from "./newtab/inputAt";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
@@ -9151,7 +9152,7 @@ function AcpmuxPane() {
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
-              onJump={(target, id) => void callNative("tab.jump", { target, id })}
+              onJump={(target, id, at) => void callNative("tab.jump", jumpParams(target, id, at))}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
               onBrowseProject={() =>

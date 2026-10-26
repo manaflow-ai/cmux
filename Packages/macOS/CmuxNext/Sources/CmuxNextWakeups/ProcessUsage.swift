@@ -148,3 +148,96 @@ public struct ProcessUsage: Sendable, Equatable {
         return ticks.multipliedReportingOverflow(by: UInt64(base.numer)).partialValue / UInt64(base.denom)
     }
 }
+
+// MARK: - Renderers per tab (p14-energy-124)
+
+extension ProcessUsage {
+    /// One Chromium tab renderer: its pid and its `--renderer-client-id` (Chromium's RenderProcessHost id),
+    /// as the App's helper classification (`ChromiumHelperProcess`) reads it. Extension renderers are not
+    /// tab renderers.
+    public struct Renderer: Sendable, Hashable {
+        public var pid: pid_t
+        public var clientID: Int32
+
+        public init(pid: pid_t, clientID: Int32) {
+            self.pid = pid
+            self.clientID = clientID
+        }
+    }
+
+    /// What one browser tab reports about its renderers, read on the main actor.
+    public struct TabRenderers: Sendable, Equatable {
+        /// The tab's id.
+        public var tab: String
+        public var title: String
+        /// The renderer of its main frame, from the fork (`cmux_cef_browser_renderer_pid`); nil without it.
+        public var pid: pid_t?
+        /// The renderer client ids of all its frames (main frame and out-of-process iframes).
+        public var rendererClients: [Int32]
+
+        public init(tab: String, title: String, pid: pid_t?, rendererClients: [Int32]) {
+            self.tab = tab
+            self.title = title
+            self.pid = pid
+            self.rendererClients = rendererClients
+        }
+
+        /// Whether `renderer` hosts the main frame or another frame of this tab.
+        public func isServed(by renderer: Renderer) -> Bool {
+            if let pid, pid == renderer.pid { return true }
+            return rendererClients.contains(renderer.clientID)
+        }
+    }
+
+    /// One renderer that serves a tab, with every tab it serves (same-site tabs can share one).
+    public struct SharedRenderer: Sendable, Equatable {
+        public var renderer: Renderer
+        public var usage: ProcessUsage
+        /// The ids of the tabs it serves, in the order the tabs were given.
+        public var tabs: [String]
+
+        public init(renderer: Renderer, usage: ProcessUsage, tabs: [String]) {
+            self.renderer = renderer
+            self.usage = usage
+            self.tabs = tabs
+        }
+    }
+
+    /// One tab with the usage of each renderer that serves it.
+    public struct TabUsage: Sendable, Equatable {
+        public var tab: String
+        public var title: String
+        public var renderers: [SharedRenderer]
+
+        public init(tab: String, title: String, renderers: [SharedRenderer]) {
+            self.tab = tab
+            self.title = title
+            self.renderers = renderers
+        }
+
+        /// Its renderers' CPU time, summed. A renderer it shares counts in full here and in each other tab
+        /// it serves (its ``SharedRenderer/tabs``), so sums over tabs count it more than once.
+        public var cpuNanos: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.cpuNanos } }
+        public var interruptWakeups: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.interruptWakeups } }
+        public var packageIdleWakeups: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.packageIdleWakeups } }
+        public var energyNanojoules: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.energyNanojoules } }
+    }
+
+    /// The tabs `renderer` serves, in the order of `tabs`.
+    public static func tabs(_ tabs: [TabRenderers], servedBy renderer: Renderer) -> [TabRenderers] {
+        tabs.filter { $0.isServed(by: renderer) }
+    }
+
+    /// Renderer CPU, wakeups and energy per tab: each tab gets every sampled renderer that serves it, and
+    /// each of those names all the tabs it serves, so two tabs on one renderer both show its whole usage.
+    /// A tab that no sampled renderer serves gets none. O(tabs x renderers).
+    public static func perTab(_ tabs: [TabRenderers], renderers: [(renderer: Renderer, usage: ProcessUsage)]) -> [TabUsage] {
+        let shared = renderers.map { sample in
+            SharedRenderer(renderer: sample.renderer, usage: sample.usage,
+                           tabs: Self.tabs(tabs, servedBy: sample.renderer).map(\.tab))
+        }
+        return tabs.map { tab in
+            TabUsage(tab: tab.tab, title: tab.title, renderers: shared.filter { $0.tabs.contains(tab.tab) })
+        }
+    }
+}

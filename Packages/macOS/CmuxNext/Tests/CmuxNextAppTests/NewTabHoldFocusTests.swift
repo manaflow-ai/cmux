@@ -78,12 +78,12 @@ struct NewTabHoldFocusTests {
         let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
+        let page = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page
         services.agentTabs.newTabPages[key] = (AgentPaneNewTab(kind: .agent),
-                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
         try #require(page.window === window && !page.isHiddenOrHasHiddenAncestor, "the page is not shown in the window")
 
         // The focus model still names the first pane.

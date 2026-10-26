@@ -2,6 +2,9 @@ public import CmuxNextDaemon
 import Observation
 import CmuxNextCompat
 
+// memory: fixed one entry per workspace the store lists now (`retain` drops the rest on each publish)
+// and one memo per open window's slot plus closed tabs (`retainMemos`). The values are the ones the
+// published snapshot holds, sharing their copy-on-write storage, so dropping them frees nothing.
 /// Keeps each workspace's control value between snapshot publishes
 /// (plans/cmux-next/control-snapshot-topology.md, step 1). A publish maps
 /// only the workspaces that changed since the last one, instead of every

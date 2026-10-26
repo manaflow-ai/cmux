@@ -32,7 +32,7 @@ struct DebugWebUITests {
 
     private func makeHost(_ hosting: FakeChromiumHosting?) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
-                  memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                  memory: QuietMemoryRegistry(),
                   clock: PageTestClock.never)
     }
 

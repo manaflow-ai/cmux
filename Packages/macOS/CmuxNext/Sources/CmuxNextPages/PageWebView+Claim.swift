@@ -143,7 +143,7 @@ extension PageWebView {
             self?.finishClaim(generation, path, reloads: reloadsUnanswered)
         }
         guard reloadsUnanswered else { return }
-        state.deadline.schedule(after: state.budget) { @MainActor [weak self] in
+        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut, reloads: true)
         }
     }

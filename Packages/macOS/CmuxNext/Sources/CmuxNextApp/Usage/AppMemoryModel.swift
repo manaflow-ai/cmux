@@ -39,7 +39,7 @@ struct AppMemoryModel: MemorySnapshotModel {
 
     func terminalSurface(_ tabID: String) -> MemoryTerminalSurface? {
         guard let entry = services.cache.existingTerminal(tabID) else { return nil }
-        return MemoryTerminalSurface(estimateBytes: entry.session.surfaceView.memoryEstimateBytes.map { Int(clamping: $0) },
+        return MemoryTerminalSurface(estimateBytes: entry.session.memoryEstimateBytes.map { Int(clamping: $0) },
                                      rendering: services.cache.ledger.isRendering(tabID))
     }
 
@@ -56,9 +56,12 @@ struct AppMemoryModel: MemorySnapshotModel {
     var memoryTerminal: MemoryDiagnosticsSnapshot.Terminal {
         let cache = services.cache
         let rendering = cache.terminals.keys.filter { cache.ledger.isRendering($0) }.count
+        // Hidden: away from the viewport, outside the keep-alive band (whose surfaces stay resident).
+        let hidden = cache.terminals.filter { cache.ledger.isAway($0.key) }.values
+        let hiddenBytes = hidden.reduce(0) { $0 + Int(clamping: $1.session.pausedNonvolatileIOSurfaceBytes) }
         return MemoryDiagnosticsSnapshot.Terminal(
             warmCapacity: cache.warmBudget.terminalCapacity, surfaces: cache.terminals.count, rendering: rendering,
-            hiddenNonvolatileIOSurfaceBytes: nil, lastFrames: cache.lastFrames.count)
+            hiddenNonvolatileIOSurfaceBytes: hiddenBytes, lastFrames: cache.lastFrames.count)
     }
 
     var memorySpares: [MemoryDiagnosticsSnapshot.Spare] {

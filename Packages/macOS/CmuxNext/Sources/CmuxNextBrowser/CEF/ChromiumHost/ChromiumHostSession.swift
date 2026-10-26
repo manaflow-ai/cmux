@@ -135,7 +135,15 @@ public final class ChromiumHostSession {
         idleDeadline = idleExit.map {
             MainDeadline(owner: "ChromiumHostSession.idleExit", workClass: .background, scheduler: $0.deadlines)
         }
-        view.sink = { [weak self] frame in self?.send(frame) }
+        wireView()
+    }
+
+    private func wireView() {
+        // This wire stamps no input seq: no key comes back as KEY_UNHANDLED.
+        view.sink = { [weak self] frame in
+            _ = self?.send(frame)
+            return nil
+        }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)
@@ -193,7 +201,7 @@ public final class ChromiumHostSession {
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
         let launcher = launcher, pid = pid
         // A deadline, not a wait: hostEnded cancels it.
-        quitDeadline.schedule(after: quitLimit) { @MainActor [weak self] in
+        quitDeadline.scheduleOnMain(after: quitLimit) { [weak self] in
             guard let self, self.connection === connection else { return }
             launcher.kill(pid)
         }

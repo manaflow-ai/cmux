@@ -1,8 +1,9 @@
 import CmuxNextWakeups
 
 /// Chromium's state in the app's crash keys (p10-stability-207, ``CrashKeySlots/Key/cefState``): a crash
-/// record says whether Chromium was starting, running, inside a message pump pass, shutting down or failed,
-/// as Chrome's own crash keys name the browser's lifecycle (components/crash/core/common/crash_key.h).
+/// record says whether Chromium was starting, running, inside a message pump pass (``CEFMessagePump`` sets that
+/// one), shutting down or failed, as Chrome's own crash keys name the browser's lifecycle
+/// (components/crash/core/common/crash_key.h).
 extension CEFRuntime {
     /// Names this runtime's state in `keys` from now on (the engine the app makes passes the app's slots).
     func attachCrashKeys(_ keys: CrashKeySlots) {
@@ -19,16 +20,6 @@ extension CEFRuntime {
     /// Quit began to close Chromium's browsers (before `CefShutdown`).
     func noteCrashKeyShuttingDown() {
         crashKeys?.set(.cefState, CrashKeySlots.CEFState.shuttingDown.rawValue)
-    }
-
-    /// One message pump pass (`CefDoMessageLoopWork`), named ``CrashKeySlots/CEFState/inPump`` while it runs; the
-    /// state before it comes back after.
-    func pumpWork() {
-        guard let crashKeys else {
-            shim?.doWork()
-            return
-        }
-        crashKeys.withKey(.cefState, CrashKeySlots.CEFState.inPump.rawValue) { shim?.doWork() }
     }
 }
 

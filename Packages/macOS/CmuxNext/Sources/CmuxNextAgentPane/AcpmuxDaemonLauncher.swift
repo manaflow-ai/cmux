@@ -258,55 +258,13 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// `waitpid` right after the exit event, which the kernel can post before the
     /// status is collectable, and a 5 s bound a busy machine can pass (hosted runs
     /// 37835676794, 37845131094, 37847351675: three launches, three zombies).
-    ///
-    /// The exit source is armed before the second `waitpid`, so an exit that comes
-    /// between the first check and the arming is still seen: the shell is then a
-    /// zombie and the check after arming reaps it. A shell that never exited would
-    /// hold the launch; the script only backgrounds the daemon, in its own session
-    /// (no terminal can stop it), so it cannot.
+    /// ``ChildExitWatch`` reaps it: a blocking `waitpid` after the exit event, and a check once the source is
+    /// armed for a shell that exited before. A shell that never exited would hold the launch; the script only
+    /// backgrounds the daemon, in its own session (no terminal can stop it), so it cannot.
     private static func reap(_ pid: pid_t) async {
-        if collect(pid) { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated)
-            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
-            let done = Mutex(false)
-            let finish: @Sendable () -> Void = {
-                guard done.withLock({ done in defer { done = true }; return !done }) else { return }
-                source.cancel()
-                continuation.resume()
-            }
-            source.setEventHandler {
-                // The exit event can come before the kernel makes the exit status
-                // collectable; this blocking wait then ends as soon as it is.
-                collectExited(pid)
-                finish()
-            }
-            source.resume()
-            queue.async { if collect(pid) { finish() } }
-        }
-    }
-
-    /// One non-blocking `waitpid`: true once the shell is reaped (or is no child of ours).
-    private static func collect(_ pid: pid_t) -> Bool {
-        var status: Int32 = 0
-        let result = waitpid(pid, &status, WNOHANG)
-        if result == pid { return true }
-        guard result == -1 else { return false }
-        let failure = errno
-        if failure == EINTR { return false }
-        if failure != ECHILD { logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)") }
-        return true
-    }
-
-    /// A blocking `waitpid` for a shell whose exit event came: it returns at once.
-    private static func collectExited(_ pid: pid_t) {
-        var status: Int32 = 0
-        // concurrency-allow: on the reap queue after the shell's exit event; the status is collectable at once
-        while waitpid(pid, &status, 0) == -1 {
-            let failure = errno
-            if failure == EINTR { continue }
-            if failure != ECHILD { logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)") }
-            return
+            ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated))
+                .start { _ in continuation.resume() }
         }
     }
 

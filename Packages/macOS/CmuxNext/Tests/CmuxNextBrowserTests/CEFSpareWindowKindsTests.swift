@@ -197,11 +197,12 @@ import Testing
         #expect(runtime.hosts[host.key] === host)
     }
 
-    /// p07-memory-047: memory pressure holds the spares (`CEFEngine.holdSpareWindows`, from the
-    /// warmup's memory consumer): holding closes the untaken ones, no spare is made, a taken spare
-    /// whose tab closed before it joined is not given back, and a window that comes up asks for none.
-    /// A tab Chromium parked in a closed spare leaves with it (`CEFOrphanTabs.rehome`): the next
-    /// spare of that kind adopts nothing stale. Let go, a spare is made again.
+    /// p07-memory-047, p13-webui-047: memory pressure holds the spares (`CEFEngine.holdSpareWindows`,
+    /// from the warmup's memory consumer): holding keeps the untaken ones (Chrome keeps its spare
+    /// renderer at warning), critical closes them (`closeUntakenSpareWindows`), no spare is made, a
+    /// taken spare whose tab closed before it joined is not given back, and a window that comes up
+    /// asks for none. A tab Chromium parked in a closed spare leaves with it (`CEFOrphanTabs.rehome`):
+    /// the next spare of that kind adopts nothing stale. Let go, a spare is made again.
     @Test func heldSparesCloseAndNoneIsMadeOrGivenBackUntilLetGo() throws {
         let (runtime, root) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -222,8 +223,11 @@ import Testing
         taken.add(page)
         let askedBeforeHold = asked.value
 
-        spares.setHeld(true, runtime: runtime)
-        #expect(spares.untakenCount == 0, "holding closes the untaken spares")
+        spares.setHeld(true)
+        #expect(spares.untakenCount == 1, "holding (warning) closed the untaken browser spare")
+        #expect(browserSpare.placeholder != nil)
+        spares.drop(runtime: runtime)
+        #expect(spares.untakenCount == 0, "critical closes the untaken spares")
         #expect(browserSpare.placeholder == nil)
         #expect(!runtime.hosts.values.contains { $0 === browserSpare })
         #expect(!spares.prepare(.browser, runtime: runtime), "a spare was made while held")
@@ -234,7 +238,7 @@ import Testing
         spares.windowCameUp(taken)
         #expect(asked.value == askedBeforeHold, "a window that came up asked for a spare while held")
 
-        spares.setHeld(false, runtime: runtime)
+        spares.setHeld(false)
         #expect(spares.prepare(.browser, runtime: runtime), "let go, a spare is made again")
         let tabKey = CEFPaneKey(pane: Self.pane(), profile: .default)
         let next = runtime.host(for: tabKey)
@@ -277,7 +281,7 @@ import Testing
     private static func spyRuntime() throws -> (CEFRuntime, URL) {
         SpareSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }

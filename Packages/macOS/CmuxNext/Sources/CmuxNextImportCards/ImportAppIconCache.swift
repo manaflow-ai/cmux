@@ -1,6 +1,8 @@
 import AppKit
 import Observation
 
+// memory: fixed keys are the import cards' apps: the browsers of `ImportBrowser` and the five
+// `ImportSuggestionsCenter.agentApps`, one 64 px PNG data URL each.
 /// Source apps' icons for the import cards, as small `data:image/png` URLs (a cmux page's CSP allows `img-src
 /// data:` only), from Launch Services only (no file of the app is read).
 ///

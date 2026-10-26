@@ -10,8 +10,8 @@ import Testing
 /// ``PagePreloadSlot`` holds at most one page, parks it in Chrome's order (visible load, cover,
 /// hidden, then frozen), refits it once per quiet size, claims it in the open's turn with its cover
 /// on top only at the size the cover shows and no implicit animation, takes the cover off at the
-/// first live frame or its limit, and drops it on any non-normal pressure through ``WebUIHost``'s
-/// subscription (p13-webui-043).
+/// first live frame or its limit, and drops it on any non-normal pressure (p13-webui-043; the host's
+/// memory registration is `WebUIHostPressureTests`).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PagePreloadSlotTests {
     /// A page that logs each call and holds its paint and cover callbacks until the test fires them.
@@ -351,6 +351,51 @@ struct PagePreloadSlotTests {
         #expect(slot.lastClaim?.covered == false)
     }
 
+    /// An opener that does not know the size the page will show at (Cmd-N's new workspace) takes
+    /// it without a cover, even at the parked size: that cover could show stretched in the pane.
+    @Test func aClaimWithoutCoverShowsNoneAtTheParkedSize() throws {
+        let slot = makeSlot()
+        let page = FakePage("a")
+        park(page, in: slot, parking: FakeParking())
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        let claim = try #require(slot.claim(Self.newTab, into: container, frame: container.bounds, cover: false))
+        page.claimed = true
+        #expect(!claim.covered)
+        #expect(!claim.refit)
+        #expect(!page.preloadView.subviews.contains { $0 is PagePreloadCoverView })
+        #expect(page.moves == ["thaw", "visible"], "thaw before visible")
+        #expect(rig.queue.count == 0, "a cover limit with no cover")
+    }
+
+    /// The default preload hears when another page leaves the slot, by a claim or a drop.
+    @Test func aClaimOrADropReportsTheEmptiedSlot() throws {
+        @MainActor final class Tally {
+            var count = 0
+            var keys: [PagePreloadSlot.Key] = []
+        }
+        let slot = makeSlot()
+        let emptied = Tally()
+        slot.onEmptied = { key in
+            emptied.count += 1
+            emptied.keys.append(key)
+        }
+        let page = FakePage("a")
+        park(page, in: slot, parking: FakeParking())
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        _ = try #require(slot.claim(Self.newTab, into: container, frame: container.bounds))
+        page.claimed = true
+        #expect(emptied.count == 1)
+        let other = FakePage("b")
+        park(other, in: slot, key: Self.settings, parking: FakeParking())
+        #expect(emptied.count == 1, "the slot was empty already when the preload began")
+        slot.drop()
+        #expect(emptied.count == 2)
+        #expect(other.closed)
+        slot.drop()
+        #expect(emptied.count == 2, "a drop of an empty slot reported it emptied")
+        #expect(emptied.keys == [Self.newTab, Self.settings])
+    }
+
     @Test func aClaimBeforeTheQuietRefitUsesTheLaidOutSize() throws {
         let slot = makeSlot()
         let page = FakePage("a")
@@ -487,31 +532,6 @@ struct PagePreloadSlotTests {
         slot.memoryPressureDidChange(.normal)
         #expect(slot.preload(Self.newTab, size: Self.size, in: parking) { _ in made += 1; return FakePage("b") })
         #expect(made == 1)
-    }
-
-    @Test func hostSubscriptionDropsTheSlot() {
-        let source = ManualMemoryPressureSource()
-        let host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: source))
-        let slot = makeSlot()
-        host.preload = slot
-        let page = FakePage("a")
-        park(page, in: slot, parking: FakeParking())
-        #expect(slot.count == 1)
-        source.send(.critical)
-        #expect(slot.count == 0)
-        #expect(page.closed)
-        #expect(!slot.allowsPreload)
-        source.send(.normal)
-        #expect(slot.allowsPreload)
-    }
-
-    @Test func anInstalledSlotStartsAtTheCurrentLevel() {
-        let source = ManualMemoryPressureSource()
-        source.send(.warning)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: source))
-        let slot = makeSlot()
-        host.preload = slot
-        #expect(!slot.allowsPreload)
     }
 
     // MARK: Trace

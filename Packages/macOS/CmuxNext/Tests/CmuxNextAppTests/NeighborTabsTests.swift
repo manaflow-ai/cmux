@@ -72,11 +72,11 @@ import Testing
         #expect(tabs.awake(radius: 1) == ["a", "c"])
     }
 
-    @Test func memoryPressureAndLowPowerModeTurnItOff() {
-        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, lowPower: false) == 2)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .warning, lowPower: false) == 0)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .critical, lowPower: false) == 0)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, lowPower: true) == 0)
+    @Test func memoryPressureAndEnergySaverTurnItOff() {
+        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, energySaver: false) == 2)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .warning, energySaver: false) == 0)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .critical, energySaver: false) == 0)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, energySaver: true) == 0)
     }
 
     @Test func oneOnEachSideByDefault() {
