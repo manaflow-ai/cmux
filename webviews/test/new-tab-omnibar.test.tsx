@@ -313,7 +313,9 @@ test("an address keeps Return opening it after Left, and after Up from the top r
     const calls: unknown[][] = [];
     await render(calls);
     const field = await type("reddit.com");
-    await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    await act(async () =>
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
+    );
     expect(highlighted()).toBe(key === "ArrowLeft" ? 0 : -1);
     await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(calls).toEqual([["open", "https://reddit.com"]]);
