@@ -19,6 +19,8 @@
     {"name": "mutation-without-receipt", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "remove", "path": "/steps/0/expect/receipt"}], "pointer": "/steps/0/expect"},
     {"name": "receipt-and-reason", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "add", "path": "/steps/0/expect/noReceiptReason", "value": "both forms at once"}], "pointer": "/steps/0/expect"},
     {"name": "error-with-receipt", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "add", "path": "/steps/3/expect/receipt", "value": "mutation_result"}], "pointer": "/steps/3/expect"},
+    {"name": "error-details-on-ok", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "add", "path": "/steps/0/expect/errorDetails", "value": {"extra": {"code": "x"}}}], "pointer": "/steps/0/expect"},
+    {"name": "error-details-empty", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "add", "path": "/steps/3/expect/errorDetails", "value": {}}], "pointer": "/steps/3/expect/errorDetails"},
     {"name": "kill-the-app", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "replace", "path": "/steps/6/target/process", "value": "app"}], "pointer": "/steps/6/target/process"},
     {"name": "kill-without-allowance", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "remove", "path": "/allow_crashes"}], "pointer": ""},
     {"name": "crash-url-without-allowance", "base": "case-example-app.json", "layer": "schema", "patch": [{"op": "remove", "path": "/allow_crashes"}], "pointer": ""},
@@ -60,6 +62,7 @@
     {"name": "url-web-fixture", "base": "case-example-app.json", "layer": "valid", "patch": [{"op": "replace", "path": "/steps/5/args/params/url", "value": "$WEB/other.html"}]},
     {"name": "crash-allowance-for-whole-case", "base": "case-example-app.json", "layer": "valid", "patch": [{"op": "remove", "path": "/allow_crashes/0/steps"}]},
     {"name": "two-kills-two-allowed", "base": "case-example-daemon.json", "layer": "valid", "patch": [{"op": "replace", "path": "/allow_crashes/0/steps", "value": ["kill-daemon", "kill-daemon-again"]}, {"op": "add", "path": "/allow_crashes/0/max", "value": 2}, {"op": "add", "path": "/steps/8", "value": {"id": "kill-daemon-again", "op": "kill", "target": {"process": "daemon"}, "expect": {"outcome": "ok", "noReceiptReason": "a killed process sends no reply"}}}]},
+    {"name": "error-details-subset", "base": "case-example-daemon.json", "layer": "valid", "patch": [{"op": "add", "path": "/steps/3/expect/errorDetails", "value": {"scope": "pane"}}]},
     {"name": "restart-the-app", "base": "case-example-daemon.json", "layer": "valid", "patch": [{"op": "add", "path": "/steps/8", "value": {"id": "restart-app", "op": "restart", "target": {"process": "app"}, "expect": {"outcome": "ok", "receipt": "identify"}}}]}
   ]
 }

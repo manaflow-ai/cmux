@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextHibernation
+import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -86,7 +87,7 @@ final class BrowserHibernation {
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
-    let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
+    let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
     var openerGroup: (String) -> Set<String> = { [$0] }
     /// The memory coordinator it registers with, made by `AppServices` (tests pass their own).
@@ -120,7 +121,9 @@ final class BrowserHibernation {
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
-    private(set) var prewarmedCount = 0
+    var prewarmedCount = 0
+    /// The hover-dwell prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`).
+    var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).
     static let standInCap: Duration = .milliseconds(500)
@@ -173,9 +176,12 @@ final class BrowserHibernation {
     /// - Parameters:
     ///   - lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
     ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently audible protection off.
-    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false),
-         audible: AudibleHistory? = nil) {
+    /// - Parameter deadlines: The app's main-thread deadline scheduler: the frozen pages' one-shot
+    ///   reading is a `background` deadline on it (nobody sees a reading).
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
+         lowPower: LowPowerMode = LowPowerMode(enabled: false), audible: AudibleHistory? = nil) {
         self.cache = cache
+        growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         self.lowPower = lowPower
         self.memory = memory
         self.audible = audible
@@ -292,6 +298,7 @@ final class BrowserHibernation {
     }
 
     func tabDidShow(_ key: String) {
+        intentPrewarm?.service.committed(key)
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
         freezeKeptAt[key] = nil
@@ -335,6 +342,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
+        intentPrewarm?.service.forget(key)
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
@@ -410,6 +418,7 @@ final class BrowserHibernation {
     /// only once the pointer stays `hoverDwell`, so a sweep across the strip
     /// reloads nothing. Either stays awake `hoverGrace` seconds after.
     func noteHover(_ key: String?) {
+        intentPrewarm?.service.pointerHovered(key) // the strip's hover dwell (`intentPrewarmHover`)
         hoverDwell.cancel()
         guard let key, neighborRadius > 0, let cache, cache.browsers[key] != nil,
               cache.lifecycle.phase(key) != .mountedVisible else { return }
@@ -443,18 +452,6 @@ final class BrowserHibernation {
         }
         for key in joined { warm(key) }
         if replans { replan() }
-    }
-
-    /// Wakes a hidden page early: thaws a frozen one, restores a hibernated one
-    /// in the background (the lifecycle keeps it hidden until selected).
-    private func warm(_ key: String) {
-        guard let cache else { return }
-        thaw(key, prewarm: true)
-        if cache.lifecycle.phase(key) == .hibernated {
-            cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
-            prewarmedCount += 1
-            cache.trace(key, "prewarmed (restore)")
-        }
     }
 
     /// Seconds until the hover grace of `key` ends; nil when it is not hovered (or it ended).
@@ -610,7 +607,7 @@ final class BrowserHibernation {
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or woken early as a neighbor or hovered tab: `prewarm`).
-    private func thaw(_ key: String, prewarm: Bool = false) {
+    func thaw(_ key: String, prewarm: Bool = false) {
         guard frozen.remove(key) != nil else { return }
         untrackGrowth(key)
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }

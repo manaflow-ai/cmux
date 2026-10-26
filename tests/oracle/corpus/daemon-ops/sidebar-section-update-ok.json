@@ -38,8 +38,11 @@
       "args": {
         "method": "sidebar.section.update",
         "params": {
-          "id": "oracle",
-          "patch": {}
+          "id": "sec_top",
+          "patch": {
+            "title": "Oracle",
+            "gap": 4
+          }
         },
         "idempotencyKey": "sidebar-section-update-ok.call"
       },
@@ -51,7 +54,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the top section gets a title and a 4-point gap"
     }
   ],
   "invariants": [
@@ -60,8 +63,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

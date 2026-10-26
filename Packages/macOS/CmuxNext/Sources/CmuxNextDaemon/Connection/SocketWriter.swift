@@ -158,7 +158,8 @@ extension DaemonWireStats.Role {
             // userBlocking: a person waits now for the result of a click, an open or quit.
             .userInitiated
         case .loopbackForward:
-            // userVisible: forwarded page bytes show on screen soon.
+            // Bulk forwarded page bytes: one class below the roles a person waits for, so a large stream never
+            // crowds them out (not the userVisible lane mapping, which is user-initiated; threading-model.md).
             .default
         case .socketProbe:
             // bestEffort: a liveness probe nobody watches.

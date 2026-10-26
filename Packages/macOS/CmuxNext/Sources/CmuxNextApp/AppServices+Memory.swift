@@ -8,12 +8,15 @@
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -56,9 +59,24 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerBrowserCaches()  // CmuxNextBrowser
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
+        // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// The sidebar document store's projection memo: one lossless entry, dropped at critical
+    /// (p07-memory-054). The store is made lazily with the sidebar layout, so `SidebarDocWiring.start` calls this.
+    func registerSidebarDoc(_ store: SidebarDocStore) {
+        store.registerMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryBrowserCaches` (default off): the tab strips' favicon store and the favicon loader's
+    /// per-profile caches hold the same icons, so they are one lossless consumer (p07-memory-055).
+    private func registerBrowserCaches() {
+        guard services.features.isEnabled(.memoryBrowserCaches) else { return }
+        services.favicons.registerMemoryConsumer(with: services.memoryCoordinator, loaderCache: BrowserFaviconLoader.shared)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless

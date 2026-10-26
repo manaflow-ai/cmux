@@ -97,10 +97,8 @@
    "CmuxNextDesign": 1,
    "CmuxNextDictation": 6,
    "CmuxNextHomeEngine": 1,
-   "CmuxNextRemoteView": 5,
    "CmuxNextServerHelper": 5,
    "CmuxNextSettings": 1,
-   "CmuxNextTabs": 5,
    "CmuxNextTerminal": 7,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
@@ -112,7 +110,7 @@
    "exit": {
     "acpmux": 1,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -129,7 +127,7 @@
     "cmux-pane-protocol": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "unwrap": {
     "acpmux": 7
@@ -174,11 +172,10 @@
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 1,
     "CmuxNextRemoteFetch": 1,
-    "CmuxNextRemoteView": 1,
+    "CmuxNextRemoteView": 3,
     "CmuxNextRemoteViewSessions": 1,
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
-    "CmuxNextTabs": 1,
     "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,

@@ -574,63 +574,39 @@ def _bool(value):
     return "true" if value else "false"
 
 
-def _rust_param(param):
-    kind = param["type"]
-    variant = {"int": "Int", "double": "Double", "duration": "Duration", "bool": "Bool"}[kind]
-    if kind == "bool":
-        value = "crate::FeatureParamValue::Bool { default: %s }" % _bool(param["default"])
-    else:
-        number = (lambda item: str(int(item))) if kind == "int" else _float
-        value = "crate::FeatureParamValue::%s { default: %s, min: %s, max: %s }" % (
-            variant, number(param["default"]), number(param["min"]), number(param["max"]))
-    return """        crate::FeatureParamSpec {{
-            name: {name},
-            description: {description},
-            value: {value},
-        }},""".format(name=_string(param["name"]), description=_string(param["description"]), value=value)
-
-
 def rust(features):
+    """The daemon-side features in the shape cmux-features/src/lib.rs reads: `TABLE` and one handle per entry
+    (`feature_handles!`, which fails the build on a name `TABLE` lacks). The daemon's `Snapshot` resolves only
+    the defaults and the process; the other fields stay in the JSON and the Swift registry."""
     daemon = [feature for feature in features if feature["process"] in ("daemon", "both")]
-    blocks = []
-    for index, feature in enumerate(daemon):
+    entries = []
+    handles = []
+    for feature in daemon:
         defaults = feature["defaults"]
-        params = "&[]" if not feature["params"] else "&[\n%s\n    ]" % "\n".join(
-            _rust_param(param) for param in feature["params"])
-        expires = feature.get("expires")
-        blocks.append("""/// {description}
-pub const {const}: crate::Feature = crate::Feature {{
-    index: {index},
-    name: {name},
-    owner: {owner},
-    description: {description_literal},
-    kind: crate::FeatureKind::{kind},
-    process: crate::FeatureProcess::{process},
-    defaults: crate::FeatureDefaults {{ dev: {dev}, nightly: {nightly}, release: {release} }},
-    expires: {expires},
-    params: {params},
-    stories: &[{stories}],
-    sticky: {sticky},
-    runtime_mutable: {runtime_mutable},
-}};
-""".format(
-            description=feature["description"], const=rust_const(feature["name"]), index=index,
-            name=_string(feature["name"]), owner=_string(feature["owner"]),
-            description_literal=_string(feature["description"]), kind=feature["kind"][0].upper() + feature["kind"][1:],
-            process=feature["process"].capitalize(), dev=_bool(defaults["dev"]),
-            nightly=_bool(defaults["nightly"]), release=_bool(defaults["release"]),
-            expires="Some(%s)" % _string(expires) if expires else "None", params=params,
-            stories=", ".join(_string(story) for story in feature["stories"]),
-            sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"])))
-    registered = "&[%s]" % ", ".join(rust_const(feature["name"]) for feature in daemon)
+        entries.append("""    crate::FeatureDef {{
+        name: {name},
+        defaults: crate::Defaults {{ dev: {dev}, nightly: {nightly}, release: {release} }},
+        process: crate::Process::{process},
+    }},""".format(
+            name=_string(feature["name"]), dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]),
+            release=_bool(defaults["release"]), process=feature["process"].capitalize()))
+        handles.append("        /// {description}\n        {const} = {name},".format(
+            description=feature["description"], const=rust_const(feature["name"]), name=_string(feature["name"])))
     comment = "\n".join("// " + line for line in HEADER.split("\n"))
+    table = "&[\n%s\n]" % "\n".join(entries) if entries else "&[]"
+    handle_list = "\n" + "\n".join(handles) + "\n    " if handles else ""
     return """{comment}
 //
 // The daemon-side features (process "daemon" or "both"); the app's registry has every feature.
 
-{blocks}/// Every daemon-side feature, by index: `REGISTERED[feature.index]` is `feature`.
-pub static REGISTERED: &[crate::Feature] = {registered};
-""".format(comment=comment, blocks="\n".join(blocks) + ("\n" if blocks else ""), registered=registered)
+/// Every daemon-side feature in registry order; a handle is its index here.
+pub(crate) const TABLE: &[crate::FeatureDef] = {table};
+
+/// One handle per daemon feature, for `Snapshot::is_enabled`.
+pub mod feature {{
+    feature_handles!(super::TABLE;{handles});
+}}
+""".format(comment=comment, table=table, handles=handle_list)
 
 
 def outputs(features):

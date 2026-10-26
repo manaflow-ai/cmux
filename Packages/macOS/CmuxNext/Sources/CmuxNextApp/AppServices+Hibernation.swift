@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextHibernation
+import CmuxNextInput
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
@@ -21,7 +22,7 @@ extension AppServices {
     /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
@@ -39,8 +40,22 @@ extension AppServices {
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
+        if features.isEnabled(.intentPrewarmHover) { startIntentPrewarm(over: hibernation) }
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
+    }
+
+    /// The hover-dwell intent prewarm (p04-input-043) over `hibernation`, its weak warmer: one background-class
+    /// dwell deadline, the app's memory pressure, the feature's dwell and Energy Saver's inputs as its power.
+    private func startIntentPrewarm(over hibernation: BrowserHibernation) {
+        let service = IntentPrewarmService<String>(
+            warmer: hibernation, memoryPressure: memoryPressure,
+            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines),
+            dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200))
+        let power = energyMonitor.follow { [weak service] inputs in
+            service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)
+        }
+        hibernation.intentPrewarm = (service, power)
     }
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
