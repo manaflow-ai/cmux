@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The one owner of launch order (plans/cmux-next/chrome-parity/p08-startup.md, section 3B): every
 /// launch task is posted here with a ``StartupPriority``, a name and a destination, and runs when
@@ -118,7 +121,7 @@ public final class StartupScheduler {
     /// ``whenCompleteFirst(_:)`` observers: they run before ``observers``.
     private var firstObservers: [@MainActor (Completion) -> Void] = []
     /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
-    private var firstFrameWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstFrameWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Built in init (lazy because its callback captures self).
     private lazy var idleClient: FrameClient = FrameClient(owner: "Startup.afterStartup", budgeted: .background, on: mainWork) { [weak self] _, budget in
         self?.runIdleTask(budget) ?? false
@@ -292,7 +295,7 @@ public final class StartupScheduler {
     /// way for work that fits in one main turn.
     public func afterFirstFrame() async {
         guard !firstFrameDone, !isQuitting else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in firstFrameWaiters.append(done) }
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in firstFrameWaiters.append(done) }
     }
 
     /// Whether the scheduler's own failsafe deadline is pending (never while its launch phase owns the deadline).
@@ -392,7 +395,7 @@ public final class StartupScheduler {
     private func resumeFirstFrameWaiters() {
         let waiting = firstFrameWaiters
         firstFrameWaiters = []
-        for waiter in waiting { waiter.resume() }
+        for waiter in waiting { waiter.resume(returning: ()) }
     }
 
     /// Runs `task` now (critical), or hands it to its main class or its lane.
