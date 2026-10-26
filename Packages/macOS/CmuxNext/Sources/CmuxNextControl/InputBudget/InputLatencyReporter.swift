@@ -93,9 +93,27 @@ public final class InputLatencyReporter: Sendable {
         _ = handOffDropped.exchange(0, ordering: .relaxed)
     }
 
+    /// Starts or stops the opt-in field report's own ledger (hang reports on or off). While on,
+    /// every batch is folded into it too, and ``takeFieldReport()`` hands out its counts since the
+    /// last take, so `debug.input` and its reset never change what the report says. Off drops it.
+    /// Every batch accepted before the call is folded first, so none of them counts in the field.
+    public func setFieldReport(_ on: Bool) async {
+        let target = accepted.load(ordering: .acquiring)
+        await store.setField(on, afterFolding: target)
+    }
+
+    /// The field ledger's counts since it started or since the last take, every accepted batch
+    /// folded first; the field ledger starts over. Nil while the field report is off.
+    public func takeFieldReport() async -> InputLatencySnapshot? {
+        let target = accepted.load(ordering: .acquiring)
+        return await store.takeField(afterFolding: target)
+    }
+
     /// The ledger and the reader's progress, on their own executor.
     private actor Store {
         private var ledger = InputLatencyLedger()
+        /// The opt-in field report's ledger, nil while it is off.
+        private var field: InputLatencyLedger?
         private var folded: UInt64 = 0
         /// The reader has not ended: accepted batches will still be folded.
         private var reading = true
@@ -103,6 +121,7 @@ public final class InputLatencyReporter: Sendable {
 
         func fold(_ batch: InputLatencyBatch) {
             ledger.fold(batch)
+            field?.fold(batch)
             folded &+= 1
             resumeWaiters { $0 <= folded }
         }
@@ -120,6 +139,29 @@ public final class InputLatencyReporter: Sendable {
         func reset(afterFolding target: UInt64) async {
             await waitFolded(target)
             ledger.reset()
+        }
+
+        func setField(_ on: Bool, afterFolding target: UInt64) async {
+            await waitFolded(target)
+            guard on else {
+                field = nil
+                return
+            }
+            guard field == nil else { return }
+            // A copy of the main ledger, emptied: it keeps the producer's drop baseline, so the
+            // first batch adds only the slots lost after the start.
+            var started = ledger
+            started.reset()
+            field = started
+        }
+
+        func takeField(afterFolding target: UInt64) async -> InputLatencySnapshot? {
+            await waitFolded(target)
+            guard var taken = field else { return nil }
+            let snapshot = taken.snapshot
+            taken.reset()
+            field = taken
+            return snapshot
         }
 
         private func waitFolded(_ target: UInt64) async {

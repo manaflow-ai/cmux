@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// ```swift
 /// let builder = HangReportBuilder(classifier: classifier, resolver: DyldImageResolver())
-/// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries)
+/// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries,
+///                            inputLatency: HangReportBuilder.InputLatencyInput(snapshot: field, display: display))
 /// ```
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
@@ -50,8 +51,10 @@ public nonisolated struct HangReportBuilder: Sendable {
         self.resolver = resolver
     }
 
-    /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
-    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> HangReport {
+    /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
+    /// the last report.
+    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
+                      inputLatency: InputLatencyInput? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: context.counts)
@@ -66,6 +69,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
+        if let inputLatency { Self.addInputLatency(inputLatency, to: &report) }
         return report
     }
 

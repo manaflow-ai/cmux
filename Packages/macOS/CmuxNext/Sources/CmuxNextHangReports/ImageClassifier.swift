@@ -131,11 +131,12 @@ public nonisolated struct ImageClassifier: Sendable {
     static let minimumTermLength = 4
 
     /// A personal term that is part of our product names or of the report's fixed vocabulary
-    /// ("cmux", "nightly", "apple", "stall") says nothing a report does not already say, and must
-    /// not refuse every report.
+    /// ("cmux", "nightly", "apple", "stall", the input latency labels) says nothing a report does
+    /// not already say, and must not refuse every report.
     static func isOwnWord(_ term: String) -> Bool {
         ["cmux next nightly", "ghosttykit", "chromium embedded framework", "metrickit", "watchdog", "stall", "hang",
          "release", "apple", "intel", "ultra", "other", "arm64", "x86_64"].contains { $0.contains(term) }
+            || HangReportBuilder.inputVocabulary.contains { $0.contains(term) }
     }
 
     static func isUUID(_ value: String) -> Bool {

@@ -107,6 +107,15 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var metrics = Metrics()
     /// Allowlisted signpost interval histograms.
     public var intervals: [IntervalHistogram] = []
+    /// The upper edges of the ``inputLatency`` buckets, in milliseconds. The four input fields
+    /// are present together, or absent when the report carries no input latency.
+    public var inputLatencyBucketEdgesMs: [Double]?
+    /// Input latency since the last report, per kind, target, entrypoint and presentation source.
+    public var inputLatency: [InputLatencyRow]?
+    /// Chrome's scroll jank counts since the last report.
+    public var scrollJank: ScrollJank?
+    /// The display the input latency was measured on.
+    public var display: Display?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -120,10 +129,22 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric or interval).
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval or
+    /// input latency).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty
+            && intervals.isEmpty && (inputLatency ?? []).isEmpty && (scrollJank?.isEmpty ?? true)
+    }
+
+    /// The wire names: camelCase for the schema 2 fields; the input latency fields use the
+    /// snake_case names `debug.input` and the trace tools share (p04-input.md, DC12).
+    private enum CodingKeys: String, CodingKey {
+        case schema, reportId, installId, day, app, os, hardware, counts, hangs, cpuExceptions, stallHistogram
+        case metrics, intervals
+        case inputLatencyBucketEdgesMs = "input_latency_bucket_edges_ms"
+        case inputLatency = "input_latency"
+        case scrollJank = "scroll_jank"
+        case display
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

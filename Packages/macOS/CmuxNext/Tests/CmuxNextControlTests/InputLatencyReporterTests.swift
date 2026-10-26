@@ -61,4 +61,26 @@ import Testing
         reporter.finish()
         await reader.value
     }
+
+    @Test func theFieldReportCountsOnlyWhileOnAndEachTakeStartsOver() async {
+        // p04-input-010: the opt-in report's own ledger; debug.input's reset never changes it.
+        let reporter = InputLatencyReporter()
+        let reader = Task.detached(priority: .utility) { await reporter.run() }
+        reporter.submit(Self.batch(2, droppedTotal: 1))
+        #expect(await reporter.takeFieldReport() == nil, "off: no field ledger")
+        await reporter.setFieldReport(true)
+        reporter.submit(Self.batch(3, droppedTotal: 2))
+        await reporter.reset()
+        let first = await reporter.takeFieldReport()
+        #expect(first?.slotsReceived == 3, "the batch after the start, kept across the debug.input reset")
+        #expect(first?.slotsDropped == 1, "only the slot lost after the start")
+        #expect(first?.rows.first?.count == 3)
+        let second = await reporter.takeFieldReport()
+        #expect(second?.slotsReceived == 0, "a take starts the field ledger over")
+        await reporter.setFieldReport(false)
+        reporter.submit(Self.batch(1, droppedTotal: 2))
+        #expect(await reporter.takeFieldReport() == nil)
+        reporter.finish()
+        await reader.value
+    }
 }

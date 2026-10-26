@@ -43,6 +43,16 @@ struct PrivacyLeakScannerTests {
         #expect(findings(planting: HangReportFixtures.appUUID, at: "uuid").isEmpty)
     }
 
+    @Test func acceptsInputLatencyLabelsEvenWhenTheUserIsCalledTerminalOrPerson() throws {
+        // A short name that is a word of the input labels must not refuse every report (p04-input-010).
+        let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Terminal", "Person", "Frames"])
+        let report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: StallAggregate(),
+                                                        metricKit: [], inputLatency: InputLatencyReportTests.fieldInput())
+        #expect(report.inputLatency?.isEmpty == false)
+        let body = try HangReport.encoder.encode(report)
+        #expect(scanner.findings(in: body).isEmpty)
+    }
+
     @Test func refusesTextThatIsNotJSON() {
         #expect(scanner.findings(in: Data("not json".utf8)).map(\.kind) == [.notJSON])
     }

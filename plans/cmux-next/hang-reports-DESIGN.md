@@ -57,6 +57,7 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
 | MetricKit `MXAnimationMetric` | scroll hitch ratio, hitch ratio (macOS 26) | none |
 | MetricKit `MXSignpostMetric` | duration histograms and hitch ratio of allowlisted Release intervals (below) | none: aggregated by the OS |
 | `MainThreadWatchdog` (in process) | each finished stall over 50 ms into a duration histogram; the stacks of the 8 longest stalls of 250 ms and more; each 2 s hang's stack | one lock and a few integer adds per finished stall, on the stall's own end; nothing while the app is idle |
+| `InputLatencyReporter` field report (in process, p04-input-010) | input latency histograms per kind, target, entrypoint and presentation source; Chrome's scroll jank counts; the display's refresh rate and whether it varies | while on, a second `InputLatencyLedger` folds the same closed-slot batches on the reporter's utility reader; nothing on the main thread, nothing while idle |
 
 `MXAppLaunchDiagnostic` is iOS only (`API_UNAVAILABLE(macos)` in the macOS 26 SDK): launch on
 the Mac is the launch metric histograms plus watchdog stalls during launch.
@@ -166,6 +167,67 @@ endpoint opens. The client also drops a queued body whose schema or app is not i
 `hardware.chip` is a closed set (`Apple M<n>[ Pro| Max| Ultra]`, `Intel`, `other`) and
 `hardware.memoryGB` one of the sizes in `HardwareClass.memorySizesGB`, on both sides.
 
+### Input latency (p04-input-010)
+
+Chrome reads input latency in the field as distributions, never as single events (the
+`EventLatency.*` and `Event.ScrollJank.*` UMA histograms; cc/metrics/event_metrics.h,
+cc/metrics/scroll_jank_dropped_frame_tracker.cc). A report carries the same, from the
+`InputLatencyReporter` field ledger (p04-input-002), in four optional keys that are present
+together or all absent (absent: no input was counted since the last report). They use the
+snake_case names of `debug.input` and the trace tools:
+
+```json
+{
+  "input_latency_bucket_edges_ms": [1, 2, 4, 6, 8.3, 10, 12, 16.7, 24, 33, 50, 100, 250],
+  "input_latency": [
+    {"kind": "keyPress", "target": "terminal", "entrypoint": "person",
+     "presentation_source": "estimatedVsync", "count": 940,
+     "buckets": [0, 3, 120, 400, 300, 80, 20, 10, 5, 1, 1, 0, 0, 0], "max_ms": 41.25}
+  ],
+  "scroll_jank": {"presented_frames": 640, "delayed_frames": 9, "skipped_frames": 12,
+                  "histograms": [{"name": "Event.ScrollJank.DelayedFramesPercentage.FixedWindow",
+                                  "samples": [{"value": 0, "count": 7}, {"value": 4, "count": 3}]}]},
+  "display": {"refresh_hz": 120, "vrr": true}
+}
+```
+
+- `input_latency_bucket_edges_ms`: the upper edges of the buckets (`InputLatencyBuckets`), in
+  milliseconds; 8.3 and 16.7 are one frame at 120 and 60 Hz.
+- `input_latency[]`: at most 64 rows, the most frequent first. `kind` is an `InputEventKind`
+  case name (`keyPress`, `keyRelease`, `flags`, `mousePress`, `mouseRelease`, `pointerMove`,
+  `drag`, `scrollBegin`, `scrollFirstUpdate`, `scrollUpdate`, `scrollMomentum`, `scrollEnd`,
+  `magnify`), `target` an `InputTarget` (`terminal`, `textView`, `chromiumPage`, `webkitPage`,
+  `agentPane`, `layout`, `sidebar`, `palette`, `other`), `entrypoint` `person` or `automation`,
+  `presentation_source` an `InputPresentationSource` (`estimatedVsync`, `metalPresented`,
+  `hostFeedback`, `pageEstimated`). `buckets` has one count per edge, then one count over the
+  last edge (14 entries); bucket `i` counts latencies in (edge[i-1], edge[i]]. `count` is the sum
+  of `buckets`: the inputs that reached a presented frame (oldest OS event to presented frame).
+  `max_ms` is the longest, two decimals, at most one day. A row whose label is not one of these
+  case names, or whose bucket count differs, is left out.
+- `scroll_jank`: the person's scroll frames as Chrome counts them: `presented_frames`,
+  `delayed_frames` (janky: the gap to the previous presentation is over 1.5 vsyncs and the
+  input was there before it; at most `presented_frames`), `skipped_frames` (a scroll's first
+  frame, out of order or inconsistent times). `histograms[]` lists only emitted ones by Chrome's
+  name (`Event.ScrollJank.DelayedFramesPercentage.FixedWindow`, `.MissedVsyncsSum.FixedWindow`,
+  `.MissedVsyncsMax.FixedWindow` and the three `.PerScroll`), in that order, each value with how
+  often it was emitted; a percentage is at most 100, a missed vsync count at most 50 (Chrome's
+  `kVsyncCountsMax`).
+- `display`: `refresh_hz` is the highest refresh rate of the display, whole hertz, 0 when
+  unknown (above 1000 is sent as 0); `vrr` is true when the rate varies (ProMotion, adaptive
+  sync), where `estimatedVsync` times are less exact. Rows are not split by display.
+
+Nothing else: no event time, no key, no character, no coordinate, no window, no title. Every
+string is an enum case name or a Chrome histogram name, so the leak scan's personal terms
+ignore words of these names (`ImageClassifier.isOwnWord`), as they ignore `cmux` and `stall`.
+The field ledger is the reporter's own: `debug.input reset` never changes what a report says,
+and each report takes its counts and starts the field ledger over
+(`InputLatencyReporter.setFieldReport(_:)`, `takeFieldReport()`). A report too large for the
+body cap drops the least frequent rows last, after hangs, CPU exceptions and intervals.
+
+**Server first.** The route rejects unknown keys, so the server's schema 2 must accept these four
+keys as optional, with the same limits, before the app passes `HangReportService.Environment
+.inputLatency`; until then the app passes none (the default) and reports have none of them.
+
 ## 5. Server
 
 - `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program
@@ -197,7 +259,8 @@ few times a day. Idle: 0 extra wakeups, 0 extra CPU (measured in section 8).
 ## 7. Files
 
 App: `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/` (builder, redaction, scanner,
-collector, identity, store, uploader, MetricKit adapter), `CmuxNextApp/HangReports/` (wiring,
+collector, identity, store, uploader, MetricKit adapter; `HangReport+InputLatency.swift` and
+`HangReportBuilder+InputLatency.swift` for the input fields), `CmuxNextApp/HangReports/` (wiring,
 ask card, action handler; `WatchdogReporting` now holds all of the watchdog's sinks),
 `CmuxNextSettings/HangReportsSetting.swift` and its schema row, the `diagnostics.viewHangReport`
 action (`HangReportsActionCatalog`). Strings: `CmuxNextSettings/Localizable.xcstrings`,

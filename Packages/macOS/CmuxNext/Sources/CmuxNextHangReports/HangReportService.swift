@@ -31,12 +31,16 @@ public actor HangReportService {
         /// passes the managed `DisableTelemetry`, so a profile installed while cmux runs stops the
         /// next send and drops what was recorded).
         public var stillAllowed: @Sendable () -> Bool
+        /// Takes the input latency counted since the last report and the display it was measured
+        /// on (the app passes the input latency reporter's field report); nil when none.
+        public var inputLatency: @Sendable () async -> HangReportBuilder.InputLatencyInput?
 
         /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
                     makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
-                    stillAllowed: @escaping @Sendable () -> Bool = { true }) {
+                    stillAllowed: @escaping @Sendable () -> Bool = { true },
+                    inputLatency: @escaping @Sendable () async -> HangReportBuilder.InputLatencyInput? = Environment.noInputLatency) {
             self.app = app
             self.os = os
             self.hardware = hardware
@@ -44,6 +48,13 @@ public actor HangReportService {
             self.now = now
             self.makeReportID = makeReportID
             self.stillAllowed = stillAllowed
+            self.inputLatency = inputLatency
+        }
+
+        /// No input latency: the default until the server accepts the input keys. Named so the
+        /// default is not an async closure literal (crash_ratchet, cx-bsue).
+        public nonisolated static func noInputLatency() async -> HangReportBuilder.InputLatencyInput? {
+            nil
         }
     }
 
@@ -189,7 +200,8 @@ public actor HangReportService {
         log.sentToday += 1
         log.lastSentAt = now
         await store.saveSendLog(log)
-        let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries))
+        let inputLatency = await environment.inputLatency()
+        let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries, inputLatency: inputLatency))
         guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
               body.count <= HangReport.maxBodyBytes else { return }
         let findings = scanner.findings(in: body)
@@ -255,22 +267,25 @@ public actor HangReportService {
         return true
     }
 
-    private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], installId: String? = nil) async -> HangReport {
+    private func build(watchdog: StallAggregate, metricKit: [MetricKitInput],
+                       inputLatency: HangReportBuilder.InputLatencyInput? = nil, installId: String? = nil) async -> HangReport {
         let now = environment.now()
         let context = HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
             os: environment.os, hardware: environment.hardware, counts: await environment.counts())
-        return builder.build(context: context, watchdog: watchdog, metricKit: metricKit)
+        return builder.build(context: context, watchdog: watchdog, metricKit: metricKit, inputLatency: inputLatency)
     }
 
     /// `report` shrunk until it encodes under the body cap: the shortest hangs, then CPU
-    /// exceptions, then intervals go first.
+    /// exceptions, then intervals, then the least frequent input latency rows go first.
     static func fitted(_ report: HangReport) -> HangReport {
         var report = report
         while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {
             if !report.hangs.isEmpty { report.hangs.removeLast() } else if !report.cpuExceptions.isEmpty {
                 report.cpuExceptions.removeLast()
-            } else if !report.intervals.isEmpty { report.intervals.removeLast() } else { break }
+            } else if !report.intervals.isEmpty { report.intervals.removeLast() } else if report.inputLatency?.isEmpty == false {
+                report.inputLatency?.removeLast()
+            } else { break }
         }
         return report
     }
