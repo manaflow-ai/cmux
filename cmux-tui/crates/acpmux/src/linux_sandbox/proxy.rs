@@ -3,6 +3,8 @@
 //! Stricter than Seatbelt: reject unspecified (including IPv4 0/8), link-local,
 //! multicast and limited broadcast destinations; only the fixed forwarder can
 //! reach loopback. No filesystem access, request logging or redirect handling.
+//! Deprecated IPv4-compatible, 6to4 and Teredo destinations are refused outright.
+//! NAT64/SIIT must pass IPv4 policy and never receive the loopback API exception.
 #![allow(dead_code)] // Removed when the Linux sandbox spawn wires this module.
 
 use std::{
@@ -39,7 +41,40 @@ fn normalized(ip: IpAddr) -> IpAddr {
 
 /// Seatbelt port policy, tightened for metadata and non-unicast destinations.
 /// The loopback API exception describes only `serve_forward`; the proxy excludes it.
+/// Embedded-address iteration stops after four candidates; recursion ends at IPv4.
 pub(crate) fn allowed(policy: &NetPolicy, addr: SocketAddr) -> bool {
+    if let IpAddr::V6(v6) = addr.ip() {
+        let s = v6.segments();
+        let b = v6.octets();
+        if (s[..6] == [0; 6] && !v6.is_unspecified() && !v6.is_loopback())
+            || s[0] == 0x2002
+            || s[..2] == [0x2001, 0]
+        {
+            return false;
+        }
+        let last = [b[12], b[13], b[14], b[15]];
+        let translated = s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] || s[..6] == [0, 0, 0, 0xffff, 0, 0];
+        let local_nat64 = s[..3] == [0x64, 0xff9b, 1];
+        if translated || local_nat64 {
+            // RFC 6052 /48, /56 and /64 skip the reserved byte at index 8.
+            // With no translation-prefix configuration, require ALL possible
+            // layouts under the local /48 to pass (conservatively stricter).
+            let candidates = if local_nat64 {
+                [
+                    [b[6], b[7], b[9], b[10]],
+                    [b[7], b[9], b[10], b[11]],
+                    [b[9], b[10], b[11], b[12]],
+                    last,
+                ]
+            } else {
+                [last; 4]
+            };
+            return candidates.into_iter().all(|bytes| {
+                let v4 = std::net::Ipv4Addr::from(bytes);
+                !v4.is_loopback() && allowed(policy, SocketAddr::new(v4.into(), addr.port()))
+            });
+        }
+    }
     let ip = normalized(addr.ip());
     if addr.port() == 0 {
         return false;
@@ -350,6 +385,31 @@ mod tests {
             ("8.8.8.8:443", true),
             ("[2606:4700:4700::1111]:443", true),
             ("[::ffff:8.8.8.8]:80", true),
+            ("[::127.0.0.1]:443", false),
+            ("[::8.8.8.8]:80", false),
+            ("[2002:7f00:1::]:443", false),
+            ("[2002:808:808::]:80", false),
+            ("[2001:0:1234:5678:9abc:def0:80ff:fffe]:443", false),
+            ("[2001:0:1234:5678:9abc:def0:f7f7:f7f7]:80", false),
+            ("[64:ff9b::7f00:1]:443", false),
+            ("[64:ff9b::a9fe:a9fe]:80", false),
+            ("[64:ff9b::e000:1]:443", false),
+            ("[64:ff9b::ffff:ffff]:80", false),
+            ("[64:ff9b::]:80", false),
+            ("[64:ff9b::808:808]:443", true),
+            ("[::ffff:0:7f00:1]:443", false),
+            ("[::ffff:0:a9fe:a9fe]:80", false),
+            ("[::ffff:0:e000:1]:443", false),
+            ("[::ffff:0:ffff:ffff]:80", false),
+            ("[::ffff:0:0:0]:443", false),
+            ("[::ffff:0:808:808]:80", true),
+            // Local NAT64 may use /48, /56, /64 or /96: RFC 6052 skips byte 8.
+            ("[64:ff9b:1:7f00:0:108:808:808]:443", false),
+            ("[64:ff9b:1:87f:0:1:808:808]:443", false),
+            ("[64:ff9b:1:808:7f:0:108:808]:443", false),
+            ("[64:ff9b:1:808:8:808:7f00:1]:443", false),
+            ("[64:ff9b:1:a9fe:a9:fe08:808:808]:80", false),
+            ("[64:ff9b:1:808:8:808:808:808]:443", true),
             ("10.0.0.1:443", true),
             ("8.8.8.8:22", false),
             ("8.8.8.8:0", false),
@@ -388,6 +448,13 @@ mod tests {
             assert!(!allowed(&none, addr));
         }
         assert!(!allowed(&local, "127.0.0.1:31416".parse().unwrap()));
+        for text in [
+            "[64:ff9b::7f00:1]:31415",
+            "[::ffff:0:7f00:1]:31415",
+            "[64:ff9b:1:808:8:808:7f00:1]:31415",
+        ] {
+            assert!(!allowed(&local, text.parse().unwrap()), "no translated loopback exception");
+        }
         assert!(!allowed(&NetPolicy { api: Some((0, true)) }, "127.0.0.1:0".parse().unwrap()));
     }
 
