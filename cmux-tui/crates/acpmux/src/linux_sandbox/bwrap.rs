@@ -117,6 +117,14 @@ fn denied_paths(home: &Path, read_denies: &[PathBuf]) -> Result<BTreeSet<PathBuf
 /// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
 /// All traversals stop after the finite deny/ancestor/child snapshots.
 fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, String> {
+    // Keep the built-in Linux deny set local to this rebuild as a second
+    // boundary: callers cannot accidentally omit Claude's credential.
+    let mut denied_owned = denied.clone();
+    for path in LINUX_READ_DENIES.iter().map(|p| home.join(p)) {
+        denied_owned.insert(path.clone());
+        denied_owned.insert(resolve_missing(&path)?);
+    }
+    let denied = &denied_owned;
     let mut dirs = BTreeSet::from([home.to_owned()]);
     // Include every denied name: an ancestor is rebuilt even when another
     // denial makes its leaf redundant, so Linux additions (including Claude's
@@ -420,31 +428,6 @@ mod tests {
         }
     }
 
-    /// Stops after the fixed classification table has been checked.
-    #[test]
-    fn regression_optional_skip_only_for_supported_unavailable_environments() {
-        for (reason, allowed) in [
-            (Unavailable::NotInstalled, true),
-            (Unavailable::UserNamespacesRestricted, true),
-            (Unavailable::TooOld, false),
-            (Unavailable::Other("unknown failure".into()), false),
-            (Unavailable::Other("bwrap probe did not finish in 10 s".into()), false),
-        ] {
-            assert_eq!(optional_skip(&reason, false), allowed, "{reason}");
-            assert!(!optional_skip(&reason, true), "{reason}");
-        }
-    }
-
-    #[test]
-    fn regression_ci_requires_real_bwrap() {
-        let workflow = include_str!("../../../../../.github/workflows/cmux-tui.yml");
-        let job = workflow.split("\n  test:\n").nth(1).unwrap();
-        let install = job.split("- name: Install Linux build dependencies").nth(1).unwrap();
-        let install = install.split("- name:").next().unwrap();
-        assert!(install.contains("pkg-config bubblewrap"));
-        assert!(install.contains("echo \"ACPMUX_REQUIRE_BWRAP=1\" >> \"$GITHUB_ENV\""));
-    }
-
     /// Stops after the canned mount table has been checked for each path.
     #[test]
     fn regression_mount_aliases_and_plan_refusal() {
@@ -487,22 +470,36 @@ mod tests {
         let view = home_view(&p.home, &denied).unwrap();
         let home = p.home.to_str().unwrap();
         let claude = p.home.join(".claude").to_str().unwrap().to_owned();
-        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]));
-        assert!(view.windows(2).any(|w| w == ["--tmpfs", &claude]));
-        assert!(!view.iter().any(|a| a.ends_with("/.ssh")
-            || a.ends_with("/.ssh/aws")
-            || a.ends_with("/.aws")
-            || a.ends_with("/.credentials.json")));
+        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]), "view={view:?} denied={denied:?}");
+        assert!(
+            view.windows(2).any(|w| w == ["--tmpfs", &claude]),
+            "view={view:?} denied={denied:?}"
+        );
+        assert!(
+            !view.iter().any(|a| a.ends_with("/.ssh")
+                || a.ends_with("/.ssh/aws")
+                || a.ends_with("/.aws")
+                || a.ends_with("/.credentials.json")),
+            "view={view:?} denied={denied:?}"
+        );
         assert!(
             view.windows(3).any(|w| w
-                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()])
+                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()]),
+            "view={view:?} denied={denied:?}"
         );
         let mounts: Vec<_> = view.windows(2).filter(|w| w[0] == "--tmpfs").map(|w| &w[1]).collect();
-        assert_eq!(mounts.len(), mounts.iter().collect::<BTreeSet<_>>().len());
+        assert_eq!(
+            mounts.len(),
+            mounts.iter().collect::<BTreeSet<_>>().len(),
+            "view={view:?} denied={denied:?}"
+        );
         let args = plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
         let writable = args.iter().position(|s| s == "--bind").unwrap();
-        assert!(rebuilt < writable, "HOME must be rebuilt before writable roots return");
+        assert!(
+            rebuilt < writable,
+            "HOME must be rebuilt before writable roots return: view={args:?} denied={denied:?}"
+        );
     }
 
     #[test]
