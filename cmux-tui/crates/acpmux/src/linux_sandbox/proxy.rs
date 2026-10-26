@@ -301,7 +301,9 @@ where
             return reply(&mut client, "408 Request Timeout", "header deadline exceeded").await;
         }
     };
-    let line_end = bytes[..end].windows(2).position(|w| w == b"\r\n").unwrap();
+    let Some(line_end) = bytes[..end].windows(2).position(|w| w == b"\r\n") else {
+        return reply(&mut client, "400 Bad Request", "missing request line terminator").await;
+    };
     let parsed = std::str::from_utf8(&bytes[..line_end]).ok().and_then(request);
     let Some((host, port, rewritten)) = parsed else {
         return reply(&mut client, "400 Bad Request", "invalid proxy request target").await;
@@ -341,9 +343,9 @@ where
     }
 }
 
-#[cfg(test)]
 /// Table loops stop at their finite inputs. Test services stop on cancellation
 /// (or runtime teardown after a panic); test waits have the `bounded` deadline.
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::{future::Future, time::Duration};
