@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextMetrics
 @testable import CmuxNextSignposts
 @testable import CmuxNextTerminal
 @testable import CmuxNextTrace
@@ -209,6 +210,29 @@ struct GhosttyTraceHookTests {
         trace.setCategoryMask(Self.allCategories)
         unsupported.refreshDemand()
         #expect(!unsupported.isSupported && !unsupported.isInstalled)
+    }
+
+    /// p09-observability-054: the hook turns echo sampling on, sampling keeps the hook set with nothing recording,
+    /// and the handoff of the frame that shows the sampled press's echo is its `key.echo_frame` sample end.
+    @Test func echoSamplingKeepsTheHookSetAndItsHandoffEndsTheSample() throws {
+        let trace = TraceRuntime(role: .app)
+        let store = MetricsStore(role: .app, profile: MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "dev",
+                                                                     osVersion: "26.1.0", hardwareClass: "Mac16,10",
+                                                                     buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 26)))
+        store.attach(to: trace)
+        let probe = TypingLatencyProbe(path: nil, trace: trace, echoFrames: Metrics(runtime: trace))
+        let rig = Rig(trace: trace, probe: probe)
+        #expect(!probe.samplesEchoFrames)
+        rig.hook.refreshDemand()
+        #expect(probe.samplesEchoFrames, "a libghostty with the hook ends samples, so the hook turns sampling on")
+        #expect(rig.hook.isInstalled && !probe.isRecording, "echo sampling reads the handoffs while no press is open")
+
+        for _ in 1..<TypingLatencyProbe.echoSampleInterval { probe.keyDown(eventTimestamp: 0) }
+        _ = try parsedPress(probe, on: rig.key) // the 16th key
+        rig.call(.contentsHandoff, seq: 1)
+        #expect(!probe.isRecording, "the handoff closed the sample")
+        let echo = store.delta().histograms.first { $0.name == HistogramID.keyEchoFrame(.local).name }
+        #expect(echo?.count == 1)
     }
 
     /// A frame's four hook calls add no allocation to the loop that makes them, with every category on and the

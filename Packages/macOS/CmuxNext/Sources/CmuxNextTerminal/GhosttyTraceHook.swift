@@ -22,7 +22,9 @@ import Darwin
 ///   `awaitsGPU`, and its completion posts those flows to ``FramePresentEstimate/gpuDidFinish(flow:atNanos:)``.
 ///
 /// The pointer is set only while something reads it (``refreshDemand()``): an echo stage sink, the typing
-/// probe, or the `ghostty` or `frame` trace category; otherwise it is null and a Ghostty frame pays one load.
+/// probe's recording or its `key.echo_frame` sampling (``TypingLatencyProbe/samplesEchoFrames``, which the first
+/// ``refreshDemand()`` turns on, so the hook stays set and a handoff between samples pays one load), or the
+/// `ghostty` or `frame` trace category; otherwise it is null and a Ghostty frame pays one load.
 /// The ABI it expects from ghostty-next's `ghostty.h`:
 ///
 /// ```c
@@ -103,7 +105,9 @@ public final class GhosttyTraceHook {
     /// probe's flows or the trace categories change (`trace.start`, `trace.stop`).
     public func refreshDemand() {
         guard let setter else { return }
-        let wanted = echoStagesNeedFrames || recorder.probe.isRecording
+        // This libghostty reports every handoff, so a key.echo_frame sample can end: turn the probe's sampling on.
+        recorder.probe.startEchoSampling()
+        let wanted = echoStagesNeedFrames || recorder.probe.isRecording || recorder.probe.samplesEchoFrames
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.ghostty.traceBit)
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.frame.traceBit)
         guard wanted != isInstalled else { return }
