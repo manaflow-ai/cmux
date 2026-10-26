@@ -23,7 +23,7 @@ enum TabSearchFactsBuilder {
         var resolver = resolver
         var result: [String: String] = [:]
         for workspace in workspaces {
-            resolver.workspaceName = workspace.displayName
+            resolver.workspaceName = AgentChatTabTitle.workspaceName(workspace)
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs where tab.agentSession != nil {

@@ -158,7 +158,7 @@ enum PaletteSourcesBridge {
             // The strip's title rule: an agent chat by its chat, never its record's `about:blank`.
             var titles = TabTitleResolver(services: services)
             return services.machines.allWorkspaces.map(\.0).flatMap { workspace in
-                titles.workspaceName = workspace.displayName
+                titles.workspaceName = AgentChatTabTitle.workspaceName(workspace)
                 return workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
                     PaletteTab(id: tab.id, title: titles.title(tab),
                                workspaceTitle: workspace.displayName, kind: tab.kind == .browser ? .browser : .terminal,

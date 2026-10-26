@@ -50,7 +50,7 @@ enum GlobalSearchHandlers {
         var titles = titles
         for (workspace, daemon) in workspaces {
             let connection = daemon.connection
-            titles.workspaceName = workspace.displayName
+            titles.workspaceName = AgentChatTabTitle.workspaceName(workspace)
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs where !tab.dead {
@@ -77,7 +77,7 @@ enum GlobalSearchHandlers {
     /// (the shown title of one its shell has not titled): one folder word
     /// would match every terminal opened there.
     private static func searchText(_ title: String, of tab: TabModel, in workspace: WorkspaceModel) -> String {
-        let name = tab.kind == .pty ? tab.displayTitle : title
+        let name = tab.agentSession == nil && (tab.kind == .pty || tab.kind == .remoteTerminal) ? tab.displayTitle : title
         return [name, workspace.displayName, tab.kind == .browser ? tab.url : nil].compactMap { $0 }.joined(separator: " ")
     }
 
