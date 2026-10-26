@@ -377,7 +377,7 @@ final class DiffPageService: InternalPageProvider {
     }
 
     /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {}
 
     /// The page state the discard kept, for the next page's first config.
     func willRemakeView(for key: String, with state: ContentViewState) {
