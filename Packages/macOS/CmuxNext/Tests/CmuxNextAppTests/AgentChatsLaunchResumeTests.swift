@@ -73,6 +73,19 @@ struct AgentChatsLaunchResumeTests {
         #expect(await host.warmed.isEmpty)
     }
 
+    @Test func releasingTabsBeforeConnectCancelsTheLaunchWait() async throws {
+        let host = RecordingHost(), store = DaemonStore()
+        var tabs: AgentTabStore? = Self.tabs([], host: host)
+        weak var released = tabs
+        tabs?.resumeChatsWhenLoaded(store)
+        let task = try #require(tabs?.launchResumeTask)
+        tabs = nil
+        #expect(released == nil)
+        #expect(task.isCancelled)
+        await task.value
+        #expect(await host.warmed.isEmpty)
+    }
+
     @Test func theChiefRouterWarmsEachSessionInTheAcpmuxThatOwnsIt() async throws {
         let local = RecordingHost(), chief = RecordingHost()
         let router = AcpmuxChiefSessionRouter(local: local, chief: chief) { $0 == "s-subagent" }

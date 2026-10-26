@@ -5,6 +5,9 @@ import CmuxNextDaemon
 import os
 
 extension AgentTabStore {
+    /// What every chat holds for the next launch (the quit's window step).
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+
     /// Whether `key`'s view in `pane` waits for the launch's first pane
     /// content (the focused terminal's first frame, `LaunchSettle`; other
     /// content once shown; the reveal deadline). A tab's first web view
@@ -89,9 +92,11 @@ extension AgentTabStore {
 
     /// Resumes every chat once `store` (this Mac's tree) first loads.
     func resumeChatsWhenLoaded(_ store: DaemonStore) {
-        // task-owner: ends after the one resume; the store outlives the app's launch
-        Task { [weak self] in
+        guard launchResumeTask == nil else { return }
+        // task-owner: retained by the tab store and cancelled in deinit, including before connect.
+        launchResumeTask = Task { [weak self] in
             for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
+                guard !Task.isCancelled else { return }
                 await self?.resumeChatsAtLaunch()
                 return
             }
