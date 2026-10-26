@@ -80,11 +80,12 @@ jobs queued on a pool they hold exceeds a threshold:
      exceptions hold: a bot's attempt, a run that already failed, a newer run
      at its head (never a second workflow_dispatch: each dispatch is its own
      request), no re-run state, `no-janitor`, and an unfinished sibling.
-     A cmux-next leg queued on a Blacksmith macOS label (blacksmith_leg())
-     counts too, past BLACKSMITH_LEG_SECONDS (25 minutes, the cascade's own
-     stall wait), while owned pools are on: nothing else moves it, and the
-     janitor's re-run, made only with an App's token, sends it to the owned
-     side label the rescue watches.
+     A cascade job of a same-repository cmux-next pull request run queued on a
+     Blacksmith macOS label (blacksmith_leg()) counts too, past
+     BLACKSMITH_LEG_SECONDS (25 minutes, the cascade's own stall wait), while
+     owned pools are on: nothing else moves it, and the janitor's re-run, made
+     only with an App's token (in category e too), sends it to the owned side
+     label the rescue watches.
 
 cmux-next runs follow feat-cmux-next's workflow copy, not main's inert
 registration, so they are listed like any macOS workflow's
@@ -284,6 +285,17 @@ WAIT_P90_KEY = "wait_p90_seconds"
 # is next_macos_cascade.STALL_MINUTES, the wait at which the cascade itself calls such a label stalled.
 BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
 BLACKSMITH_LEG_SECONDS = 25 * 60
+# The cmux-next jobs next_macos_cascade.py places (its CASCADE_JOBS), by their names in feat-cmux-next's
+# cmux-next.yml. Each one's runs-on sends a re-run github-actions[bot] did not start to
+# needs.macos-placement.outputs.runner, the owned side label, before any Blacksmith label. The GUI and
+# session jobs (swift test, daemon tests, generated files) are left out: with no GUI or session runner
+# online their re-run still takes blacksmith-6vcpu-macos-26.
+CASCADE_JOB_NAMES = frozenset({
+    "cmux-next fast tier",
+    "cmux-next Swift canary",
+    "cmux-next Release compile (Xcode 26)",
+    "cmux app scheme compile (Debug)",
+})
 SNAPSHOT_UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
 
 # The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
@@ -1444,9 +1456,15 @@ def blacksmith_leg(run: Mapping[str, Any], job: Mapping[str, Any]) -> str | None
     github-actions[bot] did not start to the placement's owned side label
     (`github.triggering_actor != 'github-actions[bot]' && ...outputs.runner`),
     where the owned-pool rescue watches it, while that bot's attempt 2 takes
-    attempt 1's Blacksmith placement again.
+    attempt 1's Blacksmith placement again. So only a cascade job
+    (CASCADE_JOB_NAMES) of a same-repository pull request run counts: a fork's
+    runs-on takes Blacksmith first whoever re-runs it, and a push or dispatch
+    would need a branch-head read this rule does not spend.
     """
-    if run.get("path") != rescue.CMUX_NEXT_WORKFLOW_PATH:
+    head = (run.get("head_repository") or {}).get("id")
+    if (run.get("path") != rescue.CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "pull_request"
+            or head is None or head != (run.get("repository") or {}).get("id")
+            or job.get("name") not in CASCADE_JOB_NAMES):
         return None
     return next((str(label) for label in job.get("labels") or () if BLACKSMITH_MACOS_LABEL.fullmatch(str(label))),
                 None)
@@ -1803,6 +1821,8 @@ def build_plan(
         branch = str(run.get("head_branch") or "")
         lost_verdict = None
         held_category = "lost"
+        # A run holding a Blacksmith leg is re-run only by an App, whichever category cancels it.
+        app_actor = any(unassigned(job) and blacksmith_leg(run, job) for job in jobs_by_run.get(run["id"], ()))
         if run["id"] in lost or run["id"] in unclaimed:
             # A newer run at its head, or a later CI run waiting to take over ci-status.
             newer = newer_run_at_head(run, runs) or next(
@@ -1817,8 +1837,12 @@ def build_plan(
                 lost_verdict = classify_unclaimed(
                     run, jobs_by_run.get(run["id"], ()), unclaimed[run["id"]], branch_prs, now=now,
                     rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch), app_rerun=app_rerun)
+            if (lost_verdict is not None and lost_verdict.action == "cancel" and lost_verdict.rerun
+                    and app_actor and not app_rerun):
+                lost_verdict = LostVerdict("skip", lost_verdict.reason, "no App token this sweep: a GITHUB_TOKEN "
+                                           "re-run would take attempt 1's Blacksmith placement again",
+                                           pr=lost_verdict.pr)
             if lost_verdict is not None and lost_verdict.action == "cancel":
-                app_actor = held_category == "unclaimed" and unclaimed[run["id"]].blacksmith
                 candidates.append(Candidate(run, held_category, lost_verdict.reason, usage, lost_verdict.pr,
                                             rerun=lost_verdict.rerun, app_actor=app_actor))
                 continue

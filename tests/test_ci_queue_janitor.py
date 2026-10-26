@@ -1009,6 +1009,7 @@ class FakeGitHub(janitor.GitHub):
         # Completed runs per workflow file, for the lost-assignment evidence listing.
         self.completed = {}
         self.refuse_rerun = set()
+        self.app_only_posts = []
         self.refuse_dispatch = False
         # (method, path, body) of every POST.
         self.bodies = []
@@ -1020,6 +1021,8 @@ class FakeGitHub(janitor.GitHub):
     def request(self, method, path, body=None, *, app_only=False):
         self.calls += 1
         self.log.append((method, path))
+        if app_only:
+            self.app_only_posts.append(path)
         if method == "POST":
             self.bodies.append((method, path, body))
         path = path.replace("/repos/manaflow-ai/cmux", "", 1)
@@ -1068,8 +1071,9 @@ class FakeGitHub(janitor.GitHub):
             if run_id in self.refuse_rerun:
                 raise RuntimeError(f"POST /actions/runs/{run_id}/rerun-failed-jobs failed (403)")
             run = self.runs[run_id]
+            actor = "cmux-bot[bot]" if app_only else "github-actions[bot]"
             run.update(status="queued", conclusion=None, run_attempt=run["run_attempt"] + 1,
-                       triggering_actor={"login": "github-actions[bot]"})
+                       triggering_actor={"login": actor})
             return {}
         if method == "GET" and parts[-1] == "artifacts":
             return {"artifacts": []}
@@ -2624,7 +2628,40 @@ class BlacksmithLegTests(unittest.TestCase):
             fake.log.clear()
             LostAssignmentSweepTests.sweep(self, fake, temp)
             self.assertEqual(fake.posts(), [[str(run["id"]), "rerun-failed-jobs"]])
+            self.assertEqual(len(fake.app_only_posts), 1)
+            self.assertEqual(fake.runs[run["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
             self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_only_same_repository_pull_request_cascade_jobs_count(self):
+        run, jobs = self.world(age=60)
+        self.assertIsNotNone(janitor.blacksmith_leg(run, jobs[run["id"]][0]))
+        fork, jobs = self.world(age=60)
+        fork["head_repository"]["id"] = 2
+        self.assertEqual(janitor.find_unclaimed([fork], jobs, now=NOW, blacksmith_legs=True), {})
+        dispatch, jobs = self.world(age=60)
+        dispatch["event"] = "workflow_dispatch"
+        self.assertEqual(janitor.find_unclaimed([dispatch], jobs, now=NOW, blacksmith_legs=True), {})
+        run, jobs = self.world(age=60)
+        jobs[run["id"]][0]["name"] = "cmux-next swift test"
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
+
+    def test_a_lost_blacksmith_leg_is_re_run_only_by_an_app(self):
+        # Category e can hold the run first (a newer job on the same label started): its re-run needs an App too.
+        run, jobs = self.world(age=40)
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        newer = started_job(age=10, label=LARGE_MAC)
+        jobs[other["id"]] = [newer]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        self.assertEqual(sorted(lost), [run["id"]])
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        for app_rerun, action in ((False, "skip"), (True, "cancel")):
+            with self.subTest(app_rerun=app_rerun):
+                result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                            pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                            branch_heads={}, app_rerun=app_rerun)
+                decision = decision_for(result, run)
+                self.assertEqual((decision.action, decision.candidate.category), (action, "lost"))
+                self.assertTrue(decision.candidate.app_actor or action == "skip")
 
 
 if __name__ == "__main__":
