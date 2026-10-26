@@ -2442,8 +2442,8 @@ async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
     }
 }
 
-/// Review 60 of #23322: a host a restart left changed its mode to full access while no daemon
-/// was attached; its host kept the update for the next daemon, which first reads it when the
+/// Review 60 of #23322: a host a restart left changed its mode to full access by itself, outside
+/// any turn, while no daemon was attached; its host kept the update for the next daemon, which first reads it when the
 /// host replays. Under MDM's off, a prompt is never answered by that agent, also while the
 /// inbound loop has not applied the replayed update yet (the debug seam
 /// `ACPMUX_TEST_UPDATE_DELAY_MS`).
@@ -2460,8 +2460,7 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     let later = json!({"sessionId": session,
                        "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
-    rpc.send("session/prompt", later).await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    rpc.call("session/prompt", later).await;
     daemon.sigterm();
     drop(rpc);
     assert!(alive(harness_pid), "SIGTERM ended the agent");
