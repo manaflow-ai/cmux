@@ -28,9 +28,9 @@ struct IntentPrewarmTests {
         _ = queue.admit("a", trigger: .hoverDwell)
         _ = queue.admit("b", trigger: .hoverDwell)
         let removed = queue.remove("a")
-        #expect(removed)
+        #expect(removed == .hoverDwell)
         let removedAgain = queue.remove("a")
-        #expect(!removedAgain)
+        #expect(removedAgain == nil)
         #expect(!queue.contains("a"))
         _ = queue.admit("c", trigger: .hoverDwell)
         #expect(queue.removeAll() == ["b", "c"])
@@ -64,11 +64,29 @@ struct IntentPrewarmTests {
         #expect(queue.trigger(of: "b") == nil)
     }
 
+    /// p04-input-042: hover and press prewarms share the one FIFO; each held one keeps the trigger that
+    /// started it until it leaves, so a use is counted by trigger.
+    @Test func pressAndHoverShareTheFIFOAndEachKeepsItsTrigger() {
+        var queue = IntentPrewarmQueue<String>()
+        _ = queue.admit("a", trigger: .hoverDwell)
+        _ = queue.admit("b", trigger: .pointerDown)
+        #expect(queue.admit("b", trigger: .hoverDwell) == nil)
+        #expect(queue.trigger(of: "a") == .hoverDwell)
+        #expect(queue.trigger(of: "b") == .pointerDown, "a held target keeps its first trigger")
+        #expect(queue.admit("c", trigger: .pointerDown) == "a")
+        #expect(queue.trigger(of: "a") == nil, "the evicted one's trigger goes with it")
+        #expect(queue.trigger(of: "c") == .pointerDown)
+        let removed = queue.remove("b")
+        #expect(removed == .pointerDown)
+        #expect(queue.removeAll() == ["c"])
+        #expect(queue.trigger(of: "c") == nil)
+    }
+
     @Test func aLimitBelowOneHoldsOne() {
         var queue = IntentPrewarmQueue<Int>(limit: 0)
         #expect(queue.limit == 1)
         _ = queue.admit(1, trigger: .hoverDwell)
-        #expect(queue.admit(2, trigger: .hoverDwell) == 1)
+        #expect(queue.admit(2, trigger: .pointerDown) == 1)
         #expect(queue.held == [2])
     }
 

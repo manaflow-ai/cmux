@@ -84,6 +84,7 @@ extension SidebarListViewComponents {
             break
         }
         self.press = press
+        onPressRow?((press.clickOnRelease ?? press.deferredClick).map(SidebarRowKey.workspace))
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
