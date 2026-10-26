@@ -101,14 +101,14 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
   for (const direction of ["sent"] as const) {
     test(`Tab reveals clipped ${direction} code controls before they can be used`, async () => {
       await open("code-first");
-      const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
-      const toggle = row.locator(direction === "received" ? ".cv-received__toggle" : ".cv-agentmsg__toggle");
-      const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
-      if (direction === "sent") await toggle.click();
+      const row = page.locator(".cv-message");
+      const toggle = row.locator(".cv-agentmsg__toggle");
+      const text = row.locator(".cv-message__text");
+      await toggle.click();
       await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
       await page.waitForFunction(
         (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
-        direction === "received" ? ".cv-received__text" : ".cv-message__text",
+        ".cv-message__text",
       );
       await toggle.focus();
       let reached = false;
