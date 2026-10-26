@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+public import CmuxNextDaemonService
 public import Foundation
 import CmuxNextRemoteLocalhost
 
