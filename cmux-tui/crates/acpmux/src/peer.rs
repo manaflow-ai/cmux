@@ -123,6 +123,8 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
+    pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
@@ -175,6 +177,7 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
