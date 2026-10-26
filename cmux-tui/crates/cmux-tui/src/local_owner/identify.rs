@@ -38,7 +38,8 @@ pub(super) enum IdentifyError {
 /// Whether `value` is the refusal an owner at its connection limit sends
 /// before it closes a connection (cmux-tui-core `REFUSED_BUSY_LINE`).
 fn is_refusal_value(value: &Value) -> bool {
-    value.get("type").and_then(Value::as_str) == Some("refused")
+    value.get("protocol").and_then(Value::as_str) == Some("cmux.protocol/2")
+        && value.get("type").and_then(Value::as_str) == Some("refused")
         && value.get("code").and_then(Value::as_str) == Some("server.busy")
 }
 

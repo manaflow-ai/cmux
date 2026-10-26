@@ -48,7 +48,10 @@ fn connection_limit_after_starting_has_its_own_busy_deadline() {
                 break;
             }
             // The real server sends this before reading the client's request.
-            let _ = writeln!(stream, r#"{{"type":"refused","code":"server.busy"}}"#);
+            let _ = writeln!(
+                stream,
+                r#"{{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}}"#
+            );
         }
     });
     let now = Instant::now();

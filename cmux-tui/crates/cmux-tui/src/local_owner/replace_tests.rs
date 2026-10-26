@@ -15,7 +15,11 @@ fn connection_limit_recovery_gets_a_full_identify_deadline() {
         // Deliberate protocol latency, not readiness synchronization: the
         // refusal arrives just before the overall busy deadline expires.
         std::thread::sleep(PROBE_DEADLINE - Duration::from_secs(2));
-        writeln!(first.get_mut(), r#"{{"type":"refused","code":"server.busy"}}"#).unwrap();
+        writeln!(
+            first.get_mut(),
+            r#"{{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}}"#
+        )
+        .unwrap();
         drop(first);
 
         let (stream, _) = listener.accept().unwrap();
