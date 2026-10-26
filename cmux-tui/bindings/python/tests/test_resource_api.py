@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -107,6 +108,62 @@ def canceled_end(connection, stream_id, **fields):
 
 
 class ResourceApiTests(unittest.TestCase):
+    def _assert_request_deadline_bounds_socket_dispatch(self, asynchronous):
+        accepted = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        errors = []
+
+        def handler(connection, _index):
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            accepted.set()
+            release.wait(3)
+
+        def write(path):
+            try:
+                if asynchronous:
+                    async def exercise():
+                        async with cmux.aio.Client(path, timeout=2) as client:
+                            await client.session(SESSION).terminal(TERMINAL).write(
+                                "x" * (1024 * 1024),
+                                request_options=RequestOptions(timeout=0.05),
+                            )
+                    asyncio.run(exercise())
+                else:
+                    with Client(path, timeout=2) as client:
+                        client.with_request_options(
+                            RequestOptions(timeout=0.05),
+                            client.session(SESSION).terminal(TERMINAL).write,
+                            "x" * (1024 * 1024),
+                        )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        with UnixJsonServer(handler) as server:
+            worker = threading.Thread(target=write, args=(server.path,))
+            worker.start()
+            try:
+                self.assertTrue(accepted.wait(1), "server did not accept the SDK client")
+                self.assertTrue(
+                    finished.wait(0.5),
+                    "request deadline did not bound blocked socket dispatch",
+                )
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0], MutationTransportError)
+                self.assertIsInstance(errors[0].__cause__, cmux.TimeoutError)
+            finally:
+                release.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive(), "SDK request worker was not released")
+
+    def test_request_deadline_bounds_socket_dispatch(self) -> None:
+        self._assert_request_deadline_bounds_socket_dispatch(False)
+
+    def test_aio_request_deadline_bounds_socket_dispatch(self) -> None:
+        self._assert_request_deadline_bounds_socket_dispatch(True)
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
