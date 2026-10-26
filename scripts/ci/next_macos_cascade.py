@@ -273,14 +273,30 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
     stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
     if waiting is None:
-        # Without the queue count no slot is known free, so the overflow keeps the owned label too.
-        return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
-                                    "Blacksmith's queue; no job leaves the minis' queue")
+        # Without the queue count no slot is known free, so the overflow keeps the owned label too. A
+        # FIRST_JOBS job no idle mini takes would then wait with no fallback (2026-10-26 08:16Z: a
+        # janitor sweep failed, the snapshot went stale, and a push's Release compile queued on the
+        # owned side label), so it alone takes a label that is moving now (no_snapshot_label()).
+        first = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS
+                 and job in set((env.get("CASCADE_RUNS") or "").split()) and job in set((env.get("FIRST_JOBS") or "").split())]
+        label = no_snapshot_label(live) if first[len(owned):] or (first and promote_busy) else ""
+        jobs = dict(empty)
+        if label:
+            jobs[label] = tuple(first[:1])
+        return Placement(jobs, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
+                                   "Blacksmith's queue; " + (f"`{label}` takes {first[0]} (moving: {live[label]} in "
+                                                             f"flight of {CAPACITY[label]}); " if label else "")
+                         + "no other job leaves the minis' queue")
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
     running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) go
+    # ahead of the run's other jobs: with MAX_PER_RUN slots a run, it was last and found none
+    # (2026-10-26 09:21Z, run 40298786351: fast-tier and the scheme compile took 6 vCPU's two).
+    first = set((env.get("FIRST_JOBS") or "").split())
+    running = [job for job in running if job in first] + [job for job in running if job not in first]
     promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
     candidates = (promoted if promote_busy else []) + side[len(owned):]
@@ -300,6 +316,17 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         why += f"; {', '.join(left)} stay queued on the owned label"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
+
+
+def no_snapshot_label(live: Mapping[str, int]) -> str:
+    """With no queue count: the Blacksmith label with jobs in flight now and room under CAPACITY, else "".
+
+    In flight is the live runner-group read: a label running jobs now is starting them (a stalled one, as
+    12 vCPU from about 01:20Z on 2026-10-26, has none online), and one under CAPACITY can start another.
+    The label with the most room first, the larger on a tie (LABELS order).
+    """
+    moving = [label for label in LABELS if 0 < live.get(label, 0) < CAPACITY[label]]
+    return max(moving, key=lambda label: (CAPACITY[label] - live[label], -LABELS.index(label)), default="")
 
 
 class Api:
