@@ -404,13 +404,15 @@ public final class AgentPaneView: NSView {
         transportPacer?.stop()
         removeContextMenu()
         if let page {
+            // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
             webView.navigationDelegate = nil
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+            WebViewRetirement.retire(webView)
         }
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
     }
 

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Testing
 import WebKit
 
@@ -26,5 +27,6 @@ import WebKit
         let webView = released
         #expect(webView != nil, "the closed tab's page must not end in the close's turn")
         #expect(webView?.window == nil)
+        if let webView { #expect(WebViewRetirement.isPageClosed(webView) == false) }
     }
 }
