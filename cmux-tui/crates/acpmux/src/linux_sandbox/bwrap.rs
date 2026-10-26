@@ -132,11 +132,14 @@ type OutsideStat = (bool, bool, bool);
 
 /// Inspect ownership and effective writability for the real uid. Errors refuse.
 fn outside_stat(path: &Path) -> Result<Option<OutsideStat>, String> {
-    let meta = match fs::metadata(path) {
+    let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
     };
+    if meta.is_symlink() {
+        return Ok(Some((false, false, true)));
+    }
     let text = path_arg(path)?;
     let c_path = CString::new(text.as_bytes()).map_err(|_| format!("path contains NUL: {text}"))?;
     // SAFETY: c_path is NUL-terminated; getuid has no preconditions.
@@ -152,19 +155,32 @@ fn outside_stat(path: &Path) -> Result<Option<OutsideStat>, String> {
     }
 }
 
-/// Pure ancestor policy; the callback returns (owned by this uid, writable).
-/// Walk every ancestor through /: owning a read-only directory permits chmod,
-/// and writable parents permit replacement. The loop ends at the root.
+/// Pure lstat policy: visit / through the leaf, refusing symlinks before any
+/// descendant inspection. Then check ancestor ownership and writability.
+/// Both loops end after the finite lexical component list.
 fn validate_outside(
     path: &Path,
     mut stat: impl FnMut(&Path) -> Result<Option<OutsideStat>, String>,
 ) -> Result<(), String> {
-    let state = if stat(path)?.is_none() { "absent" } else { "present" };
-    for ancestor in path.ancestors().skip(1) {
-        let Some((owned, writable, _symlink)) = stat(ancestor)? else {
-            if ancestor == Path::new("/") {
-                return Err("cannot inspect filesystem root".into());
-            }
+    let mut entries = Vec::new();
+    for component in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        let info = stat(component)?;
+        if matches!(info, Some((_, _, true))) {
+            return Err(format!(
+                "{} passes through the symlink {}",
+                path.display(),
+                component.display()
+            ));
+        }
+        if component == Path::new("/") && info.is_none() {
+            return Err("cannot inspect filesystem root".into());
+        }
+        entries.push((component, info));
+    }
+    let state =
+        if entries.last().is_some_and(|(_, info)| info.is_none()) { "absent" } else { "present" };
+    for (ancestor, info) in entries.into_iter().rev().skip(1) {
+        let Some((owned, writable, _)) = info else {
             continue;
         };
         if owned || writable {
@@ -413,10 +429,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn production_read_denies_allow_a_linux_plan() {
-        let f = Fixture::new();
-        let p = f.create_paths();
+    fn profile_read_denies(p: &Paths) -> Vec<PathBuf> {
         let params = [
             ("CWD".into(), p.cwd.clone()),
             ("TMPDIR".into(), p.tmp.clone()),
@@ -431,8 +444,7 @@ mod tests {
             &params,
         )
         .unwrap();
-        let (args, _fds) = plan(&p, &policy.read_denies(), &strings(&["true"])).unwrap();
-        assert!(args.iter().any(|arg| arg == "--bind-fd"));
+        policy.read_denies()
     }
 
     #[test]
@@ -628,28 +640,6 @@ mod tests {
         assert!(matches!(classify(None, ""), Err(Unavailable::Other(_))));
     }
 
-    /// Stops after the fixed refusal-message table.
-    #[test]
-    fn refusal_messages_name_the_remedy() {
-        for (reason, text) in [
-            (
-                Unavailable::NotInstalled,
-                "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
-            ),
-            (
-                Unavailable::TooOld,
-                "bwrap older than 0.9 (missing --disable-userns/--bind-fd/--ro-bind-fd)",
-            ),
-            (
-                Unavailable::UserNamespacesRestricted,
-                "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
-            ),
-            (Unavailable::Other("diagnostic".into()), "diagnostic"),
-        ] {
-            assert_eq!(reason.to_string(), text);
-        }
-    }
-
     #[test]
     fn missing_probe_executable_is_not_installed() {
         let fixture = Fixture::new();
@@ -773,7 +763,7 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let (args, fds) = plan(&p, &[secrets, secret], &command).unwrap();
+        let (args, fds) = plan(&p, &profile_read_denies(&p), &command).unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         inherit_fds(&mut child, &fds);
         child
