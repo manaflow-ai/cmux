@@ -6,7 +6,7 @@ import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
-import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
+import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
@@ -48,7 +48,6 @@ import {
   inStrip,
   shellEntry,
   shortHost,
-  stepSelection,
   type CreateKind,
   type ScreenRow,
 } from "./screenModel";
