@@ -5,20 +5,25 @@
 import "./multiplayer.css";
 import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
+import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, type Participant } from "./participants";
 
 /// Faces the header shows before "+N".
 export const PRESENCE_STACK = 3;
 
-/// A person's picture, or their initials on their own hue (the hash the pane gives machines).
+/// A person's picture, or their initials on their own hue (the hash the pane gives machines). The
+/// picture is the record's, else the one Home's avatar service has for that id (avatars.ts; a page
+/// without the service, such as the agent pane today, reads none).
 export function Face({ person, size = 16 }: { person: Participant; size?: number }) {
+  const served = useAvatarPicture(person.avatar ? undefined : person.id);
+  const picture = person.avatar ?? served ?? undefined;
   return (
     <span
       className="cv-face"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: machineColor(person.name) }}
       aria-hidden="true"
     >
-      {person.avatar ? <img src={person.avatar} alt="" draggable={false} /> : initials(person.name)}
+      {picture ? <img src={picture} alt="" draggable={false} /> : initials(person.name)}
     </span>
   );
 }
@@ -48,15 +53,16 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
   const shown = viewing.slice(0, PRESENCE_STACK);
   const names = viewing.map((person) => person.name).join(", ");
   return (
-    <div className="cv-presence" data-look={look} role="img" aria-label={t("multiplayer.viewing", { names })}>
+    <div className="cv-presence" data-look={look}>
+      <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
       {shown.map((person) => (
-        <span key={person.id} className="cv-presence__person" title={person.name}>
+        <span key={person.id} className="cv-presence__person" aria-hidden="true">
           <Face person={person} size={20} />
           {look === "names" && <span className="cv-presence__name">{person.name.split(/\s+/)[0]}</span>}
         </span>
       ))}
       {viewing.length > shown.length && (
-        <span className="cv-presence__more">{t("multiplayer.more", { count: viewing.length - shown.length })}</span>
+        <span className="cv-presence__more" aria-hidden="true">{t("multiplayer.more", { count: viewing.length - shown.length })}</span>
       )}
     </div>
   );
@@ -76,7 +82,7 @@ export function TypingLine({ typing, look = "dots" }: { typing: Participant[]; l
         ? t("multiplayer.typing.two", { first: typing[0]!.name, second: typing[1]!.name })
         : t("multiplayer.typing.many", { count: typing.length });
   return (
-    <div className="cv-typing" data-look={look} role="status" aria-live="polite">
+    <output className="cv-typing" data-look={look} aria-live="polite">
       {look !== "text" && (
         <span className="cv-typing__faces">
           {typing.slice(0, PRESENCE_STACK).map((person) => (
@@ -94,7 +100,7 @@ export function TypingLine({ typing, look = "dots" }: { typing: Participant[]; l
           <i />
         </span>
       )}
-    </div>
+    </output>
   );
 }
 

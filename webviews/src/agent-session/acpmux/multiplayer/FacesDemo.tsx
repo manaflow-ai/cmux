@@ -13,13 +13,15 @@ export type FacesDemoProps = {
   typers: Participant[];
   sender: Participant;
   answerer: Participant;
+  /// The chat's title in the demo header (a Chief chat names its Chief).
+  title?: string;
 };
 
 export function FacesDemo(props: FacesDemoProps) {
   return (
     <div className="acpmux-root" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <strong>Add retries to the uploader</strong>
+        <strong>{props.title ?? "Add retries to the uploader"}</strong>
         <PresenceStack viewing={props.viewing} look={props.presence} />
       </div>
       <div className="cv-user">

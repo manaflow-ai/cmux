@@ -42,7 +42,7 @@ export default agentPaneEntry({
   title: "Agent pane: shared chat",
   area: "Agent pane",
   keywords: ["multiplayer", "presence", "typing", "author", "teammate", "answered by"],
-  covers: ["agent-session/acpmux/multiplayer/participants.ts"],
+  covers: ["agent-session/acpmux/multiplayer/Faces.tsx"],
   height: 760,
   variants: {
     shared: {

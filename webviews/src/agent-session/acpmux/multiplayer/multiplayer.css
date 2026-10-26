@@ -40,7 +40,8 @@
   font-weight: 600;
 }
 .cv-author__name--hidden,
-.cv-typing__words--hidden {
+.cv-typing__words--hidden,
+.cv-presence__label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -50,6 +51,7 @@
 
 /* Who else is here, in the header: faces overlap with the header's color between them. */
 .cv-presence {
+  position: relative;
   display: inline-flex;
   align-items: center;
   flex: none;
