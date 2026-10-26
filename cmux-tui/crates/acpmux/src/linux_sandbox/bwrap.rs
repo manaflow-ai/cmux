@@ -82,7 +82,8 @@ fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
     loop {
         match fs::canonicalize(&ancestor) {
             Ok(root) => {
-                return Ok(root.join(path.strip_prefix(&ancestor).map_err(|e| e.to_string())?));
+                let rest = path.strip_prefix(&ancestor).map_err(|e| e.to_string())?;
+                return Ok(if rest.as_os_str().is_empty() { root } else { root.join(rest) });
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 if !ancestor.pop() {
@@ -115,7 +116,6 @@ fn denied_paths(home: &Path, read_denies: &[PathBuf]) -> Result<BTreeSet<PathBuf
 }
 
 /// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
-/// All traversals stop after the finite deny/ancestor/child snapshots.
 fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, String> {
     // Keep the built-in Linux deny set local to this rebuild as a second
     // boundary: callers cannot accidentally omit Claude's credential.
@@ -433,6 +433,10 @@ mod tests {
     fn regression_mount_aliases_and_plan_refusal() {
         let f = Fixture::new();
         let p = f.create_paths();
+        assert_eq!(
+            resolve_missing(&p.home.join(".claude")),
+            fs::canonicalize(p.home.join(".claude")).unwrap()
+        );
         let memory = p.claude_project.join("memory");
         let info = format!(
             "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 {} /alias rw - ext4 /dev/root rw\n",
