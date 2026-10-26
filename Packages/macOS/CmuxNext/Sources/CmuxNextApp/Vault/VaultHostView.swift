@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import SwiftUI
 import CmuxNextHistory
+import CmuxNextWakeups
 
 /// Hosts the vault list (the vault page's content and the right sidebar's
 /// Vault section). Resolves the list colors in this view's theme scope, again
@@ -15,6 +16,7 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     /// The view's place in the visibility tree (a page tab or the right sidebar's section): a theme change while it
     /// is hidden resolves the colors once, on show.
     private let visibility = ViewVisibility("vault")
+    private var visibilityNode: VisibilityNode { visibility.node }
 
     /// Its SwiftUI leaves the hierarchy while the vault tab is hidden (``VisibilityGatedHostingView``); the
     /// right sidebar's section follows no node.
@@ -68,18 +70,18 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     // R-hide: hiding forwards to the node.
     override func viewDidHide() {
         super.viewDidHide()
-        visibility.node.set(.hidden)
+        visibilityNode.set(.hidden)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        visibility.node.set(.visible)
+        visibilityNode.set(.visible)
     }
 
     // R-appear: the colors feed the SwiftUI list, so a hidden vault resolves them on show.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibility.node.deferUntilVisible(key: "VaultHostView.appearance") { [weak self] in self?.resolveColors() }
+        visibilityNode.deferUntilVisible(key: "VaultHostView.appearance") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {
