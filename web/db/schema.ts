@@ -20,7 +20,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle", "gcp"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
@@ -281,7 +281,7 @@ export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
   uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
   index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
   check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
-  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle')`),
+  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle', 'gcp')`),
 ]);
 
 /** A durable fan-out run. Source and recipe are immutable after creation. */

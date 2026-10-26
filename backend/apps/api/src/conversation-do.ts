@@ -16,7 +16,7 @@ import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-liv
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
-type ConvAttachment = Attachment & { typing?: boolean }
+type ConvAttachment = Attachment & { typing?: boolean; viewing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
@@ -129,6 +129,8 @@ export class ConversationDO extends OwnerDO<Head> {
   protected routeFrame(ws: WebSocket, a: { principal: Principal }, frame: { readonly t?: string; readonly type?: unknown; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
     const state = this.boundEngine?.currentState // Live Chief frames: run.live on subscribe and run.live.get (conversation-live.ts).
     if (liveSocketFrame(this.ctx, ws, frame, state?.id, !!state && this.member(state, a.principal) !== undefined)) return true
+    // Who views the conversation now, after the subscribe's own snapshot (ephemeral, never stored).
+    if (frame.t === "subscribe" && state && this.member(state, a.principal)) queueMicrotask(() => this.sendPresence(state, ws))
     if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
     try { ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false })) } catch {}
     return true
@@ -259,9 +261,26 @@ export class ConversationDO extends OwnerDO<Head> {
    * `typing {on, conversation?}`: an ephemeral broadcast to the other subscribed members as
    * `conversation-typing {conversation, participant, on}` (home-messaging.md section 20 row 7).
    * Never committed, never in the ledger or the outbox; limited per participant by typingGate.
+   * `presence.set {conversation, viewing}`: this socket's viewing state, broadcast to the members
+   * as `conversation-presence` (sendPresence). Also ephemeral: it lives on the socket attachment.
    */
   protected onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
-    if (frame.t !== "typing") return false
+    if (frame.t !== "typing" && frame.t !== "presence.set") return false
+    if (frame.t === "presence.set") {
+      const a = ws.deserializeAttachment() as ConvAttachment | null
+      const state = this.boundEngine?.currentState
+      const actor = a ? conversation.actorOf(a.principal) : null
+      const member = state && actor ? this.memberById(state, actor) : undefined
+      if (!a || !state || !actor || !member || member.kind === "address" || frame.conversation !== state.id || typeof frame.viewing !== "boolean") {
+        try { ws.send(JSON.stringify({ t: "error", code: "auth.forbidden", message: "not a participant" })) } catch {}
+        return true
+      }
+      // Only a change broadcasts, so a repeated frame costs the members nothing.
+      if ((a.viewing === true) === frame.viewing) return true
+      ws.serializeAttachment({ ...a, viewing: frame.viewing } satisfies ConvAttachment)
+      this.sendPresence(state)
+      return true
+    }
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
@@ -286,6 +305,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const state = this.boundEngine?.currentState
     const actor = a ? conversation.actorOf(a.principal) : null
     if (a?.typing && state && actor) this.sendTyping(state, actor, false, ws, true)
+    if (a?.viewing && state) this.sendPresence(state, null, ws)
     await super.webSocketClose(ws, code)
   }
 
@@ -305,6 +325,22 @@ export class ConversationDO extends OwnerDO<Head> {
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
     if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  /** `conversation-presence`: the members with a viewing socket, read from the socket
+   * attachments (they survive hibernation; nothing is stored). Keyed per socket, so one person on
+   * two devices stays until both stop. `closing` is a socket that is going away. */
+  private sendPresence(state: NonNullable<Head>, only: WebSocket | null = null, closing: WebSocket | null = null) {
+    const viewers = new Set<string>()
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === closing) continue
+      const a = ws.deserializeAttachment() as ConvAttachment | null
+      const actor = a?.viewing ? conversation.actorOf(a.principal) : null
+      if (actor && this.member(state, a!.principal)) viewers.add(actor)
+    }
+    const participants = [...viewers].map((participant) => ({ participant, viewing: true }))
+    const text = JSON.stringify({ t: "conversation-presence", conversation: state.id, participants })
+    if (only) { try { only.send(text) } catch {} } else this.toMembers(state, closing, text)
   }
 
   private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {

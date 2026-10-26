@@ -9,15 +9,24 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var bottomPadding: CGFloat
     public var sectionHeaderHeight: CGFloat
     public var sectionSpacing: CGFloat
-    /// A group or folder header: always the one-line workspace row height, never a number of its own.
-    public var groupHeaderHeight: CGFloat { rowHeight }
+    /// A group or folder header: always the density's workspace row height (`rowStep`), never a
+    /// number of its own (Lawrence 2026-10-19 and 2026-10-22: a header is exactly as tall as a
+    /// workspace row at every density).
+    public var groupHeaderHeight: CGFloat { rowStep }
+    /// Expanded density (`sidebar.density` expanded, not Minimal Mode): every workspace row has a
+    /// second line, so rows and group headers take two lines (`expanded`).
+    public var twoLineRows = false
+    /// The one height a group header and a workspace row with the density's usual lines share:
+    /// one line, or two in Expanded. A row with more lines (a meta line, a status block) grows from it.
+    public var rowStep: CGFloat { twoLineRows ? rowHeightWithSubtitle : rowHeight }
     /// Workspace row with one line.
     public var rowHeight: CGFloat
     /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
     public var tabRowHeight: CGFloat
+    /// The one gap between consecutive rows: a group's last member, a folder's last row and the
+    /// Pinned block's last row take it too, never a padding of their own (Leo 2026-10-21).
     public var rowSpacing: CGFloat
-    public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
     /// One line of a row's status block (`WorkspaceRowContent.status`).
     public var statusLineHeight: CGFloat = 14
@@ -29,7 +38,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
         rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
-        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+        emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
@@ -39,7 +48,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
         self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
-        self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 
@@ -55,10 +63,26 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         return m
     }
 
-    /// One line, two, or three (an expanded row's meta line adds one more line's height).
+    /// Expanded density's metrics: rows and group headers are two lines tall (`rowStep`).
+    public var expanded: SidebarLayoutMetrics {
+        var m = self
+        m.twoLineRows = true
+        return m
+    }
+
+    /// The metrics a layout under `o` uses: Minimal Mode's shorter rows, or Expanded's two-line
+    /// rows (not with workspaces as tabs, whose rows are one line at any density). Every place
+    /// that sizes list rows reads this, so a header and a row cannot take different steps.
+    public func resolved(for o: SidebarLayoutOptions) -> SidebarLayoutMetrics {
+        if o.minimal { return minimal }
+        return o.expanded && !o.workspacesAsTabs ? expanded : self
+    }
+
+    /// One line, two, or three (an expanded row's meta line adds one more line's height), never
+    /// shorter than `rowStep`: in Expanded a row without a preview line keeps the two-line height.
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
-        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight) + statusHeight(content)
+        return max(rowStep, rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight)) + statusHeight(content)
     }
 
     /// The status block under the title lines: its text lines, the bar's
@@ -133,9 +157,13 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// compact row's dim time on the name's line. Off by default (Lawrence 2026-10-19): no row
     /// draws a time unless the user picks the Last Activity element.
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
+    public var showsColors = true
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
+    /// Age labels this pass made, shared by its rows (a label per row was most of a 10k group's layout).
+    var ages = AgeTextCache()
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
     /// `sidebar.groupBy`. Group by Folder: the only machine's loose rows sit under a header per
@@ -189,6 +217,7 @@ nonisolated extension SidebarLayoutOptions {
             content.badge = nil
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
+        if !showsColors { content.icon = content.icon?.uncolored }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
@@ -201,17 +230,17 @@ nonisolated extension SidebarLayoutOptions {
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
-            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
         if expanded && !minimal {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
-                                       showsPullRequest: shown.shows(.pullRequest))
+                                       showsPullRequest: shown.shows(.pullRequest), ages: ages)
         }
-        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
-        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
+        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages) }
+        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now, ages: ages)
         content.detail = nil
         content.badgeTime = nil
         content.status = nil
