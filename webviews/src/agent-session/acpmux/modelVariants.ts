@@ -35,11 +35,13 @@ const PROVIDER_NAMES: Record<string, string> = {
 const BRACKET_TAG = /\s*\[([^\]]+)\]\s*$/;
 
 /// Who serves a row and what model it is: `provider` (absent for a bare id), `key` (the model's id
-/// without any provider path, which rows of one model share) and the name without a provider prefix
-/// ("OpenRouter/DeepSeek V4 Pro" is "DeepSeek V4 Pro") or bracketed tag.
+/// without any provider path, which rows of one model share), `vendor` (the path segment before the
+/// key when the id has one, "deepseek" in "openrouter/deepseek/deepseek-v4-pro") and the name
+/// without a provider prefix ("OpenRouter/DeepSeek V4 Pro" is "DeepSeek V4 Pro") or bracketed tag.
 export function providerOf(model: VariantModel): {
   provider?: string;
   key: string;
+  vendor?: string;
   name: string;
   tag?: string;
 } {
@@ -50,9 +52,11 @@ export function providerOf(model: VariantModel): {
   const bare = slash > 0 ? model.name.slice(slash + 1).trim() : model.name.trim();
   const tag = BRACKET_TAG.exec(bare)?.[1];
   const provider = id ? (named ?? PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
+  const vendor = parts.length > 2 ? parts.at(-2)!.toLowerCase() : undefined;
   return {
     ...(provider ? { provider } : {}),
     key: (parts.at(-1) ?? model.id).toLowerCase(),
+    ...(vendor ? { vendor } : {}),
     name: bare.replace(BRACKET_TAG, ""),
     ...(tag ? { tag } : {}),
   };
@@ -61,18 +65,23 @@ export function providerOf(model: VariantModel): {
 /// `models` as one row per model, in order of each model's first row. Only rows that name a
 /// provider join: two bare ids are two models. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
-/// provider beside it.
+/// provider beside it. Rows whose ids name different vendors ("openrouter/qwen/coder-3",
+/// "together/mistral/coder-3") are different models even when their last segments match.
 export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
   const groups: ModelGroup<T>[] = [];
-  const byKey = new Map<string, ModelGroup<T>>();
+  const byKey = new Map<string, { group: ModelGroup<T>; vendor?: string }[]>();
   for (const model of models) {
-    const { provider, key, name, tag } = providerOf(model);
+    const { provider, key, vendor, name, tag } = providerOf(model);
     const offer = { model, provider: provider ?? "" };
-    const group = provider ? byKey.get(key) : undefined;
-    if (group) {
+    const found = provider
+      ? byKey.get(key)?.find((candidate) => !candidate.vendor || !vendor || candidate.vendor === vendor)
+      : undefined;
+    if (found) {
+      const group = found.group;
       group.offers.push(offer);
       if (model.id === current) group.model = model;
       group.tag ??= tag;
+      found.vendor ??= vendor;
       continue;
     }
     const next: ModelGroup<T> = {
@@ -82,7 +91,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
       offers: [offer],
     };
     groups.push(next);
-    if (provider) byKey.set(key, next);
+    if (provider) byKey.set(key, [...(byKey.get(key) ?? []), { group: next, ...(vendor ? { vendor } : {}) }]);
   }
   return groups;
 }

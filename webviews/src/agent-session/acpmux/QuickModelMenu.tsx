@@ -141,16 +141,26 @@ export type TabExtent = { rows: number; separators: number };
 /// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
 export function tabExtent(
   family: QuickFamily,
-  menu: Pick<QuickMenu, "account" | "fast"> & { families: QuickFamilies; levels: number },
+  menu: Pick<QuickMenu, "account" | "fast" | "current" | "providers"> & { families: QuickFamilies; levels: number },
 ): TabExtent {
   const chat = family.id === menu.families.current;
-  const models = Math.min(family.models.length, FILTER_ROWS);
+  const look = menu.providers ?? "row";
+  const listed = family.models.slice(0, FILTER_ROWS);
+  const models = listed.reduce(
+    (count, model) => count + 1 + (look === "expanded" ? (model.offers?.length ?? 0) : 0),
+    0,
+  );
   let rows = models || 1;
   let separators = 1;
   if (family.note && family.logIn) rows += 1;
   if (chat && menu.levels > 1) {
     rows += 1;
     separators += 1;
+  }
+  // The Provider row, after Effort, for a running model several providers serve.
+  if (chat && look === "row" && listed.some((model) => model.id === menu.current && model.offers)) {
+    rows += 1;
+    if (menu.levels <= 1) separators += 1;
   }
   if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
   if ((chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
@@ -422,6 +432,8 @@ export function QuickModelMenu({
         levels: levels.length,
         account,
         fast,
+        current,
+        providers: menu.providers,
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
@@ -444,13 +456,25 @@ export function QuickModelMenu({
   const widths: ProbeRow[] = families
     ? [
         ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models
-            .slice(0, FILTER_ROWS)
-            .map((model) =>
+          ...family.models.slice(0, FILTER_ROWS).flatMap((model): ProbeRow[] => {
+            // The tag and the provider take the row's width too.
+            const label = model.tag ? `${model.name} ${model.tag}` : model.name;
+            const value = model.provider ? { value: model.provider } : {};
+            return [
               family.id === families.current && model.id === current
-                ? { label: model.name, check: true }
-                : { label: model.name, shortcut: true },
-            ),
+                ? { label, ...value, check: true }
+                : { label, ...value, shortcut: true },
+              ...(family.id === families.current && model.id === current && model.offers
+                ? [
+                    {
+                      label: t("picker.provider"),
+                      value: model.offers.find((offer) => offer.id === current)?.provider,
+                      sub: true,
+                    },
+                  ]
+                : []),
+            ];
+          }),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
@@ -613,9 +637,9 @@ export function QuickModelMenu({
                     disabled={choice.disabled}
                     className="acpmux-quick-item"
                     // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
-                    title={choice.name}
+                    title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
                   >
-                    <span className="acpmux-menu-label">{choice.name}</span>
+                    <QuickModelLabel model={choice} />
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -704,7 +728,7 @@ export function QuickModelMenu({
                     disabled={choice.disabled}
                     className="acpmux-quick-item"
                   >
-                    <span className="acpmux-menu-label">{choice.name}</span>
+                    <QuickModelLabel model={choice} />
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -900,6 +924,17 @@ function StarIcon() {
 }
 
 /// A submenu row: its name, then the current value in secondary text before the chevron.
+/// A More models row: the model's name, its tag, and the provider it lands at the trailing edge.
+function QuickModelLabel({ model }: { model: Pick<QuickModel, "name" | "tag" | "provider"> }) {
+  return (
+    <span className="acpmux-quick-label">
+      <span className="acpmux-menu-label">{model.name}</span>
+      {model.tag && <span className="acpmux-quick-tag">{model.tag}</span>}
+      {model.provider && <span className="acpmux-quick-value">{model.provider}</span>}
+    </span>
+  );
+}
+
 function QuickRowLabel({ label, value }: { label: string; value?: string }) {
   return (
     <>

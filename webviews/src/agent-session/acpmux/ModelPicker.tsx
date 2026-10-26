@@ -88,6 +88,26 @@ const QUICK_ROWS = 4;
 
 const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
 
+/// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
+/// running provider's row (`model`), else the first one that is available, and `offers` holds
+/// every provider's. Its name drops the provider; a bracketed note becomes its `tag`.
+function groupChoices(choices: readonly ModelChoice[], model: string | undefined): ModelChoice[] {
+  return groupVariants(choices, model).map(({ model: grouped, name, tag, offers }): ModelChoice => {
+    const choice =
+      grouped.unavailable && grouped.id !== model
+        ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped)
+        : grouped;
+    const provider = offers.find((offer) => offer.model === choice)?.provider;
+    return {
+      ...choice,
+      name,
+      ...(tag ? { tag } : {}),
+      ...(provider ? { provider } : {}),
+      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+    };
+  });
+}
+
 function quickSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
@@ -95,20 +115,7 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  // A model several providers serve is one row (modelVariants.ts): it lands the running
-  // provider's, else the first listed, and `offers` holds every provider's.
-  const all = groupVariants([...latest, ...older].filter(usable), model).map(
-    ({ model: choice, name, tag, offers }): ModelChoice => {
-      const provider = offers.find((offer) => offer.model === choice)?.provider;
-      return {
-        ...choice,
-        name,
-        ...(tag ? { tag } : {}),
-        ...(provider ? { provider } : {}),
-        ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
-      };
-    },
-  );
+  const all = groupChoices([...latest, ...older].filter(usable), model);
   // A model is a top one when any provider's row of it is.
   const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
   const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
@@ -693,20 +700,36 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.folder?.state !== "needs-enable" &&
         loginFor(entry) === undefined,
     );
-    return searchModels(searchable, typed).map(({ model, entry }) => {
+    const found = searchModels(searchable, typed);
+    // A model several providers serve is one match, in the place of its best-ranked provider's row.
+    const groupOf = new Map<ModelChoice, ModelChoice>();
+    for (const entry of new Set(found.map((match) => match.entry))) {
+      const matches = found.filter((match) => match.entry === entry).map((match) => match.model);
+      for (const group of groupChoices(matches, entry.ids.includes(harness ?? "") ? props.model : undefined))
+        for (const member of group.offers ?? [group])
+          groupOf.set(
+            matches.find((match) => match.id === member.id)!,
+            group,
+          );
+    }
+    const seen = new Set<ModelChoice>();
+    return found.flatMap(({ model: match, entry }) => {
+      const model = groupOf.get(match) ?? match;
+      if (seen.has(model)) return [];
+      seen.add(model);
       const effort = modelEffort(model, typed.effort);
-      const hint = [!harnessFixed ? entry.name : undefined, effort, typed.fast ? fastText : undefined]
+      const hint = [!harnessFixed ? entry.name : undefined, model.provider, effort, typed.fast ? fastText : undefined]
         .filter(Boolean)
         .join(" · ");
-      return {
-        id: model.id,
-        name: model.name,
-        family: entry.id,
-        ...(model.unavailable ? { disabled: true } : {}),
-        ...(hint ? { hint } : {}),
-        ...(effort ? { effort } : {}),
-        ...(typed.fast ? { fast: true } : {}),
-      };
+      const row = quickRow(entry.id, model);
+      return [
+        {
+          ...row,
+          ...(hint ? { hint } : {}),
+          ...(effort ? { effort } : {}),
+          ...(typed.fast ? { fast: true } : {}),
+        },
+      ];
     });
   };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
@@ -725,7 +748,12 @@ export function ModelPicker(props: ModelPickerProps) {
     const list: QuickFamily[] = [];
     const starred = startable
       .filter((entry) => loginFor(entry) === undefined)
-      .flatMap((entry) => choicesFor(entry).flatMap((model) => (favorites.has(model.id) ? [row(entry, model)] : [])));
+      .flatMap((entry) =>
+        groupChoices(
+          choicesFor(entry).filter((model) => favorites.has(model.id)),
+          entry.ids.includes(harness ?? "") ? props.model : undefined,
+        ).map((model) => row(entry, model)),
+      );
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
