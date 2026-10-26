@@ -509,7 +509,8 @@ fn held_registration(
     let admin = held_gitdir(held)?;
     let common = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
     let worktrees = std::fs::canonicalize(git(folder, &common).ok()?).ok()?.join("worktrees");
-    let admin = std::fs::canonicalize(admin).ok()?;
+    // A relative one is relative to the folder its file is in (`worktree.useRelativePaths`).
+    let admin = std::fs::canonicalize(root.join(admin)).ok()?;
     if admin.parent() != Some(worktrees.as_path()) {
         return None;
     }
@@ -535,7 +536,7 @@ fn held_registration(
         let parent = p.parent().and_then(|d| std::fs::canonicalize(d).ok());
         (parent, p.file_name().map(std::ffi::OsStr::to_owned))
     };
-    let git = Path::new(gitdir.trim());
+    let git = path.join(gitdir.trim());
     let points_back = git.file_name() == Some(std::ffi::OsStr::new(".git"))
         && git.parent().is_some_and(|r| spelled(r) == spelled(root));
     points_back.then_some(HeldRegistration { worktrees, name, dir, path })
