@@ -45,6 +45,7 @@ impl SpawnedHostProcess {
     /// Whether the host ended within `timeout` (an exit event, not a poll).
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
         let Some(child) = self.child.as_mut() else { return true };
+        // wakeup-allow: deadline the caller's one bound on the host's exit; the exit ends the wait first
         match child.wait_timeout(timeout) {
             Ok(Some(_)) => {
                 self.child.take();

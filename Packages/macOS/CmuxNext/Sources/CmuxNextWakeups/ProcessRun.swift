@@ -34,8 +34,8 @@ final class ProcessRun: Sendable {
     }
 
     private let request: ProcessRequest
-    /// The caller's priority: the read queue's QoS and the child's own.
-    private let priority: WorkPriority
+    /// The request's priority, else the caller's: the read queue's QoS and the child's own.
+    let priority: WorkPriority
     private let queue: DispatchQueue
     // concurrency-allow: one-shot resume guard and buffers shared by the starting task, read sources and the termination callback (lock carve-out).
     private let state = Mutex(State())
@@ -45,7 +45,7 @@ final class ProcessRun: Sendable {
     init(_ request: ProcessRequest, clock: any Clock<Duration>) {
         self.request = request
         let name = request.executable.lastPathComponent
-        priority = WorkPriority(Task.currentPriority)
+        priority = request.priority ?? WorkPriority(Task.currentPriority)
         queue = DispatchQueue(label: "com.cmuxterm.next.process.\(name)", qos: priority.qos)
         killDeadline = DemandTimer(owner: "process.kill.\(name)", clock: clock)
     }
@@ -75,8 +75,8 @@ final class ProcessRun: Sendable {
             return
         }
         let process = Process()
-        // The child runs at its waiter's priority (a best-effort poll never competes at .default; a git run
-        // a person waits for gets userInitiated).
+        // The child runs at its request's or its waiter's priority (a best-effort poll never competes at
+        // .default; a git run a person waits for gets userInitiated).
         process.qualityOfService = priority.processQoS
         process.executableURL = request.executable
         process.arguments = request.arguments

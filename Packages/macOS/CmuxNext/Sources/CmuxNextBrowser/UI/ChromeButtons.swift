@@ -51,7 +51,7 @@ final class ChromeIconButton: NSButton {
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
@@ -273,7 +273,7 @@ class ChromeTextButton: NSButton {
             applyTitle()
             invalidateIntrinsicContentSize()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         updateFill()
     }
@@ -362,7 +362,7 @@ class ChromeTextField: NSTextField {
             font = BrowserMetrics.bodyFont
             applyPlaceholder()
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)

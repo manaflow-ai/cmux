@@ -1,6 +1,7 @@
 package import AppKit
 package import CmuxNextBrowser
 package import CmuxNextDesign
+package import CmuxNextWakeups
 import Foundation
 package import os
 
@@ -20,6 +21,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     private let profiles: OffTheRecordProfiles
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
+    private let mainWork: MainWorkScheduler
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private(set) var windows: [UUID: WebAuthSessionWindow] = [:]
 
@@ -31,6 +33,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     ///   - signInCallbacks: Where a Chromium sign-in page registers the callback the shim stops.
     ///     Must be the instance the Chromium engine reports stopped callbacks to.
     ///   - contextMenus: The builder for a sign-in page's right-click menu.
+    ///   - mainWork: The app's one main-thread scheduler, for the sign-in panels' location bars.
     ///   - present: Orders a sign-in panel in (always with `.focus`). The default is
     ///     ``WindowActivation/show(_:_:)``, the app's one owner of window order and
     ///     activation; a test passes a recorder so it neither orders a window in nor
@@ -41,8 +44,10 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
         profiles: OffTheRecordProfiles,
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
+        mainWork: MainWorkScheduler,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     ) {
+        self.mainWork = mainWork
         self.host = host
         self.logger = logger
         self.profiles = profiles
@@ -54,7 +59,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     package func open(_ request: any WebAuthSessionRequest, broker: WebAuthSessionBroker) -> (any WebAuthSessionSurface)? {
         let window = WebAuthSessionWindow(
             request: request, broker: broker, host: host, logger: logger,
-            profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus,
+            profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus, mainWork: mainWork,
             present: present
         ) { [weak self] id in
             self?.windows[id] = nil

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Races async work against a deadline without waiting for the loser. Time
 /// the main thread spends in Chromium's start moves the deadline out
@@ -22,6 +23,8 @@ public struct ControlDeadline: Sendable {
         // Main-thread time in Chromium's start after `mark` does not count (MainThreadEngineStart).
         let engineStart = MainThreadEngineStart.shared
         let mark = mark ?? engineStart.total
+        // A request deadline is flexible and never early (Chromium's kFlexibleNoSooner, base/task/delay_policy.h).
+        let tolerance = WakeLeeway.window(delay: limit).tolerance
         let race = Race<T>()
         return try await withCheckedThrowingContinuation { continuation in
             race.begin(continuation)
@@ -33,8 +36,8 @@ public struct ControlDeadline: Sendable {
                 }
             }
             let timer = Task {
-                // wakeup-allow: one-shot request deadline, cancelled when the body answers
-                do { try await engineStart.waitPast(deadline, countingFrom: mark) } catch { return }
+                // wakeup-allow: deadline of the request, cancelled when the body answers
+                do { try await engineStart.waitPast(deadline, countingFrom: mark, tolerance: tolerance) } catch { return }
                 if race.finish(.failure(timeout)) { work.cancel() }
             }
             race.onFinish { timer.cancel() }

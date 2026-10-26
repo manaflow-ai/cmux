@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextInput
+public import CmuxNextWakeups
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -101,19 +103,38 @@ extension TabStripView {
         return hoverCards.isShowing(target.id)
     }
 
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     public override func mouseEntered(with event: NSEvent) {
+        hoverMoves.flush()
         if closingWatch.trackingEvent(event, entered: true) { return }
         buttonReveal.pointerInStrip = true
         closingWatch.pointerReturned()
         updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
+    /// hovers at once and the rest once at its frame, at the latest point. Nil: each move hovers at once.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
+
+    /// A move hovers on its frame interval's leading edge or once at the frame with `hoverFrameInput`,
+    /// at the latest point, as Chromium delivers rAF-aligned mouse moves
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`); without it, at once.
     public override func mouseMoved(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        hoverMoves.moved(event)
+    }
+
+    /// One hover delivery: the point is converted now, so a strip that scrolled since the move
+    /// hit-tests its tabs where they are now.
+    func hoverMoved(toWindowPoint point: CGPoint) {
+        updateHover(at: convert(point, from: nil), moved: true)
     }
 
     public override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         if closingWatch.trackingEvent(event, entered: false) { return }
         pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
@@ -131,6 +152,8 @@ extension TabStripView {
     // MARK: - Clicks
 
     public override func mouseDown(with event: NSEvent) {
+        // The frame's pending hover lands first, so the press acts on the tab under its own point.
+        hoverMoves.flush()
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.

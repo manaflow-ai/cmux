@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// The line between a CEF page and its docked DevTools. Drag it to resize
 /// (the page and DevTools windows punch a hole for its grab area, so the
@@ -16,7 +17,7 @@ final class CEFDevToolsDivider: NSView {
     /// the line moves on a frame interval's first drag event and once more at its frame, to the latest
     /// point, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag
     /// event moves it.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
 

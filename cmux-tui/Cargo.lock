@@ -1170,8 +1170,9 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
 ]
 
 [[package]]
@@ -1196,6 +1197,7 @@ dependencies = [
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]
@@ -1288,6 +1290,7 @@ version = "0.1.0"
 name = "cmux-memory"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -1374,6 +1377,7 @@ dependencies = [
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -1384,6 +1388,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1679,6 +1684,7 @@ dependencies = [
  "cmux-config",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
@@ -2999,6 +3005,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]

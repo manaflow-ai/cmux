@@ -105,9 +105,10 @@ final class LineTransport: Sendable {
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
+    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
-    init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role,
+    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role,
          stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
         self.path = path
         self.role = role
@@ -118,8 +119,7 @@ final class LineTransport: Sendable {
         self.recorder = recorder
         decoder = WireCoding.decoder(recorder)
         let fd: Int32
-        if let bridge {
-            let opened = try bridge.open()
+        if let opened {
             fd = opened.fd
             child = opened.child
         } else {
@@ -128,7 +128,7 @@ final class LineTransport: Sendable {
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS)
-        recorder?.connectionOpened(role, bridged: bridge != nil)
+        recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
     }
@@ -353,7 +353,7 @@ final class LineTransport: Sendable {
         var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
-        // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
+        // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }

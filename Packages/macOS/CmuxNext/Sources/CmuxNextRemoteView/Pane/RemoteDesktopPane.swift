@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextWakeups
 import CmuxNextCompat
 
 // Development builds only: the pane is not exposed in Release until the
@@ -42,6 +43,13 @@ public final class RemoteDesktopPane {
 
     public var handlers = RemoteDesktopPaneHandlers() {
         didSet { view.capture.controller.isLocalShortcut = handlers.isLocalShortcut }
+    }
+
+    /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): moves, drags and
+    /// mid-gesture scrolls reach the host at most twice per display frame. Nil sends each at once.
+    public var pointerFrames: FrameInputCoalescers? {
+        get { view.capture.pointerFrames }
+        set { view.capture.pointerFrames = newValue }
     }
 
     /// The release chord, as bound in KeyboardShortcutSettings.

@@ -346,9 +346,9 @@ public final class TypingLatencyProbe: Sendable {
         if let finished { emit(finished, complete: true) }
     }
 
-    /// Waits for every row emitted so far to reach the file (tests).
+    /// Waits for every row emitted so far to reach the file (tests; never the main thread).
     func flush() {
-        writes.sync {}
+        writes.blockingSync {}
     }
 
     /// Emits each recorded hop (while flows are on) and writes each finished sample.

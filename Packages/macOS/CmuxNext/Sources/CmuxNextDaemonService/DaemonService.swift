@@ -157,11 +157,13 @@ public final class DaemonService {
     /// for a remote or test service.
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
-    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
-    /// the daemon process and to every terminal it creates for this app.
+    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with
+    /// `resolvedTerminalEnvironment` over it, goes to the daemon process and
+    /// to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here.
     public func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
+               resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
                prestart: DaemonPrestart? = nil) {
@@ -174,6 +176,7 @@ public final class DaemonService {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
+                                                resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
                                                 wireStats: wireStats)
             } catch {
@@ -310,7 +313,7 @@ public final class DaemonService {
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
-            // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
+            // wakeup-allow: backoff: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {

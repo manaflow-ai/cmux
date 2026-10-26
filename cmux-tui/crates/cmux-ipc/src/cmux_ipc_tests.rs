@@ -1,6 +1,9 @@
 //! Tests are named `cmux_ipc_tests::…` so `cmux-tui-focused-test.sh cmux_ipc`
 //! selects every one of them.
 
+mod cli_wire_emitter_tests;
+#[cfg(feature = "client")]
+mod cli_wire_tests;
 mod frame_tests;
 mod golden_tests;
 mod methods_table_tests;

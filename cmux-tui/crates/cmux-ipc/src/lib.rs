@@ -21,6 +21,9 @@
 //! the macros that generate the daemon's request params and `Command`
 //! variants for the families in `server-families.json` (task 026).
 //!
+//! `client` (feature `client`) holds the generated request types of the
+//! `cli` client: one struct per command, with its wire name and method id.
+//!
 //! [`fds`] passes file descriptors with `SCM_RIGHTS` and queues the ones that
 //! arrive in order: the holder link uses it, and so do the daemon's frame lanes.
 //! It is the only module with `unsafe` (libc `sendmsg`/`recvmsg`).
@@ -48,6 +51,8 @@
     )
 )]
 
+#[cfg(feature = "client")]
+pub mod client;
 #[cfg(unix)]
 #[allow(
     unsafe_code,

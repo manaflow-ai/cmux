@@ -10,6 +10,11 @@ impl Mux {
         self.subscribers.live_subscriber_count()
     }
 
+    /// The holders of this session that ended since this owner started.
+    pub(crate) fn oracle_holder_exits(&self) -> u64 {
+        self.oracle_holder_exits.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// The daemon's refactor switch arms: the launch value, frozen at the
     /// first read, unless a test installed others before it.
     pub(crate) fn oracle_switches(&self) -> &SwitchArms {

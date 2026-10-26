@@ -46,6 +46,11 @@
       "bench": "scripts/cmux-next/anim-perf-terminal.py, then bench_idle.py (wakes)",
       "owner": "Performance Lead"
     },
+    "pointer-coalesce": {
+      "what": "one move, drag or scroll a view posts to its window's FrameInputCoalescer consumer (PointerFrameConsumer.post): the leading delivery or one merge into the queue, no lock, no allocation, no system call",
+      "bench": "scripts/cmux-next/drag-lag-live.py, then swift test --filter 'PointerFrameCoalescerTests|FrameInputCoalescerTests' (deliveries per frame, pooled drag samples)",
+      "owner": "Performance Lead"
+    },
     "drag-frame": {
       "what": "one tab, pane or column drag frame (ghost, autoscroll, hit test)",
       "bench": "scripts/cmux-next/drag-lag-live.py",
@@ -122,9 +127,14 @@
       "owner": "PL-conn"
     },
     "resize-drag": {
-      "what": "one divider, column-edge, row-edge, sidebar-edge or DevTools-divider drag event and each coalesced delivery it gets (feature pointerFrameDrags: at most a leading and a trailing delivery per frame, PointerFrameCoalescer)",
+      "what": "one divider, column-edge, row-edge, sidebar-edge or DevTools-divider drag event and each coalesced delivery it gets (feature pointerFrameDrags: at most a leading and a trailing delivery per frame, FrameInputCoalescer)",
       "bench": "scripts/cmux-next/divider-drag-reflow-live.py --tag TAG --out DIR with CMUX_ENABLE_FEATURES=pointerFrameDrags and without (frame intervals, drawn-grid lag), light and STRESS; swift test --filter 'DividerDragTests|SidebarResizeHandleTests' for deliveries per frame",
       "owner": "PL-motion-cef"
+    },
+    "terminal-pointer": {
+      "what": "one pointer move, drag or scroll event over a terminal and each coalesced delivery it gets (feature terminalPointerFrames: at most a leading and a trailing ghostty_surface_mouse_pos or mouse-reporting ghostty_surface_mouse_scroll per frame, PointerFrameCoalescer)",
+      "bench": "swift test --filter 'TerminalPointerCoalescingTests' for Ghostty calls per frame; live: scripts/cmux-next/pointer-probe.swift path/drag (1000 Hz moves) over a terminal running a mouse-reporting program (vim with mouse=a), with CMUX_ENABLE_FEATURES=terminalPointerFrames and without, light and STRESS, reading ghostty.lock_wait and main stalls from debug.hangs",
+      "owner": "PL-ghostty"
     }
   }
 }

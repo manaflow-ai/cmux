@@ -5,12 +5,14 @@
 //! As in Chrome, the event's data is only a wakeup: coalesced events OR their
 //! levels together (a WARN then NORMAL pair reads as warning), so each event
 //! re-reads `kern.memorystatus_vm_pressure_level`. The level is also read
-//! once at start, and the registry hears it only when it changes. No thread
-//! or timer of its own.
+//! once at start, and the source votes it through its [`Voter`]; the
+//! registry delivers only changes. No thread or timer of its own. The voter
+//! lives in the source's context, so the vote is withdrawn when libdispatch
+//! finalizes the source.
 
 use std::ffi::{CStr, c_void};
 
-use crate::{PressureLevel, WatchError, WeakRegistry};
+use crate::{PressureLevel, Voter, WatchError};
 
 #[allow(non_camel_case_types)]
 type dispatch_object_t = *mut c_void;
@@ -77,7 +79,7 @@ fn read_level() -> Option<PressureLevel> {
 
 /// The handler's context: owned by the source, freed by its finalizer.
 struct Context {
-    registry: WeakRegistry,
+    voter: Voter,
     source: dispatch_object_t,
 }
 
@@ -89,7 +91,7 @@ extern "C" fn on_event(context: *mut c_void) {
         // SAFETY: `source` is this handler's own source, alive while it runs.
         level_from_bits(unsafe { dispatch_source_get_data(context.source) })
     });
-    context.registry.set_level(level);
+    context.voter.set_level(level);
 }
 
 extern "C" fn finalize(context: *mut c_void) {
@@ -110,11 +112,11 @@ unsafe impl Send for Watch {}
 unsafe impl Sync for Watch {}
 
 impl Watch {
-    pub(crate) fn start(registry: WeakRegistry) -> Result<Self, WatchError> {
+    pub(crate) fn start(voter: Voter) -> Result<Self, WatchError> {
         // The initial level, before any event (Chrome sets its first vote in
         // the evaluator's constructor).
         if let Some(level) = read_level() {
-            registry.set_level(level);
+            voter.set_level(level);
         }
         // SAFETY: plain libdispatch calls on a source this function creates;
         // the context it hands the source lives until the source's finalizer.
@@ -131,7 +133,7 @@ impl Watch {
             if source.is_null() {
                 return Err(WatchError::Unsupported);
             }
-            let context = Box::into_raw(Box::new(Context { registry, source }));
+            let context = Box::into_raw(Box::new(Context { voter, source }));
             dispatch_set_context(source, context.cast());
             dispatch_set_finalizer_f(source, finalize);
             dispatch_source_set_event_handler_f(source, on_event);

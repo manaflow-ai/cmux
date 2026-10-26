@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -123,27 +124,16 @@ enum CloudHandlers {
             return
         }
         show(workspaceID, context)
+        let services = context.services
         Task { @MainActor in
-            // concurrency-allow: the observation task is cancelled by the bounded race below
-            let mounted = await withTaskGroup(of: Bool.self) { group -> Bool in
-                group.addTask {
-                    await waitForPaneController(pane, context)
-                }
-                group.addTask {
-                    // wakeup-allow: one-shot mount deadline; this task is cancelled when the observation wins
-                    try? await Task.sleep(for: .seconds(10))
-                    return false
-                }
-                defer { group.cancelAll() }
-                return await group.next() ?? false
-            }
+            let mounted = await Deadline(.seconds(10)).value("CloudHandlers.reveal") { await waitForPaneController(pane, services) } ?? false
             if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
         }
     }
 
     @MainActor
-    private static func waitForPaneController(_ pane: PaneModel, _ context: AppActionContext) async -> Bool {
-        for await ready in ObservationStream({ context.services.paneController(for: pane) != nil }) where ready {
+    private static func waitForPaneController(_ pane: PaneModel, _ services: AppServices) async -> Bool {
+        for await ready in ObservationStream({ services.paneController(for: pane) != nil }) where ready {
             return true
         }
         return false
@@ -180,17 +170,7 @@ enum CloudHandlers {
     }
 
     @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitForAnchor(id: id, on: session) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await Task.sleep(for: .seconds(10))
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
+        let mirrored = await Deadline(.seconds(10)).value("CloudHandlers.mirroredAnchor") { await waitForAnchor(id: id, on: session) } ?? false
         return mirrored ? anchor(id: id, on: session) : nil
     }
 

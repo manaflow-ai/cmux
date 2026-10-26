@@ -77,12 +77,13 @@ public final class CEFEngine: BrowserEngine {
     ///     the pump never holds for input. Read when Chromium starts, with `input`'s dispatch ends.
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
+    ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
-                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: PointerFrameCoalescers? = nil) {
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = []) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -93,6 +94,7 @@ public final class CEFEngine: BrowserEngine {
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
+        CEFRuntime.shared.chromiumFeatures = chromiumFeatures
     }
 
     public var availability: BrowserEngineAvailability {

@@ -42,7 +42,7 @@ public final class DictationAudioRecording: Sendable {
         }
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(initialState: State()) // lock-allow: realtime audio tap, os_unfair_lock donates
 
     public init() {}
 

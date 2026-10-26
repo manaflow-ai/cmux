@@ -2,7 +2,7 @@
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 public import CmuxNextDesign
-import Observation
+public import CmuxNextWakeups
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
 /// (Debug and bench builds, `browserHost.helper` on): one
@@ -24,13 +24,18 @@ public final class ChromiumHostPrototype {
     /// The Debug Settings `browserHost.helper` is read from (off by default: every Chromium
     /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
     private let tunables: TunableStore
+    private let mainWork: MainWorkScheduler
+    /// Follows `browserHost.helper` once a host started (``watchTunable()``).
+    private var tunableWatch: FrameObservation<Bool>?
 
     /// - Parameters:
     ///   - makeConfiguration: the host app of this build, or nil when it has none.
     ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore) {
+    ///   - mainWork: The app's one main-thread scheduler: a tunable change closes the host on it.
+    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore, mainWork: MainWorkScheduler) {
         self.makeConfiguration = makeConfiguration
         self.tunables = tunables
+        self.mainWork = mainWork
     }
 
     /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
@@ -102,13 +107,17 @@ public final class ChromiumHostPrototype {
         return report
     }
 
-    /// Closes the host when the tunable goes off; re-armed on every change of it.
-    /// Armed once, with the session (which this prototype keeps for its life).
+    /// Closes the host when the tunable goes off. Started with the first session, for the
+    /// prototype's life: `debug.chromium_host` drives it, so it is automation work and needs no frame.
     private func watchTunable() {
-        let on = withObservationTracking { BrowserHostTunables.helper.value(in: tunables) } onChange: {
-            Task { @MainActor [weak self] in self?.watchTunable() }
+        guard tunableWatch == nil else { return }
+        let watch = FrameObservation(owner: "browser.chromiumHost.tunable", delivery: .automation, on: mainWork) { [tunables] in
+            BrowserHostTunables.helper.value(in: tunables)
+        } onChange: { [weak self] on in
+            if !on { _ = self?.close() }
         }
-        if !on { _ = close() }
+        tunableWatch = watch
+        if !watch.value { _ = close() }
     }
 
     /// SIGKILL to the host (the crash check).
