@@ -5,15 +5,43 @@ import Foundation
 /// DevTools session (`Page.addScriptToEvaluateOnNewDocument`, `Runtime.addBinding`); from fork API
 /// 29 the runtime installs them once for every browser in the renderer (`cmux_shim_add_document_script`,
 /// `cmux_shim_add_page_channel`), so no tab needs a DevTools session (`CEFForkFeatures.rendererPaths`).
+///
+/// The renderer path reaches cmux's own pages too, so a browser-tab script starts with
+/// ``cmuxPageGuard`` and does nothing in a `cmux-page://` document, as Chrome scripts no WebUI page
+/// for an extension (`PermissionsData::IsRestrictedUrl`, extensions/common/permissions/permissions_data.cc).
+/// Page tabs attach none of their bridges either (``CEFAgentRelay/servesCmuxPage``).
 nonisolated struct CEFDocumentScripts: Equatable, Sendable {
+    /// Which documents a script is for.
+    enum Scope: Equatable, Sendable, CaseIterable {
+        /// Web pages only: the source starts with ``CEFDocumentScripts/cmuxPageGuard``.
+        case browserTabs
+        /// Every document, cmux pages included (a page tab's first paint).
+        case everyDocument
+    }
+
     /// One document-start script.
     struct Script: Equatable, Sendable {
         /// The isolated world it runs in; "" for the page's own world.
         var world: String
+        /// What runs: the body inside the cmux-page guard for ``Scope/browserTabs``, the body itself otherwise.
         var source: String
         /// Every frame, cross-origin ones included; false for the main frame only.
         var allFrames: Bool
+        var scope: Scope
+
+        init(world: String, body: String, allFrames: Bool, scope: Scope) {
+            self.world = world
+            source = scope == .browserTabs ? CEFDocumentScripts.cmuxPageGuard + body + CEFDocumentScripts.cmuxPageGuardEnd : body
+            self.allFrames = allFrames
+            self.scope = scope
+        }
     }
+
+    /// The start of every browser-tab script: its body runs only outside a cmux page. The origin
+    /// covers a cmux page's `about:blank` and `srcdoc` frames, which inherit it.
+    static let cmuxPageGuard = "if (location.protocol !== 'cmux-page:' && !String(globalThis.origin).startsWith('cmux-page:')) {\n"
+    /// The end of the block ``cmuxPageGuard`` opens.
+    static let cmuxPageGuardEnd = "\n}"
 
     /// How a script reports on `channel`: a DevTools binding of that name, or the fork's `cmuxPost`.
     enum Post: Equatable, Sendable {
@@ -51,26 +79,27 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
         let protectedChannel = BrowserProtectedMedia.channel
         media = [
             Script(world: BrowserMediaState.world,
-                   source: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(message)"), ready: post.ready(mediaChannel)),
-                   allFrames: true),
-            Script(world: "", source: BrowserMediaState.actionsScript, allFrames: true),
-            Script(world: "", source: BrowserPageBusy.recorderScript, allFrames: true),
+                   body: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(message)"), ready: post.ready(mediaChannel)),
+                   allFrames: true, scope: .browserTabs),
+            Script(world: "", body: BrowserMediaState.actionsScript, allFrames: true, scope: .browserTabs),
+            Script(world: "", body: BrowserPageBusy.recorderScript, allFrames: true, scope: .browserTabs),
             // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
-            Script(world: "", source: BrowserProtectedMedia.probeScript, allFrames: true),
+            Script(world: "", body: BrowserProtectedMedia.probeScript, allFrames: true, scope: .browserTabs),
             Script(world: BrowserMediaState.world,
-                   source: BrowserProtectedMedia.relayScript(post: post.send(protectedChannel, "name"), ready: post.ready(protectedChannel)),
-                   allFrames: true),
+                   body: BrowserProtectedMedia.relayScript(post: post.send(protectedChannel, "name"), ready: post.ready(protectedChannel)),
+                   allFrames: true, scope: .browserTabs),
         ]
         let verifyChannel = VerificationPageScripts.channel
         verification = [Script(world: VerificationPageScripts.world,
-                               source: VerificationPageScripts.detectorScript(post: post.send(verifyChannel, "JSON.stringify(report)"),
-                                                                              ready: post.ready(verifyChannel)),
-                               allFrames: false)]
+                               body: VerificationPageScripts.detectorScript(post: post.send(verifyChannel, "JSON.stringify(report)"),
+                                                                            ready: post.ready(verifyChannel)),
+                               allFrames: false, scope: .browserTabs)]
         let paintChannel = BrowserFirstPaintScript.channel
+        // A page tab's first paint ends its loading background and its chat open's stages too.
         firstPaint = post == .pageChannel
             ? [Script(world: BrowserFirstPaintScript.world,
-                      source: BrowserFirstPaintScript.source(post: post.send(paintChannel, "String(report)"), ready: post.ready(paintChannel)),
-                      allFrames: false)]
+                      body: BrowserFirstPaintScript.source(post: post.send(paintChannel, "String(report)"), ready: post.ready(paintChannel)),
+                      allFrames: false, scope: .everyDocument)]
             : []
     }
 
