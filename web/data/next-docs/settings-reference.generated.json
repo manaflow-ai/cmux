@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 492,
+  "count": 496,
   "sections": [
     {
       "id": "general",
@@ -1341,6 +1341,34 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "workspaces.autoArchive.idleDays",
+          "title": "Idle For",
+          "help": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
+          "kind": "number",
+          "default": 3,
+          "group": "Auto-Archive",
+          "range": {
+            "min": 1,
+            "max": 365,
+            "unit": "days"
+          }
+        },
+        {
+          "key": "workspaces.autoArchive.style",
+          "title": "Idle Workspaces",
+          "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
+          "kind": "choice",
+          "default": "suggest",
+          "group": "Auto-Archive",
+          "values": [
+            "suggest",
+            "quiet",
+            "groups",
+            "manual",
+            "off"
           ]
         },
         {
@@ -4370,6 +4398,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.enabled",
+          "title": "Import from Other Browsers",
+          "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.keepNeighborTabsAwake",
           "title": "Keep Neighbor Tabs Awake",
           "help": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
@@ -5394,6 +5430,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Phone Access"
+        },
+        {
+          "key": "ssh.linkAllowedHosts",
+          "title": "Always Allowed SSH Link Hosts",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "kind": "string_list",
+          "default": [],
+          "group": "SSH Links"
         }
       ]
     },

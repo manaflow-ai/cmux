@@ -1,6 +1,84 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.sshLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH Links"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "روابط SSH"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "SSH linkovi"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "SSH-links"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "SSH-Links"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Enlaces SSH"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Liens SSH"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Link SSH"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "SSH リンク"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ SSH"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 링크"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "SSH-lenker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Linki SSH"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Links SSH"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылки SSH"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ SSH"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH bağlantıları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання SSH"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết SSH"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 链接"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 連結"}}
+      }
+    },
+    "settings.machines.sshLinkHosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Allowed SSH Link Hosts"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مضيفو روابط SSH المسموح بهم دائمًا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uvijek dozvoljeni hostovi SSH linkova"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Altid tilladte værter for SSH-links"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Immer erlaubte Hosts für SSH-Links"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Hosts de enlaces SSH siempre permitidos"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Hôtes de liens SSH toujours autorisés"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Host dei link SSH sempre consentiti"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "常に許可する SSH リンクのホスト"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីនតំណ SSH ដែលអនុញ្ញាតជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "항상 허용하는 SSH 링크 호스트"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Alltid tillatte verter for SSH-lenker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zawsze dozwolone hosty linków SSH"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Hosts de links SSH sempre permitidos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Всегда разрешённые хосты ссылок SSH"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฮสต์ลิงก์ SSH ที่อนุญาตเสมอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her zaman izin verilen SSH bağlantısı ana bilgisayarları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Завжди дозволені хости посилань SSH"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy chủ liên kết SSH luôn được cho phép"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "始终允许的 SSH 链接主机"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一律允許的 SSH 連結主機"}}
+      }
+    },
+    "settings.machines.sshLinkHosts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يتصل رابط ssh:// من تطبيق آخر بهؤلاء المضيفين دون أن يسأل. أزل مضيفًا ليُطلب منك مرة أخرى. لا تسأل الأجهزة المحفوظة ونظراء acpmux أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "ssh:// link iz druge aplikacije povezuje se s ovim hostovima bez pitanja. Uklonite host da biste ponovo bili upitani. Sačuvani računari i acpmux peerovi nikad ne pitaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Et ssh://-link fra en anden app forbinder til disse værter uden at spørge. Fjern en vært for at blive spurgt igen. Gemte maskiner og acpmux-peers spørger aldrig."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein ssh://-Link aus einer anderen App verbindet sich ohne Nachfrage mit diesen Hosts. Entfernen Sie einen Host, um wieder gefragt zu werden. Gespeicherte Rechner und acpmux-Peers fragen nie."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un enlace ssh:// de otra app se conecta a estos hosts sin preguntar. Quita un host para que se vuelva a preguntar. Las máquinas guardadas y los pares de acpmux nunca preguntan."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un lien ssh:// provenant d'une autre app se connecte à ces hôtes sans demander. Supprimez un hôte pour être de nouveau sollicité. Les machines enregistrées et les pairs acpmux ne demandent jamais."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un link ssh:// da un'altra app si connette a questi host senza chiedere. Rimuovi un host per ricevere di nuovo la richiesta. Le macchine salvate e i peer acpmux non chiedono mai."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。再び確認するにはホストを削除してください。保存済みのマシンと acpmux ピアは確認しません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។ លុបម៉ាស៊ីនមួយចេញដើម្បីឱ្យសួរម្តងទៀត។ ម៉ាស៊ីនដែលបានរក្សាទុក និង peer acpmux មិនដែលសួរទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다. 다시 묻게 하려면 호스트를 제거하세요. 저장된 머신과 acpmux 피어는 묻지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En ssh://-lenke fra en annen app kobler til disse vertene uten å spørre. Fjern en vert for å bli spurt igjen. Lagrede maskiner og acpmux-peerer spør aldri."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Link ssh:// z innej aplikacji łączy się z tymi hostami bez pytania. Usuń host, aby znów pojawiało się pytanie. Zapisane maszyny i peery acpmux nigdy nie pytają."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um link ssh:// de outro app se conecta a estes hosts sem perguntar. Remova um host para ser perguntado novamente. Máquinas salvas e peers do acpmux nunca perguntam."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылка ssh:// из другого приложения подключается к этим хостам без вопроса. Удалите хост, чтобы снова получать вопрос. Сохранённые компьютеры и узлы acpmux не спрашивают никогда."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม ลบโฮสต์ออกเพื่อให้ถามอีกครั้ง เครื่องที่บันทึกไว้และ peer ของ acpmux จะไม่ถามเลย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Başka bir uygulamadan gelen ssh:// bağlantısı bu ana bilgisayarlara sormadan bağlanır. Yeniden sorulması için bir ana bilgisayarı kaldırın. Kayıtlı makineler ve acpmux eşleri hiç sormaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання ssh:// з іншої програми підключається до цих хостів без запиту. Вилучіть хост, щоб знову отримувати запит. Збережені комп’ютери та вузли acpmux ніколи не питають."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi. Xóa một máy chủ để được hỏi lại. Máy đã lưu và các peer acpmux không bao giờ hỏi."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。移除主机后将再次询问。已保存的机器和 acpmux 对等端从不询问。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。移除主機後將再次詢問。已儲存的機器和 acpmux 對等端從不詢問。"}}
+      }
+    },
     "settings.group.import": {
       "extractionState": "manual",
       "localizations": {
