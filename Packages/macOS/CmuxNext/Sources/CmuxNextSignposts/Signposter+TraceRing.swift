@@ -12,6 +12,8 @@ extension Signposter {
         static let missed: UInt64 = 1
         /// The work ran a nested run loop that waited for the person (`loop=nested`).
         static let nestedLoop: UInt64 = 2
+        /// Committed after asking another process to draw, before it presented (`end=page_activated`).
+        static let pageActivated: UInt64 = 3
 
         /// The code of a ``CommitBoundary`` end.
         static func of(_ outcome: CommitBoundary.Outcome) -> UInt64 {
@@ -44,17 +46,20 @@ extension Signposter {
     }
 
     /// Writes the end record of a begin that wrote one, whatever the category flags are now: a recorded begin
-    /// always gets its end, and an unrecorded one never does.
-    func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64) {
-        closeRing(name, interval.ring, arg0: arg0)
+    /// always gets its end, and an unrecorded one never does. Only a thread slice's end has `arg1` free (an async
+    /// slice's `arg1` is its id).
+    func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64, arg1: UInt64 = 0) {
+        closeRing(name, interval.ring, arg0: arg0, arg1: arg1)
     }
 
-    /// ``closeInterval(_:_:arg0:)`` for the slice `ring` a begin returned (the plain-value intervals).
-    func closeRing(_ name: SignpostName, _ ring: SignpostInterval.Ring?, arg0: UInt64) {
+    /// ``closeInterval(_:_:arg0:arg1:)`` for the slice `ring` a begin returned (the plain-value intervals).
+    func closeRing(_ name: SignpostName, _ ring: SignpostInterval.Ring?, arg0: UInt64, arg1: UInt64 = 0) {
         switch ring {
         case nil: return
-        case .thread: trace.endRecorded(name, arg0: arg0)
-        case .async(let id): trace.asyncEndRecorded(name, id: id, arg0: arg0)
+        case .thread: trace.endRecorded(name, arg0: arg0, arg1: arg1)
+        case .async(let id):
+            assert(arg1 == 0, "\(name) is an async slice: its arg1 is the async id")
+            trace.asyncEndRecorded(name, id: id, arg0: arg0)
         }
     }
 

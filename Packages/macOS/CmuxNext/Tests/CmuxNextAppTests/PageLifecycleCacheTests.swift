@@ -65,12 +65,33 @@ struct PageLifecycleCacheTests {
         #expect(rig.lifecycle.state(of: a) == .frozen)
 
         rig.cache.present(a, by: rig.pane, presence: .visible)
-        #expect(log.lines == ["freeze a", "thaw a"])
+        #expect(log.lines == ["keep a", "keep b", "freeze a", "thaw a"])
         #expect(log.lastCommandAtThaw == .occlude(true), "the content was visible before its page thawed")
         #expect(first.commands.last == .occlude(false), "the reveal did not show the content")
         #expect(rig.lifecycle.state(of: a) == .active)
         rig.cache.release(a)
         rig.cache.release(b)
+    }
+
+    /// `conceal` hands the hide to the page lifecycle first: the page is pictured while its content
+    /// still shows, before the engine is told it is hidden (a hidden page has no frame to picture).
+    @Test func theHidePicturesThePageBeforeItsContentIsHidden() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let engine = MockBrowserEngine()
+        let tab = engine.makeMockTab(BrowserTabConfiguration())
+        let key = tab.id.rawValue
+        _ = rig.cache.install(tab, for: key)
+        let log = OrderLog()
+        let target = OrderTarget(name: "a", tab: tab, log: log)
+        rig.lifecycle.pageOfTab = { $0 == key ? target : nil }
+
+        rig.cache.present(key, by: rig.pane, presence: .visible)
+        rig.cache.withdraw(key, by: rig.pane)
+        #expect(log.lines == ["keep a"])
+        #expect(log.lastCommandAtKeep == .occlude(false), "the content was hidden before its picture was taken")
+        #expect(tab.commands.last == .occlude(true), "the conceal did not hide the content")
+        rig.cache.release(key)
     }
 
     // MARK: Rig
@@ -105,7 +126,7 @@ struct PageLifecycleCacheTests {
         func openPageTab() -> String {
             let (host, folder) = (host, folder)
             let provider = WebPageProvider {
-                let descriptor = PageDescriptor(id: "test.lifecycle-cache", resource: "lifecycle-cache", namespaces: [])
+                let descriptor = PageDescriptor(id: "test.lifecycle-cache", resource: "lifecycle-cache", processGroup: .solo, namespaces: [])
                 return host.open(PageOpenRequest(descriptor: descriptor, root: folder, routes: [])) ?? NSView()
             }
             services.pages.register(provider)
@@ -137,6 +158,7 @@ struct PageLifecycleCacheTests {
     @MainActor final class OrderLog {
         var lines: [String] = []
         var lastCommandAtThaw: MockBrowserTab.Command?
+        var lastCommandAtKeep: MockBrowserTab.Command?
     }
 
     /// A page target over a mock tab: it logs each step, and the tab's last command when it thaws.
@@ -148,6 +170,12 @@ struct PageLifecycleCacheTests {
         var lifecycleGroup: String? { nil }
         var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> { [] }
         func reportsReasonChanges(to lifecycle: PageLifecycle) {}
+        func keepHideSnapshot() {
+            log.lines.append("keep \(name)")
+            log.lastCommandAtKeep = tab.commands.last
+        }
+
+        func dropHideSnapshot() {}
         func freeze() { log.lines.append("freeze \(name)") }
         func discard() { log.lines.append("discard \(name)") }
 
@@ -159,13 +187,13 @@ struct PageLifecycleCacheTests {
 }
 
 /// A timer the queue arms and parks; nothing fires it.
-private final class RigWakeUpTimer: MainWakeUpTimer {
+private nonisolated final class RigWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-private final class RigUptime: Sendable {
+private nonisolated final class RigUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 {

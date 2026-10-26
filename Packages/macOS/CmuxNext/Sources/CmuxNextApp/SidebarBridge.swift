@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -62,7 +63,9 @@ final class SidebarBridge {
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
-        container = SidebarContainerView(model: model)
+        container = SidebarContainerView(model: model, mainWork: services.mainWork, newRows: PendingWorkspaceRows.shared.newRows)
+        // The resize edge moves the width once per frame (feature `pointerFrameDrags`).
+        container.resizeFrameInput = services.dragFrameInput
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
@@ -78,6 +81,7 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
+        if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
         // mirror when a card opens.

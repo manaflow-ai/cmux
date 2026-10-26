@@ -8,6 +8,7 @@ import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// Memory pressure releases the terminal warm set and the parked workspaces through the app's memory
@@ -160,7 +161,7 @@ struct SlicedReleaseTests {
     /// A terminal of the cache on a scripted IO, as `TabContentCache` makes one for a daemon tab.
     private static func entry(_ services: AppServices, surface: UInt64, io scripted: ScriptedTerminalIO) throws -> TerminalEntry {
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: surface), title: "~"))
-        let session = TerminalSession(io: scripted)
+        let session = TerminalSession(io: scripted, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
@@ -254,8 +255,8 @@ private final class SlicedReleaseRig {
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: slicer, clock: clock)
         let cache = given ?? TabContentCache(
             daemon: DaemonService(),
-            cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
-            fileInput: NoFileInput())
+            chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())),
+            fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         cache.ledger = SurfaceLedger(capacity: Self.normalCapacity) { clock.instant }
         self.clock = clock
         self.kernel = kernel

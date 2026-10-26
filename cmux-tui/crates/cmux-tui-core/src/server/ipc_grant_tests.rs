@@ -71,7 +71,7 @@ impl Connection {
         // The scheduler may answer on a worker: wait for that reply.
         loop {
             match self.outbound.recv() {
-                Some(OutboundItem::Text(text)) => {
+                Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
                     return serde_json::from_str(&text.to_string()).unwrap();
                 }
                 Some(OutboundItem::Flush(flushed)) => drop(flushed.send(())),

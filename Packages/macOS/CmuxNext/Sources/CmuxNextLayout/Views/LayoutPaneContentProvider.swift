@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -42,12 +43,25 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// Pane hosts went to rest at a render-server spring's start: the overlay plane places their chrome
+    /// there now, so each host's springs carry its chrome in the same group (`LayoutRootView.syncOverlayNow`).
+    var overlaySyncNow: () -> Void = {}
+    /// A rect in a view's coordinates, in the overlay plane's (the root's): where a host's chrome rides from
+    /// (`PaneHostView.springToRest`). Nil without a root.
+    var overlayPlaneRect: (CGRect, NSView) -> CGRect? = { _, _ in nil }
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
     /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
     var userMotionStepped: () -> Void = {}
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
+    /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
+    /// frames then (`ScreenContentView.pansOnContainer`).
+    var childWindowContentShows: () -> Bool = { false }
+    /// A screen's strip started or stopped showing away from where its views are laid out
+    /// (`StripClipContainerView.showsMoved`).
+    var stripMovedDidChange: () -> Void = {}
     /// A change turn handed a screen's springs to the render server: the window's `motion.run` begins
     /// (`LayoutMotionTrace`); its landing ends it through ``userMotionEnded``.
     var renderMotionBegan: () -> Void = {}
@@ -76,6 +90,9 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
+    /// nil: each drag event moves the divider at once.
+    var dragFrameInput: PointerFrameCoalescers?
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 
 /// Draggable handle for a split divider, a column's trailing edge or the gap
@@ -13,10 +14,17 @@ final class DividerHandleView: NSView {
         case rowEdge(ColumnID, RowID)
     }
 
+    /// A drag's steps. Times are the events' own timestamps, so the release velocity reads one
+    /// clock at both ends however late the main thread handles them.
     enum DragEvent {
         case began(NSPoint)
-        case moved(NSPoint)
-        case ended(NSPoint)
+        /// The pointer passed `point` at `time` before a later move of the same delivery: it feeds
+        /// the release velocity only.
+        case sampled(NSPoint, time: CFTimeInterval)
+        /// The divider goes to `point`, where the pointer was at `time`.
+        case moved(NSPoint, time: CFTimeInterval)
+        /// The pointer went up at `point` at `time`.
+        case ended(NSPoint, time: CFTimeInterval)
         case doubleClick
     }
 
@@ -35,6 +43,14 @@ final class DividerHandleView: NSView {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a drag moves the
+    /// divider on the frame interval's first event and once more at its frame, to the latest point,
+    /// with every point between for the velocity, as Chromium delivers rAF-aligned moves
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). Nil: every
+    /// drag event moves it at once.
+    var pointerFrames: () -> PointerFrameCoalescers? = { nil }
+    /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
+    private var frameDrag: PointerFrameConsumer?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -134,7 +150,13 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
+    /// AppKit's cursor rect and tracking area rebuilds of this handle, cumulative (StripPanContainerTests:
+    /// a strip pan on the motion container makes none).
+    private(set) var cursorRectResets = 0
+    private(set) var trackingAreaUpdates = 0
+
     override func resetCursorRects() {
+        cursorRectResets += 1
         let rect = cursorRectInBounds
         guard !rect.isEmpty else { return }
         if #available(macOS 15, *) {
@@ -146,6 +168,7 @@ final class DividerHandleView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        trackingAreaUpdates += 1
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
@@ -192,6 +215,7 @@ final class DividerHandleView: NSView {
         super.viewWillMove(toSuperview: newSuperview)
         if newSuperview == nil {
             isDragging = false
+            endFrameDrag()
             isHovered = false
             // Its render-server springs end now, so their landings run (`ScreenContentView.springDivider`).
             if let layer { for keyPath in ["position", "bounds.size"] { RenderSpring.stop(layer, keyPath) } }
@@ -210,18 +234,49 @@ final class DividerHandleView: NSView {
             return
         }
         isDragging = true
+        endFrameDrag()
+        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.consumer(owner: "DividerHandleView") { [weak self] input in
+            self?.deliver(input)
+        }
         onDrag?(.began(event.locationInWindow))
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
-        onDrag?(.moved(event.locationInWindow))
+        if let frameDrag {
+            frameDrag.post(event)
+        } else {
+            onDrag?(.moved(event.locationInWindow, time: event.timestamp))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
+        // The frame's pending move lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        endFrameDrag()
         isDragging = false
-        onDrag?(.ended(event.locationInWindow))
+        onDrag?(.ended(event.locationInWindow, time: event.timestamp))
+    }
+
+    /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity, then
+    /// the divider moves to the latest. No allocation: the points are the delivery's own.
+    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
+        guard isDragging else { return }
+        let samples = input.samples
+        if samples.count > 1 {
+            for sample in samples[..<(samples.count - 1)] {
+                onDrag?(.sampled(NSPoint(x: sample.location.x, y: sample.location.y), time: sample.timestamp))
+            }
+        }
+        let latest = input.latest
+        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp))
+    }
+
+    /// Drops this drag's consumer and anything it still has pending.
+    private func endFrameDrag() {
+        frameDrag?.cancel()
+        frameDrag = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -25,7 +25,7 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `command` | argv. The first item is a repository path that must exist. The runner (task 008) adds `--app`, `--tag`, `--out` and the session. |
 | `session` | `light`, `stress` or `corpus:<id>`. |
 | `engine` | `chromium`, `webkit` or `none`. A browser story has one file per engine, or one per arm. |
-| `config` | Exactly one of `bench`, `bench-checks` or `release` (R6). Debug is never a lab config. Only the blocking stories (blocking-sites, startup Q5) use `bench-checks`. |
+| `config` | Exactly one of `bench`, `bench-checks` or `release` (R6). Debug is never a lab config. Only the blocking stories (blocking-sites, startup Q5) use `bench-checks`. A `builder` story times a build, not an app, and may say `debug` (`incremental-build`: the Debug edit loop). |
 | `metrics` | `{name, unit, better, target_ref?, floor_ref?}`. `name` is a full-match regex over the result-v1 `metric` names that the story writes. |
 | `repeats` | Interleaved repeats per run. |
 | `seconds` | The measured wall time of one run. The shard map (task 011) bin-packs on this value. |

@@ -8,7 +8,7 @@ import Foundation
 /// `apps-scene {mount_id, ops, reset?}` to this connection only.
 public struct AppsMountRequest: DaemonRequest, VerbatimFieldsRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-mount"
+    public static let commandName: DaemonCommandName = "apps-mount"
 
     public var app: String
     public var interface: String
@@ -31,7 +31,7 @@ public struct AppsMountRequest: DaemonRequest, VerbatimFieldsRequest {
 
 public struct AppsUnmountRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-unmount"
+    public static let commandName: DaemonCommandName = "apps-unmount"
 
     public var mountID: String
 
@@ -48,7 +48,7 @@ public struct AppsUnmountRequest: DaemonRequest {
 /// supervisor mints the gesture token for it.
 public struct AppsDispatchRequest: DaemonRequest, VerbatimFieldsRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-dispatch"
+    public static let commandName: DaemonCommandName = "apps-dispatch"
 
     public var mountID: String
     public var node: String

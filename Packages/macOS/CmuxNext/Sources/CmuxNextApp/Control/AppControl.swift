@@ -132,7 +132,7 @@ final class AppControl {
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: frames)
+        let publisher = ControlSnapshotPublisher(router: router, services: services)
         self.publisher = publisher
         publisher.start()
     }
@@ -145,7 +145,7 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.cef)]).method])
+        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
@@ -312,7 +312,7 @@ extension AppControl {
         guard let socket else { return }
         ControlLaunch.releaseAtReveal(phase: order.mainWork.startup, startup: order.startup)
         ControlLaunch.post(on: order.startup, socket: socket, start: launchStart(services, settings: settings, launch: launch),
-                           groups: launchGroups(services, settings: settings), served: launchServed(services, logger: logger))
+                           groups: launchGroups(services, settings: settings), served: launchServed(logger: logger))
     }
 
     /// Without the feature (nil `socket`), once the launch settled: starts the service, registers every
@@ -321,7 +321,7 @@ extension AppControl {
                         logger: Logger) {
         guard socket == nil else { return }
         ControlLaunch.run(start: launchStart(services, settings: settings, launch: launch), groups: launchGroups(services, settings: settings),
-                          served: launchServed(services, logger: logger))
+                          served: launchServed(logger: logger))
     }
 
     /// The service's core start (nil: the app is going).
@@ -334,9 +334,9 @@ extension AppControl {
         }
     }
 
-    /// The socket serves, or why it does not; then Share This Mac resumes when the person left it on.
-    private func launchServed(_ services: AppServices, logger: Logger) -> @MainActor @Sendable (Result<String, any Error>) -> Void {
-        { [weak services] result in
+    /// The socket serves, or why it does not. (Share This Mac resumes in its own afterStartup post, p08-startup-029.)
+    private func launchServed(logger: Logger) -> @MainActor @Sendable (Result<String, any Error>) -> Void {
+        { result in
             switch result {
             case .success(let path):
                 DebugTimings.markLaunch("control.serving")
@@ -344,7 +344,6 @@ extension AppControl {
             case .failure(let error):
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
-            services?.macScreenPages.activate()
         }
     }
 }

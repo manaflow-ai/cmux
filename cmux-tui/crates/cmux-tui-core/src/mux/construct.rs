@@ -211,8 +211,10 @@ impl Mux {
             machine_public_id,
             connection_stats: Arc::default(),
             request_stats: Arc::default(),
+            ipc_stats: Arc::default(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
+            request_qos: crate::request_qos::RequestQosGate::from_env(),
             started_at: Instant::now(),
             state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
@@ -424,12 +426,18 @@ impl Mux {
             ),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
+            git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        // A process with a hang log (the headless owner) watches its holder
+        // links' frames on its first mux's watchdog, from before adoption.
+        if cmux_panic_log::hang::installed() {
+            mux.request_watchdog.watch_for_process();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

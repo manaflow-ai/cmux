@@ -18,6 +18,12 @@ pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
+/// The journal writer's hang tier: a batch commit (one writer-loop turn)
+/// busy this long is written to the hang log with the writer's stack (the
+/// request watchdog's `journal-writer` scope). Requests wait on these
+/// commits, so a stuck commit stalls every client.
+pub(crate) const JOURNAL_WRITER_HANG: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalClass {
@@ -1802,7 +1808,7 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+pub(crate) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
@@ -1817,13 +1823,15 @@ fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     ))
 }
 
-struct DecodedJournalSegment {
-    start_sequence: u64,
-    end_sequence: u64,
-    records: Vec<SessionJournalRecord>,
+pub(crate) struct DecodedJournalSegment {
+    pub(crate) start_sequence: u64,
+    pub(crate) end_sequence: u64,
+    pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+pub(crate) fn decode_journal_segment(
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -1960,7 +1968,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-type StoredRecordRow = (
+pub(crate) type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -2006,7 +2014,7 @@ fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     ))
 }
 
-fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+pub(crate) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,

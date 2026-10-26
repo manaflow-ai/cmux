@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
@@ -30,7 +31,7 @@ struct PaneSwapDragTests {
         private var drags: [PaneSwapDrag] = []
 
         init() {
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             // Gesture recognizers only see the events of a window on screen.
             window.orderFrontRegardless()

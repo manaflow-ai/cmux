@@ -65,6 +65,9 @@ T0_SECONDS_MAX = 480  # p12-perf-process.md section 3.3: T0 sums at most 480 s o
 TIERS = ("T0", "T1", "T2", "linux", "builder")
 # Debug is never a lab config (done check 4); bench-checks only where a target row asks for it.
 STORY_CONFIGS = tuple(c for c in perf_result.CONFIGS if c != "debug")
+# A builder story times the build itself, not an app. The edit loop it measures is the Debug build (p11-codebase.md
+# F13), and done check 4 counts debug runs in T0 and T1 only.
+BUILDER_STORY_CONFIGS = perf_result.CONFIGS
 BROWSER_ENGINES = tuple(e for e in perf_result.ENGINES if e != "none")  # F12: a browser target has a row for each
 STATS = ("p50", "p95", "p99", "max", "min", "mean")
 OPS: dict[str, Callable[[float, float], bool]] = {
@@ -472,8 +475,9 @@ def _load_story(root: Path, path: Path, problems: list[str], targets: tuple[Targ
         problems.append(f"{where}: session {doc['session']!r} is not light, stress or corpus:<id>")
     if doc["engine"] not in perf_result.ENGINES:
         problems.append(f"{where}: engine {doc['engine']!r} is not one of {', '.join(perf_result.ENGINES)}")
-    if not isinstance(doc["config"], str) or doc["config"] not in STORY_CONFIGS:
-        problems.append(f"{where}: config is one of {', '.join(STORY_CONFIGS)} (one config, R6), got {doc['config']!r}")
+    configs = BUILDER_STORY_CONFIGS if doc["tier"] == "builder" else STORY_CONFIGS
+    if not isinstance(doc["config"], str) or doc["config"] not in configs:
+        problems.append(f"{where}: config is one of {', '.join(configs)} (one config, R6), got {doc['config']!r}")
     for key in STORY_NUMBERS:
         if isinstance(doc[key], bool) or not isinstance(doc[key], int) or doc[key] < 1:
             problems.append(f"{where}: {key} is an integer >= 1")

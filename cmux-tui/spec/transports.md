@@ -511,7 +511,7 @@ Command attributes:
 | --- | --- |
 | `method_id` | u16, `family << 8 \| ordinal`. Unique in its family; the family must be a declared command family. |
 | `priority` | `input`, `control`, `bulk` or `background`. The daemon uses its own table; a frame header hint that differs is `bad_message`. |
-| `priority_changed_reason` | Why `priority` changed. Not enforced yet: `api-compat-check` will require it when `priority` changes (p05-ipc-012). |
+| `priority_changed_reason` | Why `priority` changed. `api-compat-check` requires a new one on every `priority` change. |
 | `ordering` | `sequence` (default) or `independent`. Only a `read_only` command that is not `stream_scoped` may be `independent`. |
 | `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. Required, no default. A `spawns_terminal` command is never `read_only`. |
 | `payload` | `json` (default) or `binary`. A binary payload needs `layout_version`. |
@@ -558,8 +558,32 @@ to see that the schema is current. It never changes an existing id, family,
 advances each family's `next_ordinal` and never lowers it, so an id is never
 given twice, even after its command is removed. `clients` and
 `spawns_terminal` follow their sources on every run, so `--check` fails when
-a source changed and the schema did not. With p05-ipc-012,
-`api-compat-check` also refuses a reused or renumbered id.
+a source changed and the schema did not.
+
+`api-compat-check` (cmux-api-compat, `src/wire.rs`) compares the ids of
+`sdk-schema.json` and `resource-operations-v2.json` with the append-only
+ledger `spec/api-compat.wire.json` and refuses: an id or family byte given to
+a second name, live or removed, in either file (both files share one family
+byte space and one frame id space); a family or id outside its file's range,
+or in a family the file does not declare; a renumbered method, event or
+family; a name removed from a schema file while its ledger entry has no
+`"removed": "<why>"` tombstone, and a tombstoned name that comes back; a
+`priority` change without a `priority_changed_reason` that differs from the
+last recorded one; and a binary layout change (request, result or a type they
+reach) without a higher `layout_version`. A schema that stops stating a
+priority keeps the recorded one. After adding ids, run it with `--write` to
+record them. To remove a command, event or family, add the tombstone to its
+ledger entry by hand; that is the only hand edit. CI passes `--base <rev>`, so
+the rules start from the base's ledger: an entry dropped from it, or an id,
+priority or layout edited in it, is reported and the check fails until
+`--write` puts the entry back.
+
+In `resource-operations-v2.json` the same attributes are optional and typed by
+`resource-operations-v2.schema.json`: top-level `families` (ids `0x60`-`0xBF`)
+and, on a transported operation, `method_id`, `priority`,
+`priority_changed_reason`, `payload` and `layout_version`. A binary
+operation's layout covers its `params` and `result`. Local operations run in
+the app and have no wire attributes.
 
 | Attribute | Rule |
 | --- | --- |

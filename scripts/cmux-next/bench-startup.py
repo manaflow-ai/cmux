@@ -4,7 +4,7 @@
 Launches a tagged build with a clean environment (no activation, windows on
 the last screen, a scratch cmux.json) and reads every launch mark as an
 event: the app writes one `<name> <ms-since-process-start>` line per mark to
-the pipe named by CMUX_NEXT_LAUNCH_MARKS_FD (Control/LaunchMarkSink.swift).
+the pipe named by CMUX_NEXT_LAUNCH_MARKS_FD (CmuxNextLaunch/LaunchMarkSink.swift).
 Nothing here polls: it blocks on the pipe (select with the run deadline),
 on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 
@@ -138,6 +138,7 @@ MARKS = [
     ("main.nsapp", "main: NSApp and delegate"),
     ("main.run", "main: run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
+    ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
     ("dfl.settings_read", "dfl: settings read"),
     ("dfl.theme", "dfl: Ghostty runtime and theme"),
     ("services.crash_reporting", "services: crash reporting"),

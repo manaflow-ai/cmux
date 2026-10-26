@@ -5,13 +5,14 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 11100,
-            "T2": 960
+            "T1": 12000,
+            "T2": 18960
           },
           "stories": {
             "T1": [
               "blocking-hangs",
               "chat-anim",
+              "daemon-ops",
               "home-idle",
               "launch-cold",
               "launch-cold-realistic",
@@ -28,6 +29,22 @@
               "tab-switch"
             ],
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]
@@ -44,10 +61,26 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 960
+            "T2": 18960
           },
           "stories": {
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]
@@ -64,7 +97,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 5580
+            "T1": 6000
           },
           "stories": {
             "T0": [
@@ -72,13 +105,14 @@
             ],
             "T1": [
               "blocking-hangs",
-              "home-idle",
-              "launch-warm-realistic",
-              "memory-hidden",
+              "daemon-ops",
+              "launch-cold",
+              "launch-cold-realistic",
+              "motion",
               "new-surfaces-matrix",
+              "omnibar",
               "pane-stress",
-              "perf-gate",
-              "tab-switch"
+              "switch"
             ]
           }
         },
@@ -86,7 +120,7 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 5520
+            "T1": 6000
           },
           "stories": {
             "T0": [
@@ -94,13 +128,13 @@
             ],
             "T1": [
               "chat-anim",
-              "launch-cold",
-              "launch-cold-realistic",
+              "home-idle",
+              "launch-warm-realistic",
+              "memory-hidden",
               "memory-hidden-webkit",
-              "motion",
-              "omnibar",
+              "perf-gate",
               "sidebar",
-              "switch"
+              "tab-switch"
             ]
           }
         }

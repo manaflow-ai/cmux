@@ -132,7 +132,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 3 | `BrowserLinkClickPreference.follow(` | afterFirstFrame (pane) | main | 028 | Link-click routing in pages; no page loads before the first frame. |
 | 4 | `BrowserOmnibarPreference.follow(` | afterFirstFrame (pane) | main | 079 | Omnibar preference of browser panes. |
 | 5 | `ChatSettingsPush.start(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | Pushes chat settings to acpmux; no chat starts before the first frame. |
-| 6 | `ComputerUseHelperDaemon.shared.follow(` | afterStartup | main | 029 | Computer Use helper process; nothing on screen needs it. |
+| 6 | `ComputerUseHelperDaemon.shared.follow(` | afterStartup | main | 029 | Computer Use helper process; nothing on screen needs it. Done (029): post `ComputerUseHelper.follow` (`LaunchServicePosts.platform`). |
 | 7 | `DaemonPrompts.start(` | afterFirstFrame | main | 079 | OSC 52 clipboard prompts need a live terminal, which attaches after the first frame. |
 | 8 | `DebugBrowserExternal.register(` | afterFirstFrame | main | 019 | Control method group (debug methods): one afterFirstFrame post per group. |
 | 9 | `DebugCEFDevToolsLayout.register(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
@@ -143,7 +143,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 14 | `DebugTimings.install(` | main() | main | 088 | The mark sink and the watchdog hook; installed with the watchdog at the top of `main()`. |
 | 15 | `FirstPartyPageSchemes.install(` | afterFirstFrame (pane) | main | 028 | `cmux-page://` must be registered before the first page engine; an engine start before it (an external open, 096) waits for it by event, as for profiles. |
 | 16 | `GhosttyRuntime.shared.inputSources.start(` | afterFirstFrame | main (reads on `services.work`) | 079 (assigned here) | Input-source switch keys of the terminal key path; added after `772cdfc45ac`, so no domain task owns it. |
-| 17 | `KeepAwakeService.shared.start(` | afterStartup | main | 029 | Power assertion follow; nothing on screen needs it. |
+| 17 | `KeepAwakeService.shared.start(` | afterStartup | main | 029 | Power assertion follow; nothing on screen needs it. Done (029): post `KeepAwake.start` (`LaunchServicePosts.platform`). |
 | 18 | `NativeCaretAccessory.install(` | main() | main | 033 (assigned here) | One process-wide `NSTextView` method swap that must precede any text field; needs no services. |
 | 19 | `NewTabClosed.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed. |
 | 20 | `NewTabPlacesFeed.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed. |
@@ -153,7 +153,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 24 | `PageDescriptor.registerFilePageRoots(` | afterFirstFrame (pane) | main | 079 | Same, the file pages. |
 | 25 | `QuitSignal.install(` | main() | main | 033 (assigned here) | SIGTERM/SIGINT/SIGHUP during launch must quit cleanly (done check 15); the relay needs only the delegate. |
 | 26 | `ThemeBridge.start(` | critical: `ThemeBridge.start` | main | 026 | See the allowlist. |
-| 27 | `UpdateFeedPosting.follow(` | afterStartup | main | 029 | Update feed posts. |
+| 27 | `UpdateFeedPosting.follow(` | afterStartup | main | 029 | Update feed posts. Done (029): post `UpdateFeedPosting.follow` (`LaunchServicePosts.platform`). |
 | 28 | `UserOnlySettingConfirmation.install(` | afterFirstFrame | main | 025 | Confirms user-only setting edits; no edit before the first frame. |
 | 29 | `WatchdogReporting.install(` | afterFirstFrame | main | 088 | The watchdog itself runs from `main()` (088); this attaches its reports to services. |
 | 30 | `WebAuthSessionHandler.install(` | critical: `WebAuthSessionHandler.install` | main | 029 | See the allowlist. |
@@ -174,7 +174,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 45 | `launchSettle.install(` | deleted | - | 016 | LaunchSettle becomes scheduler refs (012, 013). |
 | 46 | `self?.forcedQuitExit.start(` | not launch | - | - | Runs on a second quit signal, inside `QuitSignal`'s closure. |
 | 47 | `services.apps.attach(` | afterFirstFrame | main | 019 | App Store control methods (with the control groups). |
-| 48 | `services.apps.start(` | afterStartup | main | 029 | App catalog; an App Store request before it waits (S22 path). |
+| 48 | `services.apps.start(` | afterStartup | main | 029 | App catalog; an App Store request before it waits (S22 path). Done (029): post `Apps.start` (`LaunchServicePosts.platform`). |
 | 49 | `services.bookmarks.follow(` | afterFirstFrame (pane) | main | 028 | Bookmarks settings. |
 | 50 | `services.bookmarks.start(` | afterFirstFrame (pane) | main, reads on `.lane(.files, .userVisible)` | 028 | Bookmarks file read. |
 | 51 | `services.browserProfiles.load(` | afterFirstFrame (pane) | main, reads on `.lane(.files, .userVisible)` | 028 | Profiles; an engine start waits for `profiles.loaded` by event. |
@@ -183,18 +183,18 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 54 | `services.configActions.start(` | afterFirstFrame | main | 079 | Custom actions from cmux.json for the palette and menus. |
 | 55 | `services.daemon.start(` | critical: `Daemon.start` | main | 074 | See the allowlist. |
 | 56 | `services.debugSettings.start(` | afterFirstFrame (pane) | main | 079 | DEV and NIGHTLY overrides; read by the window build, so (pane). |
-| 57 | `services.globalHotKeys.start(` | afterFirstFrame | main | 029 | System-wide keys within 1 s of launch (029 test). |
+| 57 | `services.globalHotKeys.start(` | afterFirstFrame | main | 029 | System-wide keys within 1 s of launch (029 test). Done (029): post `GlobalHotKeys.start` (`LaunchServicePosts.platform`). |
 | 58 | `services.history.start(` | afterFirstFrame (pane) | main, reads on `.lane(.files, .userVisible)` | 028 | History store. |
 | 59 | `services.history.startDaemonSync(` | afterFirstFrame | main | 028 | History sync with the daemon. |
 | 60 | `services.home.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Home's first frame comes from its cache (076). |
 | 61 | `services.keybindingsFile.start(` | afterFirstFrame | main | 079 | User keybindings; key sweep 100 ms after the first frame (079 test). |
 | 62 | `services.locationTrail.watchScope(` | afterFirstFrame | main | 028 | Location trail scope. |
-| 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. |
-| 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. |
+| 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. Done (029): post `MacScreen.activate` (`LaunchServicePosts.platform`). It used to run in the control socket's served callback; it reads no socket. |
+| 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. Done (029): post `Mobile.follow` (`LaunchServicePosts.platform`). |
 | 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017 | Spare agent page; one service per post. |
-| 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. |
-| 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. |
-| 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. |
+| 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. Done (029): post `Notifications.follow` (`LaunchServicePosts.platform`). The launch sets the preferences from the launch read at once, so the first frame's attention marks and mutes are right, and starts the Chief pet at once (`followChiefPet`), so an arrival before startup completes reaches it. |
+| 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. Done (029): post `Borders.observe` (`LaunchServicePosts.platform`). |
+| 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. Done (029): post `Glass.observe` (`LaunchServicePosts.platform`). The launch sets the resolved mode at once (`seedGlass`), so the first frame draws it and the follow repaints only on a change. |
 | 69 | `services.openPanel.warmWhenIdle(` | afterStartup `OpenPanel.warmWhenIdle` | main | 016 | The file picker made ahead at idle (`LaunchFirstOpenWarmups`, after the icon picker). |
 | 70 | `services.palettes.bindRegistryActions(` | wiring, then afterFirstFrame `Palette.build` | main | 023 | `services.palettes.bindRegistryActions()` (`PaletteOnDemand`) binds the palette's actions and argument collector to closures that resolve the palette at run (no build); `palettes.postBuild` posts `Palette.build` after the first frame; a palette key before it builds the palette in the key's turn (023). |
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
@@ -205,7 +205,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 76 | `services.startCloud(` | afterFirstFrame | main | 020 | Cloud context; no cloud connect before the first frame (027). |
 | 77 | `services.terminalTheme.follow(` | critical: `TerminalTheme.follow` | main | 079 | See the allowlist. |
 | 78 | `services.themes.start(` | critical: `Themes.start` | main | 079 | See the allowlist. |
-| 79 | `services.updater.follow(` | afterStartup | main | 029 | Updater settings follow (Sparkle). |
+| 79 | `services.updater.follow(` | wiring | main | 029 | Updater settings follow (Sparkle). Stays inline (029): one observation task, no work before the first frame, and `updates.*` (schedule, ring, download policy) must apply before the `Updater.start` post. |
 | 80 | `settings.applyManagedFeaturesNow(` | critical: `Settings.applyManagedFeaturesNow` | main | 101 | See the allowlist. |
 | 81 | `settings.start(` | afterFirstFrame | main | 079 | Config file watchers and diagnostics; the launch read is already applied. |
 | 82 | `settings.writeManagedStatus(` | afterStartup | `.lane(.files, .bestEffort)` | 025 | MDM status file for osquery, Fleet, Jamf; nobody waits. |
@@ -254,9 +254,9 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O34 | `Task { feedGitHub ObservationStream }` | afterStartup | main | 079 | GitHub feed config; off by default. |
 | O35 | `Task { didBecomeActive -> managedPreferencesMayHaveChanged }` | afterFirstFrame | main | 025 | MDM backstop at activation. |
 | O36 | `WorkspaceAutoNameWiring(services:).start(settings:)` | afterFirstFrame | main | 079 | Workspace auto-name variant persist. |
-| O37 | `services.followMacScreenSettings(settings)` | afterStartup | main | 029 | Share This Mac settings. |
-| O38 | `services.startDeviceHub(settings)` | afterStartup | main | 029 | Device hub. |
-| O39 | `services.startHibernation(settings:)` | afterStartup | main | 029 | Tab hibernation. |
+| O37 | `services.followMacScreenSettings(settings)` | afterStartup | main | 029 | Share This Mac settings. Done (029): post `MacScreen.followSettings` (`LaunchServicePosts.platform`). |
+| O38 | `services.startDeviceHub(settings)` | afterStartup | main | 029 | Device hub. Done (029): post `DeviceHub.start` (`LaunchServicePosts.platform`). |
+| O39 | `services.startHibernation(settings:)` | wiring, then afterStartup `Hibernation.measure` | main | 029 | Tab hibernation. Done (029): the hibernation, its agent pages and the warm set budget are made inline before the restore, so a page the restore mounts hidden reports its hide (`tabDidHide`) and becomes a discard candidate; the footprint samples and the occluded-window checker post `Hibernation.measure` (`LaunchServicePosts.platform`). |
 | O40 | Settings migrations and classic imports (`migrateLegacyQuitBehavior`, `migrateLegacyWorkspaceRowKeys`, `migrateLegacyPaneToolbarButtons`, `migrateClassicSettings`, `importClassicShortcuts`, `importClassicPreferences`) | main() read (pure transforms in the settings LaunchRead), write-back afterStartup | `.lane(.files, .bestEffort)` | 106 | The first snapshot has the migrated keys; the 2 classic imports after startup. |
 | O41 | `RemoteViewDebugMethods(services:).register(on:)`, `BrowserPageService(...).install(on:)` and the passkey hand-off | afterFirstFrame | main | 019 | Control method groups. |
 | O42 | `services.startEnergy()` (`EnergyMonitor.start`, `follow`) | afterFirstFrame (pane) | main | 031 (assigned here) | Low Power Mode, battery and thermal inputs for WebKit, KeepAwake and the video wallpaper; until it runs the inputs read nominal, and a tab made before it changes render rate once. |
@@ -296,7 +296,7 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `AppServices.ssh` sets the install offer and the current policy when made. |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
-| Q1-7 | `_ = terminalColors` | keep (022 found it must stay) | - | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does). Built late, the daemons answer the first terminals' OSC 10/11/12 queries without the painted colors. Making it lazy needs a reader in the Daemon.start post first. |
+| Q1-7 | `_ = terminalColors` | built by its reader at the daemon start (024) | 024 | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does), and built late the daemons would answer the first terminals' OSC 10/11/12 queries without the painted colors. Done (024): `AppServices.startLocalDaemon` (Themes/TerminalColorSync.swift) builds it and applies the colors just before `daemon.start`. It is still built before the first frame (the daemon needs it), so this moves no launch work; it names its reader. |
 | Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a remote machine's browser tab (its route, store or loopback chip), a machine browser, or a remote machine's connection; this Mac's pages ask `RemoteLocalhostService.routesToThisMac` and make none. It takes the current settings in the turn it is made, then follows them. |
 | Q1-9 | `_ = emptyWorkspaces` | onDemand; afterStartup `EmptyWorkspaceRepair.observe` on main | 022 | A window's content builds it before its frame; with no window shown, the post starts its store observation. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
@@ -307,10 +307,10 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-15 | `_ = remoteTerminals` | onDemand (its start is S5) | 021 | Restored remote workspaces. Done (021). |
 | Q1-16 | `_ = palette` | onDemand | 023 | Deleted: `AppServices.palettes` (`PaletteOnDemand`) builds the palette at its first read, then its `whenBuilt` hooks; `Palette.build` afterFirstFrame; a palette key before that builds it in the key's turn. |
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
-| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
+| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | Done (024): `TabContentCache.chromium` (`ChromiumEngineSlot`) builds the `CEFEngine` at its first read (a Chromium tab or page, the afterFirstFrame warm-up). The launch readers (`webUI`'s page host, `cefUnavailable`, the link-click, managed-policy, password, search and proxy followers) read the slot and apply through `whenBuilt`, so no engine is built before the first frame unless a Chromium page is opened then. |
 
-022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above), so
-with 020's auth split for Q1-1, Q1 reaches 4, one above the spec's target of 3, until Q1-7 gets its reader. Without the auth split Q1-1 stays built before the
+022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above);
+024 gave Q1-7 its daemon-start reader, so with 020's auth split for Q1-1, Q1 is 3 (cache, keyRouter, windows). Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
 ## 7. Q1b stored initializers (42)

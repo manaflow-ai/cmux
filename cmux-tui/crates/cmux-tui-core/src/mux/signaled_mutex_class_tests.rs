@@ -318,12 +318,13 @@ fn signaled_mutex_class_a_long_hold_reserves_one_admission() {
     let stop = AtomicBool::new(false);
     let sections = AtomicU64::new(0);
     let (held, held_rx) = std::sync::mpsc::sync_channel::<()>(0);
-    let late_overtakes = std::thread::scope(|scope| {
+    let (late_overtakes, since_release) = std::thread::scope(|scope| {
         let program = scope.spawn(|| {
             let guard = mutex.lock().unwrap();
             held.send(()).unwrap();
             std::thread::sleep(PROGRAM_HOLD);
             drop(guard);
+            Instant::now()
         });
         held_rx.recv().unwrap();
         scope.spawn(|| {
@@ -346,16 +347,24 @@ fn signaled_mutex_class_a_long_hold_reserves_one_admission() {
             std::thread::sleep(PROGRAM_HOLD * 2 / 3);
             let before = sections.load(Ordering::SeqCst);
             drop(mutex.lock().unwrap());
-            sections.load(Ordering::SeqCst) - before
+            (sections.load(Ordering::SeqCst) - before, Instant::now())
         });
-        program.join().unwrap();
-        let late_overtakes = late.join().unwrap();
+        let released = program.join().unwrap();
+        let (late_overtakes, acquired) = late.join().unwrap();
         stop.store(true, Ordering::Relaxed);
-        late_overtakes
+        (late_overtakes, acquired.saturating_duration_since(released))
     });
+    // The one reserved admission. A late frontend that the machine does not
+    // run until a later admission comes due (one every
+    // AUTOMATION_ADMIT_GAP - RESERVE_LEAD after the last) concedes that one
+    // too, automation's bounded share; never the 16 callers that waited
+    // through the hold.
+    let due = AUTOMATION_ADMIT_GAP - RESERVE_LEAD;
+    let allowed = 1 + u64::try_from(since_release.as_nanos() / due.as_nanos()).unwrap_or(u64::MAX);
     assert!(
-        late_overtakes <= 1,
-        "the late frontend waited behind {late_overtakes} automation holds"
+        late_overtakes <= allowed,
+        "the late frontend waited behind {late_overtakes} automation holds, \
+         {since_release:?} after the release"
     );
     assert!(mutex.class_stats().automation_due_admissions >= 1);
 }

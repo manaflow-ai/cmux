@@ -40,6 +40,8 @@ struct PageLifecycleTests {
         }
 
         func reportsReasonChanges(to lifecycle: PageLifecycle) { page.lifecycle = lifecycle }
+        func keepHideSnapshot() {}
+        func dropHideSnapshot() {}
         func freeze() { page.log.lines.append("freeze \(page.name)") }
         func thaw() { page.log.lines.append("thaw \(page.name)") }
         func discard() { page.log.lines.append("discard \(page.name)") }
@@ -316,7 +318,7 @@ struct PageLifecycleTests {
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        let target = PageWebViewLifecycle(view)
+        let target = PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) })
         #expect(target.lifecycleGroup == "viewer")
         #expect(target.lifecycleKeepReasons.contains(.loading))
         lifecycle.hide("tab", page: target)
@@ -337,13 +339,14 @@ struct PageLifecycleTests {
 
 /// The lifecycle's deadline scheduler on a wake-up queue whose timer never touches the run loop and
 /// whose uptime only the test moves, and a main-thread scheduler whose posted work runs only in a
-/// hand-fired frame.
+/// hand-fired frame. PageDiscardTests shares it.
 @MainActor
-private final class LifecycleDeadlineRig {
+final class LifecycleDeadlineRig {
     let queue: MainWakeUpQueue
     let scheduler: MainDeadlineScheduler
     private let uptime: RigUptime
-    private let work: MainWorkScheduler
+    /// The main-thread scheduler whose posted work runs in ``fire(movingTime:)``'s frame.
+    let work: MainWorkScheduler
     private let budgetClock: RigBudgetClock
     private let keeper: FrameClient
     private var frames: Double = 0
@@ -380,8 +383,9 @@ private final class LifecycleDeadlineRig {
     }
 }
 
-/// A timer the queue arms and parks; the rig fires the queue itself.
-private final class RigWakeUpTimer: MainWakeUpTimer {
+/// A timer the queue arms and parks; the rig fires the queue itself. Nonisolated: the queue makes
+/// timers off the main actor (the test target is main actor by default), as PageWaitersTests' does.
+private nonisolated final class RigWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
@@ -393,7 +397,7 @@ private final class RigFrameLink: FrameLink {
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-private final class RigUptime: Sendable {
+private nonisolated final class RigUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 {

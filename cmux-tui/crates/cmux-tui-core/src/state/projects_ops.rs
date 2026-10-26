@@ -3,6 +3,7 @@
 //! the reducer, writes the rows it changed and emits one `session.events`
 //! batch (`state_upsert` / `state_delete` of resource `project`, id = path).
 
+use cmux_threads::checked::fs as files;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
@@ -143,7 +144,7 @@ impl Mux {
         path: &str,
     ) -> anyhow::Result<StateCommit> {
         anyhow::ensure!(path.starts_with('/'), "bad request: invalid_path: {path} is not absolute");
-        let canonical = std::fs::canonicalize(path).map_err(|_| {
+        let canonical = files::canonicalize(path).map_err(|_| {
             anyhow::anyhow!("bad request: invalid_path: {path} is not an existing folder")
         })?;
         anyhow::ensure!(canonical.is_dir(), "bad request: invalid_path: {path} is not a folder");

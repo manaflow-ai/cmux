@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextSignposts
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -37,6 +38,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
+    /// The `switch.tab` interval waiting for this tab's page window to show it (the app's visible-time
+    /// request, as Chrome stores one on the destination WebContents): the next show takes it.
+    @ObservationIgnored var tabSwitchShow: TabSwitchSignpost.PageShow?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
     @ObservationIgnored var passwordFill = PasswordFillState()
@@ -146,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// ``discard()`` emptied the tab in place; any commit, load or reload ends it.
+    @ObservationIgnored var isDiscardedInPlace = false
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -359,6 +365,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        isDiscardedInPlace = false
         automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
@@ -384,6 +391,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func reload() {
         reloadWhenShown = false
+        isDiscardedInPlace = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return

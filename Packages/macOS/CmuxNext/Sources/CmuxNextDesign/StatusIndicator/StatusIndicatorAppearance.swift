@@ -118,27 +118,25 @@ public final class StatusIndicatorAppearance {
     public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
-    private var reduceMotionObserver: MainActorObservation?
-    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    private var reduceMotionWatch: AppearanceSignals.Subscription?
     private var resyncObservers: [MainActorObservation] = []
+    /// The windows whose visibility a resync reads again (``resync()``).
+    private let windows: @MainActor () -> [NSWindow]
 
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
     ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    ///   - windows: The app's windows (tests pass their own).
+    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         windows: @escaping @MainActor () -> [NSWindow] = { NSApplication.shared.windows }) {
         config = StatusIndicatorConfig.current
+        self.windows = windows
         startObserving()
-        // Reduce Motion is not observable through Observation.
-        let center = NSWorkspace.shared.notificationCenter
-        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: center) { [weak self] in
+        // Re-read synchronously when Reduce Motion flips (the system setting, the tests' pin or calm
+        // mode), or an appearance created before a pin keeps the system setting's loops (a runner
+        // with Reduce Motion on shows no spinner).
+        reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "StatusIndicatorAppearance") { [weak self] in
             self?.apply(StatusIndicatorConfig.current)
-        }
-        // The override (tests) is a plain static: re-read synchronously when it
-        // changes, or an appearance created before the override keeps the
-        // system setting's loops (a runner with Reduce Motion on shows no spinner).
-        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
-            forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
-            MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
         }
         observeResyncMoments(app: appCenter, workspace: workspaceCenter)
     }
@@ -158,8 +156,11 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
+    /// Reads each window's visibility again, then tells every client to check its indicator again
+    /// (`statusIndicatorResync`). A window whose occlusion notice never came still has a stale node,
+    /// and a hidden indicator waits on that node; an unchanged read flips nothing.
     public func resync() {
+        for window in windows() { WindowVisibilitySource.installed(on: window)?.refresh() }
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }

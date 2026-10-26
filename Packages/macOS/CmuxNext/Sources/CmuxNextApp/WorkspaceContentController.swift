@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextWakeups
@@ -19,7 +20,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self, input: services.inputTap)
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self, input: services.inputTap,
+                                                       mainWork: services.mainWork)
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -32,6 +34,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
+    /// Who caused the tree changes the observation applies (feature `automationBurstSnap`); nil: off.
+    private var changeCauses: LayoutChangeCauses?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
@@ -149,7 +153,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        // An agent's or a script's burst of splits lands with no spring (p06-scheduler-038).
+        if services.features.isEnabled(.automationBurstSnap) {
+            layoutModel.snapsAutomationBursts = true
+            changeCauses = LayoutChangeCauses(workspace, causes: services.mainWork.causes)
+        }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // Divider, column-edge and row-edge drags move the layout once per frame (feature `pointerFrameDrags`).
+        layoutView.dragFrameInput = services.dragFrameInput
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -221,6 +232,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard !isTornDown else { return }
         isTornDown = true
         for task in [observation, connectionObservation, attentionObservation, settlingObservation, canvasObservation] { task?.cancel() }
+        changeCauses?.cancel()
         focus.topologySent(by: self)
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
@@ -238,7 +250,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
         let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
         observation = Task { [weak self] in
-            for await result in later { self?.apply(result.value) }
+            for await result in later {
+                guard let self else { return }
+                // The hop has no cause of its own: who made the changes it applies.
+                self.apply(result.value, cause: self.changeCauses?.take() ?? .program)
+            }
         }
         apply(first.value)
         // An empty workspace loaded while disconnected, or drawn from the
@@ -291,10 +307,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
+        // In the turn of the change it follows (an action's run, a command's reply): its cause too.
+        let current = services.mainWork.causes.currentCause
+        let cause = max(changeCauses?.take() ?? current, current)
+        apply(LayoutMapping.shared.map(workspace), cause: cause, force: true, file, line) // after a command response that may trail its own delta
     }
 
-    private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+    /// `cause`: who caused the change; an automation burst's structural change lands with no
+    /// spring (`LayoutModel.apply(screens:cause:)`).
+    private func apply(_ result: LayoutMapping.Result, cause: ObservationCause = .program, force: Bool = false,
+                       _ file: StaticString = #fileID, _ line: UInt = #line) {
         guard !isTornDown else { return } // a reply that lands after teardown mounts no pane
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
@@ -324,7 +346,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         defer { isApplying = wasApplying }
         if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
-        layoutModel.apply(screens: result.screens)
+        layoutModel.apply(screens: result.screens, cause: cause)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
         #endif

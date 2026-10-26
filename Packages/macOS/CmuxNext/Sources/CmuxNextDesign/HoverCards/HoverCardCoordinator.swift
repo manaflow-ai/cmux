@@ -52,6 +52,8 @@ public final class HoverCardCoordinator {
     /// The last pointer move was on the card.
     var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
+    /// `sidebar.hoverCards.enabled` or calm mode changes (``AppearanceSignals/Signal/hoverCards``).
+    private var hoverCardsWatch: AppearanceSignals.Subscription?
     /// The last window-server answer to "which window is on top here", for its point and the time it was
     /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
     /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
@@ -125,9 +127,9 @@ public final class HoverCardCoordinator {
     private func installObserversIfNeeded() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        observers.append(MainActorObservation(DesignSettings.hoverCardsDidChange, center: center) { [weak self] in
+        hoverCardsWatch = DesignSettings.shared.signals.subscribe([.hoverCards], owner: "HoverCardCoordinator") { [weak self] in
             self?.hoverCardsSettingChanged()
-        })
+        }
         observers.append(MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
             if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) }
         })

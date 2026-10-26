@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class ServerStatsResult implements WireValue {
     private final ServerStatsConnections connections;
     private final Field<ServerStatsHistogram> dispatchQueueUs;
+    private final Field<ServerStatsIpc> ipc;
     private final ServerStatsJournalWriter journalWriter;
     private final Field<ServerStatsLockClasses> lockClasses;
     private final ServerStatsRegistryLock registryLock;
@@ -28,6 +29,7 @@ public final class ServerStatsResult implements WireValue {
         if (!builder.connectionsSet) throw new IllegalArgumentException("connections is required");
         this.connections = Wire.nonNull(builder.connections, "connections");
         this.dispatchQueueUs = builder.dispatchQueueUs;
+        this.ipc = builder.ipc;
         if (!builder.journalWriterSet) throw new IllegalArgumentException("journal_writer is required");
         this.journalWriter = builder.journalWriter;
         this.lockClasses = builder.lockClasses;
@@ -48,6 +50,7 @@ public final class ServerStatsResult implements WireValue {
 
     public ServerStatsConnections connections() { return connections; }
     public Field<ServerStatsHistogram> dispatchQueueUs() { return dispatchQueueUs; }
+    public Field<ServerStatsIpc> ipc() { return ipc; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
     public Field<ServerStatsLockClasses> lockClasses() { return lockClasses; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
@@ -67,6 +70,10 @@ public final class ServerStatsResult implements WireValue {
         Object rawDispatchQueueUs = Wire.optional(object, "dispatch_queue_us");
         if (!Wire.isMissing(rawDispatchQueueUs)) {
             builder.dispatchQueueUs(ServerStatsHistogram.fromWire(rawDispatchQueueUs));
+        }
+        Object rawIpc = Wire.optional(object, "ipc");
+        if (!Wire.isMissing(rawIpc)) {
+            builder.ipc(ServerStatsIpc.fromWire(rawIpc));
         }
         Object rawJournalWriter = Wire.required(object, "journal_writer");
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
@@ -108,6 +115,7 @@ public final class ServerStatsResult implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "connections", connections);
         Wire.put(object, "dispatch_queue_us", dispatchQueueUs);
+        Wire.put(object, "ipc", ipc);
         Wire.put(object, "journal_writer", journalWriter);
         Wire.put(object, "lock_classes", lockClasses);
         Wire.put(object, "registry_lock", registryLock);
@@ -124,11 +132,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(ipc, that.ipc) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, ipc, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -137,6 +145,7 @@ public final class ServerStatsResult implements WireValue {
         private ServerStatsConnections connections;
         private boolean connectionsSet;
         private Field<ServerStatsHistogram> dispatchQueueUs = Field.omitted();
+        private Field<ServerStatsIpc> ipc = Field.omitted();
         private ServerStatsJournalWriter journalWriter;
         private boolean journalWriterSet;
         private Field<ServerStatsLockClasses> lockClasses = Field.omitted();
@@ -159,6 +168,10 @@ public final class ServerStatsResult implements WireValue {
         }
         public Builder dispatchQueueUs(ServerStatsHistogram value) {
             this.dispatchQueueUs = Field.of(value);
+            return this;
+        }
+        public Builder ipc(ServerStatsIpc value) {
+            this.ipc = Field.of(value);
             return this;
         }
         public Builder journalWriter(ServerStatsJournalWriter value) {

@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// A link clicked in a lone agent chat (Leo 2026-10-21, screenshots): the chat docks left in a new
@@ -39,7 +40,7 @@ struct ChatDockLinkSplitMotionTests {
                 return page
             case .terminal:
                 _ = GhosttyRuntime.shared
-                let session = TerminalSession(io: io)
+                let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 terminal = session
                 return session.view
             }
@@ -71,7 +72,7 @@ struct ChatDockLinkSplitMotionTests {
             provider = Panes(content)
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: ChatDockLinkSplitMotionTests.lone)],
                                 activeScreenID: "s", focusedPane: ChatDockLinkSplitMotionTests.anchor)
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on: the shared settings stay untouched.
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
@@ -109,13 +110,13 @@ struct ChatDockLinkSplitMotionTests {
             func window(_ x: CGFloat) -> NSPoint { view.convert(CGPoint(x: x, y: start.y), to: nil) }
             view.handleDrag(kind: kind, event: .began(window(start.x)))
             for move in 1...moves {
-                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves))))
+                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves)), time: CACurrentMediaTime()))
                 root.syncWithModel()
                 step()
                 root.layoutSubtreeIfNeeded()
                 check("drag \(move)")
             }
-            view.handleDrag(kind: kind, event: .ended(window(start.x + dx)))
+            view.handleDrag(kind: kind, event: .ended(window(start.x + dx), time: CACurrentMediaTime()))
             root.syncWithModel()
             root.layoutSubtreeIfNeeded()
             check("release 0")

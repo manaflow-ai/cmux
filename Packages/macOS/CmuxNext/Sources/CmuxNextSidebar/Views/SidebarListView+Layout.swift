@@ -61,6 +61,7 @@ extension SidebarListViewComponents {
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
         // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
         releaseRowHold()
+        reportListedRows()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
@@ -149,6 +150,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { watchRows(layoutChanged: true) } // once the rows are drawn: a stale row on screen is patched before the commit
         let old = displayed
         displayed = layout
         onApply?(layout)
@@ -383,6 +385,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        watchRows(layoutChanged: false)
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "11a9cf347282c5a7421a90d78952895e5faea132c36892257e8fa97fd44d6cd4";
+pub const ir_sha256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2595,6 +2595,46 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsIpc = struct {
+    bad_message: u64,
+    parses: ServerStatsIpcParses,
+    received: []const ServerStatsIpcKind,
+    sent: []const ServerStatsIpcKind,
+    sequence_depth: ServerStatsHistogram,
+    streams: ServerStatsIpcStreams,
+    writes: ServerStatsIpcWrites,
+};
+
+pub const ServerStatsIpcKind = struct {
+    bytes: u64,
+    kind: []const u8,
+    messages: u64,
+};
+
+pub const ServerStatsIpcParse = struct {
+    json_parses: u64,
+    json_parses_per_request: f64,
+    requests: u64,
+};
+
+pub const ServerStatsIpcParses = struct {
+    frames: ServerStatsIpcParse,
+    lines: ServerStatsIpcParse,
+};
+
+pub const ServerStatsIpcStreams = struct {
+    open: u64,
+    opened: u64,
+    peak: u64,
+};
+
+pub const ServerStatsIpcWrites = struct {
+    messages: u64,
+    stalls: u64,
+    syscalls: u64,
+    syscalls_per_message: f64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -2738,6 +2778,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    ipc: ?ServerStatsIpc = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     lock_classes: ?ServerStatsLockClasses = null,
     registry_lock: ServerStatsRegistryLock,
@@ -2751,6 +2792,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "ipc",
         "lock_classes",
         "request_latency_us",
         "request_path_io",

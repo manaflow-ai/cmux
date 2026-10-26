@@ -170,6 +170,16 @@ MIGRATIONS: tuple[Migration, ...] = (
         "ALTER TABLE alert_groups ADD COLUMN holder TEXT",
         "ALTER TABLE alert_groups ADD COLUMN held_at TEXT",
     )),
+    # A run names its attachments by digest (runs.attachments_json). The bytes of the ones ingest finds next to the
+    # results are kept here by that digest, so a reader away from the host that wrote them (the MQ15 queue's
+    # `lab.py queue typecheck --latest`) gets them; a trace stays in R2 (traces).
+    (3, "attachment bytes", (
+        """CREATE TABLE attachments (
+            digest TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            bytes BLOB NOT NULL,
+            stored_at TEXT NOT NULL)""",
+    )),
 )
 
 
@@ -450,6 +460,26 @@ class Store:
             return run_id
 
         return self._write(write)
+
+    def keep_attachment(self, kind: str, data: bytes) -> str:
+        """Keeps DATA under its digest ("sha256:<hex>", perf_result.Attachment's form); a second copy is a no-op."""
+        digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
+        self._write(lambda: self._db.execute(
+            "INSERT INTO attachments (digest, kind, bytes, stored_at) VALUES (?, ?, ?, ?) ON CONFLICT (digest) DO NOTHING",
+            (digest, kind, data, self._now())))
+        return digest
+
+    def attachment(self, digest: str) -> bytes | None:
+        row = self._db.execute("SELECT bytes FROM attachments WHERE digest = ?", (digest,)).fetchone()
+        return None if row is None else bytes(row["bytes"])
+
+    def latest_run(self, story: str, *, kind: str = "waterfall") -> sqlite3.Row | None:
+        """The newest stored run of `story` of `kind`, by mainline commit position, then start time: run_uuid,
+        started_at, attachments_json, sha and commit_pos. None when the store has none."""
+        return self._db.execute(
+            """SELECT u.run_uuid, u.started_at, u.attachments_json, b.sha, b.commit_pos
+               FROM runs u JOIN builds b ON b.id = u.build_id WHERE u.story = ? AND u.kind = ?
+               ORDER BY b.commit_pos DESC, u.started_at DESC, u.id DESC LIMIT 1""", (story, kind)).fetchone()
 
     def run_metrics(self, run_uuid: str) -> dict[str, list[float]]:
         rows = self._db.execute(

@@ -61,9 +61,11 @@ import Testing
         "-9223372036854775808", "1e300", "-0.5", "null", "true", "{", "}", "[", "]", ",", ":", "\"", "\n",
     ].map { Data($0.utf8) })
 
-    /// Values a JSON field can hold in place of the one the parser expects.
-    static let numbers: [Any] = [
-        -1, 0, 1, 2, 777, Int.max, Int.min, NSNumber(value: UInt64.max), -0.5, 3.75, 1e19, 1e300, -1e300, true, false,
+    /// Values a JSON field can hold in place of the one the parser expects (`any Sendable`: a
+    /// static is shared across the test target's concurrency domains; `UInt64.max` bridges to
+    /// the same unsigned NSNumber that JSONSerialization writes).
+    static let numbers: [any Sendable] = [
+        -1, 0, 1, 2, 777, Int.max, Int.min, UInt64.max, -0.5, 3.75, 1e19, 1e300, -1e300, true, false,
     ]
     static let strings = ["", "0", "1", "main", "/", "/Users/alice/Library/x.dylib", "é🙂", "309"]
 

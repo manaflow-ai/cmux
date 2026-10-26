@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// One Mac Screen page tab (`MacScreenPages`): the home page, or one paired
 /// Mac's screen (`MacScreenPane`), in a view of its own. No browser engine,
@@ -9,6 +10,9 @@ public final class MacScreenTab {
     public let key: String
     public internal(set) var record: MacScreenRecord
     public let view = MacScreenTabView()
+    /// Whether a person can see the tab (``MacScreenTabView/isShown``): its home page and its
+    /// screen's chrome update only while it is visible, and read once when it shows.
+    public let node: VisibilityNode
     /// The screen; nil for the home page.
     public private(set) var pane: MacScreenPane?
     /// What the tab shows until its screen is in (the home page, or nothing).
@@ -19,8 +23,11 @@ public final class MacScreenTab {
     init(key: String, record: MacScreenRecord) {
         self.key = key
         self.record = record
+        node = VisibilityNode(root: "mac-screen.tab", own: .hidden)
         view.onVisibilityChange = { [weak self] shown in
-            guard let pane = self?.pane else { return }
+            guard let self else { return }
+            node.set(shown ? .visible : .hidden)
+            guard let pane else { return }
             if shown { pane.resume() } else { pane.pause() }
         }
     }

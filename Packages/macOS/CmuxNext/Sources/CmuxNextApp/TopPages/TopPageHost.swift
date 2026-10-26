@@ -29,6 +29,8 @@ import CmuxNextWakeups
 @MainActor
 final class TopPageHost {
     private(set) var views: [TopPageRoute: NSView] = [:]
+    /// Bumped when a route's view is made or goes: `views` is plain storage, so a reader of ``homePage`` hears it.
+    private let installs = PageInstallCounter()
     /// The provider key of each internal page view (a `LocalPageTab` key,
     /// so providers that read the key keep working).
     private var keys: [TopPageRoute: String] = [:]
@@ -125,7 +127,14 @@ final class TopPageHost {
         keys[route] = made.key
         hiddenSince[route] = now()
         if let state = released.removeValue(forKey: route) { restoring[route] = state }
+        installs.bump()
         return made.view
+    }
+
+    /// Classic Home's live page, once made; observed (made, released).
+    var homePage: TopHomePageView? {
+        _ = installs.revision
+        return views[.home] as? TopHomePageView
     }
 
     /// The provider key of `route`'s view, once made.
@@ -274,12 +283,9 @@ final class TopPageHost {
     private func close(_ route: TopPageRoute, _ view: NSView) {
         view.removeFromSuperview()
         views[route] = nil
+        installs.bump()
         hiddenSince[route] = nil
         // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
         if let key = keys.removeValue(forKey: route) { closed(route, key) }
     }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

@@ -223,6 +223,7 @@ extension AgentTabStore {
 
     /// Local tab `key` adopts the prewarmed `spare` as its page; the chat it becomes still opens tabs (cx-ckt2z).
     func adoptSpare(_ spare: AgentPaneView, key: String, page: AgentPaneNewTab) {
+        pageShown()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key)
@@ -328,7 +329,7 @@ extension AgentTabStore {
         pendingTurns[key] = nil
         wakeStates[key] = nil
         tabStores[key] = nil
-        unsentDrafts.set("", for: key)
+        unsentDrafts.forget(key)
         launchImages.drop(key)
         seenLive.remove(key)
         forgetUnusedStores()

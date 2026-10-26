@@ -32,8 +32,9 @@ pub mod spawn;
 pub mod work;
 
 pub use blocking::{
-    AllowReason, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot, allow_blocking,
-    assert_blocking_allowed, disallow_blocking, scoped_blocking_call, with_blocking_disallowed,
+    AllowReason, BlockingCheck, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot,
+    allow_blocking, assert_blocking_allowed, disallow_blocking, scoped_blocking_call,
+    with_blocking_disallowed,
 };
 #[cfg(unix)]
 pub use blocking::{
@@ -42,7 +43,10 @@ pub use blocking::{
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, set_holder_tracking,
 };
-pub use qos::{LiveQos, QosChange, ThreadQos, current, refused_changes, set_current, with_qos};
+pub use qos::{
+    LiveQos, QosChange, QosScope, ThreadQos, current, refused_changes, reversible, set_current,
+    with_qos,
+};
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
 };

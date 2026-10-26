@@ -6127,6 +6127,246 @@
     "refused counts sockets dropped at limit; for hook producers each one is a lost event."
    ]
   },
+  "ServerStatsIpcStreams": {
+   "kind": "object",
+   "fields": {
+    "open": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "peak": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "opened": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Every connection's stream 0 counts, and each stream a client opens on it; open is the number open now and peak its highest value."
+   ]
+  },
+  "ServerStatsIpcKind": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "messages": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kind is line (a JSON line, bytes counting its delimiter, or a WebSocket text message) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
+   ]
+  },
+  "ServerStatsIpcParse": {
+   "kind": "object",
+   "fields": {
+    "requests": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "json_parses": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "json_parses_per_request": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "json_parses counts every JSON parse of a request message's bytes where it happens: the admission's, the hello gate's, the v2 probe's and each feature route's, also a route that then declines the message; json_parses_per_request is 0 before the first request."
+   ]
+  },
+  "ServerStatsIpcParses": {
+   "kind": "object",
+   "fields": {
+    "lines": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpcParse"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "frames": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpcParse"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "lines counts every non-blank JSON line or WebSocket text message a connection reads, the ones its admission or hello gate answers included; frames counts admitted binary REQUEST frames."
+   ]
+  },
+  "ServerStatsIpcWrites": {
+   "kind": "object",
+   "fields": {
+    "messages": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "syscalls": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "syscalls_per_message": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stalls": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "messages counts messages handed to the connection writers and syscalls their write calls; stalls counts write calls that blocked for at least 1 ms on a full peer receive buffer."
+   ]
+  },
+  "ServerStatsIpc": {
+   "kind": "object",
+   "fields": {
+    "streams": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpcStreams"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sequence_depth": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "received": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsIpcKind"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sent": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsIpcKind"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "parses": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpcParses"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "writes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpcWrites"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bad_message": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start over the connections of every transport: the local socket, the remote entry and WebSocket.",
+    "streams counts each connection's stream 0 (no connection opens a second stream yet), so open is the open connections.",
+    "sequence_depth samples the requests in a connection's sequence as each request arrives at it, itself included, also when the full sequence refuses it.",
+    "received and sent list only kinds seen at least once, line first, then frames in wire order.",
+    "bad_message counts connections closed for a malformed message: a JSON line over the size limit or not UTF-8, a bad frame, or a WebSocket message that is oversized, not UTF-8, binary or against the protocol."
+   ]
+  },
   "ServerStatsResult": {
    "kind": "object",
    "fields": {
@@ -6225,6 +6465,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "ipc": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsIpc"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6237,7 +6485,8 @@
     "request_path_io is present only when the request names it in include.",
     "slow_requests is present only when the request names it in include.",
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
-    "lock_classes is present only when the request names it in include."
+    "lock_classes is present only when the request names it in include.",
+    "ipc is present only when the request names it in include."
    ]
   },
   "ServerStatsLockClasses": {
@@ -20564,7 +20813,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, lock_classes); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

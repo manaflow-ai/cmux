@@ -38,9 +38,11 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
     /// until a pass at or after it: a later CEF request does not replace it, since that request may
     /// be a stale one posted before the keep.
-    private var keptDeadline: TimeInterval?
+    private(set) var keptDeadline: TimeInterval?
     /// A timer fire arrived while a pass was running (a nested run loop).
     private var reentered = false
+    /// The next pass runs a fire a nested run loop deferred (set when its pass ended, cleared when the next begins).
+    private(set) var servesDeferredFire = false
 
     /// The next wake, or nil when nothing needs the pump. Always nil while a
     /// pass runs: a nested run loop must not spin on the timer, and the pass
@@ -82,6 +84,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         isWorking = true
         reentered = false
         immediate = false
+        servesDeferredFire = false
         // The timer and this clock differ by microseconds: a request due
         // within a millisecond is served by this pass.
         if let requested = requestedDeadline, requested <= now + 0.001 { requestedDeadline = nil }
@@ -94,6 +97,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     mutating func endWork() {
         isWorking = false
         if reentered { immediate = true }
+        servesDeferredFire = reentered
         reentered = false
     }
 }

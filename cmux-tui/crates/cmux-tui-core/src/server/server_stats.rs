@@ -19,6 +19,10 @@ const REQUESTS: &str = "requests";
 /// program, automation) on the registry, connection and state locks
 /// (`priority_gate`).
 const LOCK_CLASSES: &str = "lock_classes";
+/// The optional section that reports the IPC layer: streams, sequence
+/// depths, messages and bytes by kind, parses and write syscalls per
+/// message, write stalls and bad_message closes.
+const IPC: &str = "ipc";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -41,6 +45,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         request_latency_us,
         dispatch_queue_us,
         lock_classes: wants(LOCK_CLASSES).then(|| mux.lock_class_stats()),
+        ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
     }
 }
 

@@ -7,7 +7,7 @@ public struct PutSessionRequest: DaemonRequest {
         public var session: SessionRecord
         public var created: Bool
     }
-    public static let command = "put-session"
+    public static let commandName: DaemonCommandName = "put-session"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var machineName: String?
@@ -52,7 +52,7 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var imported: Bool
     }
-    public static let command = "import-session-organization"
+    public static let commandName: DaemonCommandName = "import-session-organization"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var groups: [Group]
@@ -71,7 +71,7 @@ public struct ForgetSessionRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var changed: Bool
     }
-    public static let command = "forget-session"
+    public static let commandName: DaemonCommandName = "forget-session"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var force: Bool

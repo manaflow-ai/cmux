@@ -106,9 +106,22 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    func load(_ url: URL) { tab.load(url) }
+    /// No picture until p13-webui-078 binds the fork's `cmux_tab_copy_surface` (p13-webui-077) on the tab,
+    /// and none on a fork without it: the DevTools `Page.captureScreenshot` the window image uses would
+    /// attach an agent and end renderer sharing. A discarded page with no picture shows its pane's
+    /// background until the page draws again.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) { done(nil) }
+
+    /// After an in-place discard, the discarded entry's own URL comes back by Chromium's restore on
+    /// show and sends nothing (`CEFTab.loadRestoringDiscard(_:)`).
+    func load(_ url: URL) { tab.loadRestoringDiscard(url) }
 
     func reload() { tab.reload() }
+
+    /// The tab's in-place discard (`CEFTab.discard()`); false on a fork without it and in host mode.
+    func discard() -> Bool {
+        !closed && tab.discard()
+    }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 

@@ -75,12 +75,14 @@ public final class CEFEngine: BrowserEngine {
     ///     (``CmuxNextWakeups/CrashKeySlots/Key/cefState``); nil (tests) leaves it as it is.
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input. Read when Chromium starts, with `input`'s dispatch ends.
+    ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
+    ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
-                pumpInput: CEFPumpInputSeams? = nil) {
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: PointerFrameCoalescers? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -90,6 +92,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
         CEFRuntime.shared.pumpInput = pumpInput
+        CEFRuntime.shared.pointerFrames = pointerFrames
     }
 
     public var availability: BrowserEngineAvailability {
@@ -100,8 +103,12 @@ public final class CEFEngine: BrowserEngine {
 
     /// Why Chromium cannot open a tab now, nil when it can (or may still
     /// start: idle or loading).
-    public var unavailableReason: CEFUnavailableReason? {
-        if let pending = runtimeSource.unavailableReason { return pending }
+    public var unavailableReason: CEFUnavailableReason? { Self.unavailableReason(source: runtimeSource) }
+
+    /// ``unavailableReason`` of an engine over `source`, answered before one is built
+    /// (``ChromiumEngineSlot/unavailableReason``): only the source and the process's runtime are read.
+    public static func unavailableReason(source: CEFRuntimeSource) -> CEFUnavailableReason? {
+        if let pending = source.unavailableReason { return pending }
         switch CEFRuntime.shared.state {
         case .failed(let message): return .startFailed(message)
         case .shutDown: return .shutDown
@@ -323,7 +330,10 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Where Chromium keeps every profile's directory.
-    public var storageRoot: URL { CEFRuntime.shared.storage.root }
+    public var storageRoot: URL { Self.storageRoot }
+
+    /// ``storageRoot`` without an engine: the process's one runtime keeps it (a launch cleanup builds no engine).
+    public static var storageRoot: URL { CEFRuntime.shared.storage.root }
 
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.

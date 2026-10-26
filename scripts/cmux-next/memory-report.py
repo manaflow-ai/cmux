@@ -68,6 +68,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)  # python -I leaves the script folder out
+import footprint_json  # noqa: E402
 MB = 1048576.0
 UNATTRIBUTED_LINE_BYTES = 5 * 1048576  # MQ-UNATTRIBUTED: a group with more unexplained bytes is a task
 VDISPLAY_HZ = 120.0  # the STRESS display of perf-stress-session.py (split-spring.sh --vdisplay=120)
@@ -156,51 +159,13 @@ def group_of(category: str) -> str:
 
 
 def footprint_categories(document) -> tuple[dict[str, int], int | None]:
-    """({category: dirty + swapped bytes}, process footprint or None) from `footprint -j` JSON: the
-    first process object, its categories either a map of name to counts or a list of named counts.
+    """({category: dirty + compressed bytes}, process footprint or None) from `footprint -j` JSON: the
+    first process object (footprint_json.py, the parser bench_memory.py's cold-scrollback run shares).
     phys_footprint is resident dirty plus compressed, so a category's swapped or compressed count, when
     footprint reports it apart from `dirty`, is added as vmmap_tables adds SWAPPED."""
-    def numbers(entry: dict) -> int | None:
-        counts = {k.lower(): v for k, v in entry.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
-        if "dirty" not in counts:
-            return None
-        return int(counts["dirty"] + sum(v for k, v in counts.items() if "swap" in k or "compress" in k))
-
-    def process(node):
-        if isinstance(node, dict):
-            if "pid" in node:
-                return node
-            for value in node.values():
-                found = process(value)
-                if found is not None:
-                    return found
-        elif isinstance(node, list):
-            for value in node:
-                found = process(value)
-                if found is not None:
-                    return found
-        return None
-
-    proc = process(document) or (document if isinstance(document, dict) else {})
-    categories: dict[str, int] = {}
-    for value in proc.values():
-        if isinstance(value, dict) and value and all(isinstance(v, dict) for v in value.values()):
-            for name, entry in value.items():
-                dirty = numbers(entry)
-                if dirty is not None:
-                    categories[name] = categories.get(name, 0) + dirty
-        elif isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
-            for entry in value:
-                name = next((entry[k] for k in ("category", "name", "tag", "type") if isinstance(entry.get(k), str)), None)
-                dirty = numbers(entry)
-                if name and dirty is not None:
-                    categories[name] = categories.get(name, 0) + dirty
-        if categories:
-            break
-    categories.pop("TOTAL", None)
-    totals = sorted((k for k, v in proc.items() if "footprint" in k.lower() and "peak" not in k.lower()
-                     and isinstance(v, (int, float))), key=len)
-    return categories, int(proc[totals[0]]) if totals else None
+    found = footprint_json.processes(document)
+    proc = found[0] if found else (document if isinstance(document, dict) else {})
+    return footprint_json.columns(proc)["categories"], footprint_json.process_footprint(proc)
 
 
 FOOTPRINT_ROW = re.compile(r"^\s*([\d.]+)\s*([KMGT]?B)\s+([\d.]+)\s*([KMGT]?B)\s+([\d.]+)\s*([KMGT]?B)\s+(\d+)\s+(.+?)\s*$")

@@ -17,7 +17,7 @@ import CmuxNextDesign
 final class TerminalScroller: NSScrollView {
     private let document = TerminalScrollerDocument()
     private var applying = false
-    private var shown: TerminalScrollbar?
+    private(set) var shown: TerminalScrollbar?
     /// The user dragged the legacy scroller: show this row at the top.
     var onScrollToRow: ((UInt64) -> Void)?
     /// A wheel event over the legacy scroller belongs to the terminal.

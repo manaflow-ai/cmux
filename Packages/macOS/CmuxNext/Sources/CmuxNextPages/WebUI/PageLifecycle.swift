@@ -14,22 +14,39 @@ package protocol PageLifecycleTarget {
     /// From now on the page calls ``PageLifecycle/pageReasonsDidChange(_:)`` when a reason it reports
     /// starts or ends with no show or hide (its load). Called once per page object.
     func reportsReasonChanges(to lifecycle: PageLifecycle)
+    /// The page is hiding: keep its last frame now, while it is still in its window, before the engine
+    /// is told it is hidden (the tab's conceal calls the lifecycle first) and before any freeze. A frozen
+    /// page cannot answer, so nothing is asked of the page later. Makes no page call.
+    func keepHideSnapshot()
+    /// The page shows again running (it was hidden or frozen, not discarded): the picture kept at its
+    /// hide is out of date.
+    func dropHideSnapshot()
     /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
     func freeze()
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
     /// Hidden or frozen to discarded: the document goes, the shell keeps route, state and picture.
+    /// Makes no call into the page: it uses only what the page gave when it hid, so a frozen page is
+    /// discarded on time.
     func discard()
 }
 
-/// A ``PageWebView`` as the lifecycle drives it. The steps are no-ops until the engine steps land:
-/// freeze and thaw in p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its window), the
-/// discard in p13-webui-030.
+/// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
+/// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
+/// Freeze and thaw are no-ops until p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its
+/// window); ending the engine page at the discard is p13-webui-030.
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
+    private let encoder: PageSnapshotEncoder
 
-    package init(_ view: PageWebView) { self.view = view }
+    /// - Parameters:
+    ///   - view: The page.
+    ///   - encoder: Encodes its hide-time frame as it comes (the app's one, on its lanes).
+    package init(_ view: PageWebView, encoder: PageSnapshotEncoder) {
+        self.view = view
+        self.encoder = encoder
+    }
 
     package var object: AnyObject? { view }
 
@@ -48,8 +65,11 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
 
+    package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
+    package func dropHideSnapshot() { view?.hideState.drop() }
     package func freeze() {}
     package func thaw() {}
+    /// Nothing until p13-webui-030 ends the engine page: the picture and the state are kept already.
     package func discard() {}
 }
 
@@ -68,8 +88,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 /// before the content lifecycle reveals the page.
 ///
 /// ```swift
-/// lifecycle.hide(key, page: PageWebViewLifecycle(view))   // the tab's conceal
-/// lifecycle.show(key, page: PageWebViewLifecycle(view))   // the tab's reveal: thaws first
+/// lifecycle.hide(key, page: PageWebViewLifecycle(view, encoder: encoder))   // the tab's conceal: keeps its last frame
+/// lifecycle.show(key, page: PageWebViewLifecycle(view, encoder: encoder))   // the tab's reveal: thaws first
 /// ```
 @MainActor
 package final class PageLifecycle {
@@ -143,7 +163,8 @@ package final class PageLifecycle {
     }
 
     /// `key` shows `page` now. A frozen or discarded page thaws in this call, so the caller reveals
-    /// it after.
+    /// it after. A page that was hidden or frozen drops the picture of its hide; a discarded one keeps
+    /// it to show while it draws again.
     package func show(_ key: String, page: any PageLifecycleTarget) {
         guard let object = page.object else { return remove(key) }
         let previous = entries[key]
@@ -154,23 +175,28 @@ package final class PageLifecycle {
         entries[key] = entry
         hiddenKeys.remove(key)
         if mostRecentlyHidden == key { mostRecentlyHidden = nil }
-        if same, let state = previous?.state, state == .frozen || state == .discarded { page.thaw() }
+        guard same, let state = previous?.state, state != .active else { return }
+        if state != .discarded { page.dropHideSnapshot() }
+        if state == .frozen || state == .discarded { page.thaw() }
     }
 
-    /// `key` stopped showing `page`. Arms the pass for when it stops being recently visible, and
-    /// for the page that held `mostRecentlyUsed` until now, which may freeze from then on.
+    /// `key` stopped showing `page`: the page keeps its last frame now, the one turn it is sure to be
+    /// running and in its window. Arms the pass for when it stops being recently visible, and for the
+    /// page that held `mostRecentlyUsed` until now, which may freeze from then on.
     package func hide(_ key: String, page: any PageLifecycleTarget) {
         guard let object = page.object else { return remove(key) }
         // A new view (made again after a discard) runs: it starts hidden, whatever the old one was.
         let replaced = entries[key]?.target.object !== object
         var entry = adopt(key, page: page, object: object)
         let now = uptime()
-        if entry.state == .active || replaced {
+        let hides = entry.state == .active || replaced
+        if hides {
             entry.state = .hidden
             entry.hiddenAt = now
         }
         entries[key] = entry
         hiddenKeys.insert(key)
+        if hides { page.keepHideSnapshot() }
         guard entry.state != .discarded else { return }
         let window = Duration.seconds(planner.timing.visibleWindow(lowPowerMode: conditions.lowPowerMode))
         if let previous = mostRecentlyHidden, previous != key, let hiddenAt = entries[previous]?.hiddenAt {

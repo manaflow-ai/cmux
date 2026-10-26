@@ -204,17 +204,51 @@ impl FdReceiver {
         max: usize,
         between: impl FnOnce(&[OwnedFd]),
     ) -> io::Result<usize> {
+        buf.reserve(max);
+        let len = buf.len();
+        let room = (buf.capacity() - len).min(max);
+        let spare = &mut buf.spare_capacity_mut()[..room];
+        // SAFETY: `spare` is `room` writable bytes of `buf`'s allocation.
+        let (n, delivery) = unsafe { self.recvmsg(fd, spare.as_mut_ptr().cast(), room)? };
+        // SAFETY: recvmsg initialized `n <= room` bytes past `len`.
+        unsafe { buf.set_len(len + n) };
+        self.deliver(delivery, between)?;
+        Ok(n)
+    }
+
+    /// [`recv`](Self::recv) into a slice the caller owns: the bytes land at
+    /// its start (a reader's own buffer, cmux-ipc `FrameReader::read_with`),
+    /// so no intermediate buffer is copied from.
+    pub fn recv_into(
+        &mut self,
+        fd: RawFd,
+        buf: &mut [u8],
+        between: impl FnOnce(&[OwnedFd]),
+    ) -> io::Result<usize> {
+        // SAFETY: `buf` is `buf.len()` writable bytes.
+        let (n, delivery) = unsafe { self.recvmsg(fd, buf.as_mut_ptr().cast(), buf.len())? };
+        self.deliver(delivery, between)?;
+        Ok(n)
+    }
+
+    /// One `recvmsg` of at most `room` bytes at `base`, retried on EINTR.
+    ///
+    /// # Safety
+    ///
+    /// `base` must point at `room` bytes this call may write.
+    unsafe fn recvmsg(
+        &mut self,
+        fd: RawFd,
+        base: *mut libc::c_void,
+        room: usize,
+    ) -> io::Result<(usize, Delivery)> {
         if self.control.is_empty() {
             // SAFETY: CMSG_SPACE computes a size from a length.
             let space =
                 unsafe { libc::CMSG_SPACE((self.capacity * size_of::<RawFd>()) as u32) as usize };
             self.control = vec![0u64; space.div_ceil(size_of::<u64>())];
         }
-        buf.reserve(max);
-        let len = buf.len();
-        let room = (buf.capacity() - len).min(max);
-        let spare = &mut buf.spare_capacity_mut()[..room];
-        let mut iov = libc::iovec { iov_base: spare.as_mut_ptr().cast(), iov_len: room };
+        let mut iov = libc::iovec { iov_base: base, iov_len: room };
         // SAFETY: zeroed msghdr is a valid empty header.
         let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
         msg.msg_iov = &mut iov;
@@ -222,8 +256,8 @@ impl FdReceiver {
         msg.msg_control = self.control.as_mut_ptr().cast();
         msg.msg_controllen = size_of_val(self.control.as_slice()) as _;
         let n = loop {
-            // SAFETY: msg points at `room` bytes of `buf`'s spare capacity
-            // and at the control buffer, both live for the call.
+            // SAFETY: msg points at the caller's `room` bytes and at the
+            // control buffer, both live for the call.
             let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS) };
             if n >= 0 {
                 break n as usize;
@@ -233,10 +267,14 @@ impl FdReceiver {
                 return Err(error);
             }
         };
-        // SAFETY: recvmsg initialized `n <= room` bytes past `len`.
-        unsafe { buf.set_len(len + n) };
-        let fds = received(&msg);
-        if msg.msg_flags & libc::MSG_CTRUNC != 0 || fds.len() > self.capacity {
+        let truncated = msg.msg_flags & libc::MSG_CTRUNC != 0;
+        Ok((n, Delivery { fds: received(&msg), truncated }))
+    }
+
+    /// Checks the descriptors one read brought and queues them.
+    fn deliver(&mut self, delivery: Delivery, between: impl FnOnce(&[OwnedFd])) -> io::Result<()> {
+        let Delivery { fds, truncated } = delivery;
+        if truncated || fds.len() > self.capacity {
             return Err(FdBadMessage::ControlTruncated.into_io(io::ErrorKind::InvalidData));
         }
         between(&fds);
@@ -249,8 +287,15 @@ impl FdReceiver {
             }
         }
         self.queue.extend(fds);
-        Ok(n)
+        Ok(())
     }
+}
+
+/// The descriptors one `recvmsg` brought, owned, and whether the kernel
+/// truncated its control data.
+struct Delivery {
+    fds: Vec<OwnedFd>,
+    truncated: bool,
 }
 
 /// The descriptors in the `SCM_RIGHTS` messages of a control buffer

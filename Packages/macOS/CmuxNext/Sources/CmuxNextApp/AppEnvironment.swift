@@ -61,6 +61,10 @@ struct AppEnvironment: Sendable {
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
+    /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
+    var oracleRoot: String?
+    var launchHome: String?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).
@@ -103,7 +107,9 @@ struct AppEnvironment: Sendable {
             testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
-            ghosttyBinary: GhosttyRuntime.cliHelperPath()
+            ghosttyBinary: GhosttyRuntime.cliHelperPath(),
+            oracleRoot: environment["CMUX_NEXT_ORACLE_ROOT"],
+            launchHome: environment["HOME"]
         )
     }
 
