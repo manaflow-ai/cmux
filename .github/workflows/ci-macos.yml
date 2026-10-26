@@ -2216,7 +2216,7 @@ jobs:
           name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/package-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
   release-admission:
     needs:
