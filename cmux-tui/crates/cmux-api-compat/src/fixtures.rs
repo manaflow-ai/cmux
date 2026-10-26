@@ -17,8 +17,9 @@
 //! carries its own rule chain, one message as written, and what the
 //! translation must give. The crate's tests replay them with
 //! [`check_vectors`]; `scripts/cmux-next/oracle/gen_api_compat.py` writes one
-//! oracle case per vector (`tests/oracle/corpus/api-compat/`), which runs
-//! [`Translation::run`] in the build under test. One set of vectors for every
+//! oracle case per vector (`tests/oracle/corpus/api-compat/`), which sends the
+//! whole vector to the build under test: that build runs
+//! [`Translation::run`] and fails the case on a [`Vector::mismatch`]. One set of vectors for every
 //! runner, as Mojo's validation vectors are (chromium/src
 //! `mojo/public/interfaces/bindings/tests/data/validation/`).
 //!
@@ -159,8 +160,15 @@ impl Translation {
 impl Vector {
     /// Why the translation does not give what the vector expects, if it does not.
     pub fn problem(&self) -> Option<String> {
-        let outcome = self.translation.run();
-        let matches = match (&self.expect, &outcome) {
+        self.mismatch(&self.translation.run())
+    }
+
+    /// Why `outcome` is not what the vector expects, if it is not. The
+    /// oracle's `__oracle-api-compat` mode runs the translation once and
+    /// checks it here, so a case fails in the build that gives the wrong
+    /// result.
+    pub fn mismatch(&self, outcome: &Outcome) -> Option<String> {
+        let matches = match (&self.expect, outcome) {
             (Expect::Bytes(want), Outcome::Output(got)) => want == got,
             (Expect::Json(want), Outcome::Output(got)) => {
                 serde_json::from_str::<Value>(got).is_ok_and(|got| &got == want)
@@ -170,7 +178,7 @@ impl Vector {
         };
         (!matches).then(|| {
             let expect = serde_json::to_string(&self.expect).unwrap_or_default();
-            let got = serde_json::to_string(&outcome).unwrap_or_default();
+            let got = serde_json::to_string(outcome).unwrap_or_default();
             format!("vector {}: got {got}, the fixture expects {expect}", self.id)
         })
     }

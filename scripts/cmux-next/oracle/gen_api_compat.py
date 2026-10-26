@@ -8,10 +8,16 @@ Chrome reference (chromium/src): mojo/public/interfaces/bindings/tests/data/vali
 vectors that every bindings runner reads. Here the vectors are the `vectors` of
 cmux-tui/spec/api-compat-fixtures.json: a rule chain (an api-compat schema), one message as written, and the
 output or refusal it must give. `cargo test -p cmux-api-compat` replays them in process against the expected
-result. Each case here runs one in the build under test: a read-only `cli` step whose stdin is the vector's
-translation, sent to the cmux binary's `__oracle-api-compat` mode (debug and `--features oracle` builds;
-cmux-tui/crates/cmux-tui/src/private_mode.rs), which prints `{"output": ...}` or `{"error": {"kind", "message"}}`.
-The suite is differential: base and head must reply alike; the expected result stays in the fixture file.
+result. Each case here runs one in the build under test: a read-only `cli` step whose stdin is the whole vector,
+expected result included, sent to the cmux binary's `__oracle-api-compat` mode (debug and `--features oracle`
+builds; cmux-tui/crates/cmux-tui/src/private_mode.rs). The mode checks the result there: a match prints
+`{"output": ...}` or `{"refused": "<kind>"}` and exits 0, anything else prints the typed error
+`api_compat.mismatch` and exits 1, so the step's `ok` outcome fails in the arm whose translator is wrong.
+
+Only the cli product runs these cases: its driver (p15-oracle-048) runs the bare oracle-built binary with the
+case's argv. The other products put global flags before argv or ship a binary without the mode, so
+tests/oracle/NeverFix.d/api-compat.txt skips the suite there. Until 048 lands, `--replay BINARY` runs every
+case's step against a built cmux directly.
 
 The generator owns the suite directory: every `*.json` in it is a case it wrote, and a vector that leaves the
 fixture file takes its case with it. Output is byte-stable: a second run writes nothing.
@@ -20,13 +26,16 @@ Usage:
   gen_api_compat.py [--out DIR]          write the cases into DIR (default: the corpus suite directory)
   gen_api_compat.py [--out DIR] --check  exit 1 when DIR differs from a fresh generation
   gen_api_compat.py --selftest           offline tests against the checked-in fixture file
+  gen_api_compat.py --replay BINARY      run every checked-in case's step against BINARY (a debug cmux)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -45,6 +54,9 @@ SCHEMA_REF = "../../../../schemas/oracle/case-v1.schema.json"
 MODE = "__oracle-api-compat"
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 TRANSLATION_KEYS = ("schema", "message", "from", "to", "input")
+VECTOR_KEYS = ("id", "title", "translation", "expect")
+EXPECT_KINDS = ("bytes", "json", "error")
+MISMATCH = "api_compat.mismatch"
 
 
 class GenError(Exception):
@@ -78,13 +90,18 @@ def load_vectors(path: Path = FIXTURES) -> List[Mapping[str, Any]]:
             raise GenError(f"{where} ({vid}): translation must have exactly {', '.join(TRANSLATION_KEYS)}")
         if not isinstance(translation["input"], str):
             raise GenError(f"{where} ({vid}): translation.input must be the message text")
+        expect = vector.get("expect")
+        if not isinstance(expect, dict) or len(expect) != 1 or next(iter(expect)) not in EXPECT_KINDS:
+            raise GenError(f"{where} ({vid}): expect must be exactly one of {', '.join(EXPECT_KINDS)}")
+        if sorted(vector) != sorted(VECTOR_KEYS):
+            raise GenError(f"{where} ({vid}): a vector has exactly {', '.join(VECTOR_KEYS)}")
     return vectors
 
 
-def stdin_of(translation: Mapping[str, Any]) -> str:
-    """The `__oracle-api-compat` request: the translation as canonical JSON (the input stays a string, so its
-    bytes are exact)."""
-    return json.dumps(translation, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+def stdin_of(vector: Mapping[str, Any]) -> str:
+    """The `__oracle-api-compat` request: the whole vector, expected result included, as canonical JSON (the
+    input stays a string, so its bytes are exact)."""
+    return json.dumps(vector, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def case_doc(vector: Mapping[str, Any]) -> Dict[str, Any]:
@@ -108,14 +125,16 @@ def case_doc(vector: Mapping[str, Any]) -> Dict[str, Any]:
                 "id": "translate",
                 "op": "cli",
                 "readOnly": True,
-                "args": {"argv": [MODE], "stdin": stdin_of(translation)},
+                "args": {"argv": [MODE], "stdin": stdin_of(vector)},
                 "expect": {"outcome": "ok"},
-                "note": f"{translation['message']} from revision {translation['from']} to {translation['to']}",
+                "note": f"{translation['message']} from revision {translation['from']} to {translation['to']}; "
+                        f"a result other than the vector's expect is {MISMATCH} (exit 1)",
             }
         ],
         "invariants": [
             f"generated by {GENERATOR} from vector {vid} of {FIXTURES_REL}",
-            f"the reply is the result vector {vid} expects; cargo test -p cmux-api-compat checks it in process",
+            f"the build under test checks its result against the vector's expect and exits 1 with {MISMATCH} "
+            "on a difference; cargo test -p cmux-api-compat checks the same vector in process",
         ],
         "teardown": ["nothing to undo: the step reads stdin and writes stdout"],
     }
@@ -162,6 +181,51 @@ def write(out: Path, files: Mapping[str, Any]) -> Tuple[int, int]:
     return written, removed
 
 
+# --------------------------------------------------------------------------------------------- replay
+
+
+def wrong_expect(expect: Mapping[str, Any]) -> Dict[str, Any]:
+    """An expectation the vector's real result never meets: a refusal for an output, an output for a refusal."""
+    return {"bytes": ""} if "error" in expect else {"error": "bad_pointer"}
+
+
+def run_step(binary: Path, stdin: str, home: Path) -> Tuple[int, Any]:
+    """The case's step as the cli driver runs it: the bare binary, the case's argv, its stdin."""
+    done = subprocess.run([str(binary), MODE], input=stdin, capture_output=True, text=True, timeout=60,
+                          cwd=home, env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home)})
+    try:
+        reply = json.loads(done.stdout) if done.stdout.strip() else None
+    except ValueError:
+        reply = done.stdout
+    return done.returncode, reply
+
+
+def replay(binary: Path, out: Path = DEFAULT_OUT) -> List[str]:
+    """Every case's step against `binary`: the vector as written must pass (exit 0, a typed result), and the
+    same vector with a wrong expect must fail with MISMATCH (exit 1), so a build that skips the check is caught."""
+    problems: List[str] = []
+    names = owned_files(out)
+    if not names:
+        return [f"{out}: no cases"]
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp)
+        for name in names:
+            step = json.loads((out / name).read_text(encoding="utf-8"))["steps"][0]
+            if step["args"]["argv"] != [MODE]:
+                problems.append(f"{name}: argv {step['args']['argv']} is not [{MODE}]")
+                continue
+            code, reply = run_step(binary, step["args"]["stdin"], home)
+            if code != 0 or not (isinstance(reply, dict) and len(reply) == 1 and set(reply) <= {"output", "refused"}):
+                problems.append(f"{name}: exit {code}, reply {json.dumps(reply)[:300]}")
+            vector = json.loads(step["args"]["stdin"])
+            vector["expect"] = wrong_expect(vector["expect"])
+            code, reply = run_step(binary, stdin_of(vector), home)
+            error = reply.get("error") if isinstance(reply, dict) else None
+            if code != 1 or not isinstance(error, dict) or error.get("code") != MISMATCH:
+                problems.append(f"{name}: a wrong expect gave exit {code}, reply {json.dumps(reply)[:300]}")
+    return problems
+
+
 # --------------------------------------------------------------------------------------------- self test
 
 
@@ -177,7 +241,55 @@ class GenApiCompatSelfTest(unittest.TestCase):
         for vector in self.vectors:
             step = self.files[f"{vector['id']}.json"]["steps"][0]
             self.assertEqual(step["args"]["argv"], [MODE])
-            self.assertEqual(json.loads(step["args"]["stdin"]), vector["translation"], vector["id"])
+            self.assertEqual(json.loads(step["args"]["stdin"]), vector, vector["id"])
+
+    def test_every_case_pins_the_vector_expect(self) -> None:
+        for vector in self.vectors:
+            step = self.files[f"{vector['id']}.json"]["steps"][0]
+            sent = json.loads(step["args"]["stdin"])
+            self.assertEqual(sent["expect"], vector["expect"], vector["id"])
+            self.assertEqual(sent["translation"], vector["translation"], vector["id"])
+            self.assertEqual(step["expect"], {"outcome": "ok"}, vector["id"])
+            self.assertNotEqual(wrong_expect(vector["expect"]), vector["expect"], vector["id"])
+
+    def test_a_mismatch_reply_fails_the_case(self) -> None:
+        # The mode's mismatch line, read the way the case-v1 cli op reads a non-zero exit (driver_app.op_cli).
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        driver = __import__("driver_app")
+        reply = {"error": {"code": MISMATCH, "message": "vector v: got {\"output\":\"{}\"}, ..."}}
+        code = driver.typed_error("cli", reply["error"])
+        self.assertEqual(code, MISMATCH)
+        step = self.files[sorted(self.files)[0]]["steps"][0]
+        checker = driver.CaseRun.check_expect
+        with self.assertRaises(driver.CaseError) as raised:
+            checker(None, step, ("error", code))
+        self.assertEqual(raised.exception.status, "Failure")
+        checker(None, step, ("ok", {"exit": 0, "stdout": {"output": "{}"}}))
+
+    def test_only_the_cli_product_runs_the_suite(self) -> None:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        expectations = __import__("expectations")
+        store = expectations.Expectations.load_root()
+        self.assertEqual([d for d in expectations.lint(store) if Path(str(d.file)).name == f"{SUITE}.txt"], [])
+        case = sorted(self.files)[0][: -len(".json")]
+        for product in expectations.TAG_GROUPS["product"]:
+            config = expectations.RunConfig(platform="linux", arm="new", product=product, build="debug")
+            self.assertEqual(store.should_run(SUITE, case, config), product == "cli", product)
+
+    def test_replay_catches_a_build_that_does_not_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "cases"
+            write(out, dict(sorted(self.files.items())[:2]))
+            fake = Path(tmp) / "cmux"
+            fake.write_text(f"#!{sys.executable} -I\nimport sys\nsys.stdin.read()\nprint('{{\"output\": \"x\"}}')\n",
+                            encoding="utf-8")
+            fake.chmod(0o755)
+            problems = replay(fake, out)
+            self.assertEqual(len(problems), 2, problems)
+            self.assertTrue(all("a wrong expect gave exit 0" in p for p in problems), problems)
+            self.assertEqual(replay(fake, Path(tmp) / "empty"), [f"{Path(tmp) / 'empty'}: no cases"])
 
     def test_cases_pass_the_case_schema(self) -> None:
         if str(HERE) not in sys.path:
@@ -215,6 +327,8 @@ class GenApiCompatSelfTest(unittest.TestCase):
             "title": [{**good, "title": ""}],
             "translation must have": [{**good, "translation": {**good["translation"], "extra": 1}}],
             "message text": [{**good, "translation": {**good["translation"], "input": {"a": 1}}}],
+            "expect must be": [{**good, "expect": {"bytes": "{}", "error": "malformed"}}],
+            "a vector has exactly": [{**good, "extra": 1}],
         }
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "fixtures.json"
@@ -233,10 +347,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--fixtures", type=Path, default=FIXTURES)
     parser.add_argument("--check", action="store_true", help="exit 1 when --out differs from a fresh generation")
     parser.add_argument("--selftest", action="store_true", help="run the offline self tests")
+    parser.add_argument("--replay", type=Path, metavar="BINARY",
+                        help="run every case in --out against BINARY, a debug or --features oracle cmux")
     args = parser.parse_args(argv)
     if args.selftest:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(GenApiCompatSelfTest)
         return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+    if args.replay is not None:
+        problems = replay(args.replay, args.out)
+        for problem in problems:
+            print(f"gen_api_compat: {problem}", file=sys.stderr)
+        print(f"gen_api_compat: replay {len(owned_files(args.out))} cases, {len(problems)} problems")
+        return 1 if problems else 0
     try:
         files = generate(load_vectors(args.fixtures))
     except GenError as error:
