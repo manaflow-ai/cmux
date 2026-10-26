@@ -183,6 +183,7 @@ impl Hub {
         // Made before the chat's lock is taken: `offer_link` reads this
         // chat's meta, and two chats never hold each other's meta locks.
         let link = child.as_ref().map(|_| self.offer_link(session, title.as_deref()));
+        let lineage = child.as_ref().map(|_| self.lineage_under(&session.meta(), None));
         if let Some(child) = &child {
             // Checked and set under the chat's lock: one parent, and only a chat
             // started for this offer.
@@ -203,6 +204,10 @@ impl Hub {
                     link.short_name = self.subsessions.claim_name(&session.id, &link.short_name);
                     link
                 });
+                // And its place in the offering chat's tree (`lineage.rs`).
+                if meta.lineage.is_none() {
+                    meta.lineage = lineage;
+                }
                 if meta.status != super::SessionStatus::Closed {
                     self.subsessions.set_open(&session.id, &child.id, true);
                 }
@@ -213,6 +218,8 @@ impl Hub {
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
         if let Some(child) = &child {
             self.save_meta(child);
+            // A running chat linked as a sub-session works below its new parent.
+            self.refresh_parent_work_below(child);
             decision["childSessionId"] = Value::String(child.id.clone());
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());

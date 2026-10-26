@@ -275,6 +275,7 @@ button.cv-subagent > :last-child {
    the column's leading edge. Its list opens upward over the transcript, as a popover does. */
 .acpmux-agents-pill {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 30px;
   padding: 0 12px 0 10px;
@@ -291,7 +292,6 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  cursor: default;
   user-select: none;
 }
 .acpmux-agents-pill:hover,
@@ -338,6 +338,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__row {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   width: 100%;
   height: 44px;
@@ -347,7 +348,6 @@ button.cv-subagent > :last-child {
   gap: 10px;
   border-radius: 8px;
   color: var(--agent-muted);
-  cursor: default;
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {

@@ -745,6 +745,10 @@ export type ChannelsState = {
   switch: ChannelSwitch | null;
   labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
   tracks: ChannelTrack[];
+  /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
+  daemon?: { title: string; value: string } | null;
+  /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
+  machines?: { title: string; lines: string[] } | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -874,6 +878,8 @@ export type SettingsStreams = {
   "cmux.settings.devices.changed": DevicesState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
+  /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
+  "cmux.settings.channels.machines.changed": ChannelsState["machines"];
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
