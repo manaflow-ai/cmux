@@ -10,33 +10,55 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
     public init?(_ text: String) {
         var host = text
         if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
-        var v4 = in_addr()
-        if inet_pton(AF_INET, host, &v4) == 1 {
-            self = .v4(withUnsafeBytes(of: &v4) { Array($0) })
+        if let bytes = Self.parse(host, ipv6: false) {
+            self = .v4(bytes)
             return
         }
-        var v6 = in6_addr()
-        if inet_pton(AF_INET6, host, &v6) == 1 {
-            self = .v6(withUnsafeBytes(of: &v6) { Array($0) })
+        if let bytes = Self.parse(host, ipv6: true) {
+            self = .v6(bytes)
             return
         }
         return nil
     }
 
+    /// The address a kernel `in_addr` holds (`s_addr` is in network byte order).
+    init(kernel address: in_addr) {
+        let value = UInt32(bigEndian: address.s_addr)
+        self = .v4([24, 16, 8, 0].map { UInt8(truncatingIfNeeded: value >> $0) })
+    }
+
+    /// The address a kernel `in6_addr` holds.
+    init(kernel address: in6_addr) {
+        // SAFETY: the view covers the 16 bytes of the local copy `address`, a plain
+        // C struct with no padding, and Array copies them before the view ends.
+        self = .v6(withUnsafeBytes(of: address) { unsafe Array($0) })
+    }
+
     /// Canonical text (`inet_ntop`), usable as a connect target.
     public var text: String {
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
-        switch self {
-        case .v4(let bytes):
-            var address = in_addr()
-            withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes) }
-            inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count))
-        case .v6(let bytes):
-            var address = in6_addr()
-            withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes) }
-            inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count))
+        let (family, bytes, count): (Int32, [UInt8], Int) = switch self {
+        case .v4(let value): (AF_INET, value, 4)
+        case .v6(let value): (AF_INET6, value, 16)
         }
+        // A case built from too few or too many bytes is padded with zeros or cut,
+        // so inet_ntop always reads exactly `count` bytes.
+        let address: [UInt8] = Array(bytes.prefix(count)) + Array(repeating: 0, count: max(0, count - bytes.count))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
+        // SAFETY: inet_ntop reads 4 (AF_INET) or 16 (AF_INET6) bytes, address.count by
+        // construction, and writes at most buffer.count bytes, the size passed, NUL
+        // included. Both arrays outlive the call.
+        guard unsafe inet_ntop(family, address, &buffer, socklen_t(clamping: buffer.count)) != nil else { return "" }
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// Network-order bytes of `host`, parsed strictly by inet_pton.
+    private static func parse(_ host: String, ipv6: Bool) -> [UInt8]? {
+        var bytes = [UInt8](repeating: 0, count: ipv6 ? 16 : 4)
+        // SAFETY: inet_pton writes sizeof(struct in6_addr) (16) bytes for AF_INET6 and
+        // sizeof(struct in_addr) (4) for AF_INET, exactly bytes.count. It reads the
+        // NUL-terminated copy of `host` Swift makes for this call.
+        guard unsafe inet_pton(ipv6 ? AF_INET6 : AF_INET, host, &bytes) == 1 else { return nil }
+        return bytes
     }
 
     public static let loopbackV4 = IrxTunnelIPAddress.v4([127, 0, 0, 1])
