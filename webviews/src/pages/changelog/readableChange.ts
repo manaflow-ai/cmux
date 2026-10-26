@@ -69,7 +69,7 @@ export const INTERNAL_WORDS = new RegExp(
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
     String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|` +
-    String.raw`changelog|appcast\w*|fits the validator|release[- ](?:headings?|notary))\b`,
+    String.raw`appcast\w*|fits the validator|release[- ](?:headings?|notary)|notes check)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */

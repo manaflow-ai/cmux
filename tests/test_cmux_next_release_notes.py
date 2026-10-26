@@ -259,14 +259,19 @@ class ReleaseNotesTests(unittest.TestCase):
         spec.loader.exec_module(notes)
         for paths in (["webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts"],
                       [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
-                      ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
+                      ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"],
+                      ["scripts/install-git-hooks.sh"], ["scripts/cmux-next/guardrails.py"],
+                      ["scripts/cmux-next/bench_launch.py"], ["webviews/scripts/check-glass-never-opaque.ts"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
                       ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
             self.assertTrue(notes.tooling_only(paths), paths)
         for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
                       ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
                       ["webviews/src/pages/changelog/Localizable.xcstrings"],
                       # #25001 fixed the agent pane by changing only the script that bundles it.
-                      ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"]):
+                      ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"],
+                      # The Embed CEF phase builds the browser from these.
+                      ["scripts/cmux-next/fetch-ublock.sh"], ["scripts/cmux-next/merge-cef-universal.sh"],
+                      ["scripts/cmux-next/cef-manifest.json"]):
             self.assertFalse(notes.tooling_only(paths), paths)
 
     def check(self, notes_path):

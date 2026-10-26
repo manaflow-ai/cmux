@@ -74,7 +74,7 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
-    r"changelog|appcast\w*|fits the validator|release[- ](?:headings?|notary))\b", re.I | re.A)
+    r"appcast\w*|fits the validator|release[- ](?:headings?|notary)|notes check)\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -87,21 +87,23 @@ PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
 SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
-# Files no user runs: CI, scripts, tests, docs, plans, release notes and their checker, galleries. A
-# commit that touches only these is internal whatever its subject says (nightly 4037632091801 read
-# "Fixed: validate release headings within their day", #25533: notesCheck.ts and its test).
+# Files no user runs: CI, tests, docs, plans, release notes and their checkers, galleries, and the
+# scripts that only measure, lint or guard the code. A commit that touches only these is internal
+# whatever its subject says (nightly 4037632091801 read "Fixed: validate release headings within
+# their day", #25533: notesCheck.ts and its test). Other scripts can build what ships (the agent
+# pane's bundle, the CEF embed), so scripts/ is tooling only in these places.
 TOOLING_PATHS = re.compile(
-    r"^(?:\.github/|scripts/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
-    r"|webviews/scripts/)|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
-    r"|\.(?:test|spec|gallery)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$")
-# Scripts that build, bundle or install what ships (scripts/cmux-next/build-agent-pane-web.sh: #25001
-# fixed the agent pane by changing only it) are never tooling.
-SHIPPING_SCRIPTS = re.compile(r"(?:^|/)(?:build|bundle|embed|install|package|sign|notarize)[^/]*$", re.I)
+    r"^(?:\.github/|tests/|tests_v2/|docs/|plans/|design/|release-notes/|webviews/test/|webviews/bench/"
+    r"|scripts/(?:ci|measure|fuzz|gallery-matrix|git-hooks|whats-new)/|scripts/cmux-next/(?:tests|media|arch_rules)/)"
+    r"|/Tests/|(?:^|/)(?:AGENTS|CLAUDE|README|STYLE|PLAN|TODO)\.md$|^[^/]+\.md$"
+    r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
+    r"|^(?:webviews/)?scripts/(?:[\w-]+/)*(?:check|lint|guard|bench|perf|gallery|install-git-hooks|prepush|arch|"
+    r"codebase-health|every-action|release-notes|check-release-notes)[\w.-]*$")
 
 
 def tooling_only(paths):
     """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
-    return bool(paths) and all(TOOLING_PATHS.search(p) and not SHIPPING_SCRIPTS.search(p) for p in paths)
+    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
 
 
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
