@@ -130,15 +130,51 @@ import Testing
     }
 
     /// An update fails in the background, while the app is not active: AppKit then has no key and
-    /// no main window, and the toast still goes to the app's frontmost window, not nowhere.
+    /// no main window, and the toast still goes to the app's frontmost workspace window, not nowhere.
     @Test @MainActor func aNoticeWithTheAppInTheBackgroundGoesToItsFrontWindow() {
-        let behind = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
-        let front = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        func window() -> NSWindow {
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        }
+        let behind = window(), front = window()
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
-        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [panel, front, behind], visible: { _ in true }) === front)
-        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [front, behind], visible: { $0 === behind }) === behind,
+        func rules(visible: Set<ObjectIdentifier>) -> DaemonUpdateBoard.NoticeWindowRules {
+            var rules = DaemonUpdateBoard.NoticeWindowRules()
+            rules.root = { $0 === panel ? front : $0 }
+            rules.isWorkspace = { $0 === front || $0 === behind }
+            rules.inView = { visible.contains(ObjectIdentifier($0)) }
+            rules.shown = { visible.contains(ObjectIdentifier($0)) }
+            return rules
+        }
+        let both: Set = [ObjectIdentifier(front), ObjectIdentifier(behind)]
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [front, behind], rules: rules(visible: both)) === front)
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [panel, behind], rules: rules(visible: both)) === front,
+                "a panel stands for the window it is over")
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [front, behind], rules: rules(visible: [ObjectIdentifier(behind)])) === behind,
                 "a window that is not shown is skipped")
-        #expect(DaemonUpdateBoard.noticeWindow(key: behind, main: front, ordered: [front], visible: { _ in true }) === behind, "the key window first")
-        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [], visible: { _ in true }) == nil)
+        #expect(DaemonUpdateBoard.noticeWindow(key: behind, main: front, ordered: [front], rules: rules(visible: both)) === behind, "the key window first")
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [], rules: rules(visible: both)) == nil)
+    }
+
+    /// The notice goes to a workspace window, never to a settings, debug or page window, and a
+    /// sheet, palette or panel stands for the window it is over. One in view on the active Space
+    /// comes before one on another Space or minimized; that one still gets it when it is the only one.
+    @Test @MainActor func aNoticeGoesToAWorkspaceWindowInView() {
+        func window() -> NSWindow {
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        }
+        let workspace = window(), otherSpace = window(), settings = window(), sheet = window()
+        var rules = DaemonUpdateBoard.NoticeWindowRules()
+        rules.root = { $0 === sheet ? workspace : $0 }
+        rules.isWorkspace = { $0 === workspace || $0 === otherSpace }
+        rules.inView = { $0 === workspace }
+        rules.shown = { _ in true }
+        #expect(DaemonUpdateBoard.noticeWindow(key: settings, main: settings, ordered: [settings, workspace], rules: rules) === workspace,
+                "settings is key, the workspace behind it takes the notice")
+        #expect(DaemonUpdateBoard.noticeWindow(key: sheet, main: nil, ordered: [sheet], rules: rules) === workspace, "a sheet stands for its window")
+        #expect(DaemonUpdateBoard.noticeWindow(key: otherSpace, main: nil, ordered: [otherSpace, workspace], rules: rules) === workspace,
+                "one in view before one on another Space")
+        #expect(DaemonUpdateBoard.noticeWindow(key: nil, main: nil, ordered: [settings, otherSpace], rules: rules) === otherSpace,
+                "on another Space, or minimized, when it is the only workspace window")
+        #expect(DaemonUpdateBoard.noticeWindow(key: settings, main: settings, ordered: [settings], rules: rules) == nil, "no workspace window, no notice")
     }
 }

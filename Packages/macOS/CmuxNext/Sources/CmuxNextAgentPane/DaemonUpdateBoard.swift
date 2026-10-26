@@ -17,18 +17,38 @@ public final class DaemonUpdateBoard {
 
     /// Shows a notice's toast in the front window, unless replaced (tests).
     @ObservationIgnored var showNotice: @MainActor (CmuxToast) -> Void = { toast in
-        guard let window = DaemonUpdateBoard.noticeWindow(key: NSApp.keyWindow, main: NSApp.mainWindow, ordered: NSApp.orderedWindows,
-                                                          visible: { $0.isVisible || $0.isMiniaturized }) else { return }
+        guard let window = DaemonUpdateBoard.noticeWindow(key: NSApp.keyWindow, main: NSApp.mainWindow, ordered: NSApp.orderedWindows)
+        else { return }
         _ = CmuxToastCenter.shared.show(toast, in: window)
     }
 
     public init() {}
 
-    /// The window a notice goes to: the key window, else the main one, else the frontmost shown
-    /// app window (not a panel: a tooltip, a toast, a palette). An update fails in the background,
-    /// often while the app is not active, and AppKit then has no key or main window.
-    static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], visible: (NSWindow) -> Bool) -> NSWindow? {
-        key ?? main ?? ordered.first { !($0 is NSPanel) && visible($0) }
+    /// What ``noticeWindow(key:main:ordered:rules:)`` asks of a window; ``live`` reads AppKit and
+    /// the window kit, tests replace it.
+    struct NoticeWindowRules {
+        /// The window a window acts for: a sheet, palette or panel stands for the window it is over.
+        var root: (NSWindow) -> NSWindow = { $0.windowKindRoot }
+        /// A workspace window (``WindowKind/main``): never settings, debug settings, a page's window.
+        var isWorkspace: (NSWindow) -> Bool = { $0.windowKind == .main }
+        /// On screen where the person is: shown, not minimized, on the active Space.
+        var inView: (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized && $0.isOnActiveSpace }
+        /// Shown at all: on another Space, or minimized.
+        var shown: (NSWindow) -> Bool = { $0.isVisible || $0.isMiniaturized }
+
+        static let live = NoticeWindowRules()
+    }
+
+    /// The window a notice goes to: a workspace window, the one the key window, else the main
+    /// window, else the frontmost window acts for. One in view on the active Space comes before one
+    /// on another Space or minimized, which still gets the notice, since it stays until closed.
+    /// An update fails in the background, often while the app is not active, and AppKit then has no
+    /// key or main window: the frontmost workspace window takes it.
+    static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], rules: NoticeWindowRules = .live) -> NSWindow? {
+        var seen = Set<ObjectIdentifier>()
+        let workspaces = ([key, main] + ordered.map(Optional.some)).compactMap { $0.map(rules.root) }
+            .filter { rules.isWorkspace($0) && seen.insert(ObjectIdentifier($0)).inserted }
+        return workspaces.first(where: rules.inView) ?? workspaces.first(where: rules.shown)
     }
 
     public func apply(_ event: DaemonUpdateEvent) {
