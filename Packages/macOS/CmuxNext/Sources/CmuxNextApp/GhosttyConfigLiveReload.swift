@@ -9,20 +9,22 @@ import CmuxNextWakeups
 final class GhosttyConfigLiveReload {
     private let files: @MainActor () -> [String]
     private let reload: @MainActor () -> Void
-    private let notifications: NotificationCenter
     private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
     private var watchers: [ConfigFileWatcher] = []
-    private var observer: (any NSObjectProtocol)?
     private var started = false
 
+    /// - Parameter onConfigChange: Registers a handler for every config change
+    ///   (``GhosttyRuntime/addConfigChangeHandler(_:)``). A service: the loaded file graph can change
+    ///   with any config change (a new `config-file` include, another theme), with or without a
+    ///   terminal on screen; `rearm` does nothing while stopped.
     init(
         files: @escaping @MainActor () -> [String] = { GhosttyRuntime.shared.liveReloadConfigFiles },
         reload: @escaping @MainActor () -> Void = { GhosttyRuntime.shared.reloadConfig() },
-        notifications: NotificationCenter = .default
+        onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void = { GhosttyRuntime.shared.addConfigChangeHandler($0) }
     ) {
         self.files = files
         self.reload = reload
-        self.notifications = notifications
+        onConfigChange { [weak self] in self?.rearm() }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -30,7 +32,6 @@ final class GhosttyConfigLiveReload {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             reloadTimer.cancel()
-            if let observer { notifications.removeObserver(observer) }
             watchers.forEach { $0.stop() }
         }
     }
@@ -38,9 +39,6 @@ final class GhosttyConfigLiveReload {
     func start() {
         guard !started else { return }
         started = true
-        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rearm() }
-        }
         rearm()
     }
 
@@ -49,10 +47,6 @@ final class GhosttyConfigLiveReload {
         reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()
-        if let observer {
-            notifications.removeObserver(observer)
-            self.observer = nil
-        }
     }
 
     private func rearm() {

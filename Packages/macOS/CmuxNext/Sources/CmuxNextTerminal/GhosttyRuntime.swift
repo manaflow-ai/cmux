@@ -32,8 +32,9 @@ public final class GhosttyRuntime {
     /// The user's config with one theme applied, per theme name, built on
     /// demand (`themeConfig(named:)`) and dropped on every config change.
     var themeConfigs: [String: GhosttyThemeConfig] = [:]
-    /// Bumps on every config change (reload, conditional theme switch).
-    public private(set) var configGeneration = 0
+    /// Bumps on every config change (reload, conditional theme switch), after the new config is in
+    /// place. Visible views observe it; hidden ones read it when they show.
+    public let configRevision = GhosttyConfigRevision()
 
     /// The light/dark scheme last given to Ghostty (the app's appearance).
     public private(set) var isDark = false
@@ -53,9 +54,16 @@ public final class GhosttyRuntime {
     /// Fires after a config reload so hosts can re-read derived values such
     /// as ``backgroundColor``.
     public var onConfigChange: (() -> Void)?
-    /// Posted on the main actor after every config change, for views that
-    /// derive geometry from it (`TerminalHostView`).
-    public static let configDidChange = Notification.Name("cmux.ghostty.configDidChange")
+
+    /// Runs `handler` after each config change, after the handlers added before it: for services
+    /// that re-read the config whether or not a terminal shows. Views observe ``configRevision``.
+    public func addConfigChangeHandler(_ handler: @escaping @MainActor () -> Void) {
+        let previous = onConfigChange
+        onConfigChange = {
+            previous?()
+            handler()
+        }
+    }
 
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
@@ -151,9 +159,8 @@ public final class GhosttyRuntime {
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files; rebuild on demand.
         themeConfigs.removeAll()
-        configGeneration += 1
         onConfigChange?()
-        NotificationCenter.default.post(name: Self.configDidChange, object: self)
+        configRevision.bump()
     }
 
     /// Test hook: when set, only this file (plus its `config-file` includes)
