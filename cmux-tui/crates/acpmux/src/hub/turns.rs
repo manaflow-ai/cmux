@@ -255,6 +255,7 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
