@@ -121,3 +121,41 @@ export function QueuedMessageCard({
     </div>
   );
 }
+
+/// A message another agent steered into the running turn that the agent has not read yet
+/// (`steer === "waiting"`): its received card's actions, then Send now in a ⋯ menu (`send_now`
+/// with the steer's promptId, which stops the current step), and "Read after this step" last. No
+/// spinner row and no dot (Leo, 2026-10-25).
+export function SteerWaitingActions({ promptId, send }: { promptId?: string; send: (promptId: string) => void }) {
+  const t = useT();
+  return (
+    <>
+      {promptId && (
+        <span className="cv-received-actions cv-received__queued-actions">
+          <Menu>
+            <MenuButton
+              className="cv-iconbtn cv-iconbtn--compact"
+              data-menu="queued-message"
+              label={t("composer.queueActions")}
+              title={t("composer.queueActions")}
+              aria-haspopup="menu"
+            >
+              <Icon name="action.more" size={14} />
+            </MenuButton>
+            <MenuPopup
+              side="bottom"
+              align="end"
+              className="acpmux-quick-menu acpmux-queued-more"
+              label={t("composer.queueActions")}
+            >
+              <MenuItem className="acpmux-quick-item" onSelect={() => send(promptId)}>
+                {t("steer.sendNow")}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </span>
+      )}
+      <span className="cv-received__queued">{t("message.readAfterStep")}</span>
+    </>
+  );
+}

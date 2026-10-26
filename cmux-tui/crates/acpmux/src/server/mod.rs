@@ -52,6 +52,8 @@ pub struct Conn {
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// True once the client stopped sending (its read side ended): it exited or hung up.
+    ended: tokio::sync::watch::Sender<bool>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -261,6 +263,17 @@ impl Conn {
         let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
         for lease in held.unwrap_or_default() {
             hub.end_peer_lease(&lease);
+        }
+    }
+
+    /// Resolves once the client is gone: nobody reads its replies any more, or it stopped
+    /// sending. A unix socket's writer learns of a closed socket only when it writes, so the
+    /// read side ending counts too.
+    async fn closed(&self) {
+        let mut ended = self.ended.subscribe();
+        tokio::select! {
+            () = self.out.closed() => {}
+            _ = ended.wait_for(|ended| *ended) => {}
         }
     }
 
@@ -1110,6 +1123,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        ended: tokio::sync::watch::Sender::new(false),
         // A peer daemon's link carries all its clients' reads, which it caps one by one
         // (`media_forward.rs`).
         media: if auth == ConnAuth::PeerToken {
@@ -1225,6 +1239,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.ended.send_replace(true);
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.

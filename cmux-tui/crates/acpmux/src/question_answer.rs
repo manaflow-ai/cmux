@@ -78,11 +78,14 @@ fn find_option(item: &Value, text: &str) -> Option<usize> {
 
 /// Parses `value` for `item`: the whole value or comma-separated parts, each
 /// an option label or id; what is not an option becomes the Other text
-/// (rejoined with ", ") when the item allows Other.
+/// (rejoined with ", ") when the item allows Other. An item with no options
+/// takes the whole value as its text, never split.
 pub fn parse_choice(item: &Value, value: &str) -> Result<Choice, String> {
     let value = value.trim();
     let mut choice = Choice::default();
-    if let Some(i) = find_option(item, value) {
+    if options(item).is_empty() {
+        choice.other = Some(value).filter(|v| !v.is_empty()).map(str::to_owned);
+    } else if let Some(i) = find_option(item, value) {
         choice.options.push(i);
     } else {
         let mut other = vec![];
@@ -261,4 +264,33 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
         .map(|a| a.iter().filter_map(|o| o["optionId"].as_str()).collect())
         .unwrap_or_default();
     format!("acpmux session allow {session} [{}] | acpmux session deny {session}", ids.join("|"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A free-text item (no options, own text allowed: an elicitation's
+    /// string field) takes the whole value as typed, commas and spacing
+    /// included; it is never split into parts and rejoined.
+    #[test]
+    fn a_free_text_answer_is_kept_whole() {
+        let question = json!({"harness": "claude", "items": [
+            {"id": "q1", "prompt": "Name?", "options": [], "allowsOther": true}]});
+        for typed in ["a,  b", "x, x", "a,,b", "1,000"] {
+            let answers = parse_answers(&question, &[format!("q1={typed}")]).expect(typed);
+            assert_eq!(answers, json!({"Name?": typed}), "{typed:?}");
+        }
+    }
+
+    /// An item with options still reads comma-separated labels, and unknown
+    /// parts become its Other text.
+    #[test]
+    fn an_item_with_options_still_splits_on_commas() {
+        let question = json!({"harness": "claude", "items": [
+            {"id": "q1", "prompt": "Pick?", "multiSelect": true, "allowsOther": true,
+             "options": [{"label": "Red"}, {"label": "Blue"}]}]});
+        let answers = parse_answers(&question, &["q1=blue, red, teal".into()]).unwrap();
+        assert_eq!(answers, json!({"Pick?": "Red, Blue, teal"}));
+    }
 }
