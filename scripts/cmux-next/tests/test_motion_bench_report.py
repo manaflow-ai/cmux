@@ -92,6 +92,10 @@ class SourceTests(unittest.TestCase):
             self.assertNotIn("Contents/MacOS", text, name)
             self.assertNotIn("launch_app", text, name)
             self.assertIn("BenchApp", text, name)
+            # The bench env reaches the app (its own cmux.json and Ghostty file) and BenchApp.stop tears the tag down.
+            self.assertNotIn("teardown=False", text, name)
+            self.assertNotRegex(text, r"CMUX_NEXT_(CONFIG_FILE|GHOSTTY_CONFIG)", name)
+            self.assertNotIn('"server", "stop"', text, name)
             self.assertIn("motion_bench_report", text, name)
             self.assertIn("p99", text, name)
 
