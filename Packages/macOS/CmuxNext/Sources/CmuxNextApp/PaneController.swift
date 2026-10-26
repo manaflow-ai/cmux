@@ -618,6 +618,6 @@ extension PaneController: LaunchWindowPane {
     }
 
     func launchArea(in picture: NSView) -> CGRect {
-        view.window == nil || view.isHiddenOrHasHiddenAncestor ? .zero : view.convert(view.bounds, to: picture)
+        view.window == nil || !isVisible ? .zero : view.convert(view.bounds, to: picture) // the layout's viewport presence
     }
 }
