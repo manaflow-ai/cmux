@@ -20,6 +20,8 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
+    /// The create was sent at least once with ``idempotencyKey``.
+    public var wasSent = false
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?

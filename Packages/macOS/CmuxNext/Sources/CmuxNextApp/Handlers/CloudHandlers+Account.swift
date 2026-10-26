@@ -70,7 +70,7 @@ extension CloudHandlers {
             // A script alone runs as a plain bootstrap; `lane` also names the lane host.
             guard let path, !path.isEmpty else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
             // A quoted `~/boot.sh` reaches the app unexpanded.
-            request.bootstrapPath = path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + path.dropFirst() : path
+            request.bootstrapPath = path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
             request.bootstrapKind = kind == "lane" ? .lane : .plain
         }
         if request.bootstrapKind == .lane, request.name == nil { throw ActionFailure(message: CloudStrings.laneNeedsName) }

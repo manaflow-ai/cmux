@@ -449,7 +449,14 @@ final class CloudService {
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause, idempotencyKey: request.idempotencyKey, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
+                                                      // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
+                                                      gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
+                                                      confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
+                                                      create: { [api, weak creation] in
+                                                          creation?.markRequestSent()
+                                                          return try await Self.createWithKey(api, name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                      })
         logger.info("created machine \(machine.id, privacy: .public)")
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
@@ -469,6 +476,29 @@ final class CloudService {
         listGeneration += 1
         return session
     }
+
+    /// `POST /api/vm` with the request's one idempotency key. The server answers
+    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
+    /// creating: the same key is sent again (the server answers the machine once it exists), up
+    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
+    /// ends with its machine and its bootstrap.
+    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
+                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+                                                 idempotencyKey: request.idempotencyKey, onSent: onSent) }
+        for _ in 0..<inProgressRetries {
+            do {
+                return try await send()
+            } catch let CloudAPIError.http(status, code, _) where status == 503 && code == "vm_operation_in_progress" {
+                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
+                try await ContinuousClock().sleep(for: inProgressDelay)
+            }
+        }
+        return try await send()
+    }
+
+    static let inProgressRetries = 20
+    static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)

@@ -9,7 +9,7 @@ public import Foundation
 /// when the script does. A rerun of the same script while it runs or after it finished starts
 /// nothing.
 public struct CloudMachineBootstrap: Equatable, Sendable {
-    public enum Kind: String, Sendable { case plain, lane }
+    public enum Kind: String, Sendable, Equatable { case plain, lane }
 
     public var kind: Kind
     public var contents: Data

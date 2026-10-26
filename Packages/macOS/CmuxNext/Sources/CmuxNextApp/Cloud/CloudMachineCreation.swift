@@ -31,8 +31,12 @@ final class CloudMachineCreation: Identifiable {
     private(set) var bootstrap: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
-    /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same.
-    let request: CloudMachineRequest
+    /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
+    /// the same idempotency key.
+    private(set) var request: CloudMachineRequest
+
+    /// The create went to the server once: a Retry may find the machine it made.
+    func markRequestSent() { request.wasSent = true }
 
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
          clock: ContinuousClock = ContinuousClock()) {
