@@ -33,11 +33,19 @@ extension HomeNativeTranscriptView {
         guard !stopped else { return }
         let store = binding.store, id = binding.conversation, me = self.me
         // Reads the conversation's own summary (one lookup) only while someone else is here, so
-        // with nobody here a message or typing change does no work here at all.
+        // with nobody here a message or typing change does no work here at all; the rows only for
+        // a person the conversation does not name.
         let names = withObservationTracking { () -> [String] in
             let viewing = store.viewing[id] ?? []
             guard !viewing.subtracting([me]).isEmpty else { return [] }
-            return HomeNativeTranscriptView.others(viewing: viewing, participants: store.summary(id)?.participants ?? [], me: me)
+            var people = store.summary(id)?.participants ?? []
+            // Someone the conversation does not list (a teammate looking in on a Chief chat): their
+            // name from another conversation; only then are the rows read.
+            let unnamed = viewing.subtracting([me]).subtracting(people.map(\.id))
+            if !unnamed.isEmpty {
+                people += store.rows.lazy.flatMap(\.summary.participants).filter { unnamed.contains($0.id) }
+            }
+            return HomeNativeTranscriptView.others(viewing: viewing, participants: people, me: me)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followPresence() }
         }

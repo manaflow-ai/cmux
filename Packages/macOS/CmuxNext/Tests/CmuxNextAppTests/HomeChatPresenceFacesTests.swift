@@ -57,6 +57,34 @@ import Testing
         #expect(!left.shown)
     }
 
+    @Test func aTeammateTheChiefChatDoesNotListIsNamedFromAnotherConversation() async {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(HomeTunables.all)
+        TunableStore.shared.set(HomeTunables.chatHeader.key, nil)
+        let mine = Participant(id: me, kind: .human, displayName: "Me")
+        let chief = Participant(id: ParticipantID("agent_chief"), kind: .agent, displayName: "Chief")
+        let ana = Participant(id: ParticipantID("user_ana"), kind: .human, displayName: "Ana Ruiz")
+        func summary(_ id: ConversationID, _ people: [Participant]) -> ConversationSummary {
+            ConversationSummary(id: id, participants: people, lastSeq: 0, rev: 1,
+                                createdAt: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0))
+        }
+        let home = HomeStore(source: MockHomeSource(options: .immediate))
+        home.handle(.connection(.online))
+        home.handle(.inbox(InboxSnapshot(me: mine, conversations: [
+            summary(conv, [mine, chief]), summary(ConversationID("conv_team"), [mine, ana]),
+        ], rev: 1)))
+        let view = HomeNativeTranscriptView(store: home, conversation: conv, me: me)
+        defer { view.stop() }
+        view.frame = NSRect(x: 0, y: 0, width: 700, height: 700)
+        view.transcript.controller.host.paneHeader.title = "Chief"
+        view.layoutSubtreeIfNeeded()
+
+        home.handle(.presence(conv, viewing: [me, ana.id]))
+        let drawn = await faces(of: view) { !$0.isEmpty }
+        #expect(drawn.initials == ["A"], "named Ana Ruiz from the conversation that lists her, not \"user_ana\"")
+        #expect(drawn.label == HomeStrings.alsoHere("Ana Ruiz"))
+    }
+
     /// The faces once the store's change reached the view (its observation re-arms on the main
     /// actor); a bounded number of turns, no sleeping.
     private func faces(of view: HomeNativeTranscriptView, until done: ([String]) -> Bool) async -> (initials: [String], shown: Bool, label: String) {
