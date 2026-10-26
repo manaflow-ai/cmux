@@ -864,6 +864,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.
+    public static let resampledDrags = Feature(
+        index: 49,
+        name: "resampledDrags",
+        owner: "PL-motion-cef",
+        description: "Dragged dividers, pane edges, tab and workspace ghosts and the pane-swap preview are drawn at the pointer resampled at each frame time (Chromium LinearResampling); snaps, drop targets and the drop read the real pointer. Needs pointerFrameDrags; off under Reduce Motion.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.
     public static let sentryHandlersFirst = Feature(
         index: 50,
@@ -1112,6 +1129,7 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
+        .resampledDrags,
         .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,
@@ -1177,6 +1195,7 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
+        .resampledDrags,
         .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,
