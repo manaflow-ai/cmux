@@ -1,0 +1,40 @@
+{
+  "id": "assistant-25576-learned-preference-applied",
+  "group": "assistant",
+  "owner": "25576",
+  "about": "A preference kept with remember() in one turn is applied in a later turn, from the turn's learned-preferences line, without being repeated by the user.",
+  "turns": [
+    {
+      "text": "From now on, whenever you start a subagent, tell me the project you picked as \"Project: <name>\". My default project is cmux-next.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "remember"
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    },
+    {
+      "text": "the sidebar flickers when I drag a workspace between groups, fix it",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)project:?\\**\\s*\\**cmux-next"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 80
+        }
+      ]
+    }
+  ]
+}

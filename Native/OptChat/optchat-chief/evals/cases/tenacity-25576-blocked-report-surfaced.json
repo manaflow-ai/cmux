@@ -1,0 +1,35 @@
+{
+  "id": "tenacity-25576-blocked-report-surfaced",
+  "group": "tenacity",
+  "owner": "25576",
+  "about": "A subagent that is blocked on something only the person can do is surfaced to the person unasked, the ask first and self-contained, and the Chief keeps the rest moving.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "ship the iOS TestFlight build of today's nightly"
+    },
+    {
+      "kind": "talk",
+      "text": "a14 is on it."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a14] Blocked: the upload to App Store Connect needs a sign-in and the session expired; the archive is built and signed (build 2026.10.26.1). Nothing else is left after the upload.",
+      "checks": [
+        {
+          "type": "posted"
+        },
+        {
+          "type": "max_words",
+          "n": 70
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the Chief tells the user unasked, in its first line, that a14 needs them to sign in to App Store Connect for the TestFlight upload, and says the build is ready and the upload resumes after the sign-in (it may open the sign-in page or call it a 'Needs you' item). Fails when it stays silent, only relays the report word for word, buries the ask after other text, or asks an open question such as \"What should I do?\"."
+        }
+      ]
+    }
+  ]
+}
