@@ -1015,6 +1015,101 @@ void PageShowActivityHoldsWhileAPageShows() {
   }
 }
 
+// The fork applies a page visibility post to the browser's Chromium window, every tab of it, and
+// cmux posts for one tab of each pane's window (CEFPaneHost.anchorBrowser). So the host counts
+// shown windows: closing or moving out the posted tab leaves its window's value with the tabs
+// that remain, and the value goes with the window's last tab.
+void PageShowActivityFollowsTheWindow() {
+  {
+    PageWindowVisibility windows;
+    windows.Post(0, 5, CMUX_SHIM_PAGE_VISIBLE);
+    Check(windows.shown() == 1, "a browser with no window known yet is shown alone");
+    windows.Placed(5, 9);
+    windows.BrowserClosed(5);
+    Check(windows.shown() == 1, "placed, its value is its window's and stays at its close");
+    windows.Post(9, 6, CMUX_SHIM_PAGE_HIDDEN);
+    Check(windows.shown() == 0, "another tab's post replaces the window's value");
+    windows.Post(9, 6, CMUX_SHIM_PAGE_VISIBLE);
+    windows.WindowGone(9);
+    Check(windows.shown() == 0 && windows.empty(), "a gone window's value goes");
+  }
+
+  Fixture f;
+  std::vector<bool> holds;
+  PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+  f.host.SetPageShowActivity(&activity);
+  f.Start();
+  auto created = [&f](int browser, int64_t window) {
+    HostContext::OnShimEvent(&f.host, CMUX_SHIM_AFTER_CREATED, browser, 0, window, 0, "", "");
+  };
+  auto closed = [&f](int browser) { HostContext::OnShimEvent(&f.host, CMUX_SHIM_BEFORE_CLOSE, browser, 0, 0, 0, "", ""); };
+  // The fork's cmux_tab_event_t: 3 removed from window, 0 inserted into window, 6 window destroyed.
+  auto tab_event = [&f](int browser, int kind, int64_t window) {
+    HostContext::OnShimEvent(&f.host, CMUX_SHIM_TAB_EVENT, browser, kind, window, 0, "", "");
+  };
+  auto visibility = [&f](int32_t browser, int32_t value) {
+    Writer w;
+    w.I32(browser);
+    w.I32(value);
+    f.host.OnMessages({Op(kOpBrowserSetPageVisibility, 0, w)});
+  };
+  auto move = [&tab_event](int browser, int64_t from, int64_t to) {
+    tab_event(browser, 3, from);
+    tab_event(browser, 0, to);
+  };
+
+  // A shown pane's window 100 holds [11, 12]; 11, its first tab, has the post and closes while 12 shows.
+  created(11, 100);
+  created(12, 100);
+  visibility(11, CMUX_SHIM_PAGE_VISIBLE);
+  Check(activity.held() && f.host.shown_pages() == 1, "a shown window holds the activity");
+  closed(11);
+  Check(activity.held() && f.host.shown_pages() == 1, "the posted tab's close leaves its window shown");
+  visibility(12, CMUX_SHIM_PAGE_HIDDEN);
+  Check(!activity.held() && f.host.shown_pages() == 0, "the window's new first tab hides it");
+  visibility(12, CMUX_SHIM_PAGE_VISIBLE);
+  closed(12);
+  Check(!activity.held() && f.host.shown_pages() == 0, "the window's last close ends it");
+
+  // Window 200 holds [21, 22], window 300 [23]: 21, posted shown, moves to 300 with no close.
+  created(21, 200);
+  created(22, 200);
+  created(23, 300);
+  visibility(21, CMUX_SHIM_PAGE_VISIBLE);
+  visibility(23, CMUX_SHIM_PAGE_VISIBLE);
+  move(21, 200, 300);
+  Check(f.host.shown_pages() == 2, "a moved tab leaves its old window's value with the tabs that remain");
+  visibility(22, CMUX_SHIM_PAGE_HIDDEN);
+  visibility(23, CMUX_SHIM_PAGE_HIDDEN);
+  Check(!activity.held() && f.host.shown_pages() == 0, "every window hidden after a move: the host may nap");
+  visibility(21, CMUX_SHIM_PAGE_VISIBLE);
+  Check(activity.held() && f.host.shown_pages() == 1, "the moved tab's post names its new window");
+  visibility(23, CMUX_SHIM_PAGE_OCCLUDED);
+  Check(!activity.held() && f.host.shown_pages() == 0, "which any of its tabs hides");
+
+  // Window 400's only tab, shown, moves to hidden window 500: window 400 is gone with its value.
+  created(31, 400);
+  created(32, 500);
+  visibility(31, CMUX_SHIM_PAGE_VISIBLE);
+  visibility(32, CMUX_SHIM_PAGE_HIDDEN);
+  Check(activity.held(), "window 400 shows");
+  move(31, 400, 500);
+  Check(!activity.held() && f.host.shown_pages() == 0, "an emptied window's value goes");
+  tab_event(31, 6, 400);
+  Check(f.host.shown_pages() == 0, "its destroy changes nothing");
+
+  // A post before the host knows the tab's window is the tab's alone, and its window's once placed.
+  visibility(41, CMUX_SHIM_PAGE_VISIBLE);
+  Check(activity.held() && f.host.shown_pages() == 1, "a tab with no window known yet shows alone");
+  created(41, 600);
+  created(42, 600);
+  closed(41);
+  Check(activity.held() && f.host.shown_pages() == 1, "placed, its value stays with its window");
+  closed(42);
+  Check(!activity.held() && f.host.shown_pages() == 0, "and goes with the window's last tab");
+  Expect(f.delegate.calls, {"initialize /root", "closed", "closed", "closed", "closed"}, "no bad message");
+}
+
 cmux_host::Header GeometryFrame(int32_t browser, int32_t width, int32_t height, int32_t x, int32_t y) {
   cmux_host::Header frame;
   frame.kind = cmux_host::kGeometry;
@@ -1293,6 +1388,7 @@ int main() {
   LayerHostingDetachesThePageWindow();
   PageVisibilityAppliesAtTheDetach();
   PageShowActivityHoldsWhileAPageShows();
+  PageShowActivityFollowsTheWindow();
   GeometryOnlyOnChange();
   GeometryStatsReply();
   WipeZeroes();
