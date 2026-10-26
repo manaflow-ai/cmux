@@ -51,8 +51,9 @@ final class CEFMirrorCache {
         let overriding: CEFShimLibrary
         do throws(CEFShimLibrary.LoadError) {
             // The shim holds this cache: `served` stays it while any copy of the shim is alive.
-            overriding = try source.overriding { [self] name in
-                withExtendedLifetime(self) { CEFMirrorExports.function(named: name) }
+            // SAFETY: each name resolves to the mirror's C function of that export's type, or nil (the source's).
+            overriding = try unsafe source.overriding { [self] name in
+                withExtendedLifetime(self) { unsafe CEFMirrorExports.function(named: name) }
             }
         } catch {
             throw .shim(error)

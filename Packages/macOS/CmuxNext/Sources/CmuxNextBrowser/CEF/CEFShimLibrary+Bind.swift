@@ -311,7 +311,7 @@ nonisolated extension CEFShimLibrary {
     /// `text` as the NUL-terminated C string `body` reads during its call; NULL for nil (the ABI's "none").
     private static func withCString<Result>(_ text: String?, _ body: (UnsafePointer<CChar>?) -> Result) -> Result {
         guard let text else { return unsafe body(nil) }
-        return unsafe text.withCString(body)
+        return unsafe text.withCString { unsafe body($0) }
     }
 
     /// A string the shim allocated, copied into Swift and released with `free`; nil for NULL.

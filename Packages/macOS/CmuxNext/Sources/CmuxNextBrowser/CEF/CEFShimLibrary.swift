@@ -9,7 +9,7 @@ import Foundation
 /// is loaded only when the first CEF tab is created, so a session without CEF
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
-/// Immutable C function pointers and the immutable resolver they came from
+/// Immutable C function pointers, closures over them, and the immutable resolver they came from
 /// (`dlsym` on a handle never closed): safe to hand from the loading thread to the main thread.
 ///
 /// Memory safety (p10-stability-067): every C string, buffer and out-parameter crosses here, as

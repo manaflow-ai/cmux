@@ -79,7 +79,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var noSigPipe: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
+        _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var initial = State(fd: fd, outbox: ChromiumHostControlOutbox(quotaBytes: options.quotaBytes,
                                                                        quotaMessages: options.quotaMessages))
         var wake: [Int32] = [-1, -1]
@@ -419,7 +420,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     /// the host closed its end (the outbox is dropped; the reader reads to EOF).
     private static func flushLocked(_ state: inout State) -> Bool {
         let socket = ChromiumHostControlSocket(fd: state.fd)
-        switch state.outbox.flush({ bytes, fds in socket.send(bytes, fds: fds) }) {
+        // SAFETY: the outbox's view is valid for the call, and sendmsg only reads it during the call.
+        switch state.outbox.flush({ bytes, fds in unsafe socket.send(bytes, fds: fds) }) {
         case .drained, .blocked:
             if !state.outbox.isOverQuota { state.overSince = nil }
             return true
