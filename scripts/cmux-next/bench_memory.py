@@ -32,7 +32,7 @@ Usage:
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
-  bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal]
+  bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal] [--terminal-host-model hosts|holder]
   bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
   bench_memory.py --app BUNDLE ... --kernel-pressure warn|critical [--kernel-pressure-window 5]
 
@@ -44,18 +44,22 @@ Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
           prints, per process kind, the processes added and the footprint
           each hidden workspace adds at both points, and debug.memory's
           workspace states (mounted, parked, unmounted). DC6 runs with
-          CMUX_TUI_TERMINAL_HOST_MODEL=holder in the environment; the table
-          names the model.
+          --terminal-host-model holder (launch only); the table names the
+          model the launch gave the app, says when the daemon started
+          terminal hosts all the same, and says unknown-attach for an attached app.
   --pressure warning|critical [--pressure-window S]
           runs last. It sets the debug pressure override
           (debug.hibernation.pressure, DEBUG and bench-hook builds), follows
           the app's footprint for S seconds, and prints released_mb (app
-          footprint before minus its lowest), release_s (time to 90 % of that
-          drop) and the footprint of the managed memory consumers before
-          (stateful and supporting a limit, from debug.memory; volatile bytes
-          left out). It clears the override (`none`) at the end.
+          footprint before minus its lowest), release_s (time from sending
+          the override to 90 % of that drop) and the footprint of the managed
+          memory consumers before (stateful and supporting a limit, from
+          debug.memory, summed over every consumer of a name; volatile bytes
+          left out). It clears the override (`none`) at the end, also after
+          a failed request.
   On a build without debug.memory both phases report process footprint only;
-  a build without the override skips the pressure phase and says so.
+  a build without the override skips the pressure phase and says so; any
+  other override failure is printed and recorded as the phase's error.
 
 --kernel-pressure warn|critical then feeds real kernel pressure
 (`/usr/bin/memory_pressure -S -l LEVEL`, root or passwordless sudo; without
@@ -625,26 +629,15 @@ def open_browser_tab(app: App, url: str) -> bool:
     return True
 
 
-def field(obj, name: str):
-    """`name` (snake_case) of a debug.memory object, or its camelCase spelling (a Codable report)."""
-    if not isinstance(obj, dict):
-        return None
-    if name in obj:
-        return obj[name]
-    head, *rest = name.split("_")
-    return obj.get(head + "".join(part.title() for part in rest))
-
-
-def truthy(value) -> bool:
-    """A trait value: a bool, or Chrome's kYes / kNo spelled as a string."""
-    if isinstance(value, str):
-        return value.lower().removeprefix("k") in ("yes", "true")
-    return bool(value)
+def known_int(value) -> int | None:
+    """A count or byte count of the debug.memory JSON: an integer, or None for null (unknown, never 0)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 class MemoryReport:
-    """The app's own memory accounting through `debug.memory` (p07-memory-010). `read` gives None on a
-    build without it, and every phase then reports process footprint only."""
+    """The app's own memory accounting through `debug.memory`, read as MemoryDiagnosticsReport (p07-memory-010)
+    writes it: snake_case keys, integer byte counts, null for unknown. `read` gives None on a build without it,
+    and every phase then reports process footprint only."""
 
     def __init__(self, raw: dict):
         self.raw = raw
@@ -657,43 +650,43 @@ class MemoryReport:
     def consumers(self) -> list[dict]:
         return [consumer for consumer in self.raw.get("consumers") or [] if isinstance(consumer, dict)]
 
-    @staticmethod
-    def is_managed(consumer: dict) -> bool:
-        """Chrome's ShouldManageConsumer (memory_saver_memory_coordinator_policy.h): stateful and
-        supporting a limit."""
-        managed = field(consumer, "managed")
-        if managed is not None:
-            return truthy(managed)
-        traits = field(consumer, "traits") or {}
-        return truthy(field(traits, "is_stateful")) and truthy(field(traits, "supports_memory_limit"))
+    def managed_consumers(self) -> list[dict]:
+        """The consumers the report marks `managed`: Chrome's ShouldManageConsumer
+        (memory_saver_memory_coordinator_policy.h), stateful and supporting a limit."""
+        return [consumer for consumer in self.consumers() if consumer.get("managed") is True]
 
-    def managed(self) -> dict[str, int | None]:
-        """{consumer name: footprint bytes} of the managed consumers; None is unknown, never 0."""
-        rows = {}
-        for index, consumer in enumerate(self.consumers()):
-            if self.is_managed(consumer):
-                footprint = field(consumer, "footprint_bytes")
-                rows[str(field(consumer, "name") or f"consumer-{index}")] = (
-                    footprint if isinstance(footprint, int) else None)
+    def managed(self) -> dict[str, dict]:
+        """{name: {"instances", "footprint_bytes", "unknown"}} over the managed consumers. A name is not unique
+        (one `tab-hover-cards` per tab strip; every name that is not a plain token is `redacted`), so a row adds
+        up every consumer of that name; `unknown` counts the ones with null bytes, which add nothing."""
+        rows: dict[str, dict] = {}
+        for consumer in self.managed_consumers():
+            row = rows.setdefault(str(consumer.get("name")), {"instances": 0, "footprint_bytes": 0, "unknown": 0})
+            row["instances"] += 1
+            footprint = known_int(consumer.get("footprint_bytes"))
+            if footprint is None:
+                row["unknown"] += 1
+            else:
+                row["footprint_bytes"] += footprint
         return rows
 
     def managed_bytes(self) -> tuple[int, int]:
-        """(known footprint bytes of the managed consumers, how many have unknown bytes). Volatile bytes
-        are left out: the kernel takes them without the app (DC10)."""
-        rows = self.managed().values()
-        return sum(b for b in rows if b is not None), sum(1 for b in rows if b is None)
+        """(known footprint bytes of every managed consumer, how many have unknown bytes). Volatile bytes are
+        left out: the kernel takes them without the app (DC10)."""
+        footprints = [known_int(consumer.get("footprint_bytes")) for consumer in self.managed_consumers()]
+        return sum(b for b in footprints if b is not None), sum(1 for b in footprints if b is None)
 
     def level(self) -> str | None:
         pressure = self.raw.get("pressure")
-        return field(pressure, "level") if isinstance(pressure, dict) else pressure
+        return pressure.get("level") if isinstance(pressure, dict) else None
 
     @staticmethod
     def workspace_state(row: dict) -> str:
         """parked (hidden, kept mounted until the parked idle timeout), mounted or unmounted, from the row's
         `parked` and `mounted` flags (memory-DESIGN.md section 7)."""
-        if truthy(field(row, "parked")):
+        if row.get("parked") is True:
             return "parked"
-        return "mounted" if truthy(field(row, "mounted")) else "unmounted"
+        return "mounted" if row.get("mounted") is True else "unmounted"
 
     def workspaces(self) -> dict:
         """{state: {"count", "attributed_mb", "terminal_surfaces", "gpu_resident_surfaces"}} over the workspace
@@ -705,19 +698,20 @@ class MemoryReport:
             entry = states.setdefault(self.workspace_state(row), {"count": 0, "attributed_mb": 0.0,
                                                                   "terminal_surfaces": 0, "gpu_resident_surfaces": 0})
             entry["count"] += 1
-            attributed = field(row, "app_bytes")
-            if isinstance(attributed, int):
+            attributed = known_int(row.get("app_bytes"))
+            if attributed is not None:
                 entry["attributed_mb"] = round(entry["attributed_mb"] + attributed / MB, 2)
             for name in ("terminal_surfaces", "gpu_resident_surfaces"):
-                value = field(row, name)
-                if isinstance(value, int):
+                value = known_int(row.get(name))
+                if value is not None:
                     entry[name] += value
         return states
 
     def hidden_iosurface_mb(self) -> float | None:
         """terminal.hidden_nonvolatile_iosurface_bytes: what hidden terminals keep in GPU memory."""
-        value = field(self.raw.get("terminal"), "hidden_nonvolatile_iosurface_bytes")
-        return round(value / MB, 2) if isinstance(value, int) else None
+        terminal = self.raw.get("terminal")
+        value = known_int(terminal.get("hidden_nonvolatile_iosurface_bytes")) if isinstance(terminal, dict) else None
+        return None if value is None else round(value / MB, 2)
 
 
 def kind_deltas(base: dict, after: dict, per: int) -> dict:
@@ -737,10 +731,11 @@ def kind_deltas(base: dict, after: dict, per: int) -> dict:
 
 
 def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[str], url: str, opened: list,
-                            chats, settle_and_sample) -> dict:
+                            chats, settle_and_sample, host_model: str) -> dict:
     """DC6. Opens `count` workspaces of the mix, shows the first workspace again so all of them are hidden,
     samples after --settle and again `grace` seconds after they went hidden (past the parked idle timeout),
-    and prints what one hidden workspace costs per process kind."""
+    and prints what one hidden workspace costs per process kind. `host_model` is the terminal host model the
+    launch gave the app (`unknown-attach` for an app this run did not launch)."""
     app.run("workspace.selectFirst")
     base = settle_and_sample("hidden-base")
     made = 0
@@ -753,9 +748,12 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
     app.run("workspace.selectFirst")
     hidden_at = time.monotonic()
     phase = {"requested": count, "hidden": made, "grace_s": grace, "mix": recipes,
-             "terminal_host_model": os.environ.get("CMUX_TUI_TERMINAL_HOST_MODEL") or "default"}
+             "terminal_host_model": host_model, "terminal_host_model_requested": host_model}
     settled = settle_and_sample(f"hidden-{made}-settled")
     phase["settled"] = kind_deltas(base, settled, made)
+    if host_model == "holder" and phase["settled"].get("terminal-host", {}).get("processes_added", 0) > 0:
+        # Holder terminals start no terminal host: this daemon did not get the model (an older build).
+        phase["terminal_host_model"] = "hosts"
     report = MemoryReport.read(app)
     if report is not None:
         phase["debug_memory_settled"] = report.workspaces()
@@ -770,7 +768,9 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
             phase["hidden_iosurface_mb_after_grace"] = report.hidden_iosurface_mb()
     phase["after_grace"] = kind_deltas(base, after, made)
     print(f"== hidden workspaces: {made} of {count} hidden (mix {','.join(recipes)}), grace {grace:.0f} s, "
-          f"terminal host model {phase['terminal_host_model']}")
+          f"terminal host model {phase['terminal_host_model']}"
+          + (f" (requested {host_model}; the daemon started terminal hosts)"
+             if phase["terminal_host_model"] != host_model else ""))
     print(f"   {'kind':<22}{'added':>7}{'MB/ws settled':>15}{'MB/ws after grace':>19}")
     for kind, entry in phase["after_grace"].items():
         early = phase["settled"].get(kind, {"mb_each": 0.0})
@@ -789,20 +789,27 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
     return phase
 
 
-def set_pressure(app: App, level: str) -> bool:
+def set_pressure(app: App, level: str) -> tuple[str, str | None]:
     """The debug pressure override (DEBUG and bench-hook builds), which the memory coordinator and browser
-    hibernation both take (p07-memory-004); `none` clears it and hands both the kernel's level again. True
-    when the reply's `override` is `level` (null for `none`); False when this build has no override."""
+    hibernation both take (p07-memory-004); `none` clears it and hands both the kernel's level again.
+    ("set", None) when the reply's `override` is `level` (null for `none`); ("missing", error) when this build
+    has no such method; ("failed", why) for anything else (a timeout, a refusal, another override)."""
     reply = app.call("debug.hibernation.pressure", {"level": level}, timeout=30)
-    if "error" in reply or "override" not in reply:
-        return False
-    return reply["override"] == (None if level == "none" else level)
+    error = reply.get("error")
+    if error is not None:
+        # ControlRouter.methodNotFound: a release build without the debug method.
+        return ("missing" if "method_not_found" in str(error) else "failed"), str(error)
+    want = None if level == "none" else level
+    if "override" not in reply or reply["override"] != want:
+        return "failed", f"override {reply.get('override', 'absent')!r}, not {want!r}: {json.dumps(reply)[:200]}"
+    return "set", None
 
 
 def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: float, settle_and_sample) -> dict:
     """DC10. Sets the pressure override to `level` and follows the app's footprint for `window` seconds
     through proc_pid_rusage (no request to the app while it releases). released_mb is the app footprint
-    before minus the lowest in the window, release_s the time to 90 % of that drop, and the managed
+    before minus the lowest in the window, release_s the time to 90 % of that drop, counted from the moment
+    the override request is sent (the app releases in the request's own main-actor turn), and the managed
     consumers' footprint before is what the drop should reach 80 % of."""
     before = settle_and_sample(f"pressure-{level}-before")
     phase: dict = {"level": level, "window_s": window}
@@ -814,20 +821,28 @@ def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: 
     start = usage(app_pid)
     if start is None:
         raise SystemExit("bench-memory: the app exited before the pressure phase")
-    if not set_pressure(app, level):
+    began = time.monotonic()
+    outcome, error = set_pressure(app, level)
+    if outcome == "missing":
         print(f"== pressure {level}: skipped, this build has no debug.hibernation.pressure override "
               "(DEBUG and bench-hook builds have it)")
         phase["skipped"] = "no pressure override"
         return phase
-    began = time.monotonic()
     timeline = [(0.0, start[1])]
     try:
-        while time.monotonic() - began < window:
-            time.sleep(interval)  # test script: footprint samples while the app releases
+        if outcome == "failed":
+            # The override may be set all the same (a reply that timed out); the finally clears it.
+            print(f"== pressure {level}: the override request failed: {error}")
+            phase["error"] = error
+            return phase
+        while True:
             got = usage(app_pid)
             if got is None:
                 break
             timeline.append((round(time.monotonic() - began, 3), got[1]))
+            if time.monotonic() - began >= window:
+                break
+            time.sleep(interval)  # test script: footprint samples while the app releases
         lowest = min(footprint for _, footprint in timeline)
         released = start[1] - lowest
         release_s = (next(t for t, footprint in timeline if start[1] - footprint >= 0.9 * released)
@@ -843,8 +858,11 @@ def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: 
             phase.update({"managed_after_mb": round(managed / MB, 1),
                           "managed_consumers_after": report.managed(), "level_after": report.level()})
     finally:
-        if not set_pressure(app, "none"):
-            print("bench-memory: clearing the pressure override failed; the app keeps it", file=sys.stderr)
+        cleared, why = set_pressure(app, "none")
+        if cleared != "set":
+            print(f"bench-memory: clearing the pressure override failed ({why}); the app may keep it",
+                  file=sys.stderr)
+            phase["clear_error"] = why
     if phase.get("managed_before_mb"):
         phase["released_pct_of_managed"] = round(100 * phase["released_mb"] / phase["managed_before_mb"], 1)
     release = f"{phase['release_s']:.2f}" if phase["release_s"] is not None else "n/a (under 1 MB)"
@@ -857,12 +875,15 @@ def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: 
         print(f"   managed footprint before {phase['managed_before_mb']:.1f} MB "
               f"({phase['managed_unknown']} consumers unknown), after {phase.get('managed_after_mb', 'n/a')} MB, "
               f"released {f'{share:.0f} %' if share is not None else 'n/a'} of managed")
-        later = phase.get("managed_consumers_after", {})
-        rows = sorted(((name, first or 0, later.get(name) or 0)
-                       for name, first in phase["managed_consumers_before"].items()),
-                      key=lambda row: row[2] - row[1])
+        before_rows, later = phase["managed_consumers_before"], phase.get("managed_consumers_after", {})
+        empty = {"instances": 0, "footprint_bytes": 0, "unknown": 0}
+        rows = sorted(((name, before_rows.get(name, empty), later.get(name, empty))
+                       for name in set(before_rows) | set(later)),
+                      key=lambda row: row[2]["footprint_bytes"] - row[1]["footprint_bytes"])
         for name, first, last in rows[:10]:
-            print(f"   {first / MB:>8.1f} -> {last / MB:>8.1f} MB  {name}")
+            unknown = first["unknown"] + last["unknown"]
+            print(f"   {first['footprint_bytes'] / MB:>8.1f} -> {last['footprint_bytes'] / MB:>8.1f} MB  {name} "
+                  f"(x{first['instances']} -> x{last['instances']}{f', {unknown} unknown' if unknown else ''})")
     print("   footprint change per kind (after - before):")
     for kind, delta in phase["kinds_delta_mb"].items():
         print(f"   {kind:<22}{delta:>+10.1f} MB")
@@ -972,6 +993,16 @@ def stop_simulator(simulator: subprocess.Popen, timeout: float) -> tuple[str | N
         return simulator.communicate()
 
 
+def launch_env(cef_switches: str, host_model: str | None) -> dict:
+    """The launch knobs of the app's environment. The app strips every inherited CMUX_* variable that is not
+    CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment), so the daemon's host model goes under its app name,
+    which DaemonDiagnosticKnobs passes on to the daemon."""
+    env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": cef_switches} if cef_switches else {}
+    if host_model:
+        env["CMUX_NEXT_TUI_TERMINAL_HOST_MODEL"] = host_model
+    return env
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -1006,6 +1037,10 @@ def main():
     parser.add_argument("--grace", type=float, default=0, metavar="S",
                         help="--hidden-workspaces: seconds after the workspaces went hidden for the second sample "
                              "(960 is past the 15 min parked idle timeout)")
+    parser.add_argument("--terminal-host-model", choices=("hosts", "holder"),
+                        help="launch: the daemon's terminal host model (CMUX_NEXT_TUI_TERMINAL_HOST_MODEL on the app, "
+                             "which its daemon launch passes on as CMUX_TUI_TERMINAL_HOST_MODEL); default hosts, the "
+                             "daemon's default. --hidden-workspaces names it")
     parser.add_argument("--pressure", choices=("warning", "critical"),
                         help="pressure phase, last: set the debug pressure override (DEBUG and bench-hook builds) "
                              "and print released_mb, release_s and the managed consumers' footprint before")
@@ -1022,6 +1057,8 @@ def main():
         parser.error("--grace needs --hidden-workspaces")
     if args.hidden_workspaces is not None and args.tabs:
         parser.error("--hidden-workspaces and --tabs are separate runs")
+    if args.terminal_host_model and args.socket:
+        parser.error("--terminal-host-model sets the model of an app this run launches, not of an attached one")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -1033,9 +1070,11 @@ def main():
         if not args.app_pid:
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
+        host_model = "unknown-attach"
     else:
-        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
+        host_model = args.terminal_host_model or "hosts"
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config),
+                                                launch_env(args.cef_switches, args.terminal_host_model))
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
@@ -1082,7 +1121,8 @@ def main():
             print("bench-memory: this build has no debug.memory; the phases report process footprint only")
         if args.hidden_workspaces is not None:
             report["hidden_workspaces"] = hidden_workspaces_phase(app, args.hidden_workspaces, args.grace, recipes,
-                                                                  args.url, opened, chats, settle_and_sample)
+                                                                  args.url, opened, chats, settle_and_sample,
+                                                                  host_model)
         if args.kernel_pressure:
             report["kernel_pressure"] = kernel_pressure(app_pid, bundle, args.kernel_pressure,
                                                         args.kernel_pressure_window, len(opened) + 1, args.top)
