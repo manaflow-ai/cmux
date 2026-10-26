@@ -35,8 +35,17 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
     /// - Returns: The live page.
-    /// - Throws: When Chromium cannot start or the browser is not created.
+    /// - Throws: ``PageChromiumStartError/browserEnded`` when the browser ended with its Chromium Host
+    ///   before it existed; another error when Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
+    /// What follows the end of a page's Chromium browser (``PageChromiumEvent/ended``): `answer` runs
+    /// once Chromium runs again or its supervisor gave up (plans/cmux-next/cef-helper-app-DESIGN.md: a
+    /// Chromium Host that ends again within 60 s of its start stays ended). Every page whose browser
+    /// ended asks, and all of them get the one outcome of that end. A Chromium that runs in cmux's
+    /// own process cannot start again: it answers ``PageChromiumSupervisorOutcome/gaveUp`` in the call.
+    ///
+    /// - Parameter answer: Gets whether Chromium came back, on the main actor.
+    func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void)
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -68,7 +77,8 @@ public protocol PageChromiumPage: AnyObject {
     ///   - method: The method (`Page.captureScreenshot`).
     ///   - params: Its params.
     /// - Returns: The method's JSON result.
-    /// - Throws: When the page is gone or the method fails.
+    /// - Throws: ``PageChromiumStartError/browserEnded`` when the page's browser ended with its
+    ///   Chromium Host; another error when the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
     /// Runs `script` in the page's main frame, in the page's own world, without a user gesture,
     /// and returns its value by value, a promise's once it settles. A value that is not a promise
@@ -171,6 +181,15 @@ public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
         self.data = data
         self.pixelSize = pixelSize
     }
+}
+
+/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:)``,
+/// ``PageChromiumPage/devTools(_:params:)``) when the page host must not reopen it in WebKit at once.
+public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
+    /// The page's browser ended with its Chromium Host while it was made or set up: the page waits
+    /// for the supervisor (``PageChromiumHosting/supervisorOutcome(then:)``) like a page whose shown
+    /// browser ended (``PageChromiumEvent/ended``).
+    case browserEnded
 }
 
 /// What a Chromium page reports to the page host.

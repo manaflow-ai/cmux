@@ -53,6 +53,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
+    /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
+    var launchReleased = false
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
     /// suspended. Not ``isVisible``, which is the layout's viewport presence.
     let visibilityNode: VisibilityNode
@@ -437,7 +439,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Content
 
     func showSelected() {
-        guard !isSuspended else { return } // `resume`'s apply shows the selection then
+        guard !isSuspended, !launchHeld else { return } // `resume`'s apply shows the selection then, or the launch's slice
         let key = stripModel.selectedID?.rawValue, previous = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
@@ -544,7 +546,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {
-        guard let key = stripModel.selectedID?.rawValue else { return true }
+        guard !launchHeld, let key = stripModel.selectedID?.rawValue else { return true } // a held pane makes nothing now
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
     }
