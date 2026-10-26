@@ -771,7 +771,18 @@ impl Hub {
                     "git" if e.dir == "mux" => {
                         branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
                     }
-                    "queued" => waiting.push(e),
+                    "queued" => {
+                        // A restart's continuation of a cut turn goes ahead of what waited behind
+                        // that turn, also when the daemon stopped before its `queue_order`
+                        // (`restart_resume.rs`); a later reorder still holds.
+                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
+                            == Some("daemon_restart")
+                            && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
+                        }
+                        waiting.push(e);
+                    }
                     "agent_pair_held"
                     | "agent_pair_released"
                     | "agent_pair_dropped"
