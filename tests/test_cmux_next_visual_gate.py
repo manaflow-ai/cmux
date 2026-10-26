@@ -1001,6 +1001,12 @@ class WiringTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", verdict)
         self.assertIn("sparse-checkout: |\n            scripts/ci/nightly_next_canary_mode.py\n", verdict)
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)
+        # A held build fails this job too, so "Re-run failed jobs" retries it with the gate instead
+        # of keeping a successful job's stale `blocks=true`.
+        hold = verdict[verdict.index("- name: Fail with the gate when it holds the build"):]
+        self.assertIn("if: steps.await.outputs.blocks == 'true'", hold.splitlines()[1])
+        self.assertIn("exit 1", hold)
+        self.assertLess(verdict.index("id: await"), verdict.index("- name: Fail with the gate when it holds the build"))
 
     def test_the_gate_marks_the_build_it_holds_in_a_step_the_verdict_job_reads(self):
         gate = self.job("visual-gate-nightly")

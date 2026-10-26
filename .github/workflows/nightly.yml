@@ -5495,6 +5495,16 @@ jobs:
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --job visual-gate-nightly \
             --queue-budget-minutes 15 --gate-timeout-minutes 75 | tee -a "$GITHUB_OUTPUT"
 
+      # A held build fails this job as well as the gate's, so "Re-run failed
+      # jobs" reruns both: the retried gate's verdict replaces this attempt's
+      # `blocks`, instead of a kept successful job holding the build forever.
+      # The outputs above are already set, so publish-nightly still reads them.
+      - name: Fail with the gate when it holds the build
+        if: steps.await.outputs.blocks == 'true'
+        run: |
+          echo "::error title=nightly-next visual gate::this run's build is held; re-run failed jobs to retry the gate and this verdict together"
+          exit 1
+
   # One entry per judged build in the `nightly-next visual gate` issue, its
   # record: `cmux NEXT visual gate passed|failed <build sha>: <run>`. The
   # recovery path reads it to judge a recovered build by its own verdict

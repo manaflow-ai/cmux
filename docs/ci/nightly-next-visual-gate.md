@@ -139,7 +139,9 @@ publication by the difference.
      still recorded.
    - Started: it waits for the gate to finish, at most its 75-minute
      timeout. `blocks` is `true` only when the gate's `Hold publication` step
-     succeeded.
+     succeeded. A held build fails this job too, so "Re-run failed
+     jobs" retries the gate and this job together and the retried verdict
+     decides.
    - Missing, never finishing, or the API unreadable after 5 tries:
      `unavailable`, and publication goes ahead.
 
