@@ -132,5 +132,52 @@ class Workflow(unittest.TestCase):
         self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
 
 
+class OwnedVerify(unittest.TestCase):
+    """The secret-free verify jobs take a free owned Mac first, Blacksmith last (2026-10-26).
+
+    nightly-next runs 40396929672 and 40403525126 waited over an hour on blacksmith-6vcpu-macos-26
+    behind pull request compiles. The routing order is Linux, owned Macs, then Blacksmith last
+    (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
+    """
+
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly")
+    OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
+
+    def test_verify_jobs_read_the_owned_pick_on_attempt_one_only(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        for name in self.OWNED_JOBS:
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertNotIn("environment", job)
+                self.assertNotIn("secrets.", yaml.safe_dump(job))
+                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || needs.pick-nightly-sign-runner.outputs.runner "
+                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                xcode = job["env"]["CMUX_CI_XCODE_APP"]
+                self.assertIn(f"github.run_attempt == 1 && {self.OWNED} != '' && vars.CMUX_CI_XCODE_APP_PR", xcode)
+                self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+
+    def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
+        for name, job in WORKFLOW["jobs"].items():
+            if self.OWNED not in str(job.get("runs-on", "")):
+                continue
+            with self.subTest(job=name):
+                self.assertIn(name, self.OWNED_JOBS)
+                self.assertFalse(job.get("environment"))
+                self.assertNotIn("secrets.", yaml.safe_dump(job))
+
+    def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
+        job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
+        self.assertEqual(job["outputs"]["owned"], "${{ steps.owned.outputs.label }}")
+        self.assertNotIn("environment", job)
+        step = next(s for s in job["steps"] if s.get("id") == "owned")
+        self.assertTrue(step["continue-on-error"])
+        self.assertIn("github.run_attempt == 1", step["if"])
+        self.assertIn("vars.CI_PR_POOL_OWNED == '1'", step["if"])
+        self.assertIn("e2e_runner_pool.py", step["run"])
+        # Only an owned label is ever offered; anything else leaves the Blacksmith pick.
+        self.assertIn('glaeda-*)', step["run"])
+        self.assertIn('label=""', step["run"])
+
+
 if __name__ == "__main__":
     unittest.main()
