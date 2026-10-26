@@ -818,6 +818,12 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     if let Some(roster) = agent_roster::human_view(plan, result) {
         return roster;
     }
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SettingsList)
+    ) {
+        return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
+    }
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)

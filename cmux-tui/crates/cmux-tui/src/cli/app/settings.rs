@@ -1,12 +1,12 @@
 //! `cmux settings get [PATH] | set PATH VALUE | reset PATH | unset PATH`,
 //! the app's `settings.*` control methods (plans/cmux-next/settings-surfaces.md),
-//! plus `list`, `schema` and `validate`, which read this build's settings
+//! plus `schema` and `validate`, which read this build's settings
 //! schema (`cmux_config::Schema::embedded`). `cmux config` is the same scope
 //! (classic cmux's name for it).
 //!
 //! - `list [--section S] [--keys]`: every schema key with the value that
-//!   applies, read from the app (`settings.get`); `--keys` prints the key
-//!   list without asking the app (shell completion).
+//!   applies, read from the daemon (`settings.list`); `--keys` prints this
+//!   build's key list without a connection (shell completion).
 //! - `schema`: the JSON Schema of the settings file, for editors and agents.
 //! - `validate [FILE]`: the problems the settings owner would report for the
 //!   file (default: the settings file), without the app. Exit 1 when the
@@ -23,9 +23,7 @@ use cmux_config::schema::Accepted;
 use cmux_config::{FileRead, Refusal, Schema, State};
 use serde_json::{Value, json};
 
-use std::os::unix::net::UnixStream;
-
-use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
+use super::{AppCommand, GlobalArgs, READ_TIMEOUT, UsageError};
 
 /// The verbs of `cmux settings` (and `cmux config`).
 pub(super) const VERBS: &[&str] = &["get", "set", "reset", "unset", "list", "schema", "validate"];
@@ -39,43 +37,19 @@ pub(crate) enum Command {
     /// A JSON document (`schema`), printed as indented JSON in every output
     /// mode, so `> file` works.
     Document(Value),
-    /// `list`: the app's settings (`settings.get`) as schema rows.
-    List { section: Option<String> },
 }
 
 impl Command {
-    /// Runs the command, connecting to the app only for `list`.
+    /// Local schema, completion and validation need no socket.
     pub(super) fn run(self, global: &GlobalArgs) -> i32 {
-        if let Command::List { .. } = self {
-            return match super::connect_command(global) {
-                Ok(mut stream) => self.run_on(global, &mut stream),
-                Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
-            };
-        }
-        self.run_on_nothing(global.output)
-    }
-
-    pub(super) fn run_on(self, global: &GlobalArgs, stream: &mut UnixStream) -> i32 {
-        let Command::List { section } = self else { return self.run_on_nothing(global.output) };
-        let wire = super::super::wire::print_local_error;
-        match super::wait::request(global, stream, "settings.get", &json!({}), Some(READ_TIMEOUT)) {
-            Ok(Ok(result)) => {
-                let rows = list_rows(&result, section.as_deref());
-                let human = global.output == OutputMode::Human;
-                let shown = if human { human_rows(&rows) } else { rows };
-                super::super::wire::print_local_success(&shown, global.output)
-            }
-            Ok(Err(error)) => wire(&error, global.output, 1),
-            Err(error) => wire(&error, global.output, 3),
-        }
-    }
-
-    fn run_on_nothing(self, output: OutputMode) -> i32 {
         match self {
-            Command::Local(Ok(value)) => super::super::wire::print_local_success(&value, output),
-            Command::Local(Err(error)) => super::super::wire::print_local_error(&error, output, 1),
+            Command::Local(Ok(value)) => {
+                super::super::wire::print_local_success(&value, global.output)
+            }
+            Command::Local(Err(error)) => {
+                super::super::wire::print_local_error(&error, global.output, 1)
+            }
             Command::Document(document) => print_document(&document),
-            Command::List { .. } => 2,
         }
     }
 }
@@ -99,7 +73,6 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let usage = || UsageError::new(messages.settings_usage);
     let Some((verb, args)) = rest.split_first() else { return Err(usage()) };
     match verb.as_str() {
-        "list" => return parse_list(args)?.ok_or_else(usage),
         "schema" if args.is_empty() => {
             return Ok(AppCommand::Settings(Command::Document(Schema::embedded().json_schema())));
         }
@@ -189,80 +162,18 @@ pub(super) fn explain_refusal(method: &str, params: &Value, error: &mut Value) {
     error["message"] = json!(text);
 }
 
-/// `list [--section S] [--keys]`; `None` for any other word, and an error
-/// naming the sections for a section no row is in.
-fn parse_list(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
-    let mut section = None;
-    let mut keys = false;
-    let mut words = args.iter();
-    while let Some(word) = words.next() {
-        match (word.as_str(), words.clone().next()) {
-            ("--keys", _) => keys = true,
-            ("--section", Some(name)) if section.is_none() => {
-                section = Some(name.clone());
-                words.next();
-            }
-            _ => return Ok(None),
-        }
+/// Completion is local; a value listing falls through to the daemon grammar.
+pub(super) fn parse_list(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
+    let options = super::super::command::SettingsList::parse(args)?;
+    if !options.keys {
+        return Ok(None);
     }
-    let schema = Schema::embedded();
-    if let Some(name) = &section
-        && schema.rows_in(Some(name)).next().is_none()
-    {
-        let mut sections: Vec<&str> = schema.rows.iter().map(|row| row.section.as_str()).collect();
-        sections.sort_unstable();
-        sections.dedup();
-        let messages = &crate::localization::catalog().app_control;
-        return Err(UsageError::new(
-            messages
-                .settings_unknown_section
-                .replace("{section}", name)
-                .replace("{sections}", &sections.join(", ")),
-        ));
-    }
-    if keys {
-        let mut names: Vec<&str> =
-            schema.rows_in(section.as_deref()).map(|row| row.key.as_str()).collect();
-        names.sort_unstable();
-        return Ok(Some(AppCommand::Settings(Command::Local(Ok(json!(names))))));
-    }
-    Ok(Some(AppCommand::Settings(Command::List { section })))
-}
-
-/// The `settings.list` rows (the daemon's row shape) for the settings the
-/// app reports from `settings.get` with no path.
-pub(super) fn list_rows(result: &Value, section: Option<&str>) -> Value {
-    let root = result.get("value").filter(|value| value.is_object()).cloned().unwrap_or(json!({}));
-    let state = local_state(FileRead::Text(root.to_string()));
-    // The app reports the settings that apply (the file with MDM and team
-    // policy merged in), so whether the file sets a key, and whether a policy
-    // manages it, is not known here: the rows leave both out.
-    let rows: Vec<Value> = state
-        .list(section)
-        .iter()
-        .map(|view| {
-            let mut row = view.to_json();
-            if let Some(members) = row.as_object_mut() {
-                members.remove("customized");
-                members.remove("managed");
-            }
-            row
-        })
+    let mut names: Vec<&str> = Schema::embedded()
+        .rows_in(options.section.as_deref())
+        .map(|row| row.key.as_str())
         .collect();
-    json!(rows)
-}
-
-/// What a person sees of a row in a table: the key, what applies, and the
-/// default. JSON output keeps the whole row.
-pub(super) fn human_rows(rows: &Value) -> Value {
-    let pick = |row: &Value| {
-        json!({
-            "key": row["key"],
-            "value": row["value"],
-            "default": row["default"],
-        })
-    };
-    json!(rows.as_array().map(|rows| rows.iter().map(pick).collect::<Vec<_>>()))
+    names.sort_unstable();
+    Ok(Some(AppCommand::Settings(Command::Local(Ok(json!(names))))))
 }
 
 /// The diagnostics the settings owner would report for the file at `path`.

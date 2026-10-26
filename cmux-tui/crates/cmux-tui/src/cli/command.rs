@@ -29,6 +29,8 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod server_ensure;
+mod settings;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -148,6 +150,12 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
+    if let [scope, verb, rest @ ..] = args
+        && matches!(scope.as_str(), "settings" | "config")
+        && verb == "list"
+    {
+        return settings::request_list(rest);
+    }
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
