@@ -300,7 +300,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         let symbol: (String) -> UnsafeMutableRawPointer?
         /// Host mode: the optional exports the Chromium Host's shim defines (its hello). Nil takes
         /// every optional export `symbol` finds.
-        var hostExports: Set<String>? = nil
+        var hostExports: Set<String>?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
             guard let symbol = symbol(name) else { throw .missingSymbol(name) }

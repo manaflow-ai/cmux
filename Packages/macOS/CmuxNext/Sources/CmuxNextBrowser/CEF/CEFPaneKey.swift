@@ -3,7 +3,7 @@ nonisolated struct CEFPaneKey: Hashable, Sendable {
     var profile: BrowserProfileID
     /// The remote-localhost derived store's machine, nil for the profile's
     /// own store. A Chromium window holds one store, so it is part of the key.
-    var machineKey: String? = nil
+    var machineKey: String?
     /// An incognito window's store: an in-memory context, never a directory.
     var offTheRecord = false
 }
