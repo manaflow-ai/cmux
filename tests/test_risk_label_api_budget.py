@@ -125,6 +125,24 @@ class RiskLabelBudgetTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIn("no API request spent", out)
 
+    def test_an_empty_label_leaves_the_pull_requests_labels_alone(self):
+        """Unreachable today, but the risk gate must never strip the tier it set.
+
+        `grep -vxF ""` keeps every non-empty line, so without the guard an empty LABEL reads the
+        existing risk label as stale and asks for `--add-label ` with no name.
+        """
+        calls, out = self.run_step("", ["risk:low"])
+        self.assertEqual(calls, [])
+        self.assertIn("produced no label", out)
+
+    def test_a_hostile_label_name_on_the_pull_request_is_inert(self):
+        """Label names come from the event payload; none of them reaches a shell or a glob."""
+        marker = pathlib.Path(tempfile.gettempdir()) / "cmux-risk-label-injection-marker"
+        marker.unlink(missing_ok=True)
+        calls, _ = self.run_step("risk:low", [f"$(touch {marker})", "*", "risk:low"])
+        self.assertEqual(calls, [])
+        self.assertFalse(marker.exists(), f"{marker} was created, so a label name ran as code")
+
     def test_an_api_error_never_fails_the_step(self):
         """The check's verdict is the gate; a label error is a warning."""
         _, out = self.run_step("risk:high", ["risk:low"], gh_exit=1)

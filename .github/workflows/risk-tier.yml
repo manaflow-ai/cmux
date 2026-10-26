@@ -98,6 +98,14 @@ jobs:
           CURRENT_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -uo pipefail
+          # The grade step always writes a label and this step is skipped when it fails, so an empty
+          # LABEL is unreachable. Refuse it anyway rather than strip the tier the gate already set:
+          # `grep -vxF ""` keeps every non-empty line, so an empty LABEL would read every risk label
+          # as stale and ask for `--add-label ` with no name.
+          if [ -z "${LABEL:-}" ]; then
+            echo "::warning::the grade step produced no label; leaving the pull request's labels alone"
+            exit 0
+          fi
           current="$(jq -r '.[]' <<<"$CURRENT_JSON")"
           # risk:medium is the old name for risk:normal.
           stale="$(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" | grep -vxF "$LABEL" || true)"
