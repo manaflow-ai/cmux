@@ -38,8 +38,8 @@ enum HomeChiefActions {
         return nil
     }
 
-    private static func plan(_ context: AppActionContext, front: HomeHostView?) -> HomeChiefActionPlan {
-        let home = context.services.home
+    /// What Stop and Toggle Chief Settings do now: the front Home's Chief as the Home store has it, and every Chief row.
+    static func plan(_ home: HomeService, front: HomeHostView?) -> HomeChiefActionPlan {
         let defaultID = HomeChiefName.select(from: home.conversations)?.id
         let chiefs = home.homeStore.rows.filter { $0.summary.participants.contains { $0.agentClass == .chief } }.map {
             HomeChiefActionPlan.Chief(conversation: $0.summary.id, isWorking: $0.isTyping, isDefault: $0.summary.id.rawValue == defaultID)
@@ -50,7 +50,7 @@ enum HomeChiefActions {
     private static func stop(_ context: AppActionContext) {
         let front = frontHome()
         let control: HomeChiefControl
-        switch plan(context, front: front).stop {
+        switch plan(context.services.home, front: front).stop {
         case .front:
             guard let front else { return }
             control = front.chiefControl
@@ -66,6 +66,7 @@ enum HomeChiefActions {
         let registry = context.registry
         let interactive = !registry.isCapturingRefusal
         let services = context.services
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2): it awaits the main-actor HomeChiefControl; post has no userBlocking class
         let work: ActionWork = Task {
             guard let error = await control.stop() else { return nil }
             if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? NSApp.keyWindow) }
@@ -76,7 +77,7 @@ enum HomeChiefActions {
 
     private static func toggleSettings(_ context: AppActionContext) {
         let front = frontHome()
-        switch plan(context, front: front).settings {
+        switch plan(context.services.home, front: front).settings {
         case .front:
             front?.toggleChiefSettings()
         case .open(let conversation):

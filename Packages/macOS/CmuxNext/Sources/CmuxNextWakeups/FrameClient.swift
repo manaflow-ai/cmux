@@ -61,7 +61,10 @@ public final class FrameClient {
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
     /// How often it needs frames: its display's link runs at the highest rate of the active clients
-    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another.
+    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another: every
+    /// key-to-frame client, batch and probe stays motion. An ambient rate (``FrameRate/isAmbient``) is
+    /// opt-in and owner-reviewed: Energy Saver caps it at ``EnergyPolicy/ambientMaxFPS`` and it waits
+    /// while the displays sleep (FrameScheduler+Energy.swift).
     public let rate: FrameRate
     /// The node whose visibility gates its ticks (``VisibilityNode/wantsFrames``); nil: it ticks
     /// whether or not anyone sees it.

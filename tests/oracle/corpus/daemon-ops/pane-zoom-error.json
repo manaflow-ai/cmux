@@ -54,24 +54,48 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "pane": "$step:fx-workspace#/value/pane_id"
+        "pane": "pane_0123456789abcdef0123456789abcdef"
       },
       "args": {
         "method": "pane.zoom",
         "params": {
-          "enabled": "true"
+          "enabled": true
         },
         "idempotencyKey": "pane-zoom-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "pane",
+          "selector": "pane_0123456789abcdef0123456789abcdef"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "enabled breaks its catalog type (value must be a boolean); the daemon's catalog check refuses it"
+      "note": "a well-formed pane id that names no pane: selector.not_found, nothing zoomed"
+    },
+    {
+      "id": "pane-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes/0/id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "not-zoomed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes/0/zoomed",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

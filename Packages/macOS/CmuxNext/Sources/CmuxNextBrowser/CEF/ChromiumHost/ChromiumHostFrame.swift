@@ -11,9 +11,10 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
+        case ime = 11, textInputWatch = 12
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
-        case rendererGone = 108
+        case rendererGone = 108, textInputState = 109
     }
 
     static let headerSize = 64
@@ -48,6 +49,17 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     init(rawKind: UInt32) { self.rawKind = rawKind }
 
     var kind: Kind? { Kind(rawValue: rawKind) }
+
+    /// The control seq an input ring frame was written after (task 092,
+    /// "One ordered input stream" in the header): the high 32 bits of `t1`
+    /// (`CtlSeqOf`/`SetCtlSeq`); the low 32 bits name the page (task 041).
+    /// The host dispatches the frame only once that control message is
+    /// applied. The ring's writer stamps it, and `seq`, from
+    /// `cmux_remote_shim_order_input` in write order.
+    var ctlSeq: UInt32 {
+        get { UInt32(truncatingIfNeeded: t1 >> 32) }
+        set { t1 = (t1 & 0xffff_ffff) | UInt64(newValue) << 32 }
+    }
     var text: String { String(decoding: payload, as: UTF8.self) }
 
     /// The header and payload as sent.

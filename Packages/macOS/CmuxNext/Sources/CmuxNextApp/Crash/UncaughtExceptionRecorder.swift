@@ -77,7 +77,7 @@ nonisolated enum UncaughtExceptionRecorder {
     static func frames(of exception: NSException) -> [String] {
         let addresses = exception.callStackReturnAddresses.prefix(frameLimit).map { $0.uintValue }
         guard !addresses.isEmpty else { return Array(exception.callStackSymbols.prefix(frameLimit)) }
-        return StackSymbolicator().frames(for: addresses).map(\.description)
+        return StackSymbolicator(map: AppSymbolMap.loadMain()).frames(for: addresses).map(\.description)
     }
 
     /// The record in `url`, or nil when there is none or it does not decode.

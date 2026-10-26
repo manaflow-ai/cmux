@@ -29,12 +29,19 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). The agent
-    /// pages' WebKit warm-up makes no WebKit page when they open in Chromium (`AgentPageWarmup.start(webUI:)`
-    /// decides when it runs); each outcome leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). No WebKit
+    /// view is made by these before startup completes (p08-startup-042): the agent pages' warm-up and the New Tab
+    /// spare's probe and page are afterStartup. The warm-up makes no WebKit page when a shown agent tab made its view
+    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs); each outcome leaves its
+    /// own launch mark (`AgentPageWarmupOutcome.launchMark`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
-                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) }, spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
+                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) },
+                                     agentPageWarmup: { [weak self] in
+                                         if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
+                                     },
+                                     spareProbe: { [weak self] in self?.newTabSpares.prewarm() },
+                                     spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
                                      pageHostPool: { [weak self] in
                                          guard let self else { return }
                                          pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
@@ -43,10 +50,6 @@ extension AppServices {
                                      },
                                      agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
                                      rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
-        let warmup = AgentPageWarmupSlot(startup: startup) { [weak self] in
-            if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
-        }
-        windows.whenRestored { [weak self] in warmup.restored(showsWebKitAgentChat: self?.showsWebKitAgentChat == true) }
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
@@ -92,12 +95,5 @@ extension AppServices {
                                     notifications: notificationsStart, macScreenSettings: macScreenSettingsStart, deviceHub: deviceHubStart,
                                     computerUseHelper: computerUseHelperStart, hibernationMeasurements: hibernationMeasurementsStart,
                                     apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
-    }
-
-    /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit,
-    /// by the warm-up's own engine decision (`AgentPageWarmup.agentPagesShowInWebKit(webUI:)`), so the post's place and
-    /// the warm-up's make-or-skip come from one seam.
-    private var showsWebKitAgentChat: Bool {
-        windows.active?.focusedPane?.selectedTab?.agentSession != nil && agentPageWarmup.agentPagesShowInWebKit(webUI: webUI)
     }
 }

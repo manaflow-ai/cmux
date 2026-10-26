@@ -16,7 +16,10 @@ enum DebugTabDrag {
         guard let drag = session.drag ?? session.landing else {
             return .object(["dragging": .bool(false), "strips": strips(services)])
         }
-        let layout = drag.ghost.layout(drag.motion)
+        // On the render server nothing steps the motion: the ghost shows its rest, and Core Animation
+        // runs the springs toward it.
+        let ghost = drag.ghost
+        let layout = ghost.layout(ghost.rendersOnServer ? drag.motion.rest : drag.motion)
         let grabbed = layout.onScreen(TabDragGhostLayout.grabPoint(in: layout.tab, grabOffset: drag.source.grabOffset,
                                                                    tabSize: drag.source.screenFrame.size))
         let presentation: String = switch drag.presentation {
@@ -36,9 +39,10 @@ enum DebugTabDrag {
             "ghost_card": rect(layout.onScreen(layout.card)),
             "ghost_cardness": .number(Double(layout.cardness)),
             "ghost_scale": .number(Double(layout.scale)),
-            "ghost_settled": .bool(drag.motion.isSettled),
-            "ghost_visible": .bool(drag.ghost.panel.isVisible),
-            "ghost_panel_frame": rect(drag.ghost.panel.frame),
+            "ghost_settled": .bool(ghost.rendersOnServer ? ghost.isAtRest : drag.motion.isSettled),
+            "ghost_visible": .bool(ghost.panel.isVisible || ghost.isInSourceWindow),
+            "ghost_host": .string(ghost.hostName),
+            "ghost_panel_frame": rect(ghost.panel.frame),
             "grab_point_on_screen": point(grabbed),
             "grab_error": .number(Double(hypot(grabbed.x - drag.point.x, grabbed.y - drag.point.y))),
             "window": session.window(at: drag.point).map { .string($0.state.id) } ?? .null,
@@ -58,7 +62,7 @@ enum DebugTabDrag {
             func topLeft(_ r: CGRect) -> JSONValue { rect(CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)) }
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
                 let strip = pane.view.stripView
-                guard strip.window === window, !strip.isHiddenOrHasHiddenAncestor else { continue }
+                guard strip.window === window, strip.isShownForInput else { continue }
                 let tabs: [JSONValue] = (strip.accessibilityChildren() ?? []).compactMap { child in
                     guard let element = child as? NSAccessibilityElement else { return nil }
                     let frame = strip.convert(element.accessibilityFrameInParentSpace(), to: nil)

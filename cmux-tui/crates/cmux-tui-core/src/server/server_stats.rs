@@ -1,7 +1,8 @@
 //! `server-stats`: where the daemon spends its time.
 
+use super::request_spans::{RequestMethod, lock_op_name};
 use super::{MAX_SERVER_CONNECTIONS, Mux};
-use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
+use crate::diagnostics::{LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 
 /// The optional section that reports resource projection spans.
 const RESOURCE_PROJECTION: &str = "resource_projection";
@@ -23,6 +24,10 @@ const LOCK_CLASSES: &str = "lock_classes";
 /// depths, messages and bytes by kind, parses and write syscalls per
 /// message, write stalls and bad_message closes.
 const IPC: &str = "ipc";
+/// The optional section that reports request latency, handler time and lock
+/// wait by method (`ipc_methods`, request_spans.rs). It is not `ipc`: that
+/// section counts the IPC layer itself (streams, frames, parses, syscalls).
+const IPC_METHODS: &str = "ipc_methods";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -46,9 +51,55 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         dispatch_queue_us,
         lock_classes: wants(LOCK_CLASSES).then(|| mux.lock_class_stats()),
         ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
+        ipc_methods: wants(IPC_METHODS)
+            .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
+    }
+}
+
+/// The `debug-daemon-locks` result. `schema` grows only when a field
+/// changes meaning.
+#[derive(Clone, Debug, serde::Serialize)]
+pub(super) struct DaemonLocksSnapshot {
+    schema: u32,
+    uptime_ms: u64,
+    locks: Vec<LockTableSnapshot>,
+}
+
+const DAEMON_LOCKS_SCHEMA: u32 = 1;
+
+/// Why `debug-daemon-locks` was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DaemonLocksRefused {
+    /// A WebSocket or remote relay client asked.
+    NotLocal,
+}
+
+impl std::fmt::Display for DaemonLocksRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            DaemonLocksRefused::NotLocal => "daemon lock stats require a trusted local connection",
+        })
+    }
+}
+
+impl std::error::Error for DaemonLocksRefused {}
+
+pub(super) fn daemon_locks(mux: &Mux) -> DaemonLocksSnapshot {
+    DaemonLocksSnapshot {
+        schema: DAEMON_LOCKS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        locks: mux
+            .daemon_lock_tables()
+            .into_iter()
+            .map(|(lock, table)| table.snapshot(lock, &lock_op_name))
+            .collect(),
     }
 }
 
 #[cfg(test)]
 #[path = "server_stats_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "server_stats_ipc_tests.rs"]
+mod ipc_tests;

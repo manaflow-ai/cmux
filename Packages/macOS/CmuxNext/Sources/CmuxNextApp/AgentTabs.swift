@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSignposts
@@ -104,10 +105,12 @@ final class AgentTabStore {
     /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
     /// (`HomeService.postLaunchFeeds`, p08-startup-027).
     var pageShown: @MainActor () -> Void = {}
-    /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
-    var launchDeferred: Set<String> = []
+    /// Agent tabs whose view waits for its launch post (`deferAtLaunch`).
+    let launchDeferred = LaunchViewQueue()
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
+    /// The app's blocking-work lanes (`AppServices.work`), for each pane view's file drags (`AgentPaneView.work`).
+    let work: any MayBlockRunner
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
@@ -226,7 +229,7 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
-    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
          mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
@@ -239,6 +242,7 @@ final class AgentTabStore {
         }
         (self.openPanel, self.warmup, self.chatStores) = (openPanel, warmup, chatStores)
         self.webUI = webUI
+        self.work = work
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
@@ -517,7 +521,7 @@ final class AgentTabStore {
         if shown { pageShown() }
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
+        guard let source, let view = AgentPaneView(model: model, work: work, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
                                                     chatStores: chatStores) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

@@ -28,11 +28,15 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let input = PendingInput()
     private let closed = Atomic<Bool>(false)
 
-    /// Spawns `shell` as a login shell in `workingDirectory`.
+    /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
+    /// ``GhosttyLaunchProbe/terminfoInstalled``: true makes the shell's `TERM`
+    /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
+    /// unless `environment` sets it. The init reads no file for it.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
         environment extra: [String: String] = [:],
+        installedTerminfo: Bool,
         columns: Int = 80,
         rows: Int = 24
     ) throws {
@@ -40,7 +44,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
             environment.removeValue(forKey: key)
         }
-        environment.merge(Self.terminalEnvironment()) { _, new in new }
+        environment.merge(Self.terminalEnvironment(installedTerminfo: installedTerminfo)) { _, new in new }
         environment.merge(extra) { _, new in new }
 
         // Everything the child touches is allocated before fork: after fork
@@ -191,72 +195,93 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
     /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
-    /// unless `xterm-ghostty` is installed in a system terminfo directory;
-    /// `COLORTERM`, `TERM_PROGRAM=ghostty` and its version. `TERMINFO` is not set.
+    /// unless `installedTerminfo` (the caller's lane read of
+    /// ``GhosttyLaunchProbe/terminfoInstalled``) says `xterm-ghostty` is
+    /// installed in a system terminfo directory; `COLORTERM`, `TERM_PROGRAM=ghostty`
+    /// and its version. `TERMINFO` is not set. It reads no file, so a shell can be
+    /// spawned from the main thread (p02-threads-006).
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
         version: String? = GhosttyRuntime.version,
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
+        installedTerminfo: Bool = false
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
         if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        if GhosttyLaunchProbe.hasInstalledTerminfo(home: home, fileExists: fileExists) { result["TERM"] = "xterm-ghostty" }
+        if installedTerminfo { result["TERM"] = "xterm-ghostty" }
         return result
     }
 }
 
-/// Input waiting for a PTY that is not reading. Confined to the write queue.
-private nonisolated final class PendingInput: @unchecked Sendable {
+/// Input waiting for a PTY that is not reading.
+private nonisolated final class PendingInput: Sendable {
     static let limit = 1 << 20
-    private var data = Data()
-    private var offset = 0
-    private var armed = false
-    private var cancelled = false
+    // Lock carve-out: taken only on the PTY's serial write queue (append, flush and cancel all run there), so it
+    // is never contended; it makes that confinement a checked Sendable instead of an unchecked promise.
+    private let state = Mutex(State())
 
     func append(_ bytes: Data) {
-        guard !cancelled, data.count - offset + bytes.count <= Self.limit else { return }
-        data.append(bytes)
+        state.withLock { $0.append(bytes) }
     }
 
     func flush(to fd: Int32, source: any DispatchSourceWrite) {
-        while !cancelled, offset < data.count {
-            let written = data.withUnsafeBytes { raw -> Int in
-                // offset < data.count, so the buffer has a base address; without one, drop the data.
-                guard let base = raw.baseAddress else { return 0 }
-                // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
-                return Darwin.write(fd, base + offset, raw.count - offset)
-            }
-            if written > 0 {
-                offset += written
-            } else if written < 0, errno == EINTR {
-                continue
-            } else if written < 0, errno == EAGAIN {
-                if !armed {
-                    armed = true
-                    source.resume()
-                }
-                return
-            } else {
-                break
-            }
-        }
-        data.removeAll(keepingCapacity: data.count <= 64 * 1024)
-        offset = 0
-        if armed, !cancelled {
-            armed = false
-            source.suspend()
-        }
+        state.withLock { $0.flush(to: fd, source: source) }
     }
 
     func cancel(_ source: any DispatchSourceWrite) {
-        guard !cancelled else { return }
-        cancelled = true
-        // A suspended source must be resumed before it can be cancelled.
-        if !armed { source.resume() }
-        armed = true
-        source.cancel()
+        state.withLock { $0.cancel(source) }
+    }
+
+    /// The bytes not written yet and the write source's state.
+    private nonisolated struct State {
+        var data = Data()
+        var offset = 0
+        var armed = false
+        var cancelled = false
+
+        mutating func append(_ bytes: Data) {
+            guard !cancelled, data.count - offset + bytes.count <= PendingInput.limit else { return }
+            data.append(bytes)
+        }
+
+        mutating func flush(to fd: Int32, source: any DispatchSourceWrite) {
+            while !cancelled, offset < data.count {
+                let written = data.withUnsafeBytes { [offset] raw -> Int in
+                    // offset < data.count, so the buffer has a base address; without one, drop the data.
+                    guard let base = raw.baseAddress else { return 0 }
+                    // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
+                    return Darwin.write(fd, base + offset, raw.count - offset)
+                }
+                if written > 0 {
+                    offset += written
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else if written < 0, errno == EAGAIN {
+                    if !armed {
+                        armed = true
+                        source.resume()
+                    }
+                    return
+                } else {
+                    break
+                }
+            }
+            data.removeAll(keepingCapacity: data.count <= 64 * 1024)
+            offset = 0
+            if armed, !cancelled {
+                armed = false
+                source.suspend()
+            }
+        }
+
+        mutating func cancel(_ source: any DispatchSourceWrite) {
+            guard !cancelled else { return }
+            cancelled = true
+            // A suspended source must be resumed before it can be cancelled.
+            if !armed { source.resume() }
+            armed = true
+            source.cancel()
+        }
     }
 }
 

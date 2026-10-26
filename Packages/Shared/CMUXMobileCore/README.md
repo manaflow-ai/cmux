@@ -6,12 +6,11 @@ another for shared contracts.
 
 ## Testing telemetry consent
 
-Inject a suite-scoped defaults store so tests do not read or mutate the user's
-preferences:
+Pass a suite name so tests do not read or mutate the user's preferences:
 
 ```swift
 let defaults = UserDefaults(suiteName: "example.telemetry-test")!
-let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+let consent = UserDefaultsAnalyticsConsentProvider(suiteName: "example.telemetry-test")
 
 defaults.set(true, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
 #expect(consent.isTelemetryEnabled)
