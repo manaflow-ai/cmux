@@ -14,31 +14,17 @@ use serde_json::{Value, json};
 use super::Origin;
 use crate::rpc::RpcError;
 
-/// Removes the worktree [`ensure`] made from `folder` (`made`, its answer) for a
-/// create then refused: nothing when it was there already, its branch too when
-/// that is new.
-pub(super) async fn discard(folder: Option<PathBuf>, made: &Value) {
-    let text = |k: &str| made[k].as_str().map(str::to_owned).unwrap_or_default();
-    let (Some(folder), false) = (folder, made["reused"] == "worktree") else { return };
-    let worktree = crate::subsession_worktree::Worktree {
-        root: PathBuf::from(text("root")),
-        branch: text("branch"),
-        base: text("base"),
-        cwd: PathBuf::from(text("cwd")),
-    };
-    let keep_branch = made["reused"] == "branch";
-    let _ = tokio::task::spawn_blocking(move || {
-        crate::subsession_worktree::remove_made(&folder, &worktree, keep_branch)
-    })
-    .await;
-}
+/// What a worktree's folder must pass before a create may use it.
+pub(super) type Check = Box<dyn FnOnce(&std::path::Path) -> Result<(), RpcError> + Send>;
 
 /// Makes or finds the worktree `meta` asks for and points `cwd` into it;
-/// None when it asks for none.
+/// None when it asks for none. `check` (of its folder) refusing removes a
+/// worktree this made, and refuses (`subsession_worktree::ensure_checked`).
 pub(super) async fn ensure(
     origin: Origin,
     meta: Option<&Value>,
     cwd: &mut Option<PathBuf>,
+    check: Check,
 ) -> Result<Option<Value>, RpcError> {
     let Some(asked) = meta.and_then(|m| m.get("worktree")).filter(|w| !w.is_null()) else {
         return Ok(None);
@@ -64,11 +50,13 @@ pub(super) async fn ensure(
         RpcError::invalid_params("a worktree needs cwd: an absolute folder of the repository")
     })?;
     let ensured = tokio::task::spawn_blocking(move || {
-        crate::subsession_worktree::ensure_worktree(&folder, &name, base.as_deref())
+        crate::subsession_worktree::ensure_checked(&folder, &name, base.as_deref(), |w| {
+            check(&w.cwd)
+        })
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
-    .map_err(|e| RpcError::invalid_params(format!("no worktree: {e}")))?;
+    .map_err(|e| RpcError::invalid_params(format!("no worktree: {e}")))??;
     let w = &ensured.worktree;
     *cwd = Some(w.cwd.clone());
     Ok(Some(json!({

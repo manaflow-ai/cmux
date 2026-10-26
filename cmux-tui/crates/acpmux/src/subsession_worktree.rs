@@ -350,16 +350,6 @@ pub fn remove_worktree(folder: &Path, worktree: &Worktree) {
     let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
 }
 
-/// Removes a worktree [`ensure_worktree`] just made, and its branch unless
-/// `keep_branch` (the branch was there before).
-pub fn remove_made(folder: &Path, worktree: &Worktree, keep_branch: bool) {
-    if keep_branch {
-        let _ = git(folder, &["worktree", "remove", "--force", &worktree.root.to_string_lossy()]);
-    } else {
-        remove_worktree(folder, worktree);
-    }
-}
-
 /// Lowercase ASCII letters and digits, every other run one `-`, at most 48
 /// characters: `git_ops/worktree.rs`'s names.
 pub fn slug(text: &str) -> String {
@@ -538,6 +528,36 @@ pub struct Ensured {
 /// launcher that runs twice does not make two.
 pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<Ensured, String> {
     ensure_worktree_under(folder, name, base, &home()?)
+}
+
+/// [`ensure_worktree`], then `check` of the worktree: when it refuses, a worktree
+/// this call made is removed (its branch too when that is new) and the refusal
+/// returned; one that was there stays.
+pub fn ensure_checked<E>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    check: impl FnOnce(&Worktree) -> Result<(), E>,
+) -> Result<Result<Ensured, E>, String> {
+    ensure_checked_under(folder, name, base, &home()?, check)
+}
+
+fn ensure_checked_under<E>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    home: &Path,
+    check: impl FnOnce(&Worktree) -> Result<(), E>,
+) -> Result<Result<Ensured, E>, String> {
+    let ensured = ensure_worktree_under(folder, name, base, home)?;
+    let Err(refused) = check(&ensured.worktree) else { return Ok(Ok(ensured)) };
+    let w = &ensured.worktree;
+    match ensured.reused {
+        Some("worktree") => {}
+        Some(_) => drop(git(folder, &["worktree", "remove", "--force", &w.root.to_string_lossy()])),
+        None => remove_worktree(folder, w),
+    }
+    Ok(Err(refused))
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
@@ -760,6 +780,23 @@ mod tests {
         assert_eq!(back.reused, Some("branch"));
         assert_eq!(back.worktree.branch, "cmux/lane-one");
         assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "second\n");
+    }
+
+    #[test]
+    fn a_refused_worktree_is_removed_before_another_create_of_its_name_finds_it() {
+        let (_scratch, repo, home) = repo();
+        let (r, h) = (repo.clone(), home.clone());
+        let mut other = None;
+        let refused = ensure_checked_under(&repo, "lane", None, &home, |_| {
+            // Another create of the same name, while this one's check runs.
+            other = Some(std::thread::spawn(move || ensure_worktree_under(&r, "lane", None, &h)));
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Err("refused")
+        });
+        assert!(matches!(refused, Ok(Err("refused"))));
+        let other = other.unwrap().join().unwrap().unwrap();
+        assert_eq!(other.reused, None, "the other create found the refused one's worktree");
+        assert!(other.worktree.root.join("sub/a.txt").exists(), "its worktree was removed");
     }
 
     #[test]

@@ -564,24 +564,29 @@ async fn adopt_worktree(
     conversation: Option<&crate::hub::admission::Conversation>,
     harness: &Option<String>,
 ) -> Result<Option<Value>, RpcError> {
-    let folder = req.cwd.clone();
-    let made = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
-    let (Some(c), Some(w)) = (conversation, &made) else { return Ok(made) };
-    let remote = conn.origin.web_class();
-    let (preset, model) = (&req.preset, req.model.as_deref());
-    let again =
-        hub.adopt_conversation(&c.id, harness.clone(), preset, model, remote, req.cwd.as_deref());
-    let refusal = match again.await {
-        Ok(again) if again == *c => return Ok(made),
-        Ok(again) => RpcError::invalid_params(format!(
-            "this adopt was admitted as a {} conversation, but its worktree's harness is {}: name the harness",
-            c.family, again.family
-        ))
-        .with_data(json!({"reason": "adopt.family_changed"})),
-        Err(e) => e,
+    let check: super::new_worktree::Check = match conversation {
+        None => Box::new(|_| Ok(())),
+        Some(c) => {
+            let (hub, c, harness) = (hub.clone(), c.clone(), harness.clone());
+            let cfg = hub.config.read().await.clone();
+            let (preset, model, remote) =
+                (req.preset.clone(), req.model.clone(), conn.origin.web_class());
+            Box::new(move |cwd| {
+                let model = model.as_deref();
+                let again =
+                    hub.conversation_in(&cfg, &c.id, harness, &preset, model, remote, Some(cwd))?;
+                if again == c {
+                    return Ok(());
+                }
+                Err(RpcError::invalid_params(format!(
+                    "this adopt was admitted as a {} conversation, but its worktree's harness is {}: name the harness",
+                    c.family, again.family
+                ))
+                .with_data(json!({"reason": "adopt.family_changed"})))
+            })
+        }
     };
-    super::new_worktree::discard(folder, w).await;
-    Err(refusal)
+    super::new_worktree::ensure(conn.origin, meta, &mut req.cwd, check).await
 }
 
 /// `session/new` of a session on this daemon (no `_meta.acpmux.peer`).
