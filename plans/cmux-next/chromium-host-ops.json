@@ -4077,6 +4077,26 @@
       "reply_event": "wire:REPLY",
       "reason": "A first-party page's renderer group (p13-webui-011) is set before initialize, after its page_scheme_add_first_party; the client returns its own check when it queues the op, and the host's refusal is the reply.",
       "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_tab_discard",
+      "class": "async",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+Freeze.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "wire:REPLY",
+      "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows; CEFTab.discard() reads the answer and the page host closes the page on a refusal (p13-webui-031).",
+      "fork_api": 29
     }
   ],
   "optional_events": [

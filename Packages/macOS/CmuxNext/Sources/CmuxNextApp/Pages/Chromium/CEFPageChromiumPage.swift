@@ -17,6 +17,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private var crashWatch: Task<Void, Never>?
     private var closed = false
+    /// A ``discard()`` took and no load has run since: the next ``load(_:)`` reloads the discarded entry.
+    private var discarded = false
 
     init(tab: CEFTab, pageID: String) {
         self.tab = tab
@@ -106,9 +108,23 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    func load(_ url: URL) { tab.load(url) }
+    func load(_ url: URL) {
+        guard discarded else { return tab.load(url) }
+        discarded = false
+        tab.loadDiscarded(url)
+    }
 
-    func reload() { tab.reload() }
+    func reload() {
+        discarded = false
+        tab.reload()
+    }
+
+    /// The tab's in-place discard (`CEFTab.discard()`); false on a fork without it.
+    func discard() -> Bool {
+        guard !closed, tab.discard() else { return false }
+        discarded = true
+        return true
+    }
 
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 

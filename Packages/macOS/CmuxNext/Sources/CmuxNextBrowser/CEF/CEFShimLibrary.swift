@@ -218,6 +218,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
 
+    /// `WebContents::Discard` in place (p13-webui-018): browser; 1 when the renderer went, 0 when the
+    /// browser is gone or Chromium counts it visible. The tab keeps its browser id, window slot,
+    /// NavigationEntry and session storage. Optional: a fork before it has no export (nil), and the
+    /// page host closes the page instead (`CEFTab.discard()`).
+    let tabDiscard: (@convention(c) (Int32) -> Int32)?
+
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
         addDocumentScript != nil && addPageChannel != nil && tabEvaluate != nil && tabSetFrozen != nil && tabSendClick != nil
@@ -451,6 +457,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
+        tabDiscard = r.optional("cmux_shim_tab_discard")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
