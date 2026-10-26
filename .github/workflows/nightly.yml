@@ -6010,20 +6010,26 @@ jobs:
           for feed in $NIGHTLY_FEEDS; do cp "next-github/$feed" "nightly-out/$feed"; done
           if [ -f next-github/nightly-prs.md ]; then cp next-github/nightly-prs.md "$RUNNER_TEMP/nightly-prs.md"; fi
 
-      - name: Check this build is still the feed's newest
-        id: order
+      # still-newest: exit 0 while no build above this one is on the live feed. Every mutable
+      # write below (rolling name, feed copy, body, tag) runs it just before writing, so an
+      # older run whose uploads waited out a rate limit never writes over a newer build's.
+      - name: Install the feed order check
         run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/still-newest" <<'SH'
+          #!/usr/bin/env bash
           set -euo pipefail
           live="$(mktemp)"
           curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
-            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}"
+            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}-$RANDOM"
           newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
+          rm -f "$live"
           if (( newest > NIGHTLY_BUILD )); then
-            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: only this build's immutable assets go to the release."
-            echo "newest=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "newest=true" >> "$GITHUB_OUTPUT"
+            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: its release state stays as that run writes it."
+            exit 1
           fi
+          SH
+          chmod +x "$RUNNER_TEMP/still-newest"
 
       - name: Prune old nightly release assets
         env:
@@ -6045,7 +6051,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Off the feed's path: this job may wait out the limit as long as its timeout allows.
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
-          NEWEST: ${{ steps.order.outputs.newest }}
         run: |
           set -euo pipefail
           args=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg")
@@ -6055,14 +6060,22 @@ jobs:
           args+=(--immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt")
           args+=(--immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")
           args+=(--immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt")
-          if [ "$NEWEST" = true ]; then
-            args+=(--alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg")
-            for feed in $NIGHTLY_FEEDS; do args+=(--feed "nightly-out/$feed"); done
-          fi
           python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --github-output "$GITHUB_OUTPUT" \
-            --replace-feeds "${args[@]}"
+            --github-output "$GITHUB_OUTPUT" "${args[@]}"
+          # The mutable names, each only while this build is still the feed's newest: the
+          # rolling DMG name (its upload takes seconds once the limit lets it through), then
+          # the feed copy, checked again after the DMG.
+          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg"
+          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          feeds=()
+          for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" --replace-feeds "${feeds[@]}"
+          echo "newest=true" >> "$GITHUB_OUTPUT"
 
       - name: Download the cmux-next source archive
         if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'own'
@@ -6114,7 +6127,7 @@ jobs:
 
       - name: Mint release tag app token
         id: release-tag-token
-        if: steps.order.outputs.newest == 'true'
+        if: steps.publish_assets.outputs.newest == 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6129,7 +6142,7 @@ jobs:
       # The release body with the cmux-published-sha marker decide reads, as publish-nightly's
       # Record step writes it on the other channels.
       - name: Record verified nightly publication
-        if: steps.order.outputs.newest == 'true'
+        if: steps.publish_assets.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -6158,6 +6171,7 @@ jobs:
           names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          "$RUNNER_TEMP/still-newest" || exit 0
           python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
@@ -6165,13 +6179,14 @@ jobs:
             --prerelease true --make-latest false "${expect[@]}"
 
       - name: Move channel release tag to built commit
-        if: steps.order.outputs.newest == 'true'
+        if: steps.publish_assets.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           GITHUB_TOKEN: ''
           BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
         run: |
           set -euo pipefail
+          "$RUNNER_TEMP/still-newest" || exit 0
           python3 "$PUBLISH_TOOLING/ci/update-release-tag.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --sha "$BUILD_SHA" --allow-non-descendant
@@ -7989,11 +8004,10 @@ jobs:
           FEED_BASE: ${{ needs.decide.outputs.feed_base }}
         run: |
           set -euo pipefail
-          object="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG")"
-          actual="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["object"]["sha"])' <<<"$object")"
-          if [ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["type"])' <<<"$object")" = tag ]; then
-            actual="$(gh api "repos/$REPOSITORY/git/tags/$actual" --jq .object.sha)"
-          fi
+          # The live NEXT feed is the order check: publish-nightly-next-github moves the
+          # nightly-next tag after the feed, off its path, so the tag can still name the
+          # previous build here. A newer build on the feed, or this one pulled by
+          # nightly-next-rollback.yml, skips the notes.
           feed="$(mktemp)"
           curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$feed" "$FEED_BASE/appcast-arm64.xml"
           live_build="$(python3 - "$feed" <<'PY'
@@ -8009,11 +8023,8 @@ jobs:
           raise SystemExit("missing appcast version")
           PY
           )"
-          if [ "$actual" != "$EXPECTED_SHA" ]; then
-            echo "::notice::Skipping stale release notes for $EXPECTED_SHA; $RELEASE_TAG already points to $actual"
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-          elif [[ "$live_build" =~ ^[0-9]+$ && "$EXPECTED_BUILD" =~ ^[0-9]+$ ]] && (( live_build > EXPECTED_BUILD )); then
-            echo "::notice::Skipping stale release notes for build $EXPECTED_BUILD; NEXT feed already serves $live_build"
+          if [[ "$live_build" =~ ^[0-9]+$ && "$EXPECTED_BUILD" =~ ^[0-9]+$ ]] && (( live_build != EXPECTED_BUILD )); then
+            echo "::notice::Skipping release notes for build $EXPECTED_BUILD ($EXPECTED_SHA); NEXT feed serves $live_build"
             echo 'current=false' >> "$GITHUB_OUTPUT"
           else
             echo 'current=true' >> "$GITHUB_OUTPUT"

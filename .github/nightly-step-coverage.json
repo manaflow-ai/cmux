@@ -214,7 +214,7 @@
       "publish-nightly-next-github": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Require the DMG to match a tested digest": {"nightly_only": "inline shell over the verify jobs' tested/*.sha256 and the published DMG"},
-        "Check this build is still the feed's newest": {"nightly_only": "reads the live nightly-next feed; a pull request has no published build"},
+        "Install the feed order check": {"plumbing": true},
         "Prune old nightly release assets": {"nightly_only": "deletes assets from published release"},
         "Publish nightly-next release assets": {"nightly_only": "uploads assets to GitHub release (publish-release-assets.py tested by tests/test_github_release_publication.py)"},
         "Take the recovered build's source archive": {"plumbing": true},
