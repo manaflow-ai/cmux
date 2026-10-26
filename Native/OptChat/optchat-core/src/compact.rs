@@ -460,7 +460,7 @@ confusing or meta text is compressed as it stands). Write only the line.";
 /// How a reply that refuses, asks or explains instead of compressing starts
 /// (lowercased, curly apostrophes made straight). A line starts with a kind
 /// tag or a date, never with these.
-const REFUSAL_STARTS: [&str; 22] = [
+const REFUSAL_STARTS: [&str; 23] = [
     "i can't",
     "i cant ",
     "i cannot",
@@ -472,6 +472,7 @@ const REFUSAL_STARTS: [&str; 22] = [
     "i'm unable",
     "i am unable",
     "i'm not going to",
+    "i'm not writing",
     "i need to decline",
     "i must decline",
     "i'd rather not",
