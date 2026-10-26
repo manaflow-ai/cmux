@@ -50,6 +50,8 @@ public final class PageRouter {
     var held = PageDeliveryHold()
     /// Why ``held`` holds (PageRouter+Hold.swift): it releases once no reason is left.
     var holdReasons: Set<PageDeliveryHoldReason> = []
+    /// Whether the providers were told the page froze (``pageWillFreeze()``) and not yet that it thawed.
+    public private(set) var providersFrozen = false
     /// Sends what the host's script pipeline keeps for the next frame now: a built-in command or a
     /// host call was just sent and must not wait a frame (``PageWebView`` sets it).
     var deliverNow: (@MainActor () -> Void)?
@@ -293,6 +295,34 @@ public final class PageRouter {
         held.remove(sub)
     }
 
+    // MARK: Freeze hooks
+
+    /// Tells each provider of the page's routes once that the page froze (``PageProvider/pageWillFreeze()``):
+    /// they stop the sources behind their streams. A second call before ``pageDidThaw()`` does nothing.
+    /// As Chrome's `WebUIImpl` calls `OnJavascriptDisallowed` on every handler of the page
+    /// (content/browser/webui/web_ui_impl.cc, `DisallowJavascriptOnAllHandlers`).
+    public func pageWillFreeze() {
+        guard !providersFrozen else { return }
+        providersFrozen = true
+        for provider in routeProviders { provider.pageWillFreeze() }
+    }
+
+    /// Tells each provider once that the page thawed (``PageProvider/pageDidThaw()``), in the thaw's
+    /// turn: their resyncs reach the hold, or the page, before anything the hold kept is released.
+    /// ``close()`` of a frozen page calls it after cancelling every stream, so the freeze and thaw
+    /// calls a provider gets always pair up.
+    public func pageDidThaw() {
+        guard providersFrozen else { return }
+        providersFrozen = false
+        for provider in routeProviders { provider.pageDidThaw() }
+    }
+
+    /// Each provider of the routes once (a relay serves several namespaces), in route order.
+    private var routeProviders: [any PageProvider] {
+        var seen = Set<ObjectIdentifier>()
+        return routes.map { $0.provider }.filter { seen.insert(ObjectIdentifier($0)).inserted }
+    }
+
     // MARK: Built-in streams
 
     /// Sends a dispatcher command to the page's command subscribers, past the hold and after a
@@ -388,6 +418,9 @@ public final class PageRouter {
         let running = inFlight
         inFlight.removeAll()
         for call in running.values { call.cancel() }
+        // A frozen document ended: its streams were cancelled above, so the thaw restarts nothing
+        // and leaves the providers running for the next document.
+        pageDidThaw()
     }
 
     /// Reopens after a reload of the same page (a new document starts with no subscriptions).

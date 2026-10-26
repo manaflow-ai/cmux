@@ -88,6 +88,9 @@ public final class PageHoldHarness {
         func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {
             onDrop?(data)
         }
+
+        func pageWillFreeze() { inner.pageWillFreeze() }
+        func pageDidThaw() { inner.pageDidThaw() }
     }
 
     /// The page's lifecycle as the router sees it: each call goes to the log.

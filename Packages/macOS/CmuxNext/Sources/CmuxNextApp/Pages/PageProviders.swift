@@ -111,12 +111,22 @@ final class AppPageNativeProvider: PageProvider {
 /// daemon's v2 op `<ns>.<verb>` (decision ONE-CATALOG: the short wire name is the canonical name's
 /// alias). `idempotency_key` moves from params to the v2 envelope; the daemon's refusal codes come
 /// back under `cmux.`. Until the pane-protocol router is in the daemon, this relay is the data path.
+///
+/// While the page is frozen its streams' listeners are paused (``PageRelayStreams``); the relay
+/// channel then closes its daemon connection when idle (``PageRelayIdleClose``).
 @MainActor
 final class DaemonPageRelay: PageProvider {
     private unowned let services: AppServices
+    private let streams = PageRelayStreams()
 
     init(services: AppServices) {
         self.services = services
+    }
+
+    /// The relay channel of `page` on the local daemon, kept by the app's page host.
+    private func channel(for page: String) -> PageRelayChannel {
+        PageRelayChannel.of(page: page, service: services.machines.local, in: services.webUI.relayChannels,
+                            deadlines: services.mainDeadlines, work: services.work)
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
@@ -128,7 +138,7 @@ final class DaemonPageRelay: PageProvider {
         let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
-            let result = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).send(
+            let result = try await channel(for: context.page).send(
                 operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
                 context: context)
             return try Self.pageValue(result)
@@ -147,16 +157,22 @@ final class DaemonPageRelay: PageProvider {
         guard services.machines.local.connection != nil else { throw PageError.closed }
         let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
         do {
-            let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
+            let channel = self.channel(for: context.page)
+            let listener = try await channel.listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            return Self.subscription(onCancel: cancel)
+            let stop = streams.add(listener: listener, on: channel) { onEvent(["resync": true]) }
+            return Self.subscription(onCancel: stop)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
     }
+
+    /// Frozen: no stream keeps a daemon listen. Thawed: each listens again and resyncs once.
+    func pageWillFreeze() { streams.freeze() }
+    func pageDidThaw() { streams.thaw() }
 
     /// Daemon page events are change notices the page answers with a fresh read (the relay sends
     /// `{resync: true}` after an overflow), so a frozen page keeps only the newest and a gap mark
@@ -221,4 +237,8 @@ final class PolicyGatedPageProvider: PageProvider {
         if let reason = turnedOff() { throw PageError(code: "cmux.policy.turned_off", message: reason) }
         return try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
+
+    /// The wrapped provider's streams stop and start with the page.
+    func pageWillFreeze() { inner.pageWillFreeze() }
+    func pageDidThaw() { inner.pageDidThaw() }
 }
