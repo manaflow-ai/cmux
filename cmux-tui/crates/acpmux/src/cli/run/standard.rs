@@ -423,7 +423,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
                 if let Some(group) = &args.group {
-                    let title = launch.title.as_deref().unwrap_or(&name);
+                    // Only explicit names opt into the app's predecessor-row reuse.
+                    // Generated names can be identical on independent peers.
+                    let title =
+                        launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
                     if let Err(e) = launch::show_in_group(&id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }

@@ -820,6 +820,25 @@ acpmux attach HOST/session-name        # or plain `acpmux attach` for the full s
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
 
+On a Mac running cmux NEXT, `--group` puts a remote chat in a local sidebar
+workspace group:
+
+```sh
+acpmux new --host HOST -m codex --group "Remote demo" -d "say hi"
+```
+
+The local `cmux agent open` receives the session ID mirrored by the local
+daemon; the agent stays on HOST. The group is joined or created, and opening
+the workspace may move focus. Add
+`--name demo --reuse` when rerunning should reuse the same
+session and row; an unnamed launch creates a new session each time. The
+invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
+HOST. A failed sidebar open warns without stopping the agent; retry the
+printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+omit `--group` remotely and open the returned ID on the controller Mac after
+creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
+native tab commands and connection diagnostics.
+
 `acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
 initialize handshake, so a "Method not found" from a peer names the build gap instead of a
 missing feature. `host update` skips a peer that already runs the same commit, installs a
