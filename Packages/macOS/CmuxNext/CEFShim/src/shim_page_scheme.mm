@@ -2,8 +2,10 @@
 // The scheme itself is registered in every process at startup
 // (page_scheme_registration.h). Each id gets its own scheme handler factory
 // for the domain <id>, on the global context and on every request context
-// the shim creates (each profile keeps its own factories). The path rules
-// live in cmux_page_path.h (scripts/cmux-next/test-cmux-page-path-cpp.sh).
+// the shim creates (each profile keeps its own factories). The first-party
+// id cmux.shared gets the shared chunk factory instead, which is not a page.
+// The path rules live in cmux_page_path.h
+// (scripts/cmux-next/test-cmux-page-path-cpp.sh).
 
 #include <algorithm>
 #include <atomic>
@@ -220,9 +222,68 @@ class PageFactory : public CefSchemeHandlerFactory {
   IMPLEMENT_REFCOUNTING(PageFactory);
 };
 
+// cmux-page://cmux.shared/ (kSharedChunkHost): the chunks first-party pages
+// import, served from its folder only as .js and .css, only to a CORS
+// request from a first-party page origin (its ACAO echoes that origin), and
+// never to a navigation (the rules are in cmux_page_path.h). Immutable after
+// construction: Create runs off the UI thread.
+class SharedChunkFactory : public CefSchemeHandlerFactory {
+ public:
+  SharedChunkFactory(std::string root, std::string csp) : root_(std::move(root)), csp_(std::move(csp)) {}
+
+  CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, const CefString&,
+                                       CefRefPtr<CefRequest> request) override {
+    const cef_resource_type_t type = request->GetResourceType();
+    const std::string origin = request->GetHeaderByName("Origin").ToString();
+    const std::string frame_url = frame ? frame->GetURL().ToString() : std::string();
+    if (!SharedChunkRequestAllowed(type == RT_MAIN_FRAME || type == RT_SUB_FRAME, frame_url, origin)) {
+      static char kBody[] = "Forbidden";
+      return Respond(403, "Forbidden", Headers(std::string()), kBody, sizeof(kBody) - 1);
+    }
+    const std::string allowed = SharedChunkAllowedOrigin(origin);
+    if (request->GetMethod().ToString() != "GET") {
+      static char kBody[] = "Method Not Allowed";
+      CefResponse::HeaderMap headers = Headers(allowed);
+      headers.emplace("Allow", "GET");
+      return Respond(405, "Method Not Allowed", headers, kBody, sizeof(kBody) - 1);
+    }
+    CefURLParts parts;
+    std::string file;
+    std::string mime;
+    if (CefParseURL(request->GetURL(), parts)) {
+      const std::string path = CefString(&parts.path).ToString();
+      if (IsSharedChunkPath(path) && ResolvePagePath(root_, path, &file, &mime) && IsSharedChunkPath(file)) {
+        if (CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForFile(file)) {
+          return new CefStreamResourceHandler(200, "OK", mime, Headers(allowed), stream);
+        }
+      }
+    }
+    static char kBody[] = "Not Found";
+    return Respond(404, "Not Found", Headers(allowed), kBody, sizeof(kBody) - 1);
+  }
+
+ private:
+  CefResponse::HeaderMap Headers(const std::string& allowed_origin) const {
+    CefResponse::HeaderMap headers;
+    for (auto& [name, value] : SharedChunkResponseHeaders(csp_, allowed_origin)) headers.emplace(name, value);
+    return headers;
+  }
+
+  // body is static storage, so the reader may keep pointing at it.
+  static CefRefPtr<CefResourceHandler> Respond(int status, const char* text, const CefResponse::HeaderMap& headers,
+                                               char* body, size_t size) {
+    return new CefStreamResourceHandler(status, text, "text/plain", headers,
+                                        CefStreamReader::CreateForData(body, size));
+  }
+
+  const std::string root_;
+  const std::string csp_;
+  IMPLEMENT_REFCOUNTING(SharedChunkFactory);
+};
+
 // Page id -> its factory (UI thread).
-std::map<std::string, CefRefPtr<PageFactory>>& pages() {
-  static std::map<std::string, CefRefPtr<PageFactory>> map;
+std::map<std::string, CefRefPtr<CefSchemeHandlerFactory>>& pages() {
+  static std::map<std::string, CefRefPtr<CefSchemeHandlerFactory>> map;
   return map;
 }
 
@@ -284,8 +345,13 @@ int AddPage(const char* id, const char* resource_root, const char* csp, bool fir
   if (stat(root.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return 0;
   // Pinned to its real path now (a later symlink swap of the given path
   // cannot move it); ResolvePagePath checks real paths again per request.
-  CefRefPtr<PageFactory> factory =
-      new PageFactory(domain, root, csp ? csp : kCmuxPageDefaultCSP, SplitPrefixes(dynamic_prefixes), entry_name);
+  // cmux.shared is never a page: its own factory serves chunks, not documents.
+  CefRefPtr<CefSchemeHandlerFactory> factory;
+  if (domain == kSharedChunkHost) {
+    factory = new SharedChunkFactory(root, csp ? csp : kSharedChunkDefaultCSP);
+  } else {
+    factory = new PageFactory(domain, root, csp ? csp : kCmuxPageDefaultCSP, SplitPrefixes(dynamic_prefixes), entry_name);
+  }
   pages()[domain] = factory;
   if (g_global_ready) CefRegisterSchemeHandlerFactory(kCmuxPageScheme, domain, factory);
   ForEachRequestContext([&](CefRefPtr<CefRequestContext> context) {
