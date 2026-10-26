@@ -355,7 +355,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
             startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
         }
-        settings.start(announcingDiagnostics: true)
+        // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
+        settings.start(announcingDiagnostics: true,
+                       availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)

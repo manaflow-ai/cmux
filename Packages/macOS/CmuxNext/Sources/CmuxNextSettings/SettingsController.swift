@@ -113,11 +113,13 @@ public final class SettingsController {
     /// Loads the file now (the launch's read when the controller was made with one: no file call
     /// on this thread) and starts watching it; the watches are armed off this thread, then reload
     /// once. `announcingDiagnostics`: the app also tells the person about a value it ignores
-    /// (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false) {
+    /// (`SettingsDiagnosticToasts`), sending them to its Settings row only while `availability`
+    /// says the page draws it; tests leave it off.
+    public func start(announcingDiagnostics: Bool = false,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }

@@ -7,7 +7,8 @@ import CmuxNextDesign
 /// (`SettingsDiagnosticNotices`): a toast on the key window names the key,
 /// the value and why. Its button opens the key's Settings row (which says it
 /// too), Keyboard Shortcuts for a shortcut, or the file for a key Settings has
-/// no row for and for a file that does not parse. A refusal is announced
+/// no row for now (``SettingsAvailability``: a row whose feature is off) and
+/// for a file that does not parse. A refusal is announced
 /// once, also across launches, until it is fixed; a refusal that finds no
 /// window waits for the next window that becomes key. Fixing the refusal the
 /// toast names closes it. An agent or a hand edit that writes the file past
@@ -23,14 +24,17 @@ final class SettingsDiagnosticToasts {
     static let valueLimit = 80
 
     private let registry: ActionRegistry
+    /// The rows the Settings page draws now, read when a toast shows (the deep link reads the same).
+    private let availability: @MainActor () -> SettingsAvailability
     private let defaults = UserDefaults.standard
     private var notices: SettingsDiagnosticNotices
     /// Refusals the last load found that no toast has shown yet.
     private var pending: [SettingsDiagnosticNotices.Notice] = []
     private var shown: CmuxToastHandle?
 
-    init(registry: ActionRegistry) {
+    init(registry: ActionRegistry, availability: @escaping @MainActor () -> SettingsAvailability) {
         self.registry = registry
+        self.availability = availability
         notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
     }
 
@@ -79,9 +83,12 @@ final class SettingsDiagnosticToasts {
     /// Where the toast's button goes.
     enum Destination: Equatable { case row, shortcuts, file }
 
-    static func destination(_ path: String) -> Destination {
+    /// A row only while the page draws it (`availability`), so Show in Settings never opens on a row
+    /// the page leaves out: `openSettings` refuses that row the same way.
+    static func destination(_ path: String, availability: SettingsAvailability) -> Destination {
         if path.isEmpty { return .file }
-        if SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: path))?.isShownOnSettingsPage == true { return .row }
+        if let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: path)),
+           availability.isShownOnSettingsPage(descriptor) { return .row }
         return path.hasPrefix("shortcuts.") ? .shortcuts : .file
     }
 
@@ -89,7 +96,7 @@ final class SettingsDiagnosticToasts {
                       in window: NSWindow) -> CmuxToastHandle {
         var message = SettingsDiagnosticStrings.message(notice, valueLimit: Self.valueLimit)
         if more { message += " " + SettingsDiagnosticStrings.more }
-        let destination = Self.destination(notice.path)
+        let destination = Self.destination(notice.path, availability: availability())
         let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))

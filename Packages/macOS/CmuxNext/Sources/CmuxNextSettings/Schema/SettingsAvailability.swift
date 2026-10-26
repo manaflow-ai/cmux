@@ -23,6 +23,13 @@ public nonisolated struct SettingsAvailability: Sendable, Equatable {
         !hiddenRows.contains(descriptor.id)
     }
 
+    /// Whether the Settings page draws `descriptor` now: its fixed page exposure and this value both
+    /// show it. Every entry point that names a page row asks this (the deep link's anchor, the
+    /// diagnostic toast's Show in Settings), so none of them points at a row the page leaves out.
+    public func isShownOnSettingsPage(_ descriptor: SettingDescriptor) -> Bool {
+        descriptor.isShownOnSettingsPage && isShown(descriptor)
+    }
+
     /// Whether `descriptor`'s choice `value` is offered now. The `current` value is always offered,
     /// so a row never shows a value the person cannot see selected.
     public func isShown(choice value: String, of descriptor: SettingDescriptor, current: JSONValue?) -> Bool {

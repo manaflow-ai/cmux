@@ -72,6 +72,19 @@ struct EnergySaverSettingTests {
         #expect(Self.modes.allSatisfy { availability.isShown(choice: $0, of: row, current: nil) })
     }
 
+    /// What the page draws is what every entry point that names a row may point at: with the feature
+    /// off, the row is not on the page, and a refused `energy.saver` value's toast opens the file
+    /// instead of a Settings row that is not there.
+    @MainActor @Test func aHiddenRowIsNoSettingsTarget() throws {
+        let row = try #require(SettingsSchema.all.first { $0.id == "energy.saver" })
+        let off = EnergySaverSetting().availability(featureEnabled: false, hasBattery: true)
+        let on = EnergySaverSetting().availability(featureEnabled: true, hasBattery: false)
+        #expect(!off.isShownOnSettingsPage(row))
+        #expect(on.isShownOnSettingsPage(row))
+        #expect(SettingsDiagnosticToasts.destination("energy.saver", availability: off) == .file)
+        #expect(SettingsDiagnosticToasts.destination("energy.saver", availability: on) == .row)
+    }
+
     /// Battery and power are the person's call, like `sessions.keepAwake`, and a write of the setting
     /// ends their "Turn Off Energy Saver for Now": an agent must not do either.
     @Test func agentsCannotSetIt() {
