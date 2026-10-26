@@ -23,7 +23,8 @@ export const trayMotionLook = defineExperiment({
     },
     spring: {
       label: "Slight spring",
-      description: "An 8px rise from 98% scale on the standard step (180 ms) with a small overshoot; out on the quick step.",
+      description:
+        "An 8px rise from 98% scale on the standard step (180 ms) with a small overshoot; out on the quick step.",
     },
   },
   defaultArm: "message",

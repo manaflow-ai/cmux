@@ -6220,33 +6220,33 @@ function AcpmuxPane() {
   const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
   if (!hasTray) trayAbsentIn.current = shownSessionId;
   const trayNode = hasTray ? (
-      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-          />
-        </SubagentClockContext.Provider>
-      </BackgroundTaskOutputContext.Provider>
-    ) : null;
+    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        <SubagentTray
+          key={shownSessionId}
+          items={trayList}
+          finished={trayFinished}
+          working={snapshot.isWorking}
+          waiting={waitingAgents}
+          onOpen={showSubagent}
+          onOpenCommand={openTrayCommand}
+          canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+          canReadTail={
+            opensProcessTerminal(snapshot.summary) &&
+            clientEpoch > 0 &&
+            directClient.current !== undefined &&
+            backgroundTaskOutput !== undefined
+          }
+          onOpenSession={openOfferChat}
+          stop={stopSubagent}
+          stopProcess={stopProcess}
+          placement={trayPlacement}
+          shown={trayChat}
+          enters={trayEnters}
+        />
+      </SubagentClockContext.Provider>
+    </BackgroundTaskOutputContext.Provider>
+  ) : null;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back

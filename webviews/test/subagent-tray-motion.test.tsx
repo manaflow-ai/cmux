@@ -74,7 +74,8 @@ const NONE = new Set<string>();
 /// An animation's end, as WebKit sends it and as React may listen for it (jsdom's styles carry the
 /// prefixed property, so React picks the prefixed event).
 const ended = (node: Element) => {
-  for (const name of ["animationend", "webkitAnimationEnd"]) node.dispatchEvent(new dom.window.Event(name, { bubbles: true }));
+  for (const name of ["animationend", "webkitAnimationEnd"])
+    node.dispatchEvent(new dom.window.Event(name, { bubbles: true }));
 };
 
 function mount() {
@@ -127,7 +128,9 @@ describe("subagent tray motion", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await act(async () =>
-      root.render(createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown })),
+      root.render(
+        createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown }),
+      ),
     );
     await act(async () => root.render(null));
     const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;
@@ -161,7 +164,14 @@ describe("subagent tray motion", () => {
     const { root } = mount();
     await act(async () =>
       root.render(
-        createElement(SubagentTray, { items: [item("A")], working: true, waiting: NONE, onOpen: () => {}, shown, enters: true }),
+        createElement(SubagentTray, {
+          items: [item("A")],
+          working: true,
+          waiting: NONE,
+          onOpen: () => {},
+          shown,
+          enters: true,
+        }),
       ),
     );
     expect(host.querySelector(".acpmux-running-tray")!.hasAttribute(TRAY_ENTER_ATTR)).toBe(false);

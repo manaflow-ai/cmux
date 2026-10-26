@@ -901,9 +901,13 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       const more = tray.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      // The tray is the header, the list, then View all: neither pinned part is inside the scroller.
+      // The tray is the header, then the fold (trayMotion.tsx) with the list and View all under it:
+      // neither pinned part is inside the scroller.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
+        "acpmux-running-tray__fold",
+      ]);
+      expect([...tray.children[1]!.children].map((child) => child.className)).toEqual([
         "acpmux-running-tray__list",
         expect.stringContaining("acpmux-running-tray__finished"),
       ]);
