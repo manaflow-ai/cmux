@@ -32,14 +32,23 @@ public struct ApprovalBanner: Equatable, Sendable {
         guard p.kind == .permission else { return nil }
         let agent = p.agent ?? String(localized: "Your agent")
         title = Self.title(agent: agent, mac: p.macDisplayName)
-        scope = p.placeName.map { String(localized: "Asks to run this in \($0).") } ?? String(localized: "Asks to run this.")
+        scope = p.placeName.flatMap { $0.isEmpty ? nil : $0 }.map { String(localized: "Asks to run this in \($0).") }
+            ?? String(localized: "Asks to run this.")
         detailLabel = String(localized: "Request")
-        detail = [p.title, p.body].lazy.compactMap { $0 }.first { !$0.isEmpty }
-        let rows = PushForm(payload: p).rows
+        detail = Self.detail(p)
+        // One row per option id, in the Mac's order.
+        var seen = Set<String>()
+        let rows = PushForm(payload: p).rows.filter { seen.insert($0.id).inserted }
         let kinds = Dictionary(p.options.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
-        deny = rows.first { $0.style == .deny }
+        // The single-use answers lead, as the notification's own buttons (`PushActions.plan`).
+        deny = rows.first { $0.style == .deny && kinds[$0.id] == .rejectOnce } ?? rows.first { $0.style == .deny }
         allow = rows.first { $0.style == .allow && kinds[$0.id] == .allowOnce } ?? rows.first { $0.style == .allow }
-        more = rows.filter { $0 != deny && $0 != allow }
+        more = rows.filter { $0.id != deny?.id && $0.id != allow?.id }
+    }
+
+    /// The request: the tool's title, else the body; an empty one counts as none (the Worker's `||`).
+    static func detail(_ p: PushPayload) -> String? {
+        [p.title, p.body].lazy.compactMap { $0 }.first { !$0.isEmpty }
     }
 
     /// The banner title, shared with `PushBanner` and the Worker's `alert`.

@@ -62,10 +62,28 @@ import UserNotifications
         let many = try #require(ApprovalBanner(payload: Self.permission([("always", "allow_always"), ("session", "allow_always"),
                                                                          ("no", "reject_once"), ("never", "reject_always")])))
         #expect(many.allow?.id == "always" && many.deny?.id == "no" && many.more.map(\.id) == ["session", "never"])
+        // A lasting reject listed first: Deny is still the single-use one, as the lock screen's Deny.
+        let lastingFirst = try #require(ApprovalBanner(payload: Self.permission([("always", "allow_always"), ("never", "reject_always"),
+                                                                                 ("no", "reject_once")])))
+        #expect(lastingFirst.deny?.id == "no" && lastingFirst.more.map(\.id) == ["never"])
+        // An option id sent twice shows once.
+        let twice = try #require(ApprovalBanner(payload: Self.permission([("always", "allow_always"), ("always", "allow_always"),
+                                                                          ("no", "reject_once")])))
+        #expect(twice.allow?.id == "always" && twice.more.isEmpty)
         // A tap on an answer sends that option, as the rows did.
         var form = PushForm(payload: Self.permission([("yes", "allow_once"), ("no", "reject_once")]))
         #expect(form.tap(try #require(once.deny)) == .deny(optionID: "no"))
         #expect(form.tap(try #require(once.allow)) == .allow(optionID: "yes"))
+    }
+
+    /// An empty title or workspace counts as none, as the Worker's `||` does.
+    @Test func emptyTextCountsAsNone() throws {
+        var p = Self.permission([], workspace: "")
+        p.title = ""
+        p.body = "Run the deploy script"
+        let banner = try #require(ApprovalBanner(payload: p))
+        #expect(banner.detail == "Run the deploy script" && banner.scope == "Asks to run this.")
+        #expect(PushBanner(payload: p).body == "Run the deploy script")
     }
 
     /// Show previews off: the lock screen still says only the kind and the Mac.
