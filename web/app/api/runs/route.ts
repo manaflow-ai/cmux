@@ -1,6 +1,6 @@
 import { resolveVmProvisioningAccountScope, runAfterResponse, withAuthedVmApiRoute } from "../../../services/vms/routeHelpers";
 import { runError, runJson, jsonBodyObject } from "../../../services/runs/http";
-import { findRunByIdempotencyKey, requestDigest, type RunSource } from "../../../services/runs/repository";
+import { findRunByIdempotencyKey, getRun, requestDigest, type RunSource } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts, launchSandboxRun } from "../../../services/runs/dogfood";
 import {
   ALLOWED_RUN_RECIPES,
@@ -145,6 +145,32 @@ function runRequestDigest(parsed: ParsedRunBody): string {
   return requestDigest({ source: parsed.source, recipe: parsed.recipe, desiredAttempts: parsed.desiredAttempts, provider: parsed.provider, routing: parsed.routing });
 }
 
+/**
+ * A retry of a sandboxed Run that already launched answers that Run before any check that can
+ * change between the two requests (provisioning scope, the allocation rate limit, the allowlist):
+ * a lost create response must always be recoverable under its key. A Run still queued, or a
+ * different request under the key, goes the normal path (which launches it, or conflicts).
+ */
+async function replaySandboxRun(parsed: ParsedRunBody, userId: string, idempotencyKey: string): Promise<Response | null> {
+  if (!parsed.sandbox) return null;
+  const existing = await findRunByIdempotencyKey(userId, idempotencyKey);
+  if (existing?.environment !== "sandboxed" || existing.requestDigest !== runRequestDigest(parsed)) return null;
+  const snapshot = await getRun(existing.id, userId);
+  if (snapshot.attempts.some((attempt) => attempt.status === "queued")) return null;
+  return runJson({
+    id: snapshot.run.id,
+    status: snapshot.run.status,
+    attempts: snapshot.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status })),
+    createdAt: snapshot.run.createdAt,
+    environment: snapshot.run.environment,
+    image: snapshot.run.imageId ? { id: snapshot.run.imageId, version: snapshot.run.imageVersion } : null,
+    executionProvider: "cloud-vm",
+    backendProvider: "freestyle",
+    routing: runRoutingFor({ routing: parsed.routing, backendProvider: "freestyle" }),
+    admission: runAdmissionFor({ backendProvider: "freestyle", accountEligible: true, limits: null }),
+  }, 202);
+}
+
 /** The Run columns a sandbox adds; a persistent Run records no image. */
 function environmentColumns(parsed: ParsedRunBody) {
   const image = parsed.sandbox?.image;
@@ -221,6 +247,8 @@ export async function POST(request: Request): Promise<Response> {
       if (parsedBody instanceof Response) return parsedBody;
       const idempotencyKey = request.headers.get("idempotency-key")?.trim() || request.headers.get("x-cmux-idempotency-key")?.trim() || "";
       if (!idempotencyKey || idempotencyKey.length > 128) return runJson({ error: "run_idempotency_required", message: "Idempotency-Key is required for Run creation." }, 400);
+      const replay = await replaySandboxRun(parsedBody, user.id, idempotencyKey);
+      if (replay) return replay;
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
       const pinned = await pinSandboxImage(parsedBody, user.id, idempotencyKey);
