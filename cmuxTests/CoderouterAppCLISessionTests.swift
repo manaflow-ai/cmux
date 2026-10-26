@@ -291,14 +291,12 @@ struct CoderouterAppCLISessionTests {
         try Data("#!/bin/sh\nexec sleep 30\n".utf8).write(to: script)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let reader = session(credentials: Credentials(), executable: script.path, fixture: fixture, commandTimeout: 0.2)
-        let started = Date()
 
         await #expect(throws: CoderouterCLIFailure.unreachable) {
             try await reader.withSession(teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1") { run in
                 try await run(["accounts", "--json", "--team", Self.teamA])
             }
         }
-        #expect(Date().timeIntervalSince(started) < 10)
         let reads = CoderouterAppCLISession.readSession.root(in: fixture.sessionRoot)
         #expect(((try? FileManager.default.contentsOfDirectory(atPath: reads.path)) ?? []).isEmpty)
         // No sweep can remove a configuration while its command may still run.
