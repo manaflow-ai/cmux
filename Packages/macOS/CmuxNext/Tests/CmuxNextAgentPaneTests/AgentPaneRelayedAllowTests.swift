@@ -222,7 +222,8 @@ struct AgentPaneRelayedAllowTests {
         _ = await inbox.frame(containing: "permission_pending")
 
         transport.gestures.record(click: true)
-        let ticket = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))))
+        let intentB = try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))
+        let ticket = try #require(transport.reserveGesture(intentB))
         let answer = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"B"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
         let error = await transport.send(connection: id, frames: [answer])
         #expect(error == nil, "\(String(describing: error))")
@@ -317,14 +318,16 @@ struct AgentPaneRelayedAllowTests {
         _ = await inbox.frame(containing: "permission_pending")
 
         transport.gestures.record(click: true)
-        let ticket = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))))
+        let intentB = try #require(Self.intent(option: "yes", answers: ["Which one?": "B"]))
+        let ticket = try #require(transport.reserveGesture(intentB))
         let swapped = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"A"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
         #expect(await transport.send(connection: id, frames: [swapped]) == .gestureRequired)
 
         // A composed é in the ticket, a decomposed one in the frame: canonically equivalent, but
         // other bytes, so refused too (Codex review, round 2).
         transport.gestures.record(click: true)
-        let cafe = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes", answers: ["Which one?": "caf\u{E9}"]))))
+        let intentCafe = try #require(Self.intent(option: "yes", answers: ["Which one?": "caf\u{E9}"]))
+        let cafe = try #require(transport.reserveGesture(intentCafe))
         let decomposed = #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"cafe\u0301"},"_meta":{"cmuxGesture":"\#(cafe)"}}}"#
         #expect(await transport.send(connection: id, frames: [decomposed]) == .gestureRequired)
         #expect(wire.sentCount(containing: "permission_respond") == 0, "a swapped answer went out")

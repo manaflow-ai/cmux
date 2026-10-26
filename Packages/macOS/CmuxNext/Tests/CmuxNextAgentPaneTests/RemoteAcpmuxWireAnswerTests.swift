@@ -95,8 +95,8 @@ struct RemoteAcpmuxWireAnswerTests {
 
         transport.gestures.record(click: true)
         let notes: [String: Any] = ["Which one?": ["preview": "[ B ]", "notes": "but narrower"]]
-        let ticket = try #require(transport.reserveGesture(try #require(Relayed.intent(option: "yes", answers: ["Which one?": "B"],
-                                                                                       annotations: notes))))
+        let intent = try #require(Relayed.intent(option: "yes", answers: ["Which one?": "B"], annotations: notes))
+        let ticket = try #require(transport.reserveGesture(intent))
         let frame = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"B"},"annotations":{"Which one?":{"preview":"[ B ]","notes":"but narrower"}},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
         let error = await transport.send(connection: id, frames: [frame])
         #expect(error == nil, "\(String(describing: error))")
