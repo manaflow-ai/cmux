@@ -11,9 +11,13 @@ with a DevTools port, lets it settle, then with no input:
   3. Chromium's own trace for the window (every process): per process and thread, the tasks per second by
      posting location, BeginFrames, BeginMainFrames, and the TracingStartedInBrowser frame list (renderer pid
      to URL).
+  4. CEF-IDLE-POSTED {"process","pid","thread","location","per_s"} for every posting location, highest per_s first
+     (Q8, p14-energy-041); `--queue` keeps the ones at or above QUEUE_MIN_PER_S, the Q8 work list. Then
+     CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
 Writes OUT/cef-idle.json and prints CEF-IDLE lines.
 
-  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10]
+  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10] [--queue]
+  cef-idle-probe.py --trace OUT/chromium-trace.json --seconds 10 [--queue]   (a recorded trace, no app)
 """
 import argparse, collections, json, os, sys, time
 
@@ -40,8 +44,55 @@ PAGE_PROBE = r"""(async () => {
 })()"""
 
 
+# A posting location at or above this rate in an idle session is one Q8 item (p14-energy.md, section 6).
+QUEUE_MIN_PER_S = 0.02
+TASK_EVENTS = ("ThreadControllerImpl::RunTask", "ThreadPool_RunTask")
+# The browser process's UI thread (content/public/browser/browser_thread.h); in-process CEF runs it on the app's
+# main thread, driven by the external pump that debug.cef counts.
+BROWSER_MAIN_THREAD = "CrBrowserMain"
+
+
+def posted_from(args):
+    """The task's PostTask location: legacy JSON args (src_file, src_func) or the converted typed event
+    (task.posted_from, base/trace_event/task_execution_macros.h)."""
+    if "src_file" in args or "src_func" in args:
+        return f"{args.get('src_file')}:{args.get('src_func')}"
+    origin = (args.get("task") or {}).get("posted_from") or {}
+    return f"{origin.get('file_name')}:{origin.get('function_name')}"
+
+
+def posted_rows(tasks, seconds, minimum=0.0):
+    """One row per (process, thread, location), highest per_s first; rows under `minimum` are dropped
+    (compared before rounding, so 0.0199/s stays out of a 0.02 queue)."""
+    rows = [{"process": process, "pid": pid, "thread": thread, "location": location, "per_s": count / seconds}
+            for (process, pid, thread, location), count in tasks.items() if count / seconds >= minimum]
+    rows.sort(key=lambda row: (-row["per_s"], row["process"], str(row["pid"]), row["thread"], row["location"]))
+    for row in rows:
+        row["per_s"] = round(row["per_s"], 3)
+    return rows
+
+
+def pump_comparison(posted, pump_per_s, early_passes):
+    """The browser main thread's posted tasks per second beside the pump's work runs and requests per second."""
+    main_tasks = sum(row["per_s"] for row in posted if row["thread"] == BROWSER_MAIN_THREAD)
+    report = {"browser_main_tasks_per_s": round(main_tasks, 3), "early_passes": early_passes}
+    for key in ("work_runs", "immediate_requests", "delayed_requests", "reentrant_fires"):
+        if key in pump_per_s:
+            report[f"{key}_per_s"] = pump_per_s[key]
+    return report
+
+
+def print_posted(task_counts, seconds, queue, pump_per_s, early_passes):
+    posted = posted_rows(task_counts, seconds)
+    for row in (posted_rows(task_counts, seconds, QUEUE_MIN_PER_S) if queue else posted):
+        print("CEF-IDLE-POSTED " + json.dumps(row), flush=True)
+    print("CEF-IDLE-POSTED-PUMP " + json.dumps(pump_comparison(posted, pump_per_s, early_passes)), flush=True)
+    return posted
+
+
 def chromium_summary(path, seconds):
-    data = json.load(open(path))
+    with open(path) as f:
+        data = json.load(f)
     events = data["traceEvents"] if isinstance(data, dict) else data
     names = {(e["pid"], e["tid"]): e["args"]["name"] for e in events if e.get("ph") == "M" and e.get("name") == "thread_name"}
     procs = {e["pid"]: e["args"]["name"] for e in events if e.get("ph") == "M" and e.get("name") == "process_name"}
@@ -54,23 +105,34 @@ def chromium_summary(path, seconds):
         if e.get("ph") != "X":
             continue
         where = (procs.get(e["pid"], f"browser {e['pid']}"), e["pid"], names.get((e["pid"], e["tid"]), str(e["tid"])))
-        if name in ("ThreadControllerImpl::RunTask", "ThreadPool_RunTask"):
-            tasks[where + (f"{args.get('src_file')}:{args.get('src_func')}",)] += 1
+        if name in TASK_EVENTS:
+            tasks[where + (posted_from(args),)] += 1
         elif name in ("Scheduler::BeginImplFrame", "ProxyMain::BeginMainFrame", "DisplayScheduler::BeginFrame",
                       "AnimationHost::TickAnimations", "PageAnimator::serviceScriptedAnimations"):
             frames[where + (name,)] += 1
     rate = lambda c: [{"where": list(k), "per_s": round(v / seconds, 2)} for k, v in c.most_common(40)]  # noqa: E731
-    return {"tasks": rate(tasks), "frames": rate(frames), "renderer_urls": {str(k): v for k, v in urls.items()},
+    return {"tasks": rate(tasks), "task_counts": tasks, "frames": rate(frames), "renderer_urls": {str(k): v for k, v in urls.items()},
             "processes": {str(k): v for k, v in procs.items()}}
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--app", required=True)
+    parser = argparse.ArgumentParser(description="What keeps Chromium awake in an idle session; prints CEF-IDLE lines.")
+    parser.add_argument("--app", help="the tagged app to launch (required unless --trace)")
+    parser.add_argument("--trace", help="summarize this recorded chromium-trace.json instead of launching the app")
+    parser.add_argument("--seconds", type=float, help="the recorded trace's window in seconds (with --trace)")
+    parser.add_argument("--queue", action="store_true",
+                        help=f"print only posting locations at or above {QUEUE_MIN_PER_S}/s (the Q8 work list)")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "artifacts", "cef-idle"))
     parser.add_argument("--settle", type=float, default=60)
     parser.add_argument("--window", type=float, default=10)
     opts, _ = parser.parse_known_args()
+    if opts.trace:
+        if not opts.seconds or opts.seconds <= 0:
+            parser.error("--trace needs --seconds > 0")
+        print_posted(chromium_summary(opts.trace, opts.seconds)["task_counts"], opts.seconds, opts.queue, {}, None)
+        return
+    if not opts.app:
+        parser.error("--app is required unless --trace is given")
     os.makedirs(opts.out, exist_ok=True)
     from bench_launch import BenchApp
     from ext_e2e import cdp
@@ -126,11 +188,14 @@ def main():
         report["early_passes"] = after.get("early_passes", 0) - before.get("early_passes", 0)
         print("CEF-IDLE-EARLY-PASSES " + json.dumps({"count": report["early_passes"], "seconds": round(seconds, 2)}), flush=True)
         report["chromium"] = chromium_summary(os.path.join(opts.out, "chromium-trace.json"), seconds)
+        task_counts = report["chromium"].pop("task_counts")  # tuple keys; `posted` below carries every row
         for row in report["chromium"]["tasks"][:25]:
             print("CEF-IDLE-TASK " + json.dumps(row), flush=True)
         for row in report["chromium"]["frames"][:20]:
             print("CEF-IDLE-FRAME " + json.dumps(row), flush=True)
         print("CEF-IDLE-RENDERERS " + json.dumps(report["chromium"]["renderer_urls"]), flush=True)
+        report["chromium"]["posted"] = print_posted(task_counts, seconds, opts.queue,
+                                                    report["pump_per_s"], report["early_passes"])
     except BaseException as error:  # noqa: BLE001 - the report keeps what was read
         report["error"] = f"{type(error).__name__}: {error}"[:500]
         print("CEF-IDLE-ERROR " + report["error"], flush=True)
