@@ -27,6 +27,7 @@ the tip's tools on a scratch ref of that commit (task 069 did so at 772cdfc45ac)
 """
 import argparse
 import datetime
+import functools
 import importlib.util
 import json
 import os
@@ -51,6 +52,7 @@ TEMPERATURE = "launch.temperature"
 TAIL = 4000
 
 
+@functools.cache
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -126,11 +128,18 @@ def bench_rows(name, part):
     numbers = part["numbers"]
     left = numbers["runs"] - numbers["kept"]
     temps = ", ".join(f"{k} {v}" for k, v in sorted(numbers["temperatures"].items())) or "not sent by this build"
-    rows = [(f"{name}: runs", f"{numbers['kept']} kept of {numbers['runs']} ({left} interrupted, left out); "
+    failed = part.get("failed_runs") or 0
+    refused = f", {failed} invocations wrote no run (last: {last_line(part)})" if failed else ""
+    rows = [(f"{name}: runs", f"{numbers['kept']} kept of {numbers['runs']} ({left} interrupted, left out{refused}); "
              f"launch.temperature: {temps}{'; ' + part['note'] if part.get('note') else ''}")]
     for mark in ROW_MARKS:
         rows.append((f"{name}: {mark}", spread_text(numbers["marks"].get(mark)) or "not sent by this build"))
     return rows
+
+
+def last_line(part):
+    lines = [line for line in (part.get("tail") or "").splitlines() if line.strip()]
+    return lines[-1][:300] if lines else "no output"
 
 
 def part_failure(part):
@@ -238,15 +247,42 @@ def build_check(app):
     return [], f"an unstamped {kind} bundle (its reload.sh predates the stamp; the executable says optimized)"
 
 
+def merge_bench(files):
+    """One bench-startup.py --json document ({tag: {mode: [runs]}}) from several, runs kept in order."""
+    merged = {}
+    for data in files:
+        for tag, modes in (data or {}).items():
+            for mode, runs in modes.items():
+                merged.setdefault(tag, {}).setdefault(mode, []).extend(runs)
+    return merged
+
+
 def bench_part(opts, out, name, mode, runs, extra):
+    """RUNS bench-startup.py invocations of one run each, the tag's app processes stopped between them: at
+    772cdfc45ac a quit app's Chromium helpers outlive it for a moment, and bench-startup refuses a launch while
+    any process of the bundle runs (so its own run 2 never started). The runs merge into OUT/NAME.json."""
     path = os.path.join(out, f"{name}.json")
-    command = tool("bench-startup.py") + ["--app", opts.app, "--mode", mode, "--runs", str(runs), "--hangs",
-                                          str(opts.hangs), "--timeout", str(opts.timeout), "--json", path,
-                                          "--build-config", opts.build_config] + opts.optimized_flags + extra
-    part = run(command, os.path.join(out, f"{name}.log"), opts.part_timeout)
-    data = read_json(path)
-    part["json"] = path
-    part["numbers"] = mark_rows(data, perf_stats().summary) if isinstance(data, dict) else None
+    files, parts = [], []
+    for index in range(1, runs + 1):
+        one = os.path.join(out, f"{name}-{index}.json")
+        command = tool("bench-startup.py") + ["--app", opts.app, "--mode", mode, "--runs", "1", "--hangs",
+                                              str(opts.hangs), "--timeout", str(opts.timeout), "--json", one,
+                                              "--build-config", opts.build_config] + opts.optimized_flags + extra
+        stop_apps(opts)
+        parts.append(run(command, os.path.join(out, f"{name}-{index}.log"), opts.part_timeout))
+        data = read_json(one)
+        if isinstance(data, dict):
+            files.append(data)
+        elif index == 1:
+            break  # the first run refused (a profile that never seeds, say): the rest would refuse the same way
+    with open(path, "w") as f:
+        json.dump(merge_bench(files), f, indent=1)
+    failed = [p for p in parts if p["exit"] != 0]
+    part = {"command": parts[0]["command"] if parts else [], "runs_invoked": len(parts),
+            "exit": failed[-1]["exit"] if failed and not files else 0,
+            "failed_runs": len(failed), "seconds": round(sum(p["seconds"] for p in parts), 1),
+            "tail": (failed[-1] if failed else parts[-1])["tail"] if parts else "", "json": path}
+    part["numbers"] = mark_rows(merge_bench(files), perf_stats().summary) if files else None
     return part
 
 
@@ -355,8 +391,10 @@ def stress_part(opts, out):
     launch = bs.Launch(tag, scratch, {"CMUX_NEXT_NO_ACTIVATE": "0"})  # the builder needs a key window
     built = {}
     try:
-        if not launch.wait_for([bs.FIRST_CONTENT, bs.FINAL_MARK], opts.timeout, any_of=True):
-            raise RuntimeError("the STRESS build launch never showed its first content")
+        # An empty state's first launch shows the agent page; a build before first_content sends only these.
+        shown = [bs.FIRST_CONTENT, bs.FINAL_MARK, bs.AGENT_MARK, "first_window_frame_committed"]
+        if not launch.wait_for(shown, opts.timeout, any_of=True):
+            raise RuntimeError(f"the STRESS build launch sent none of {', '.join(shown)}")
         client = bs.app_client(tag)
 
         def rpc(method, params=None, timeout=30):
@@ -384,7 +422,7 @@ def applaunch_periods(trace, out, index):
     """The App Launch template's life-cycle periods: (label, ms) per row of each table whose schema names one."""
     toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True,
                          text=True).stdout
-    periods = []
+    periods, samples = [], {}
     for schema in sorted(set(re.findall(r'<table [^>]*schema="([^"]*life-cycle[^"]*)"', toc))):
         xml = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
                               f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True,
@@ -392,12 +430,25 @@ def applaunch_periods(trace, out, index):
         with open(os.path.join(out, f"applaunch-{index}-{schema}.xml"), "w") as f:
             f.write(xml)
         periods += life_cycle_rows(xml)
-    return toc, periods
+        samples[schema] = life_cycle_sample(xml)
+    return toc, periods, samples
+
+
+# Cells that are not a period's name: times, ids, processes and threads.
+NOT_NAMES = ("start-time", "duration", "event-time", "process", "thread", "pid", "tid", "uint64", "uint32", "sentinel",
+             "boolean", "core", "weight")
+# xctrace's duration of a period still open when the recording stopped (UINT64_MAX ns): not a measured length.
+OPEN_PERIOD_NS = 1 << 62
+
+
+def row_cells(row, byid):
+    """A row's cells, refs resolved: xctrace writes a repeated value once with an id and later as a ref."""
+    return [byid.get(cell.get("ref"), cell) if cell.get("ref") else cell for cell in row]
 
 
 def life_cycle_rows(xml):
-    """(label, ms) of each exported row: its duration cell (ns) and its first named text cell. xctrace writes a
-    repeated value once with an id and later as a ref, so refs are resolved."""
+    """(label, ms) of each exported row with a closed duration: the label joins its distinct named cells (the
+    table's category, such as `States`, and the period itself)."""
     import xml.etree.ElementTree as ET
     try:
         tree = ET.fromstring(xml)
@@ -406,13 +457,29 @@ def life_cycle_rows(xml):
     byid = {node.get("id"): node for node in tree.iter() if node.get("id")}
     rows = []
     for row in tree.iter("row"):
-        cells = [byid.get(cell.get("ref"), cell) if cell.get("ref") else cell for cell in row]
+        cells = row_cells(row, byid)
         duration = next((cell for cell in cells if cell.tag == "duration"), None)
-        label = next((cell.get("fmt") for cell in cells
-                      if cell.tag in ("string", "narrative", "app-period", "event-concept") and cell.get("fmt")), None)
-        if duration is not None and label and (duration.text or "").strip().isdigit():
-            rows.append((label, int(duration.text) / 1e6))
+        names = []
+        for cell in cells:
+            name = (cell.get("fmt") or "").strip()
+            if cell.tag not in NOT_NAMES and name and name not in names:
+                names.append(name)
+        text = (duration.text or "").strip() if duration is not None else ""
+        if names and text.isdigit() and int(text) < OPEN_PERIOD_NS:
+            rows.append((" / ".join(names), int(text) / 1e6))
     return rows
+
+
+def life_cycle_sample(xml, limit=40):
+    """The first rows as `tag=fmt` cells, kept in the report so a parser change can be checked against the export."""
+    import xml.etree.ElementTree as ET
+    try:
+        tree = ET.fromstring(xml)
+    except ET.ParseError as error:
+        return [f"parse error: {error}"]
+    byid = {node.get("id"): node for node in tree.iter() if node.get("id")}
+    return [" | ".join(f"{c.tag}={(c.get('fmt') or c.text or '').strip()[:80]}" for c in row_cells(row, byid))
+            for row in list(tree.iter("row"))[:limit]]
 
 
 def applaunch_part(opts, out):
@@ -436,8 +503,8 @@ def applaunch_part(opts, out):
         if done["exit"] != 0 and not os.path.isdir(trace):
             failures.append(done)
             continue
-        toc, periods = applaunch_periods(trace, out, index)
-        launches.append({"index": index, "periods": periods, "toc": toc[:20000]})
+        toc, periods, samples = applaunch_periods(trace, out, index)
+        launches.append({"index": index, "periods": periods, "samples": samples, "toc": toc[:20000]})
     shutil.rmtree(scratch, ignore_errors=True)
     return {"command": "xctrace record --template 'App Launch' --launch", "exit": 0 if launches else 1,
             "numbers": launches, "tail": failures[-1]["tail"] if failures else ""}
@@ -480,8 +547,9 @@ def main():
     parser.add_argument("--queue-runs", type=int, default=1)
     parser.add_argument("--hangs", type=int, default=16)
     parser.add_argument("--timeout", type=float, default=60)
-    parser.add_argument("--until-mark", default="first_terminal_frame",
-                        help="the queues' last mark: startup_complete once the build sends it")
+    parser.add_argument("--until-mark", default="first_window_frame_committed",
+                        help="the queues' last mark (default: one every build sends, whatever pane it restores); "
+                             "startup_complete once the build sends it (task 070 at the tip)")
     parser.add_argument("--part-timeout", type=float, default=1800)
     parser.add_argument("--workspaces", type=int, default=24, help="the terminal seed's workspaces (task 072: 24)")
     opts, _ = parser.parse_known_args()

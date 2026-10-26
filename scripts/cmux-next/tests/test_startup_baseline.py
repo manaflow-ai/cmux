@@ -98,6 +98,51 @@ class Rows(unittest.TestCase):
         self.assertIn("App Launch: Process Creation x5 | p50 12.0", rows[0])
 
 
+class OneRunEach(unittest.TestCase):
+    """bench_part runs bench-startup once per run, stops the tag's apps before each, and merges the files."""
+
+    def setUp(self):
+        self.saved = (baseline.run, baseline.stop_apps, baseline.read_json)
+        self.stops, self.commands = [], []
+        self.answers = []
+
+        def run(command, log_path, timeout):
+            self.commands.append(command)
+            return {"command": command, "exit": 0 if self.answers[len(self.commands) - 1] else 1, "seconds": 1.0,
+                    "tail": "tag split-spring has an app running; quit it first\n"}
+
+        baseline.run = run
+        baseline.stop_apps = lambda opts: self.stops.append(len(self.commands))
+        baseline.read_json = lambda path: self.answers[int(path.rsplit("-", 1)[1].split(".")[0]) - 1]
+
+    def tearDown(self):
+        baseline.run, baseline.stop_apps, baseline.read_json = self.saved
+
+    def opts(self):
+        return type("Opts", (), {"app": "/a/cmux DEV t.app", "hangs": 16, "timeout": 60, "build_config": "bench",
+                                 "optimized_flags": [], "part_timeout": 10})()
+
+    def test_runs_merge_and_a_refused_run_is_counted(self):
+        import tempfile
+        self.answers = [{"t": {"warm": [{"window_display": 1.0}]}}, None, {"t": {"warm": [{"window_display": 3.0}]}}]
+        with tempfile.TemporaryDirectory() as out:
+            part = baseline.bench_part(self.opts(), out, "warm", "warm", 3, [])
+        self.assertEqual(self.stops, [0, 1, 2])
+        self.assertTrue(all(c[c.index("--runs") + 1] == "1" for c in self.commands))
+        self.assertEqual((part["numbers"]["runs"], part["failed_runs"], part["exit"]), (2, 1, 0))
+        row = baseline.bench_rows("launch warm x3", part)[0][1]
+        self.assertIn("1 invocations wrote no run (last: tag split-spring has an app running", row)
+
+    def test_a_refused_first_run_stops_the_part(self):
+        import tempfile
+        self.answers = [None, None, None]
+        with tempfile.TemporaryDirectory() as out:
+            part = baseline.bench_part(self.opts(), out, "warm", "warm", 3, [])
+        self.assertEqual(len(self.commands), 1)
+        self.assertIsNone(part["numbers"])
+        self.assertEqual(part["exit"], 1)
+
+
 class RealisticFallback(unittest.TestCase):
     """A realistic profile with no kept run seeds the terminal session once; every later part restores it."""
 
@@ -146,6 +191,17 @@ class LifeCycle(unittest.TestCase):
                '<row><start-time fmt="00:00.012">12000000</start-time><duration ref="2"/><string ref="3"/></row>'
                '<row><sentinel/></row></node></trace-query-result>')
         self.assertEqual(baseline.life_cycle_rows(xml), [("Process Creation", 12.0), ("Process Creation", 12.0)])
+
+    def test_open_periods_are_left_out_and_names_joined(self):
+        xml = ('<trace-query-result><node>'
+               '<row><start-time fmt="0">0</start-time><duration fmt="2.7 s">2749276707</duration>'
+               '<process id="9" fmt="cmux (123)">123</process><string id="1" fmt="States">States</string>'
+               '<narrative fmt="Launching - Process Creation">x</narrative></row>'
+               '<row><duration>18446744073709551615</duration><string ref="1"/>'
+               '<narrative fmt="Running - Foreground">x</narrative></row>'
+               '</node></trace-query-result>')
+        self.assertEqual(baseline.life_cycle_rows(xml), [("States / Launching - Process Creation", 2749.276707)])
+        self.assertIn("process=cmux (123)", baseline.life_cycle_sample(xml)[0])
 
     def test_unparseable_export_reads_as_no_rows(self):
         self.assertEqual(baseline.life_cycle_rows("<oops"), [])
