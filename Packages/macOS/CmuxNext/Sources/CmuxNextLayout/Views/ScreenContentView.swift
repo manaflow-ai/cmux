@@ -93,6 +93,8 @@ final class ScreenContentView: NSView {
     /// Render-server spring calls of this screen's panes and dividers that have not landed
     /// (`ScreenContentView+RenderMotion.swift`).
     var renderSpringsInFlight = 0
+    /// A close on the render server that has not landed (`springCloseOnRenderServer`); nil otherwise.
+    var renderClose: RenderClose?
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
