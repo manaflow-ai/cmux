@@ -4,11 +4,17 @@ import Testing
 
 /// The Sparkle seam (`SparkleSeam.swift`) translates Sparkle's callbacks into ``UpdateDriver``
 /// calls and the driver's answers back into Sparkle's values. These tests drive the bridge the
-/// way Sparkle does and read what Sparkle would receive, with no Sparkle import: the closure
-/// parameters are Sparkle's own `SPUUserUpdateChoice`, compared by its own cases.
+/// way Sparkle does and read what Sparkle would receive, with no Sparkle import: the reply
+/// closures get Sparkle's own `SPUUserUpdateChoice`, recorded by raw value.
 @MainActor
 @Suite struct SparkleSeamTests {
     private let model = UpdateStateModel()
+
+    /// The raw values of the `SPUUserUpdateChoice` replies Sparkle received.
+    @MainActor
+    private final class SparkleReplies {
+        var rawValues: [Int] = []
+    }
 
     private func makeDriver() -> UpdateDriver {
         UpdateDriver(model: model, log: NoopUpdateLog(), clock: TestDeadlineClock())
@@ -17,13 +23,13 @@ import Testing
     @Test func readyReplyReachesSparkleAsInstall() {
         let driver = makeDriver()
         let bridge = SparkleDriverBridge(driver: driver)
-        let box = PromptReplyChoiceBox()
+        let replies = SparkleReplies()
 
         bridge.showReady(toInstallAndRelaunch: { choice in
-            MainActor.assumeIsolated { box.append(choice == .install ? .install : .dismiss) }
+            MainActor.assumeIsolated { replies.rawValues.append(choice.rawValue) }
         })
 
-        #expect(box.choices == [.install])
+        #expect(replies.rawValues == [UpdateChoice.install.rawValue])
     }
 
     /// A staged background update's installer is cancelled with Sparkle's Skip, which records
@@ -32,15 +38,15 @@ import Testing
         let driver = makeDriver()
         driver.installsInBackground = true
         let bridge = SparkleDriverBridge(driver: driver)
-        let box = PromptReplyChoiceBox()
+        let replies = SparkleReplies()
 
         bridge.showReady(toInstallAndRelaunch: { choice in
-            MainActor.assumeIsolated { box.append(choice == .skip ? .skip : .install) }
+            MainActor.assumeIsolated { replies.rawValues.append(choice.rawValue) }
         })
-        #expect(box.choices.isEmpty, "a background install holds Sparkle's reply until the host acts")
+        #expect(replies.rawValues.isEmpty, "a background install holds Sparkle's reply until the host acts")
         #expect(driver.cancelStaged())
 
-        #expect(box.choices == [.skip])
+        #expect(replies.rawValues == [UpdateChoice.skip.rawValue])
     }
 
     @Test func choicesKeepSparklesRawValues() {
