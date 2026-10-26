@@ -1899,3 +1899,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_risk_label_api_budget.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Run python3 tests/test_risk_label_api_budget.py yourself after changing risk-tier.yml's label step (about 0.3 s, a fake gh on PATH, no network and no build)."

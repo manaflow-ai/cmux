@@ -73,6 +73,21 @@ jobs:
           python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
             --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
+      #
+      # Every workflow in the repository shares GITHUB_TOKEN's REST budget of 1,000 requests an
+      # hour, and this one grades every event on every open pull request: 340 runs in the 70 minutes
+      # before 03:10Z on 2026-10-26. So this step spends no request in the usual case, where the
+      # pull request already carries the tier it just graded. It used to open with four
+      # `gh label create` calls every run, about 1,160 requests an hour on their own, more than the
+      # whole budget, and every one of them only ever answered that the label already exists: all
+      # four labels have existed for months, and risk:low and risk:normal still carry the default
+      # colour, so not one of those calls ever took effect. The quota they drained is the same one
+      # the DEV publish handoff and the CLA checks spend, which ran out repeatedly on 2026-10-26.
+      #
+      # The labels are created on demand now, only when an add reports one missing, and the pull
+      # request's current labels come from the event payload instead of a `gh pr view`. The payload
+      # can be a moment stale (someone relabels by hand between the event and this step), which at
+      # worst leaves the correction to the next event; the check's verdict never reads the label.
       - name: Set the risk label
         continue-on-error: true
         env:
@@ -80,19 +95,33 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
+          CURRENT_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          for tier in low normal high; do
-            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
-              --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
-          done
-          gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
-            --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
-          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          set -uo pipefail
+          current="$(jq -r '.[]' <<<"$CURRENT_JSON")"
           # risk:medium is the old name for risk:normal.
-          for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
-            [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
-          done
-          grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+          stale="$(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" | grep -vxF "$LABEL" || true)"
+          wanted=no
+          grep -qxF "$LABEL" <<<"$current" && wanted=yes
+          if [ "$wanted" = yes ] && [ -z "$stale" ]; then
+            echo "$LABEL is already the only risk label; no API request spent"
+            exit 0
+          fi
+          if [ "$wanted" = no ] && ! gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; then
+            # The only way this label can be missing from the repository is a fresh fork.
+            case "$LABEL" in
+              risk:low) color=0E8A16 ;;
+              risk:normal) color=FBCA04 ;;
+              *) color=B60205 ;;
+            esac
+            gh label create "$LABEL" --repo "$REPO" --color "$color" \
+              --description "Risk tier (docs/ci/risk-tiers.md)" || true
+            gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" || echo "::warning::could not add $LABEL"
+          fi
+          while IFS= read -r old; do
+            [ -n "$old" ] || continue
+            gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old" || echo "::warning::could not remove $old"
+          done <<<"$stale"
       # Advisory until ENFORCE_FROM, so high pull requests already in flight can get their sign-off:
       # until then a missing item is a warning and the check passes. gh-merge-green reads this
       # value from the base and, after it, refuses a verdict that finished before it.
