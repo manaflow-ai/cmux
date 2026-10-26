@@ -167,6 +167,14 @@ enum DebugTimings {
         if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
     }
 
+    /// Sends the row views a sidebar built before startup completed and the rows its clip showed then as value
+    /// marks on the bench's pipe (p08-startup-064). Each window's sidebar sends them; the bench keeps the first
+    /// (`debug.sidebar_rows` lists every window's `launch_rows`).
+    static func sidebarLaunchRows(built: Int, visible: Int) {
+        LaunchMarkSink.shared.writeValue(name: "launch.sidebar_rows_built", value: UInt64(max(0, built)))
+        LaunchMarkSink.shared.writeValue(name: "launch.sidebar_rows_visible", value: UInt64(max(0, visible)))
+    }
+
     static func omnibarClicked(engine: String, input: Double, keyToFrame: Double) {
         if omnibarClicks.count < capacity { omnibarClicks.append((engine, input, keyToFrame)) }
     }
