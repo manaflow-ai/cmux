@@ -63,16 +63,19 @@ const MAX_ERROR_CHARS: usize = 300;
 /// Most failed subagents a chat keeps with no retry waiting; the oldest failure goes first.
 const MAX_FAILED: usize = 32;
 
+/// The retries, and `steps`: held through each change that logs a record together with that
+/// record (a failure observed, a Stop or close, a wait planned, given up, fired or skipped), so
+/// the records come in the order the changes did. Taken before the state's lock, never inside.
 #[derive(Default)]
-pub(crate) struct Retries(Mutex<State>);
+pub(crate) struct Retries(Mutex<State>, Mutex<()>);
 
 #[derive(Default)]
 struct State {
     /// Each chat's top-level subagents, by id, while they run, or failed and may be retried.
     subs: HashMap<String, HashMap<String, Sub>>,
-    /// Retry prompts sent and not answered yet, by prompt id: true once their retry was
-    /// skipped, so a prompt that has not started is refused.
-    sent: HashMap<String, bool>,
+    /// Retry prompts sent and not answered yet, by chat and prompt id: true once their retry
+    /// was skipped, so a prompt that has not started is refused.
+    sent: HashMap<(String, String), bool>,
 }
 
 #[derive(Default)]
@@ -127,12 +130,22 @@ impl Retries {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Starts the turn of `prompt_id` (`start`), unless it is a retry prompt whose retry was
-    /// skipped since it went out: then the refusal. Under the lock a skip takes, so a skip
+    /// One logged change at a time (see [`Retries`]).
+    fn steps(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Starts the chat's turn of `prompt_id` (`start`), unless it is a retry prompt whose retry
+    /// was skipped since it went out: then the refusal. Under the lock a skip takes, so a skip
     /// either comes first and the prompt never starts, or finds it started.
-    pub(super) fn start(&self, prompt_id: &str, start: impl FnOnce()) -> Result<(), RpcError> {
+    pub(super) fn start(
+        &self,
+        session_id: &str,
+        prompt_id: &str,
+        start: impl FnOnce(),
+    ) -> Result<(), RpcError> {
         let all = self.lock();
-        if all.sent.get(prompt_id) == Some(&true) {
+        if all.sent.get(&(session_id.to_owned(), prompt_id.to_owned())) == Some(&true) {
             return Err(RpcError::invalid_params(
                 "subagent_retry.skipped: the subagent was resumed, replaced or stopped",
             )
@@ -141,6 +154,11 @@ impl Retries {
         start();
         Ok(())
     }
+}
+
+/// Whether the chat closes or closed: `Hub::kill` sets `closing` before it takes the retries.
+fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }
 
 /// Past [`MAX_FAILED`] stopped or given-up failed subagents, the oldest ones, taken.
@@ -173,6 +191,11 @@ impl Hub {
     /// Reads one live update's subagent changes (`_meta.acpmux.subagents`, after the tap logged
     /// it): names, resumes, ends and failures of the chat's own subagents.
     pub(super) fn observe_subagents(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
+        let _steps = self.subagent_retries.steps();
+        // A chat that closes retries nothing more: close took its retries under `steps`.
+        if closing(session) {
+            return;
+        }
         let mut skipped = Vec::new();
         let mut schedule = Vec::new();
         {
@@ -257,6 +280,7 @@ impl Hub {
         else {
             return;
         };
+        let _steps = self.subagent_retries.steps();
         let resumed: Vec<(String, Failure)> = {
             let mut all = self.subagent_retries.lock();
             let Some(subs) = all.subs.get_mut(&session.id) else { return };
@@ -275,6 +299,7 @@ impl Hub {
     /// Stop (`closed`: close) ends every retry the chat's subagents wait for, and takes back a
     /// sent one still queued.
     pub(super) fn stop_subagent_retries(&self, session: &Arc<Session>, closed: bool) {
+        let _steps = self.subagent_retries.steps();
         let waits: Vec<(String, Failure)> = {
             let mut all = self.subagent_retries.lock();
             let mut waits = Vec::new();
@@ -308,7 +333,7 @@ impl Hub {
     }
 
     /// Forgets the chat's oldest failures past [`MAX_FAILED`] no retry waits for: each entry
-    /// then says it can't be retried.
+    /// then says it can't be retried. The caller holds `steps`.
     fn forget_past_limit(&self, session: &Arc<Session>) {
         let forgotten = match self.subagent_retries.lock().subs.get_mut(&session.id) {
             Some(subs) => forget_oldest(subs),
@@ -336,6 +361,10 @@ impl Hub {
     /// Records the next attempt's wait and logs it (`scheduled`, or `exhausted` past the
     /// configured attempts): the wait and its delay in ms.
     fn plan_retry(&self, session: &Arc<Session>, id: &str, delays: &[u64]) -> Option<(Wait, u64)> {
+        let _steps = self.subagent_retries.steps();
+        if closing(session) {
+            return None;
+        }
         let (failure, wait, delay) = {
             let mut all = self.subagent_retries.lock();
             let sub = all.subs.get_mut(&session.id)?.get_mut(id)?;
@@ -429,7 +458,8 @@ impl Hub {
             if !self.still_waiting(session, id, wait) {
                 return false; // Skipped, and logged, by what took it.
             }
-            if session.status() == SessionStatus::Closed || session.moving().is_some() {
+            if closing(session) || session.moving().is_some() {
+                let _steps = self.subagent_retries.steps();
                 if let Some(f) = self.take_wait(session, id, wait) {
                     self.skip_wait(session, id, f, "closed", "failed", false);
                 }
@@ -453,14 +483,20 @@ impl Hub {
             }
         }
         drop(events);
-        let Some((failure, name)) = self.fire_wait(session, id, wait) else { return false };
-        let extra = json!({"attempt": wait.attempt, "of": wait.of, "promptId": wait.prompt_id});
-        self.log_step(
-            session,
-            id,
-            &failure,
-            Step { outcome: "fired", state: "failed", retry: Value::Null, retryable: true, extra },
-        );
+        let fired = {
+            let _steps = self.subagent_retries.steps();
+            let fired = self.fire_wait(session, id, wait);
+            if let Some((failure, _)) = &fired {
+                let extra =
+                    json!({"attempt": wait.attempt, "of": wait.of, "promptId": wait.prompt_id});
+                let retry = Value::Null;
+                let step =
+                    Step { outcome: "fired", state: "failed", retry, retryable: true, extra };
+                self.log_step(session, id, failure, step);
+            }
+            fired
+        };
+        let Some((failure, name)) = fired else { return false };
         let provenance = json!({"kind": PROVENANCE_KIND, "subagentId": id,
             "agentId": failure.agent_id, "attempt": wait.attempt});
         // Stop, close or a resume between the fire and the queue: taken back from the queue.
@@ -483,7 +519,8 @@ impl Hub {
         if let Err(e) = self.prompt_with(session, blocks, "acpmux", false, opts).await {
             tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
         }
-        self.subagent_retries.lock().sent.remove(&wait.prompt_id);
+        let sent = (session.id.clone(), wait.prompt_id.clone());
+        self.subagent_retries.lock().sent.remove(&sent);
         self.take_wait(session, id, wait).is_some()
     }
 
@@ -517,7 +554,7 @@ impl Hub {
         ours.fired = true;
         let failure = failed.clone();
         sub.attempts = sub.attempts.max(wait.attempt);
-        all.sent.insert(wait.prompt_id.clone(), false);
+        all.sent.insert((session.id.clone(), wait.prompt_id.clone()), false);
         Some((failure, sub.name.clone()))
     }
 
@@ -552,7 +589,8 @@ impl Hub {
             }
             let started = {
                 let mut all = self.subagent_retries.lock();
-                let unanswered = all.sent.get_mut(&wait.prompt_id).map(|skip| *skip = true);
+                let key = (session.id.clone(), wait.prompt_id.clone());
+                let unanswered = all.sent.get_mut(&key).map(|skip| *skip = true);
                 unanswered.is_none()
                     || session.turn().is_some_and(|t| t.prompt_id == wait.prompt_id)
             };
@@ -607,6 +645,10 @@ impl Hub {
 }
 
 #[cfg(test)]
+#[path = "subagent_retry_tests.rs"]
+mod race_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -620,20 +662,25 @@ mod tests {
         assert!(retry_text(None, "a", &long).len() < 700);
     }
 
-    /// A retry prompt skipped after it went out never starts; others start.
+    /// A retry prompt skipped after it went out never starts; others start, the same prompt
+    /// id in another chat too.
     #[test]
     fn a_skipped_retry_prompt_never_starts() {
         let retries = Retries::default();
-        retries.lock().sent.insert("p".into(), false);
+        let key = ("s1".to_owned(), "p".to_owned());
+        retries.lock().sent.insert(key.clone(), false);
         let mut started = false;
-        retries.start("p", || started = true).unwrap();
+        retries.start("s1", "p", || started = true).unwrap();
         assert!(started);
-        retries.lock().sent.insert("p".into(), true);
+        retries.lock().sent.insert(key, true);
         let mut again = false;
-        let refused = retries.start("p", || again = true).unwrap_err();
+        let refused = retries.start("s1", "p", || again = true).unwrap_err();
         assert!(!again);
         assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
-        retries.start("other", || {}).unwrap();
+        retries.start("s1", "other", || {}).unwrap();
+        let mut elsewhere = false;
+        retries.start("s2", "p", || elsewhere = true).unwrap();
+        assert!(elsewhere, "another chat's prompt of the same id starts");
     }
 
     /// Past the limit the oldest stopped or given-up failures go; a waiting one stays.

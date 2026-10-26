@@ -372,7 +372,7 @@ impl Hub {
         }
         // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&prompt_id, || {
+        self.subagent_retries.start(&session.id, &prompt_id, || {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
         })
     }
