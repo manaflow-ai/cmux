@@ -307,7 +307,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main, files: services.work)
+        WebUpdates.shared.prepare(
+            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
+            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
