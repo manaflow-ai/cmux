@@ -116,7 +116,7 @@ fn agent_history_save_does_not_wait_for_the_workspace_registry_lock() {
             let _ = saved_tx.send(crate::history_ops::resave_agent_fold_for_test(&mux));
         })
     };
-    let saved = saved_rx.recv_timeout(std::time::Duration::from_secs(10));
+    let saved = saved_rx.recv_timeout(Duration::from_secs(10));
     drop(registry);
     saver.join().unwrap();
     let cursor =

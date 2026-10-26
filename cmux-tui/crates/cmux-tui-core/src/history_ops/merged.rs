@@ -159,16 +159,15 @@ impl HistoryHost {
                 }
             }
         };
-        let saved = mux
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .put_journal_reducer_state(
-                AGENT_FOLD_STATE_ID,
-                AGENT_FOLD_STATE_VERSION,
-                cursor,
-                &snapshot,
-            );
+        // The connection alone, never the workspace registry lock: the
+        // snapshot is the whole agent history, and every state commit
+        // (Cmd-N's pin, create and first tab) waited behind it (issue 23038).
+        let saved = mux.registry_connection.put_journal_reducer_state(
+            AGENT_FOLD_STATE_ID,
+            AGENT_FOLD_STATE_VERSION,
+            cursor,
+            &snapshot,
+        );
         match saved {
             Ok(()) => {
                 let mut state = self.lock();
