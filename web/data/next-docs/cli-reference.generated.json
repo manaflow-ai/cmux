@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 694,
-    "mcp": 612
+    "verbs": 697,
+    "mcp": 615
   },
   "nouns": [
     {
@@ -3783,6 +3783,12 @@
           "mcp": true
         },
         {
+          "command": "cmux workspace archive-idle",
+          "title": "Archive Idle Workspaces",
+          "id": "workspace.archiveIdle",
+          "mcp": true
+        },
+        {
           "command": "cmux workspace archive-unarchive",
           "title": "Archive/Unarchive Workspace",
           "id": "workspace.toggleArchive",
@@ -4077,6 +4083,12 @@
           "mcp": true
         },
         {
+          "command": "cmux workspace restore-archived",
+          "title": "Restore Archived Workspace…",
+          "id": "workspace.restoreArchived",
+          "mcp": true
+        },
+        {
           "command": "cmux workspace restore-previous-app-launch",
           "title": "Restore Previous App Launch",
           "id": "reopenPreviousSession",
@@ -4331,6 +4343,12 @@
           "command": "cmux workspace-group rename",
           "title": "Rename Group…",
           "id": "workspaceGroup.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group set-auto-archive",
+          "title": "Auto-Archive Group Workspaces",
+          "id": "workspaceGroup.setAutoArchive",
           "mcp": true
         },
         {
