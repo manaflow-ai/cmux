@@ -1,6 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextActions
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextInput
 @testable import CmuxNextSettings

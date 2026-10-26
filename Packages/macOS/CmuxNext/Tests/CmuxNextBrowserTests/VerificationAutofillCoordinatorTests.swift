@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -28,8 +29,26 @@ import Testing
         let enabled = enabled
         coordinator = VerificationAutofillCoordinator(
             inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)), source: source,
-            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, pollInterval: .seconds(3600)
+            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, deadlines: Self.deadlines(),
+            pollInterval: .seconds(3600)
         )
+    }
+
+    /// A deadline placer on a main-thread scheduler of the test's own.
+    static func deadlines() -> MainDeadlineScheduler {
+        MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+    }
+
+    /// The poll is a `visible` main-thread deadline (R-timer): a page that waits arms one read, and a second
+    /// waiting page does not push it back.
+    @Test func aWaitingPageArmsOneVisibleRead() {
+        coordinator.pageWaiting(Self.tab())
+        #expect(coordinator.pollTimer.isScheduled)
+        #expect(coordinator.pollTimer.workClass == .visible)
+        #expect(coordinator.pollTimer.owner == "VerificationAutofill.poll")
+        enabled.on = false
+        coordinator.settingChanged()
+        #expect(!coordinator.pollTimer.isScheduled, "turning the feature off kept the read armed")
     }
 
     static func tab(_ url: String = "https://github.com/sessions/verified-device") -> MockBrowserTab {
@@ -193,7 +212,7 @@ import Testing
     }
 
     /// Another page starting to wait during a slow read arms no second read (one osascript at a
-    /// time, as the loop before DemandTimer did): an older read finishing last would replace a
+    /// time, as the loop before the deadline did): an older read finishing last would replace a
     /// newer offer with an older code.
     @Test func aSlowReadIsNeverOverlappedByAnotherRead() async throws {
         let source = GatedSource()
@@ -201,8 +220,8 @@ import Testing
         let list = PublicSuffixList.bundled() ?? PublicSuffixList(listText: "")
         let coordinator = VerificationAutofillCoordinator(
             inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)), source: source,
-            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, clock: ImmediateClock(),
-            pollInterval: .seconds(3)
+            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, deadlines: Self.deadlines(),
+            pollInterval: .milliseconds(1)
         )
         let first = Self.tab(), second = Self.tab("https://github.com/login/device")
         coordinator.pageWaiting(first)
@@ -210,6 +229,7 @@ import Testing
         while await source.reads < 1, tries < 500 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
         #expect(await source.reads == 1, "the first deadline started a read")
         coordinator.pageWaiting(second)
+        #expect(!coordinator.pollTimer.isScheduled, "a page that began waiting during a read armed the next one")
         tries = 0
         while await source.reads < 2, tries < 100 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }
         let overlapping = await source.mostInFlight
@@ -218,20 +238,4 @@ import Testing
         #expect(overlapping == 1, "a second read started while the first still ran")
         _ = (first, second)
     }
-}
-
-/// A clock whose sleeps end at once, so each poll deadline fires on the next task turn.
-nonisolated private struct ImmediateClock: Clock {
-    nonisolated struct Instant: InstantProtocol {
-        var offset: Duration = .zero
-
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
-    }
-
-    var now: Instant { Instant() }
-    var minimumResolution: Duration { .nanoseconds(1) }
-
-    func sleep(until _: Instant, tolerance _: Duration?) async throws {}
 }
