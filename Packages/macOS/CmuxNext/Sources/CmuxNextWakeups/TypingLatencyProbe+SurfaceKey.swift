@@ -9,6 +9,10 @@ extension TypingLatencyProbe {
     /// bounded by ``TypingLatencyProbe/openCapacity`` like every other press.
     public struct SurfaceKey: Sendable, Hashable {
         let id: UInt64
+
+        /// The number trace records name the surface by (`ghostty.render` and `frame.gpu_done` arg0): unique in
+        /// this probe, never 0.
+        public var traceID: UInt64 { id }
     }
 
     /// A key that no other surface of this probe has.

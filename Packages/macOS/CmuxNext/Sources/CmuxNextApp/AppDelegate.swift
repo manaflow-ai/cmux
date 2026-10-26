@@ -195,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
+        GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)

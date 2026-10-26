@@ -23,9 +23,12 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
+    /// What the Ghostty trace hook marks for this surface's frames (``GhosttyTraceHook``).
+    let frames: GhosttyTraceHook.Surface
 
-    init(input: TerminalInputSink) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil) {
         self.input = input
+        frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
             MainDelivery().run { self?.sendPointerAgain() }
