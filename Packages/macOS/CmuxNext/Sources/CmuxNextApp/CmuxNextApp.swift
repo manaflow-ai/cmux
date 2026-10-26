@@ -74,6 +74,8 @@ public struct CmuxNextApp {
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace,
                                    launchReads: (work, launchImages, relaunchWake))
+        // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
+        (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

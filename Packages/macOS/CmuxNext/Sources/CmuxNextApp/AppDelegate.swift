@@ -55,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// person's pending-input check and task signposts. Built here, the composition root, and
     /// handed to the control socket and the services.
     private let mainWork: MainWorkScheduler
+    /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
+    var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?

@@ -90,6 +90,7 @@ pub const CATALOG: &[CatalogName] = &[
     name(70, WEBUI, "webui.open"),
     name(71, WEBUI, "webui.preload"),
     name(72, WEBUI, "webui.scheme"),
+    name(73, STALL, "stall.main_turn"),
 ];
 
 // `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its
