@@ -1,5 +1,6 @@
 import CmuxMobileNotifications
 import SwiftUI
+import UIKit
 
 /// A permission request's long-press view, laid out as the Mac's approval
 /// prompt for a streaming device (`MacScreenApprovalView`): the accent glyph
@@ -14,7 +15,8 @@ struct ApprovalCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
-                Image(systemName: ApprovalBanner.glyph).font(.title3).foregroundStyle(.tint)
+                // The Mac panel's glyph ink: the label color, not a hue.
+                Image(systemName: ApprovalBanner.glyph).font(.title3).foregroundStyle(.primary)
                 Text(banner.title).font(.headline).fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
@@ -52,8 +54,12 @@ struct ApprovalCardView: View {
                 }
                 Spacer(minLength: 8)
                 if let allow = banner.allow {
-                    Button { model.tap(allow) } label: { Text(allow.label).frame(minWidth: 64) }
+                    // The Mac's primary answer: label-colored fill, background-colored text, in both appearances.
+                    Button { model.tap(allow) } label: {
+                        Text(allow.label).frame(minWidth: 64).foregroundStyle(Color(uiColor: .systemBackground))
+                    }
                         .buttonStyle(.borderedProminent)
+                        .tint(.primary)
                         .accessibilityIdentifier("cmux.push.option.\(allow.id)")
                 }
             }
@@ -63,7 +69,8 @@ struct ApprovalCardView: View {
             HStack(spacing: 8) {
                 ForEach(banner.more) { row in
                     Button(role: row.style == .deny ? .destructive : nil) { model.tap(row) } label: { Text(row.label) }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.bordered)
+                        .tint(row.style == .deny ? nil : .primary)
                         .controlSize(.small)
                         .accessibilityIdentifier("cmux.push.option.\(row.id)")
                 }
