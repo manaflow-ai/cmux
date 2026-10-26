@@ -192,6 +192,7 @@ extension SettingsSchema {
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
         "browser.keepNeighborTabsAwake",
+        "energy.saver", // when Energy Saver turns on (performance, like browser.hibernation)
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
