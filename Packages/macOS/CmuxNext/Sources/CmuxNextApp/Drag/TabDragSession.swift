@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSignposts
 import CmuxNextTabs
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -27,9 +28,14 @@ final class TabDragSession: NSObject {
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
     var resignObserver: MainActorObservation?
+    /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
+    let motionSignposter: Signposter
 
-    init(services: AppServices) {
+    /// - Parameter motionSignposter: The `motion` category's signposter (the app's: ``Signposter/motion``; tests pass
+    ///   one on their own trace runtime).
+    init(services: AppServices, motionSignposter: Signposter = .motion) {
         self.services = services
+        self.motionSignposter = motionSignposter
         super.init()
     }
 

@@ -171,6 +171,10 @@ final class CEFRuntime {
     private(set) var loadDuration: Duration?
     private(set) var initializeDuration: Duration?
     private(set) var readyAfterLaunch: Double?
+    /// Chromium's start as the App's launch marks (``CEFLaunchMarks``); the engine gives the receiver (``adoptLaunchMarks(_:)``).
+    var launchMarks = CEFLaunchMarks()
+    /// Whether the launch still runs (``CEFLaunchMarkHooks/isStarting``); nil (tests): always.
+    var launchIsStarting: (() -> Bool)?
 
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
@@ -269,7 +273,7 @@ final class CEFRuntime {
         if let hostStart {
             loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
         } else {
-            let task = loadTask ?? Task.detached(priority: .userInitiated) { [loadInProcess] in loadInProcess(candidate) }
+            let task = loadTask ?? makeLoadTask(candidate, priority: .userInitiated)
             loadTask = task
             // A utility-priority preload may still be running; the await below
             // raises its priority to this task's.
@@ -292,12 +296,44 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil, hostStart == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { [loadInProcess] in loadInProcess(candidate) }
+        let task = makeLoadTask(candidate, priority: .utility)
         loadTask = task
         Task { [weak self] in
             _ = await task.value
             self?.libraryLoaded = true
         }
+    }
+
+    /// The one off-main load of the shim and the framework (``loadInProcess``), marked
+    /// `cef.preload_started` as it is made and `cef.library_loaded` from the task when it maps.
+    private func makeLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> Task<Result<CEFLoadedLibrary, BootError>, Never> {
+        launchMarks.send(.preloadStarted)
+        let loaded = launchMarks.libraryLoadedSend()
+        return Task.detached(priority: priority) { [loadInProcess] in
+            let result = loadInProcess(candidate)
+            if case .success = result { loaded() }
+            return result
+        }
+    }
+
+    /// The engine's launch marks hooks (`CEFEngine.init`): the receiver and the launch's end.
+    func adoptLaunchMarks(_ hooks: CEFLaunchMarkHooks) {
+        launchMarks.receiver = hooks.receive
+        launchIsStarting = hooks.isStarting
+    }
+
+    /// A Chromium page's main frame first painted content (`CEFFirstPaintBridge`); `shown` when its tab is
+    /// the one its pane shows, in a visible window. As Chrome's `Startup.FirstWebContents.NonEmptyPaint3`
+    /// (chrome/browser/metrics/first_web_contents_profiler.cc) counts only the visible startup tab: a hidden
+    /// tab's paint sends nothing, a shown one after the launch completed ends the mark with no value
+    /// (Chrome's abandon), and otherwise `cef.first_page_paint` and the trigger of this start go out, once.
+    func firstPagePainted(shown: Bool) {
+        guard shown else { return }
+        guard launchIsStarting?() ?? true else {
+            launchMarks.abandonFirstPagePaint()
+            return
+        }
+        launchMarks.firstPagePainted(trigger: trigger ?? "tab")
     }
 
     /// Synchronous start for the debug window (loads on the main thread).
@@ -329,7 +365,9 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
+            launchMarks.send(.initializeStarted)
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
+            launchMarks.send(.initializeEnded)
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
@@ -343,7 +381,7 @@ final class CEFRuntime {
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
-            readyAfterLaunch = ProcessInfo.processInfo.systemUptime - CEFStartReport.launchUptime
+            readyAfterLaunch = CEFStartReport.secondsSinceLaunch()
             logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(CEFFrameworkPrefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the

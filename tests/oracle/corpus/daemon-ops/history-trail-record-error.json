@@ -38,7 +38,7 @@
       "args": {
         "method": "history.trail.record",
         "params": {
-          "window": "",
+          "window": "oracle",
           "location": {
             "machine": "oracle",
             "tab": "oracle",
@@ -49,13 +49,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "window breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "Gate A2 refuses an agent before validation: a trail step comes from the hosting app"
     }
   ],
   "invariants": [

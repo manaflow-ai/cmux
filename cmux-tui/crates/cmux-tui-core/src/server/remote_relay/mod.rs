@@ -31,6 +31,7 @@ use std::time::Instant;
 
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::SubscribeParams;
 use super::{ClientTransport, Command, MessageWriter, Mux, RequestArrival, RequestHead, Response};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, RelayLock, StreamPolicy, lock_checked, remote_participant,
@@ -268,7 +269,7 @@ pub(super) fn intercept(
         Command::SetClientInfo { name, capabilities, .. } => {
             set_client_info(mux, client, name.clone(), capabilities.clone())
         }
-        Command::Subscribe { tree_events: None, surface: None } => {
+        Command::Subscribe(SubscribeParams { tree_events: None, surface: None }) => {
             conversations::subscribe(mux, client, writer)
         }
         Command::ConversationList
@@ -403,9 +404,8 @@ impl Mux {
 /// A refusal of `message` with `code` and no detail; its `id` when it has
 /// one.
 pub(super) fn refusal(message: &str, code: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(message)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": code, "error_code": code});
     if let Some(id) = id
         && let Some(fields) = response.as_object_mut()

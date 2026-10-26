@@ -354,7 +354,7 @@ import Testing
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry())
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)

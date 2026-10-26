@@ -343,15 +343,16 @@
      private static func level(_ i: Int, phase t: Double) -> Double {
          var x = t - 0.45 - Double(i) * phaseStep
          x -= x.rounded()
-@@ -658,9 +724,12 @@
+@@ -658,9 +724,13 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
 -    func animate() {
 -        if let ph = Self.stillPhase {
 -            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
-+    /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
-+    @MainActor private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
++    /// cmux: the still phase, also the first dot's peak under Reduce Motion or the host's still loops
++    /// (cx-sya4n: nothing loops; Energy Saver, p14-energy-027).
++    @MainActor private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.stillsLoops ? 0.45 : nil) }
 +    @MainActor func animate() { // cmux: main actor (Swift 6), the list's thread
 +        if let ph = stillPhase {
 +            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
@@ -359,7 +360,7 @@
              return
          }
          let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
-@@ -682,7 +751,12 @@
+@@ -682,7 +752,12 @@
  
  /// Text measurement per conversation (the name line and the preview's typesetter), shared by
  /// every width: a live resize only breaks lines again. Locked (render queue and main).
@@ -373,7 +374,7 @@
      struct Measured {
          let name: CTLine
          let nameColor: CGColor
-@@ -691,33 +765,56 @@
+@@ -691,33 +766,56 @@
          let secondary: CGColor
      }
      private struct Key: Hashable { var id: ConversationID; var version: Int; var emphasized: Bool; var generation: Int }

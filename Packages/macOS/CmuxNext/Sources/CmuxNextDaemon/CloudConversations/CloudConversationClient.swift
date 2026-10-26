@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// The cloud conversation commands a Home source needs, so the source can be
@@ -29,9 +30,9 @@ public protocol CloudConversationCommands: Sendable {
     func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
                           previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment
     /// `cloud-attachment-read` (`cloud-attachments-v1`): reads `variant` of `hash` in a Cloud
-    /// conversation into `destination` atomically; returns its mime type.
+    /// conversation into `destination` atomically, its disk steps on `work`'s files lane; returns its mime type.
     func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
-                            to destination: URL) async throws -> String
+                            to destination: URL, on work: BackgroundWork) async throws -> String
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -152,9 +153,9 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
-                                   to destination: URL) async throws -> String {
+                                   to destination: URL, on work: BackgroundWork) async throws -> String {
         try await require()
-        return try await attachments.download(conversation: conversation, hash: hash, variant: variant, to: destination)
+        return try await attachments.download(conversation: conversation, hash: hash, variant: variant, to: destination, on: work)
     }
 
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
@@ -194,7 +195,7 @@ extension CloudConversationCommands {
 
     /// Fakes and daemons without Cloud attachments.
     public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
-                                   to destination: URL) async throws -> String {
+                                   to destination: URL, on work: BackgroundWork) async throws -> String {
         throw DaemonError.missingCapabilities([DaemonCapability.cloudAttachments.rawValue])
     }
 

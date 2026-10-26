@@ -47,7 +47,7 @@ struct WireGenArguments {
     /// Where `DaemonWireEvent` goes (EventEmitter).
     let eventOutput: URL?
     /// The module `DaemonWireEvent` imports `WireEventSet` from when it is built outside CmuxNextIPC
-    /// (CmuxNextIPCTests builds the fixture schema's set).
+    /// (CmuxNextIPCTestSupport builds the fixture schema's set).
     let eventImport: String?
     /// Where the `cmux.protocol/2` requests go, one file per operation family (ResourceEmitter).
     let resourceOutputDirectory: URL?

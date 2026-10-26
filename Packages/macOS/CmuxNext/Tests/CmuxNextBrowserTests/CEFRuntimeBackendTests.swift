@@ -193,6 +193,25 @@ import Testing
         #expect(runtime.shim == nil)
     }
 
+    /// p08-startup-044: a start marks `cef.initialize_started` and `cef.initialize_ended` around its
+    /// initialize, once: host mode loads no library (no preload or load marks), and a second start
+    /// marks nothing. The first page paint then names the start's trigger.
+    @Test func aStartMarksItsInitializeOnce() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+        let log = CEFLaunchMarkLog()
+        runtime.launchMarks.receiver = log.receive
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "restoredTab")
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        runtime.firstPagePainted(shown: true)
+
+        #expect(log.names == ["cef.initialize_started", "cef.initialize_ended",
+                              "cef.first_page_paint", "cef.first_page_paint.trigger.restoredTab"])
+    }
+
     /// The control case: without a supervisor the start is the in-process load.
     @Test func inProcessModeRunsTheInProcessLoad() async {
         RemoteSpy.reset()

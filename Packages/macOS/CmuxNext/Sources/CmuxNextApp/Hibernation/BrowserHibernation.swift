@@ -86,7 +86,7 @@ final class BrowserHibernation {
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
-    let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
+    let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
     var openerGroup: (String) -> Set<String> = { [$0] }
     /// The memory coordinator it registers with, made by `AppServices` (tests pass their own).
@@ -173,9 +173,12 @@ final class BrowserHibernation {
     /// - Parameters:
     ///   - lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
     ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently audible protection off.
-    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false),
-         audible: AudibleHistory? = nil) {
+    /// - Parameter deadlines: The app's main-thread deadline scheduler: the frozen pages' one-shot
+    ///   reading is a `background` deadline on it (nobody sees a reading).
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
+         lowPower: LowPowerMode = LowPowerMode(enabled: false), audible: AudibleHistory? = nil) {
         self.cache = cache
+        growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         self.lowPower = lowPower
         self.memory = memory
         self.audible = audible
