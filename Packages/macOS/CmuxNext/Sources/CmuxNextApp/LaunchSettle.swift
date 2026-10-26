@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextTerminal
 import CmuxNextWakeups
 
