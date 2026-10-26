@@ -53,6 +53,12 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// That file's launch read, started in `main` before the settings read in one sequence, so it has ended when
+    /// `AppServices` is made; nil makes `AppServices` start its own.
+    var sidebarSnapshot: LaunchRead<SidebarSnapshotDocument>?
+    /// The run marker's launch read (`AppRunMarker.startLaunchRead`), started in `main` with ``marksRun``, before the
+    /// settings read in one sequence; nil leaves no marker (tests that build `AppServices`).
+    var runMarker: LaunchRead<AppRunMarker.Launch>?
     /// The incognito workspaces the last run left (`IncognitoWorkspaceLedger`), read on a launch lane from
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).

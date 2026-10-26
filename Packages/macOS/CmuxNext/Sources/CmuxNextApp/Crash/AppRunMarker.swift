@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextMetrics
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -86,8 +87,9 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// signal (`LaunchRecovery.requestedQuitSignals`), counts as a quit that
 /// was asked for, even when the process is then killed before it ends.
 ///
-/// `run.json` is written off the main thread (`RunMarkerFile`); the quit
-/// path awaits its `quitting` write (`markQuitting`).
+/// The previous run's files are read, and this run's first `run.json` written, on the files lane from `main`
+/// (``startLaunchRead(directory:in:now:bootSession:)``); later writes go off the main thread too (`RunMarkerFile`),
+/// and the quit path awaits its `quitting` write (`markQuitting`).
 @MainActor
 final class AppRunMarker {
     private let directory: URL
@@ -104,11 +106,9 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
-    private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
-    private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
-    /// The previous run's `run.crashkeys`, moved aside at launch so this run's crash path gets an empty file;
-    /// read off the main thread (``readCrashKeys(_:)``).
+    /// The previous run's `run.crashkeys`, moved aside by the launch read so this run's crash path gets an empty
+    /// file; read off the main thread (``readCrashKeys(_:)``).
     var previousCrashKeysFile: URL { directory.appending(path: "run.crashkeys.previous") }
 
     /// The app's marker folder for `bundleID`.
@@ -118,20 +118,37 @@ final class AppRunMarker {
             .appending(path: CrashReportWriter.safe(bundleID ?? "unknown"), directoryHint: .isDirectory)
     }
 
-    /// Reads the previous run's marker in `directory`, then marks this run
-    /// live and installs the fatal signal handlers. `bootSession` is this
-    /// boot's id, stored in the marker (tests pass their own).
-    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession()) {
-        self.directory = root
-        file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
-        let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
-                                         exception: root.appending(path: "run.exception"))
-        previousExit = previous?.uncleanExit(bootSession: bootSession)
-        let recovered = previous?.forRecovery(bootSession: bootSession)
-        recovery = LaunchRecovery.decide(previous: recovered)
-        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
-                             survived: false, signal: nil, bootSession: bootSession)
-        start()
+    /// What the marker's launch read did on the files lane (``startLaunchRead(directory:in:now:bootSession:)``): the
+    /// previous run's marker, read before this run's replaced it, and the files this run's crash path writes to,
+    /// already open. Chrome reads its clean-exit beacon from Local State, loaded off the UI thread before the main
+    /// loop runs (components/metrics/clean_exit_beacon.cc, chrome/browser/chrome_browser_main.cc).
+    nonisolated struct Launch: Sendable {
+        /// The marker folder, and this boot's id (``currentBootSession()``) asked on the lane.
+        let directory: URL, bootSession: String?
+        /// The previous run's `run.json` with its `run.signal` and `run.exception`; nil on a first launch or when
+        /// `run.json` does not decode.
+        let previous: PreviousRun?
+        /// This run's marker, written as `run.json` when ``failure`` is nil.
+        let marker: PreviousRun
+        /// Why the marker folder could not be made; nil when it exists. With a failure no file is written or open.
+        let failure: String?
+        /// `run.signal` and `run.crashkeys`, open and empty for the crash path; -1 for one that did not open.
+        let signalDescriptor: Int32, keysDescriptor: Int32
+        /// How this launch follows the previous run.
+        var recovery: LaunchRecovery { LaunchRecovery.decide(previous: previous?.forRecovery(bootSession: bootSession)) }
+        /// How the previous run ended when it did not quit as asked; nil after a normal or requested quit, or on a first launch.
+        var previousExit: HistogramID.UncleanExit? { previous?.uncleanExit(bootSession: bootSession) }
+    }
+
+    /// Takes the marker's launch read (``startLaunchRead(directory:in:now:bootSession:)``, which read the previous
+    /// run's files and opened this run's on the files lane): decides how this launch follows the previous run and
+    /// installs the fatal-signal handlers. No file call on the main thread.
+    init(launch: Launch) {
+        directory = launch.directory
+        file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"))
+        (previousExit, recovery) = (launch.previousExit, launch.recovery)
+        marker = launch.marker
+        start(launch)
     }
 
     /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
@@ -141,39 +158,20 @@ final class AppRunMarker {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func start() {
+    private func start(_ launch: Launch) {
         // First, before any crash handler is installed (the uncaught-exception recorder below, the crash deadline,
-        // the fatal-signal handlers) and whether or not the files below open: the crash keys' block, which those
+        // the fatal-signal handlers) and whether or not the files opened: the crash keys' block, which those
         // handlers read (CrashKeys).
         CrashReporter.prepareCrashKeysBlock()
-        do {
-            // concurrency-allow: once at launch; a stat when the folder exists (every launch after the first).
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        } catch {
-            logger.error("run marker folder failed: \(String(describing: error), privacy: .public)")
+        if let failure = launch.failure {
+            logger.error("run marker not started: \(failure, privacy: .public)")
             return
         }
-        writeMarker()
-        // The previous run's exception was read in init; this run records its own.
-        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
-        unsafe unlink(exceptionFile.path)
         UncaughtExceptionRecorder.install(writingTo: exceptionFile)
-        // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
-        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
-        let descriptor = unsafe open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return }
-        fatalSignalDescriptor = descriptor
-        // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
-        // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
-        // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
-        // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
-        // on main like run.signal's open above; no seam runs earlier.
-        // SAFETY: rename, unlink and open read the NUL-terminated copies of the paths Swift makes for each call.
-        if unsafe rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unsafe unlink(previousCrashKeysFile.path) }
-        // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
-        // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
-        let keysDescriptor = unsafe open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
-        if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
+        guard launch.signalDescriptor >= 0 else { return }
+        fatalSignalDescriptor = launch.signalDescriptor
+        // The crash path writes this run's crash keys into the file the launch read opened (CrashKeys).
+        if launch.keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: launch.keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
@@ -258,9 +256,7 @@ final class AppRunMarker {
     /// Encodes the marker (about 120 bytes) and hands it to the background
     /// writer.
     private func writeMarker() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
+        do { lastTicket = file.submit(try Self.encode(marker)) } catch {
             logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -271,13 +267,14 @@ final class AppRunMarker {
         (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
     }
 
+    /// The previous run's marker in these files. Blocking: the launch read's body (``prepareLaunch(directory:now:bootSession:)``).
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
-        // concurrency-allow: once at launch before the first window, a file of about 150 bytes in Application Support.
+        // concurrency-allow: on the files lane once at launch, a file of about 150 bytes in Application Support.
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         guard var run = try? decoder.blockingDecode(PreviousRun.self, from: data) else { return nil }
-        // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
+        // concurrency-allow: on the files lane once at launch, a file of at most 3 bytes.
         if let text = try? String(contentsOf: signal, encoding: .utf8),
            let first = text.split(whereSeparator: \.isNewline).first,
            let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
@@ -308,5 +305,76 @@ extension PreviousRun {
     /// is neither a crash nor a restart loop.
     nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
         uncleanExit(bootSession: current) == .systemShutdown ? nil : self
+    }
+}
+
+extension AppRunMarker {
+    /// Starts the marker's launch read in `sequence` (`main` posts it first in the sequence the settings read ends,
+    /// so it has ended when `AppServices` is made): reads the previous run's files, then writes this run's
+    /// `run.json` and opens `run.signal` and `run.crashkeys`, on the files lane.
+    ///
+    /// - Parameters:
+    ///   - directory: The marker folder (``standardDirectory(bundleID:)``; tests pass their own).
+    ///   - sequence: The launch's files-lane sequence.
+    ///   - now: This run's launch time, stored in its marker.
+    ///   - bootSession: This boot's id; default ``currentBootSession()``, asked on the lane.
+    /// - Returns: The read; its value is what ``init(launch:)`` takes.
+    nonisolated static func startLaunchRead(directory: URL, in sequence: WorkSequence, now: Date = Date(),
+                                            bootSession: @escaping @Sendable () -> String? = { AppRunMarker.currentBootSession() })
+        -> LaunchRead<Launch> {
+        // A read quit drops before it ran: no previous run and no files, so no handlers.
+        let dropped = Launch(directory: directory, bootSession: nil, previous: nil,
+                             marker: PreviousRun(pid: getpid(), launched: now, recovery: false, survived: false, signal: nil),
+                             failure: "the launch read was dropped at quit", signalDescriptor: -1, keysDescriptor: -1)
+        return LaunchRead(in: sequence, dropped: dropped) {
+            prepareLaunch(directory: directory, now: now, bootSession: bootSession())
+        }
+    }
+
+    /// The launch read's body: blocking, on the files lane.
+    nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?) -> Launch {
+        let markerURL = directory.appending(path: "run.json"), signalURL = directory.appending(path: "run.signal")
+        let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
+        let marker = PreviousRun(pid: getpid(), launched: now,
+                                 recovery: LaunchRecovery.watchesForLoop(previous: previous?.forRecovery(bootSession: bootSession)),
+                                 survived: false, signal: nil, bootSession: bootSession)
+        func launch(failure: String?, signal: Int32 = -1, keys: Int32 = -1) -> Launch {
+            Launch(directory: directory, bootSession: bootSession, previous: previous, marker: marker,
+                   failure: failure, signalDescriptor: signal, keysDescriptor: keys)
+        }
+        do { try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) } catch {
+            return launch(failure: String(describing: error))
+        }
+        // A failed write is tried again by the marker's next one (RunMarkerFile).
+        try? RunMarkerFile.replaceAtomically(encode(marker), to: markerURL)
+        let files = openRunFiles(in: directory)
+        return launch(failure: nil, signal: files.signal, keys: files.keys)
+    }
+
+    /// Removes the previous run's `run.exception` (already read), then opens this run's `run.signal` and
+    /// `run.crashkeys` empty, the previous `run.crashkeys` moved aside first (read later by CrashRecoveryService; no
+    /// previous file: an older one aside is not this launch's). Returns -1 for a file that did not open; no keys
+    /// file without a signal file.
+    private nonisolated static func openRunFiles(in directory: URL) -> (signal: Int32, keys: Int32) {
+        let exceptionPath = directory.appending(path: "run.exception").path, signalPath = directory.appending(path: "run.signal").path
+        let keysPath = directory.appending(path: "run.crashkeys").path, asidePath = directory.appending(path: "run.crashkeys.previous").path
+        return blockingCall(.fileIO) { () -> (signal: Int32, keys: Int32) in
+            // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
+            unsafe unlink(exceptionPath)
+            // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+            let signal = unsafe open(signalPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+            guard signal >= 0 else { return (-1, -1) }
+            // SAFETY: rename and unlink read the NUL-terminated copies of the paths Swift makes for each call.
+            if unsafe rename(keysPath, asidePath) != 0 { unsafe unlink(asidePath) }
+            // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+            return (signal, unsafe open(keysPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600))
+        }
+    }
+
+    /// `run.json`'s bytes for `marker` (about 120).
+    nonisolated static func encode(_ marker: PreviousRun) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        return try encoder.encode(marker)
     }
 }

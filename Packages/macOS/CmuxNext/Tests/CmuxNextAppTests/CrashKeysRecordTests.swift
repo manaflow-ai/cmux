@@ -61,7 +61,7 @@ struct CrashKeysRecordTests {
         let keys = try #require(AppRunMarker.readCrashKeys(planted))
         let previous = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: false,
                                    survived: true, signal: SIGSEGV, quitting: false)
-        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", marksRun: false,
+        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", runMarker: nil,
                                            work: BackgroundWork(label: "test.crash-keys"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let tags = try #require(service.appReport(previous, crashKeys: keys)["crash_keys"] as? [String: String])
         #expect(tags["crash_key.action_id"] == "ff")
@@ -117,7 +117,7 @@ enum CrashKeysChild {
         if CrashReporter.crashKeysBlockIsPrepared { exit(2) }
         try? FileManager.default.createDirectory(at: directory.appending(path: "run.signal", directoryHint: .isDirectory),
                                                  withIntermediateDirectories: true)
-        let marker = AppRunMarker(directory: directory)
+        let marker = await CrashChild.mark(directory)
         let prepared = CrashReporter.crashKeysBlockIsPrepared
         withExtendedLifetime(marker) {}
         exit(prepared ? 0 : 1)
