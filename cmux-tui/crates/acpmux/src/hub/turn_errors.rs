@@ -155,4 +155,57 @@ mod tests {
         );
         assert_eq!(resume_cause("simulated internal error", "simulated internal error"), None);
     }
+
+    /// The gateway's and the provider's "try again in a moment" (subsession-card, 2026-10-26:
+    /// five helpers died on the first of these and sat failed until a person typed "continue").
+    const CAPACITY: &[&str] = &[
+        "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
+        "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
+        "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
+        "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+        "Selected model is at capacity.",
+        "Selected model is at capacity. overloaded",
+        "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+    ];
+
+    #[test]
+    fn capacity_errors_are_continued_in_place() {
+        for m in CAPACITY {
+            assert!(!is_limit_error(m), "{m}");
+            assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
+        }
+    }
+
+    #[test]
+    fn a_dropped_gateway_connection_is_continued() {
+        for m in [
+            "API Error: request to http://127.0.0.1:4016/v1/messages failed, reason: read ECONNRESET",
+            "error sending request: connection reset by peer",
+            "API Error: unexpected EOF while reading the response from the gateway",
+            "stream error: unexpected end of file",
+        ] {
+            assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
+        }
+    }
+
+    #[test]
+    fn limits_sign_in_bad_requests_and_refusals_are_never_continued() {
+        for m in [
+            "You've hit your limit · resets 3pm (America/Los_Angeles)",
+            "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limited\"}}",
+            "You've reached your usage limit for this account",
+            "API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+            "Not logged in · Please run /login",
+            "Invalid API key · Fix external API key",
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long\"}}",
+            "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+            "Permission denied: the person refused this command",
+            "simulated internal error",
+        ] {
+            assert_eq!(resume_cause(m, m), None, "{m}");
+        }
+        // A limit or a sign-in failure wins over a capacity word in the same text.
+        let m = "API Error: 429 rate_limit_error: the service is at capacity for your plan";
+        assert_eq!(resume_cause(m, m), None);
+    }
 }

@@ -344,6 +344,12 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
+    # error (every pooled account exhausted for a moment); the session's next prompt runs.
+    if text.startswith("cap-fail-once:") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
     if text.startswith("net-down"):
         net_down.add(sid)
     if sid in net_down or (text.startswith("net-fail-once:") and sid not in failed_once):
