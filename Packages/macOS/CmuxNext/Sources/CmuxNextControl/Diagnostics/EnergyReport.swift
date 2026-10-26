@@ -7,8 +7,8 @@ public import Foundation
 ///
 /// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch).
 /// - `inputs`: what the policy was resolved from: the `energySaver` feature, Low Power Mode, power source,
-///   battery, thermal state, the `energy.saver` setting, "Turn Off for Now", sleep and screen sleep, and
-///   the reason given.
+///   battery, thermal state, the `energy.saver` setting, "Turn Off for Now", sleep and screen sleep, the
+///   reason given, and whether `debug.energy.simulate` lays inputs over the Mac's (`simulated`).
 /// - `wake_queue`: the main thread's ``MainWakeUpQueue``: pending entries, its wakes (the ledger's
 ///   `MainWakeUpQueue`/`fire` record, one per wake), the wakes that ran more than one entry, and its
 ///   alignment grid.
@@ -127,9 +127,11 @@ extension EnergyReport {
         public var setting: EnergySaverMode
         /// "Turn Off Energy Saver for Now" holds.
         public var sessionOverride: Bool
+        /// `debug.energy.simulate` lays inputs over the Mac's (Debug and bench builds only).
+        public var simulated: Bool
 
         public init(featureEnabled: Bool, lowPowerMode: Bool, onBattery: Bool, hasBattery: Bool, batteryPercent: Int?,
-                    thermal: ProcessInfo.ThermalState, setting: EnergySaverMode, sessionOverride: Bool) {
+                    thermal: ProcessInfo.ThermalState, setting: EnergySaverMode, sessionOverride: Bool, simulated: Bool = false) {
             self.featureEnabled = featureEnabled
             self.lowPowerMode = lowPowerMode
             self.onBattery = onBattery
@@ -138,7 +140,11 @@ extension EnergyReport {
             self.thermal = thermal
             self.setting = setting
             self.sessionOverride = sessionOverride
+            self.simulated = simulated
         }
+
+        /// The states `thermal` reports, by name.
+        static let thermalStates: [ProcessInfo.ThermalState] = [.nominal, .fair, .serious, .critical]
 
         /// `nominal`, `fair`, `serious` or `critical`.
         static func name(_ thermal: ProcessInfo.ThermalState) -> String {
@@ -149,6 +155,11 @@ extension EnergyReport {
             case .critical: "critical"
             @unknown default: "unknown(\(thermal.rawValue))"
             }
+        }
+
+        /// The thermal state `name` reports (`nominal`, `fair`, `serious` or `critical`); nil for any other text.
+        public static func thermal(named name: String) -> ProcessInfo.ThermalState? {
+            thermalStates.first { Self.name($0) == name }
         }
     }
 
@@ -275,6 +286,7 @@ extension EnergyReport.Inputs {
             "suspended": .bool(policy.suspended),
             "screensAsleep": .bool(policy.screensAsleep),
             "reason": policy.reason.map { EnergyReport.JSONValue.string($0.rawValue) } ?? .null,
+            "simulated": .bool(simulated),
         ]
     }
 }
@@ -291,3 +303,72 @@ extension EnergyReport.State {
         ]
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension EnergyReport {
+    /// The simulate method's name.
+    public static let simulateMethodName = "debug.energy.simulate"
+    /// Its inputs, by wire name.
+    static let simulatedInputNames: Set<String> = ["on_battery", "percent", "thermal", "low_power", "suspended"]
+
+    /// `debug.energy.simulate {on_battery?, percent?, thermal?, low_power?, suspended?}` (p14-energy-123, Debug
+    /// and bench builds only): `apply` lays these inputs over the Mac's in the energy monitor, so the policy
+    /// resolves as on a Mac in that state; inputs not given follow the Mac. Each call replaces the previous
+    /// simulation; `{clear: true}` hands `apply` nil, which restores the Mac's inputs. Answers ``report()``
+    /// after the change. Fleet Macs have no battery: the energy test phase checks the `auto` saver's `battery`
+    /// reason with `{on_battery: true, percent: 15}` (scripts/cmux-next/energy-test-phase.py, D7 auto).
+    ///
+    /// - Parameter apply: Sets or clears the energy monitor's simulation, in one main-actor turn.
+    public func simulateMethod(applying apply: @escaping @MainActor @Sendable (EnergySimulation?) -> Void) -> ControlMethod {
+        .async(Self.simulateMethodName) { [self] call in
+            let simulation = try Self.simulation(call.params)
+            await apply(simulation)
+            return await report()
+        }
+    }
+
+    /// The simulation `params` ask for; nil for `{clear: true}`. Anything else is `invalid_params`.
+    static func simulation(_ params: [String: JSONValue]) throws(ControlError) -> EnergySimulation? {
+        let name = simulateMethodName
+        if let clear = params["clear"] {
+            guard clear.boolValue == true, params.count == 1 else {
+                throw ControlError.invalidParams("\(name): clear takes true and no other input")
+            }
+            return nil
+        }
+        if let unknown = params.keys.sorted().first(where: { !simulatedInputNames.contains($0) }) {
+            throw ControlError.invalidParams("\(name): unknown input \(unknown); give on_battery, percent, thermal, low_power, suspended or clear")
+        }
+        guard !params.isEmpty else {
+            throw ControlError.invalidParams("\(name): give on_battery, percent, thermal, low_power or suspended, or clear: true")
+        }
+        var percent: Int?
+        if let value = params["percent"] {
+            guard let number = value.intValue, (0...100).contains(number) else {
+                throw ControlError.invalidParams("\(name): percent must be a whole number from 0 to 100")
+            }
+            percent = number
+        }
+        var thermal: ProcessInfo.ThermalState?
+        if let value = params["thermal"] {
+            guard let state = value.stringValue.flatMap(Inputs.thermal(named:)) else {
+                throw ControlError.invalidParams("\(name): thermal must be nominal, fair, serious or critical")
+            }
+            thermal = state
+        }
+        let onBattery = try flag(params, "on_battery")
+        let lowPowerMode = try flag(params, "low_power")
+        let suspended = try flag(params, "suspended")
+        return EnergySimulation(onBattery: onBattery, batteryPercent: percent, thermal: thermal,
+                                lowPowerMode: lowPowerMode, suspended: suspended)
+    }
+
+    private static func flag(_ params: [String: JSONValue], _ key: String) throws(ControlError) -> Bool? {
+        guard let value = params[key] else { return nil }
+        guard let flag = value.boolValue else {
+            throw ControlError.invalidParams("\(simulateMethodName): \(key) must be true or false")
+        }
+        return flag
+    }
+}
+#endif

@@ -1,4 +1,7 @@
 public import CmuxNextCompat
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextWakeups
+#endif
 public import Foundation
 import Observation
 
@@ -14,17 +17,43 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     public var batteryPercent: Int?
     /// The Mac's thermal state.
     public var thermal: ProcessInfo.ThermalState
+    /// The Mac is going to sleep or asleep (``EnergyPolicy/suspended``). Only `debug.energy.simulate`
+    /// sets it until the sleep watch (p14-energy-120) reports the Mac's.
+    public var suspended: Bool
 
     /// Inputs with every field given.
     public init(lowPowerMode: Bool = false, onBattery: Bool = false, hasBattery: Bool = false,
-                batteryPercent: Int? = nil, thermal: ProcessInfo.ThermalState = .nominal) {
+                batteryPercent: Int? = nil, thermal: ProcessInfo.ThermalState = .nominal, suspended: Bool = false) {
         self.lowPowerMode = lowPowerMode
         self.onBattery = onBattery
         self.hasBattery = hasBattery
         self.batteryPercent = batteryPercent
         self.thermal = thermal
+        self.suspended = suspended
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension EnergyInputs {
+    /// These inputs with `simulation`'s over them. Simulating battery power or a charge gives the Mac a
+    /// battery; the monitor drops the charge when the result is not on battery, as it does the Mac's.
+    nonisolated func simulated(by simulation: EnergySimulation) -> EnergyInputs {
+        var inputs = self
+        if let onBattery = simulation.onBattery {
+            inputs.onBattery = onBattery
+            inputs.hasBattery = inputs.hasBattery || onBattery
+        }
+        if let batteryPercent = simulation.batteryPercent {
+            inputs.batteryPercent = batteryPercent
+            inputs.hasBattery = true
+        }
+        if let thermal = simulation.thermal { inputs.thermal = thermal }
+        if let lowPowerMode = simulation.lowPowerMode { inputs.lowPowerMode = lowPowerMode }
+        if let suspended = simulation.suspended { inputs.suspended = suspended }
+        return inputs
+    }
+}
+#endif
 
 /// Energy Saver's one owner of power inputs: Low Power Mode, the power source, the battery's
 /// charge and the thermal state, each observed once for the app. The composition root makes one
@@ -49,6 +78,10 @@ public final class EnergyMonitor {
     @ObservationIgnored private var lowPowerObservation: LowPowerModeObservation?
     @ObservationIgnored private var reading = PowerSourceReading()
     @ObservationIgnored private var started = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// What `debug.energy.simulate` lays over the Mac's inputs; nil follows the Mac.
+    @ObservationIgnored public private(set) var simulation: EnergySimulation?
+    #endif
 
     /// The system's inputs: macOS Low Power Mode, IOKit's power source, the thermal state.
     public convenience init() {
@@ -96,6 +129,24 @@ public final class EnergyMonitor {
         return observe(handler)
     }
 
+    /// `debug.energy.simulate` lays inputs over the Mac's; never in Release without bench hooks.
+    public var isSimulated: Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        simulation != nil
+        #else
+        false
+        #endif
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Lays `simulation` over the Mac's inputs from now on, replacing an earlier one; nil restores the
+    /// Mac's. Observers hear the change as any other, so the policy follows in the same turn.
+    public func simulate(_ simulation: EnergySimulation?) {
+        self.simulation = simulation
+        refresh()
+    }
+    #endif
+
     private func readPowerSource() {
         apply(power.read())
     }
@@ -106,8 +157,12 @@ public final class EnergyMonitor {
     }
 
     private func refresh() {
-        let next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: reading.onBattery, hasBattery: reading.hasBattery,
-                                batteryPercent: reading.onBattery ? reading.batteryPercent : nil, thermal: thermal.state)
+        var next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: reading.onBattery, hasBattery: reading.hasBattery,
+                                batteryPercent: reading.batteryPercent, thermal: thermal.state)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let simulation { next = next.simulated(by: simulation) }
+        #endif
+        if !next.onBattery { next.batteryPercent = nil }
         guard next != inputs else { return }
         inputs = next
         handlers.call(next)
