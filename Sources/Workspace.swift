@@ -5378,10 +5378,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panels[panelId] as? TerminalPanel
     }
 
-    func ttyName(forPanel panelId: UUID) -> String? {
-        candidateTTYNames(forPanel: panelId).first
-    }
-
     /// Candidate TTY device names for a panel, most authoritative first.
     ///
     /// The live Ghostty surface PTY (queried via `TIOCPTYGNAME`) is preferred
@@ -5391,12 +5387,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// detection) should try every candidate and use the first that resolves.
     func candidateTTYNames(forPanel panelId: UUID) -> [String] {
         var result: [String] = []
-        if let live = terminalPanel(for: panelId)?.surface.ttyName,
-           !live.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let live = terminalPanel(for: panelId)?.surface.controllingTTYName() {
             result.append(live)
         }
-        if let reported = surfaceTTYNames[panelId],
-           !reported.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        if let reported = surfaceTTYNames[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reported.isEmpty,
            !result.contains(reported) {
             result.append(reported)
         }
