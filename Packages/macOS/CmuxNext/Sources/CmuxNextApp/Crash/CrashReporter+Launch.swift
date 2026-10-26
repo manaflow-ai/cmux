@@ -53,8 +53,12 @@ struct AppCrashReporting: Sendable {
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
 
-    /// - Parameter afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
-    init(environment: AppEnvironment, afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
+    /// - Parameters:
+    ///   - features: The features the app runs with, put on the Sentry scope right after it starts
+    ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
+    ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
+    init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
+         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
@@ -70,6 +74,7 @@ struct AppCrashReporting: Sendable {
         DebugTimings.markLaunch("crash.sentry_started")
         // After the start, so the invariant sink sends only when Sentry runs (p10-stability-099).
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
+        if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
