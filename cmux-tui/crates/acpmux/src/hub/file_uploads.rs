@@ -352,17 +352,28 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
     // Synced once, at the finish: a sync per chunk made a large file's upload wait on the disk
     // thousands of times.
     if let Err(e) = file.write_all(&bytes) {
-        if !disk_full(&e) {
-            return Err(RpcError::internal(format!("cannot append upload: {e}")));
-        }
-        // The disk filled meanwhile (another upload, another program): the partial file goes,
-        // so the space comes back.
         drop(file);
-        remove_unfinished(&path, &meta);
         let name = declared.get("fileName").and_then(Value::as_str).unwrap_or("the file");
-        return Err(no_space(name, free_bytes(&path).unwrap_or(0)));
+        return Err(write_failed(e, "append", &path, &meta, name));
     }
     Ok(json!({"offset": next}))
+}
+
+/// The refusal for an upload whose write or sync (`what`) failed with `error`. A full disk (the
+/// disk filled meanwhile: another upload, another program) deletes the unfinished upload, so its
+/// space comes back, and says so (`filePut.noSpace`). The caller closes the part first.
+fn write_failed(
+    error: std::io::Error,
+    what: &str,
+    part: &Path,
+    meta: &Path,
+    name: &str,
+) -> RpcError {
+    if !disk_full(&error) {
+        return RpcError::internal(format!("cannot {what} upload: {error}"));
+    }
+    remove_unfinished(part, meta);
+    no_space(name, free_bytes(part).unwrap_or(0))
 }
 
 /// Deletes an unfinished upload's `.part` and `.meta`, then its folder when that is empty.
@@ -413,9 +424,13 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     // On the disk before it is named: the chunks were not synced one by one. Opened to write
     // (Windows flushes only such a handle) but never made: a second finish that made an empty
     // `.part` would name it over the finished file.
-    crate::config::private_state_existing_rw(&part)
-        .and_then(|file| Ok(file.sync_all()?))
+    // A disk that fills shows here too: buffered writes reach it only now.
+    let file = crate::config::private_state_existing_rw(&part)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    if let Err(e) = file.sync_all() {
+        drop(file);
+        return Err(write_failed(e, "sync", &part, &meta, name));
+    }
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
     std::fs::rename(&part, &path)
@@ -782,6 +797,37 @@ mod tests {
         assert!(!dir.join(".part").exists());
         assert_eq!(std::fs::read(dir.join("movie.mov")).unwrap(), b"x");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A disk that fills under an upload (a chunk's write, or the finish's sync, where buffered
+    /// writes reach it) ends the upload: its partial file goes and the refusal says so.
+    #[test]
+    fn a_disk_that_fills_mid_upload_deletes_the_partial_file_and_says_so() {
+        for kind in [std::io::ErrorKind::StorageFull, std::io::ErrorKind::QuotaExceeded] {
+            let dir = std::env::temp_dir().join(format!("acpmux-full-{}", uuid::Uuid::now_v7()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (part, meta) = (dir.join(".part"), dir.join(".meta"));
+            std::fs::write(&part, b"half").unwrap();
+            std::fs::write(&meta, b"{}").unwrap();
+            let err = write_failed(kind.into(), "sync", &part, &meta, "movie.mov");
+            assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.noSpace", "{kind:?}");
+            assert!(err.message.contains("movie.mov"), "{}", err.message);
+            assert!(!dir.exists(), "the partial upload stayed on a full disk");
+        }
+        // Any other failure keeps the upload, for a retry or a cancel.
+        let dir = std::env::temp_dir().join(format!("acpmux-full-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".part"), b"half").unwrap();
+        let err = write_failed(
+            std::io::ErrorKind::Interrupted.into(),
+            "sync",
+            &dir.join(".part"),
+            &dir.join(".meta"),
+            "a",
+        );
+        assert_eq!(err.code, -32603);
+        assert!(dir.join(".part").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Two finishes of one upload both pass the length check, and the first names the file: the
