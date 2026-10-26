@@ -98,10 +98,18 @@ public final class SidebarDocSections {
     public enum UnplacedAnchor: Equatable, Sendable {
         case before(String)
         case after(String)
-        /// Right after it when it is in a group (`top` from inside a group), else nowhere.
+        /// Right after it when it is in a group (`top` from inside a group), else first or last as unanchored.
         case afterInGroup(String)
-        /// Last in its group when it is in one (`bottom` from inside a group), else nowhere.
+        /// Last in its group when it is in one (`bottom` from inside a group), else first or last as unanchored.
         case lastInGroupOf(String)
+
+        /// Whether it applies only inside a group.
+        public var isGroupAnchor: Bool {
+            switch self {
+            case .afterInGroup, .lastInGroupOf: true
+            case .before, .after: false
+            }
+        }
     }
 
     public init() {}

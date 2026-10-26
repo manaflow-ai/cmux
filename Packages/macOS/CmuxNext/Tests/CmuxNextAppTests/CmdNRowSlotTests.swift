@@ -78,9 +78,11 @@ struct CmdNRowSlotTests {
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
-        print("cmd-n-slot: anchor \(anchor.prefix(6)), new \(created.prefix(6)), frames: \(tags.joined(separator: " | "))")
-        #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
+        if !elsewhere.isEmpty || after != Array(before[...at]) + [created] + before[(at + 1)...] {
+            print("cmd-n-slot: anchor \(anchor.prefix(6)), new \(created.prefix(6)), frames: \(tags.joined(separator: " | "))")
+        }
+        #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere)")
     }
 }

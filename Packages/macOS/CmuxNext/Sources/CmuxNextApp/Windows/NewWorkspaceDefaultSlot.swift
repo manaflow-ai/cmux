@@ -103,7 +103,12 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
-        if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { windows.newPlacements.anchors[id] = anchor }
+        switch anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) {
+        // Only a daemon that places the create by the rule puts it in the group (`sending` arms it).
+        case let anchor? where anchor.isGroupAnchor: windows.newPlacements.groupAnchors[id] = anchor
+        case let anchor?: windows.newPlacements.anchors[id] = anchor
+        case nil: break
+        }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
@@ -117,6 +122,7 @@ enum NewWorkspacePlacements {
         // Read before the create goes out: the window places the workspace only once the daemon lists it.
         guard await connection.identity?.supports(DaemonCapability.workspaceCreateCurrent.rawValue) == true else { return nil }
         ledger.placedByDaemon.insert(key.rawValue)
+        if let anchor = ledger.groupAnchors.removeValue(forKey: key.rawValue) { ledger.anchors[key.rawValue] = anchor }
         return rule
     }
 
@@ -125,6 +131,7 @@ enum NewWorkspacePlacements {
         windows.pendingPlacements[id] = nil
         windows.newPlacements.placedByDaemon.remove(id)
         windows.newPlacements.anchors[id] = nil
+        windows.newPlacements.groupAnchors[id] = nil
     }
 
     /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
@@ -165,6 +172,8 @@ enum NewWorkspacePlacements {
         /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
         /// document places the workspace or it is gone (`unplacedAnchor(of:machines:)`).
         var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
+        /// `top` / `bottom` group anchors, armed into `anchors` once the create sends the rule (`sending`).
+        var groupAnchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
 
         /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
         func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
