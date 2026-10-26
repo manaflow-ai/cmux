@@ -48,7 +48,7 @@ private nonisolated final class WindowCount: Sendable {
 
 /// Hands the one strong reference to a background task, which drops it there.
 private nonisolated final class PanelBox: Sendable {
-    private struct Slot {
+    private nonisolated struct Slot: Sendable {
         var panel: HoverCardPanel?
         weak var watched: HoverCardPanel?
     }

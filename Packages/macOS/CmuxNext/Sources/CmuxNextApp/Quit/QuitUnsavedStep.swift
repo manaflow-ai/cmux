@@ -82,10 +82,7 @@ enum QuitUnsavedStep {
             race.dialogID = center.present(progress, in: scope) { _ in race.finish(nil) }
             // The participants are main-actor documents, so the save's body stays on main. The task reaches
             // them through the main-actor race, so it captures no non-Sendable value.
-            work.task(.userBlocking) { @MainActor in
-                let outcomes = await registry.save(race.participants)
-                if race.finish(outcomes), let id = race.dialogID { center.dismiss(id) }
-            }
+            work.task(.userBlocking) { await race.save(with: registry, center: center) }
         }
     }
 
@@ -100,6 +97,12 @@ enum QuitUnsavedStep {
         init(_ continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>, participants: [any QuitUnsavedParticipant]) {
             self.continuation = continuation
             self.participants = participants
+        }
+
+        /// Saves the participants; when the save answered first, its progress dialog goes.
+        func save(with registry: QuitUnsavedRegistry, center: CmuxDialogCenter) async {
+            let outcomes = await registry.save(participants)
+            if finish(outcomes), let dialogID { center.dismiss(dialogID) }
         }
 
         /// True when this call answered (the other side came too late).
