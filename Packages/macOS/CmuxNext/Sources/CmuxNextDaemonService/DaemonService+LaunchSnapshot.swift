@@ -40,8 +40,9 @@ extension DaemonService {
     /// Begins the local daemon's first connect attempt off the main thread,
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
-    /// later `start` reports why).
+    /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`.
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false,
@@ -49,6 +50,7 @@ extension DaemonService {
                                      hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
+                                                resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins, wireStats: wireStats) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(

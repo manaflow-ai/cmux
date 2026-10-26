@@ -19,7 +19,7 @@ extension CEFTab: PageInfoProviding {
 
     public func pageInfoCertificateChain() async -> [Data] {
         guard let browserID else { return [] }
-        if let status = runtime.sslStatus(browserID), !status.chain.isEmpty { return status.chain }
+        if let status = await runtime.sslStatus(browserID), !status.chain.isEmpty { return status.chain }
         guard let url = state.url, let origin = PageInfoSite.origin(of: url),
               let json = try? await runtime.devTools(browserID, method: "Network.getCertificate", params: ["origin": origin])
         else { return [] }
@@ -61,9 +61,9 @@ extension CEFTab: PageInfoProviding {
         var result: [SitePermissionKind: SitePermissionSetting] = [:]
         // Automatic downloads are cmux's (`AutomaticDownloadGate`), not Chromium's.
         for kind in supportedSitePermissions where kind != .automaticDownloads {
-            guard let value = runtime.contentSetting(browserID, url: origin, kind: kind),
-                  value != runtime.contentSetting(browserID, url: nil, kind: kind),
-                  let setting = value.siteSetting else { continue }
+            guard let value = await runtime.contentSetting(browserID, url: origin, kind: kind) else { continue }
+            let profileDefault = await runtime.contentSetting(browserID, url: nil, kind: kind)
+            guard value != profileDefault, let setting = value.siteSetting else { continue }
             result[kind] = setting
         }
         return result
@@ -95,9 +95,18 @@ extension CEFTab: PageInfoProviding {
     }
 
     /// Refines the scheme-level security with Chromium's SSL status:
-    /// certificate errors the user proceeded through and mixed content.
+    /// certificate errors the user proceeded through and mixed content. In
+    /// host mode the status is a REPLY: it applies if the tab still shows the
+    /// same page then.
     func syncSecurityFromChromium() {
-        guard let browserID, state.url?.scheme == "https", let status = runtime.sslStatus(browserID) else { return }
+        guard let browserID, let url = state.url, url.scheme == "https" else { return }
+        runtime.sslStatus(browserID) { [weak self] status in
+            guard let status, let self, self.browserID == browserID, state.url == url else { return }
+            applySecurity(from: status)
+        }
+    }
+
+    private func applySecurity(from status: CEFSSLStatus) {
         let security: BrowserSecurityState = if status.hasCertificateError {
             .broken
         } else if status.hasMixedContent {

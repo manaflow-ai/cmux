@@ -176,10 +176,17 @@ public final class ComputerUseHelperV2 {
         let executable = app.appending(path: "Contents/MacOS/\(Self.helperExecutableName)")
         let spawned: ComputerUseHelperV2Child
         do {
-            spawned = try spawner.spawn(executable: executable, environment: Self.environment(),
-                                        logPath: directory + "/helper.log")
+            spawned = try await spawner.spawn(executable: executable, environment: Self.environment(),
+                                              logPath: directory + "/helper.log")
         } catch {
+            // Turned off (or applied again) during the spawn: the newer apply owns the state.
+            guard current == generation else { return }
             return unavailable("the helper did not start: \(error)")
+        }
+        guard current == generation else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
         }
         let secret = Self.makeSecret()
         let acpmux = self.acpmux()

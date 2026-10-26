@@ -56,7 +56,7 @@ struct ChromiumHostMirrorHostProcessTests {
         let recorder = HostMirrorRecorder(shim: shim)
         var signals = recorder.signals.makeAsyncIterator()
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: configuration.executable, arguments: configuration.arguments)
+        let handle = try await launcher.launch(executable: configuration.executable, arguments: configuration.arguments)
         // The host's fd 3 is one end of a socket pair: its control channel, both ways. Its fd 4 is unused.
         Darwin.close(handle.readFD)
         defer {

@@ -15,6 +15,10 @@ const SLOW_REQUESTS: &str = "slow_requests";
 /// The optional section that reports request latency by class and the
 /// dispatch queue (`request_latency_us`, `dispatch_queue_us`).
 const REQUESTS: &str = "requests";
+/// The optional section that reports wait and hold by class (frontend,
+/// program, automation) on the registry, connection and state locks
+/// (`priority_gate`).
+const LOCK_CLASSES: &str = "lock_classes";
 /// The optional section that reports the IPC layer: streams, sequence
 /// depths, messages and bytes by kind, parses and write syscalls per
 /// message, write stalls and bad_message closes.
@@ -40,6 +44,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         slow_requests: wants(SLOW_REQUESTS).then(|| mux.request_watchdog.snapshot()),
         request_latency_us,
         dispatch_queue_us,
+        lock_classes: wants(LOCK_CLASSES).then(|| mux.lock_class_stats()),
         ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
     }
 }

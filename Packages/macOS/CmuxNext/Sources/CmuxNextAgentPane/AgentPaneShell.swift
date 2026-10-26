@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 public import Foundation
@@ -83,10 +84,16 @@ public final class AgentPaneShell {
     }
 
     private var runs: [String: Run] = [:]
+    /// Runs whose spawn is in flight (``run(_:cwd:)`` awaits it): they count against ``maximumRunning``.
+    private var spawning = 0
+    /// ``terminateAll()`` ran (the pane closed): a run whose spawn returns after it is hung up at once.
+    private var terminated = false
     private var order: [String] = []
     private let shell: String
     private let environment: [String: String]
     private let home: String
+    /// Spawns this pane's commands, in order, off the main actor: a command a person started shows soon.
+    let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.agent-shell", priority: .userVisible)
 
     public init(
         shell: String? = ProcessInfo.processInfo.environment["SHELL"],
@@ -104,9 +111,10 @@ public final class AgentPaneShell {
         self.home = home
     }
 
-    /// Starts `command` in `cwd` (the home folder when nil) and returns its id.
-    public func run(_ command: String, cwd: String?) throws(Failure) -> String {
-        guard runs.values.filter({ $0.exit == nil }).count < Self.maximumRunning else { throw .tooMany }
+    /// Starts `command` in `cwd` (the home folder when nil) and returns its id. The spawn runs on
+    /// ``launcher``, never on the main actor.
+    public func run(_ command: String, cwd: String?) async throws(Failure) -> String {
+        guard runs.values.filter({ $0.exit == nil }).count + spawning < Self.maximumRunning else { throw .tooMany }
         let folder = cwd ?? home
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -115,8 +123,16 @@ public final class AgentPaneShell {
         var pipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
+        let (shell, variables, output) = (self.shell, environment.map { "\($0.key)=\($0.value)" }, pipe[1])
+        let launcher = self.launcher
+        // The slot is held across the spawn's await: a second run meanwhile counts it.
+        spawning += 1
+        defer { spawning -= 1 }
         do {
-            pid = try spawn(command, folder: folder, output: pipe[1])
+            pid = try await launcher.run { () throws(Failure) -> pid_t in
+                try Self.spawn(command, shell: shell, variables: variables, folder: folder, output: output,
+                               priority: launcher.priority)
+            }
         } catch {
             Darwin.close(pipe[0])
             Darwin.close(pipe[1])
@@ -167,6 +183,8 @@ public final class AgentPaneShell {
             continuation.finish()
             withExtendedLifetime(reader) {}
         }
+        // The pane closed while the spawn was in flight: hang the command up as terminateAll() did the others.
+        if terminated { hangUp(run) }
         return id
     }
 
@@ -207,15 +225,20 @@ public final class AgentPaneShell {
         }
     }
 
-    /// A command ran in this pane (running, or its output kept): closing the pane ends it or drops its output.
-    public var hasRuns: Bool { !runs.isEmpty }
+    /// A command ran in this pane (running, starting, or its output kept): closing the pane ends it or drops
+    /// its output.
+    public var hasRuns: Bool { !runs.isEmpty || spawning > 0 }
 
-    /// Ends every running command (the pane closed): hangup, as a closed terminal sends.
+    /// Ends every running command (the pane closed): hangup, as a closed terminal sends. A command whose
+    /// spawn is still in flight is hung up when it returns.
     public func terminateAll() {
-        for run in runs.values where run.exit == nil {
-            kill(-run.pid, SIGHUP)
-            kill(-run.pid, SIGCONT)
-        }
+        terminated = true
+        for run in runs.values where run.exit == nil { hangUp(run) }
+    }
+
+    private func hangUp(_ run: Run) {
+        kill(-run.pid, SIGHUP)
+        kill(-run.pid, SIGCONT)
     }
 
     private func receive(_ event: Event, for id: String) {
@@ -251,7 +274,9 @@ public final class AgentPaneShell {
         }
     }
 
-    private func spawn(_ command: String, folder: String, output: Int32) throws(Failure) -> pid_t {
+    /// Spawns `shell -l -c command` in `folder` at `priority`; blocking, so ``run(_:cwd:)`` calls it on a launcher.
+    private nonisolated static func spawn(_ command: String, shell: String, variables: [String], folder: String,
+                                          output: Int32, priority: MayBlockPriority) throws(Failure) -> pid_t {
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
@@ -268,18 +293,17 @@ public final class AgentPaneShell {
             && posix_spawnattr_setpgroup(&attributes, 0) == 0
         guard configured else { throw .spawnFailed(EINVAL) }
         let arguments = [shell, "-l", "-c", command]
-        let variables = environment.map { "\($0.key)=\($0.value)" }
         var pid: pid_t = 0
         let status = Self.withCStrings(arguments) { argv in
             Self.withCStrings(variables) { envp in
-                posix_spawn(&pid, shell, &actions, &attributes, argv, envp)
+                blockingPosixSpawn(&pid, shell, &actions, &attributes, argv, envp, priority: priority)
             }
         }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid
     }
 
-    private static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
+    private nonisolated static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
         let pointers = strings.map { strdup($0) } + [nil]
         defer { for pointer in pointers { free(pointer) } }
         return body(pointers)

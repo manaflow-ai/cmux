@@ -43,7 +43,7 @@ final class ChangelogPageProvider: PageProvider {
     var anchor: @MainActor () -> NSView? = { nil }
 
     init(source: (any ChangelogSource)?, currentBuild: String, media: ReleaseMediaStore? = nil,
-         links: AgentPaneReplyLinks = ChangelogPageProvider.cardLinks(),
+         links: AgentPaneReplyLinks = AgentPaneReplyLinks(),
          openLink: @escaping @MainActor (URL, NSView?) -> Bool = { _, _ in false }) {
         self.source = source
         self.currentBuild = currentBuild
@@ -52,10 +52,11 @@ final class ChangelogPageProvider: PageProvider {
         self.openLink = openLink
     }
 
-    /// The card's links for the app: pull requests from the app's one cache, the installed browsers.
-    static func cardLinks() -> AgentPaneReplyLinks {
+    /// The card's links for the app: pull requests from the app's one cache (`AppServices.pullRequests`),
+    /// the installed browsers.
+    static func cardLinks(_ replies: AgentReplyPullRequests) -> AgentPaneReplyLinks {
         let links = AgentPaneReplyLinks()
-        links.pullRequest = { AgentReplyPullRequests.shared.answer($0) }
+        links.pullRequest = { replies.answer($0) }
         return links
     }
 
