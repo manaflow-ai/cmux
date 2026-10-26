@@ -122,6 +122,23 @@ struct SignposterTraceRingTests {
         action.end(.actionGate, after)
     }
 
+    @Test("The begin time comes from the injected trace clock; the async id from the signpost id, not the time")
+    func beginTimeFromTraceClock() throws {
+        let runtime = TraceRuntime(role: .app)
+        enable(runtime, .action)
+        let clock = TraceClock(reader: .init(uptimeNanos: { 1_234 }, continuousNow: { ContinuousClock.now }))
+        let action = Signposter(category: .action, mirror: mirror, trace: runtime, clock: clock)
+        let first = action.begin(.actionCommit, message)
+        let second = action.begin(.actionCommit, message)
+        #expect(first.beginUptimeNanos == 1_234 && second.beginUptimeNanos == 1_234)
+        let firstID = try #require(asyncID(first))
+        let secondID = try #require(asyncID(second))
+        #expect(firstID != secondID, "same-time action.commit intervals share an async id")
+        action.end(.actionCommit, second, .committed)
+        action.end(.actionCommit, first, .committed)
+        #expect(records(runtime) == 4)
+    }
+
     @Test("Names the catalog gives AB/AE are async slices; the synchronous spans are thread slices")
     func ringPhasePerName() {
         for name: SignpostName in [.actionCommit, .actionGate, .keyToFrame, .scrollToFrame, .motionRun, .switchWorkspace,
@@ -129,7 +146,8 @@ struct SignposterTraceRingTests {
                                    .launchProcessToMain, .launchFirstFrame, .daemonRequest] {
             #expect(!name.opensThreadSlice, "\(name)")
         }
-        for name: SignpostName in [.actionPerform, .stallMainTask, .cefPump, .motionFrame, .stallCreateSurface] {
+        for name: SignpostName in [.actionPerform, .stallMainTask, .cefPump, .motionFrame, .stallCreateSurface, .taskRun,
+                                   .ghosttyRender] {
             #expect(name.opensThreadSlice, "\(name)")
         }
     }

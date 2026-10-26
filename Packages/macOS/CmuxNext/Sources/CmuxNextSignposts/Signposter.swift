@@ -1,5 +1,4 @@
 public import CmuxNextTrace
-import Darwin
 public import os
 
 /// Always-on signpost intervals for one ``SignpostCategory``, the same in Debug and Release.
@@ -35,6 +34,8 @@ public nonisolated struct Signposter: Sendable {
     private let mirror: SignpostMetricKitMirror
     /// The trace runtime whose ring takes this signposter's records (the app's: ``TraceRuntime/shared``).
     private let trace: TraceRuntime
+    /// The trace clock an interval's begin time is read from (``SignpostInterval/beginUptimeNanos``).
+    private let clock: TraceClock
 
     /// A signposter for `category` under ``SignpostCategory/subsystem``, recording into the process's trace ring.
     public init(category: SignpostCategory) {
@@ -50,10 +51,13 @@ public nonisolated struct Signposter: Sendable {
     ///   - mirror: The MetricKit mirror (tests pass their own, so they never switch the
     ///     process-wide one that other suites running in parallel read).
     ///   - trace: The trace runtime (tests pass their own, so their category flags and records are theirs).
-    init(category: SignpostCategory, mirror: SignpostMetricKitMirror, trace: TraceRuntime = .shared) {
+    ///   - clock: The trace clock (tests pass one that reads a counter, so begin times are known).
+    init(category: SignpostCategory, mirror: SignpostMetricKitMirror, trace: TraceRuntime = .shared,
+         clock: TraceClock = TraceClock()) {
         self.category = category
         self.mirror = mirror
         self.trace = trace
+        self.clock = clock
         signposter = OSSignposter(subsystem: SignpostCategory.subsystem, category: category.rawValue)
     }
 
@@ -312,7 +316,7 @@ public nonisolated struct Signposter: Sendable {
                               _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         let id = signposter.makeSignpostID()
-        let beginNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let beginNanos = clock.nowNanos()
         let state = beginInterval(id)
         return SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos,
                                 ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0))
@@ -354,7 +358,8 @@ extension SignpostName {
     var opensThreadSlice: Bool {
         switch self {
         case .actionPerform, .stallMainTask, .motionFrame, .motionDragFrame, .keyOmnibarSuggest, .keyPaletteSearch,
-             .switchAppActivation, .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen:
+             .switchAppActivation, .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
+             .taskRun, .ghosttyRender:
             true
         default:
             false
