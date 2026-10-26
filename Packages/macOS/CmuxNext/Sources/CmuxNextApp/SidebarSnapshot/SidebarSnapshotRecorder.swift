@@ -12,8 +12,8 @@ import CmuxNextWakeups
 /// (`components/sessions/core/command_storage_manager.cc`, `ScheduleSave`, `kSaveDelayMS`). Quit
 /// does not wait for the task: ``flushNow(_:window:services:)`` builds the queued snapshot at once,
 /// before the store's own flush, as Chrome's session service writes its pending commands at once
-/// when the browser shuts down (`CommandStorageManager::Save`), not at its next timer. A closed window needs no flush: the store
-/// forgets it (`WindowManager.userClosed`).
+/// when the browser shuts down (`CommandStorageManager::Save`), not at its next timer. A closed
+/// window needs no flush: the store forgets it (`WindowManager.userClosed`).
 final class SidebarSnapshotRecorder {
     /// The longest a changed sidebar waits for idle time before its snapshot is built as
     /// background work (Chrome's session save delay, `kSaveDelayMS`, is 2.5 s).
