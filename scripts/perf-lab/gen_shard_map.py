@@ -50,6 +50,10 @@ LAYOUT: dict[str, dict[str, object]] = {
     "aws-m4pro": {"shards": 1, "tiers": ("T1", "T2")},
 }
 
+# How often each tier starts a round on a shard (scheduler.py BATCH_INTERVAL, T1_INTERVAL, the lab day). A shard
+# whose stories of a tier take longer than that keeps its host busy with that tier and starves the lower tiers.
+TIER_INTERVAL_SECONDS = {"T0": 10 * 60, "T1": 2 * 3600, "T2": 24 * 3600}
+
 
 def pack(stories: Iterable[tuple[str, int]], shards: int) -> tuple[list[list[str]], list[int]]:
     """Greedy bin packing: longest story first, onto the least-loaded shard (lowest index on a tie).
@@ -92,6 +96,20 @@ def generate(stories: Iterable[object], layout: Mapping[str, Mapping[str, object
     }
 
 
+def overloads(document: Mapping) -> list[str]:
+    """Each shard whose seconds for a tier exceed that tier's interval, as a line for the person who sizes LAYOUT."""
+    lines = []
+    for name, entry in sorted(document["classes"].items()):
+        for shard in entry["shards"]:
+            for tier, seconds in sorted(shard["seconds"].items()):
+                interval = TIER_INTERVAL_SECONDS[tier]
+                if seconds > interval:
+                    stretched = "; until then the scheduler starts its T1 rounds less often" if tier == "T1" else ""
+                    lines.append(f"{name}/{shard['index']}: {tier} takes {seconds} s, over its {interval} s interval; "
+                                 f"add a shard to LAYOUT[{name!r}]{stretched}")
+    return lines
+
+
 def render(document: Mapping) -> str:
     return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
@@ -122,7 +140,10 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     except (catalog.CatalogError, OSError, SyntaxError) as error:
         print(f"shard-map: {error}", file=err)
         return 2
-    text = render(generate(stories))
+    document = generate(stories)
+    for line in overloads(document):
+        print(f"shard-map: warning: {line}", file=err)
+    text = render(document)
     path = args.root / SHARD_MAP_PATH
     if args.check:
         current = path.read_text(encoding="utf-8") if path.is_file() else None
