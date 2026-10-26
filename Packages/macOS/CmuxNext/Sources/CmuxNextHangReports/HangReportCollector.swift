@@ -1,14 +1,15 @@
 public import CmuxNextCompat
 import Foundation
 
-/// Receives the watchdog's stalls and hangs while hang reports are on, into a ``StallAggregate``
-/// that ``HangReportService`` drains into each report.
+/// Receives the watchdog's stalls and hangs and the blocking detector's new call sites while hang
+/// reports are on, into a ``StallAggregate`` that ``HangReportService`` drains into each report.
 ///
 /// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
 /// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
 /// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
-/// reads dyld and the classifier) and kept after that. Nothing here runs while the app is idle.
+/// reads dyld and the classifier) and kept after that. ``noteBlocking(_:)`` runs on the detector's
+/// drain queue, already off the main thread, and resolves there. Nothing here runs while the app is idle.
 ///
 /// ```swift
 /// let collector = HangReportCollector(resolve: { addresses in frames(for: addresses) })
@@ -17,22 +18,34 @@ import Foundation
 public final class HangReportCollector: Sendable {
     /// Turns return addresses (innermost first) into report frames. Called off the main thread.
     public typealias Resolve = @Sendable ([UInt]) -> [HangReportFrame]
+    /// Turns a blocking detector stack (image UUID + offset) into report frames. Called off the main thread.
+    public typealias ResolveBlocking = @Sendable ([BlockingFrame]) -> [HangReportFrame]
 
     private let enabled = Atomic<Bool>(false)
+    /// Whether ``setEnabled(_:)`` ran: until the setting is first read, blocking sites are kept (at most
+    /// ``StallAggregate/maxSamples``), so the sites the detector replays at launch are not lost; the
+    /// first `setEnabled(false)` drops them.
+    private let decided = Atomic<Bool>(false)
     // Lock carve-out: a synchronous count from the main thread's run-loop observer at a stall's
     // end; an actor would add a Task and a hop per stall.
     private let aggregate = Mutex(StallAggregate())
     private let resolve: Resolve
+    private let resolveBlocking: ResolveBlocking
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
     /// Makes the value from its parts.
+    ///
+    /// - Parameter resolveBlocking: The default names no image (every frame ``HangReportFrame/other``);
+    ///   the app passes ``HangReportBuilder/frames(blocking:)``.
     public init(resolve: @escaping Resolve,
+                resolveBlocking: @escaping ResolveBlocking = { $0.map { _ in .other } },
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
                 }) {
         self.resolve = resolve
+        self.resolveBlocking = resolveBlocking
         self.schedule = schedule
     }
 
@@ -41,8 +54,28 @@ public final class HangReportCollector: Sendable {
 
     /// Turns recording on or off; off drops what was recorded.
     public func setEnabled(_ on: Bool) {
+        decided.store(true, ordering: .relaxed)
         enabled.store(on, ordering: .relaxed)
         if !on { _ = drain() }
+    }
+
+    /// One new main-thread blocking call site (the detector's drain queue, from the app's
+    /// `BlockingReportSink`): kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and
+    /// frames; a site already kept adds nothing.
+    public func noteBlocking(_ violation: BlockingViolation, context: HangSample.Blocking.Context) {
+        guard acceptsBlocking else { return }
+        let sample = HangSample.blockingSite(HangSample.Blocking(kind: violation.kind, context: context),
+                                         frames: resolveBlocking(violation.frames))
+        // Checked again under the lock the drop of setEnabled(false) takes: a site resolved while
+        // reports turned off is not kept after the drop.
+        aggregate.withLock { aggregate in
+            guard acceptsBlocking else { return }
+            aggregate.keep(sample)
+        }
+    }
+
+    private var acceptsBlocking: Bool {
+        isEnabled || !decided.load(ordering: .relaxed)
     }
 
     /// One finished stall (main thread, from the watchdog's `onStall`).

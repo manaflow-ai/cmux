@@ -67,6 +67,8 @@ final class BlockingViolationTable: Sendable {
         var id: Int
         var kind: BlockingKind
         var location: String
+        /// What the sink got, or, for a site drained before a sink was installed, gets at install.
+        var violation: BlockingViolation
     }
 
     /// Makes a table.
@@ -190,12 +192,14 @@ final class BlockingViolationTable: Sendable {
         var resolver = BlockingFrameResolver()
         while let pending = ring.pop() {
             let location = "\(pending.fileID):\(pending.line)"
-            published.withLock { $0.append(PublishedSite(id: pending.site, kind: pending.kind, location: location)) }
+            let violation = BlockingViolation(kind: pending.kind, frames: resolver.frames(pending.stack))
+            published.withLock {
+                $0.append(PublishedSite(id: pending.site, kind: pending.kind, location: location, violation: violation))
+            }
             #if DEBUG
             logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             #endif
-            guard let sink = sink.withLock({ $0 }) else { continue }
-            sink.record(BlockingViolation(kind: pending.kind, frames: resolver.frames(pending.stack)))
+            sink.withLock { $0 }?.record(violation)
         }
     }
 
@@ -211,8 +215,15 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: readers (any thread)
 
+    /// Installs `sink` on the drain queue and, in the same turn, hands it every site drained before
+    /// (the launch's sites before the composition root ran): the drain runs on that queue too, so each
+    /// site reaches the sink once, by this replay or by the drain.
     func install(sink: (any BlockingViolationSink)?) {
-        self.sink.withLock { $0 = sink }
+        drainQueue.async { [self] in
+            self.sink.withLock { $0 = sink }
+            guard let sink else { return }
+            for site in published.withLock({ $0 }) { sink.record(site.violation) }
+        }
     }
 
     var sites: [BlockingSite] {

@@ -1,6 +1,6 @@
 /// The handle to the main-thread blocking detector that other modules hold: the composition root makes
-/// it once with ``forProcess()`` and passes it to what installs the sink (the opt-in hang reports, once
-/// they are wired), the `debug.blocking` control method and the Debug menu.
+/// it once with ``forProcess()`` and passes it to what installs the sink (the app's hang reports wiring),
+/// the `debug.blocking` control method and the Debug menu.
 ///
 /// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
 /// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
@@ -53,7 +53,8 @@ public struct BlockingDetector: Sendable {
     }
 
     /// Installs the sink that receives each new call site once, on the drain queue (the last call
-    /// wins; nil removes it).
+    /// wins; nil removes it). The sink first gets every site recorded before the call, so the
+    /// launch's sites before the composition root ran are not lost.
     public func install(sink: (any BlockingViolationSink)?) {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.install(sink: sink)

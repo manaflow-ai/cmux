@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
@@ -58,8 +59,11 @@ public nonisolated struct HangReportBuilder: Sendable {
         let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
             HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
         }
+        // Blocking samples have no duration, so they get their own slots instead of losing every
+        // longest-first cut.
+        let blocking = Array(watchdog.blocking.prefix(StallAggregate.maxSamples))
         report.hangs = Array((metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-            .prefix(HangReport.maxHangs))
+            .prefix(HangReport.maxHangs - blocking.count)) + blocking
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
             .prefix(HangReport.maxCPUExceptions)
             .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })
@@ -73,6 +77,23 @@ public nonisolated struct HangReportBuilder: Sendable {
     public func frames(addresses: [UInt]) -> [HangReportFrame] {
         addresses.prefix(HangSample.maxFrames).map { address in
             classifier.frame(image: resolver.image(containing: UInt64(address)), address: UInt64(address))
+        }
+    }
+
+    /// Frames of a blocking detector stack (image UUID + offset, innermost first): each through the
+    /// classifier by its loaded image, so a third-party or unknown image is ``HangReportFrame/other``.
+    public func frames(blocking stack: [BlockingFrame]) -> [HangReportFrame] {
+        var loaded: [UUID: LoadedImage?] = [:]
+        return stack.prefix(HangSample.maxFrames).map { frame in
+            let image: LoadedImage?
+            if let known = loaded[frame.imageUUID] {
+                image = known
+            } else {
+                image = resolver.image(uuid: frame.imageUUID.uuidString)
+                loaded[frame.imageUUID] = image
+            }
+            guard let image else { return .other }
+            return classifier.frame(image: image, offset: frame.offset)
         }
     }
 

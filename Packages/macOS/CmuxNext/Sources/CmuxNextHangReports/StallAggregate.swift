@@ -1,5 +1,5 @@
-/// The watchdog's findings since the last report: a histogram of finished stalls and the stacks
-/// of the longest ones (already reduced to ``HangReportFrame``s, so the aggregate can be saved and sent
+/// The watchdog's findings since the last report: a histogram of finished stalls, the stacks
+/// of the longest ones and the blocking detector's new call sites (already reduced to ``HangReportFrame``s, so the aggregate can be saved and sent
 /// after a relaunch).
 public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Histogram edges in milliseconds: buckets are `[50, 100)`, `[100, 250)`, ...,
@@ -18,12 +18,27 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public private(set) var stalls: [HangSample] = []
     /// The longest hangs, longest first.
     public private(set) var hangs: [HangSample] = []
+    /// The blocking detector's call sites, first seen first, each once (at most ``maxSamples``).
+    public private(set) var blocking: [HangSample] = []
+
+    private enum CodingKeys: String, CodingKey {
+        case counts, stalls, hangs, blocking
+    }
 
     /// Makes the value from its parts.
     public init() {}
 
+    /// Reads a saved aggregate; one saved before blocking samples existed has none.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        counts = try container.decode([Int].self, forKey: .counts)
+        stalls = try container.decode([HangSample].self, forKey: .stalls)
+        hangs = try container.decode([HangSample].self, forKey: .hangs)
+        blocking = try container.decodeIfPresent([HangSample].self, forKey: .blocking) ?? []
+    }
+
     /// Whether nothing was recorded.
-    public var isEmpty: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty }
+    public var isEmpty: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty && blocking.isEmpty }
 
     /// Counts a finished stall of `durationMs`.
     public mutating func count(durationMs: Int) {
@@ -41,9 +56,14 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         hangs.count < Self.maxSamples || durationMs > (hangs.last?.durationMs ?? 0)
     }
 
-    /// Keeps `sample` when it is among the longest (a stall or a hang by its kind).
+    /// Keeps `sample` when it is among the longest (a stall or a hang by its kind), or, for a blocking
+    /// sample, when its site is new and there is room.
     public mutating func keep(_ sample: HangSample) {
-        if sample.kind == .hang { Self.insert(sample, into: &hangs) } else { Self.insert(sample, into: &stalls) }
+        switch sample.kind {
+        case .hang: Self.insert(sample, into: &hangs)
+        case .stall: Self.insert(sample, into: &stalls)
+        case .blocking: keepBlocking(sample)
+        }
     }
 
     /// Adds another aggregate (the one saved by the previous launch).
@@ -51,6 +71,17 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         for (index, count) in other.counts.enumerated() where index < counts.count { counts[index] += count }
         other.stalls.forEach { Self.insert($0, into: &stalls) }
         other.hangs.forEach { Self.insert($0, into: &hangs) }
+        other.blocking.forEach { keepBlocking($0) }
+    }
+
+    /// Whether a blocking sample of this site would be kept (it is new and there is room).
+    public func wantsBlockingSample(_ sample: HangSample) -> Bool {
+        blocking.count < Self.maxSamples && !blocking.contains(sample)
+    }
+
+    private mutating func keepBlocking(_ sample: HangSample) {
+        guard wantsBlockingSample(sample) else { return }
+        blocking.append(sample)
     }
 
     /// The histogram as report buckets (nonzero only).
