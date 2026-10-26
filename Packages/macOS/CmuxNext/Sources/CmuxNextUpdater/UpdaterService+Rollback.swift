@@ -44,9 +44,11 @@ extension UpdaterService {
         let log = log
         let work = work
         // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone and the
-        // prune's signature reads run on the files lane, best effort (nobody waits), and quit waits for them.
+        // prune's signature reads run on the files lane, best effort (nobody waits). They take seconds, so quit
+        // does not wait for them: a started keep runs on, one cut short leaves only its `.partial` clone, and
+        // one dropped before it started leaves `keptRunningBuild` nil, so `updaterWillInstallUpdate` keeps then.
         keepTask = Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
-            let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { () -> Bool in
+            let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .continueOnShutdown) { () -> Bool in
                 #if DEBUG || CMUX_BENCH_HOOKS
                 UpdateHarness.mark("keep_previous_start")
                 #endif

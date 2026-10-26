@@ -80,6 +80,7 @@ pub(super) struct JournalMaintenance {
 }
 
 impl JournalMaintenance {
+    #[track_caller]
     fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
         let control = Arc::new(JournalMaintenanceControl {
             stopped: Mutex::new(false),
@@ -178,6 +179,7 @@ impl Mux {
             || self.control_clients.daemon_handoff_in_progress()
     }
 
+    #[track_caller]
     fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) {
         if self.journal_maintenance_paused() {
             return;
@@ -282,12 +284,14 @@ impl Mux {
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn journal_hook_states(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_hook_states()
     }
 
+    #[track_caller]
     pub(crate) fn journal_events_caused_by_hooks(
         &self,
         hook_ids: &[String],
@@ -299,6 +303,7 @@ impl Mux {
             .journal_events_caused_by_hooks(hook_ids, event_ids)
     }
 
+    #[track_caller]
     pub(crate) fn put_journal_hook(
         self: &Arc<Self>,
         manifest: &crate::JournalHookManifest,
@@ -331,6 +336,7 @@ impl Mux {
         self.journal_hook_dispatcher_started.store(false, Ordering::Release);
     }
 
+    #[track_caller]
     pub(crate) fn schedule_journal_hook_deliveries(
         &self,
         scans: &[crate::workspace_registry::JournalHookScan],
@@ -342,6 +348,7 @@ impl Mux {
     }
 
     /// When the next scheduled hook retry is due, if any.
+    #[track_caller]
     pub(crate) fn next_journal_hook_attempt_deadline(&self) -> anyhow::Result<Option<Instant>> {
         let now_ms = crate::workspace_registry::unix_epoch_ms()?;
         let next = self
@@ -352,6 +359,7 @@ impl Mux {
         Ok(next.map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now_ms))))
     }
 
+    #[track_caller]
     pub(crate) fn pending_journal_hook_deliveries(
         &self,
         limit: usize,
@@ -363,6 +371,7 @@ impl Mux {
             .pending_journal_hook_deliveries(now_ms, limit)
     }
 
+    #[track_caller]
     pub(crate) fn start_journal_hook_deliveries(
         &self,
         deliveries: &[crate::workspace_registry::JournalHookDelivery],
@@ -378,6 +387,7 @@ impl Mux {
         Ok(attempts)
     }
 
+    #[track_caller]
     pub(crate) fn finish_journal_hook_deliveries(
         &self,
         results: &[crate::workspace_registry::JournalHookDeliveryResult],
@@ -457,6 +467,7 @@ impl Mux {
         self.reconnect_checkpoint_skip_reported.store(false, Ordering::Release);
     }
 
+    #[track_caller]
     pub(crate) fn create_journal_checkpoint(
         &self,
         origin: &str,
@@ -517,12 +528,14 @@ impl Mux {
         Err(last_error.expect("checkpoint retry loop must retain its last error"))
     }
 
+    #[track_caller]
     pub(crate) fn journal_checkpoints(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalCheckpointSummary>> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_checkpoints()
     }
 
+    #[track_caller]
     pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
         let checkpoint = self
             .workspace_registry
@@ -575,10 +588,12 @@ impl Mux {
         reducer.finish(head_sequence)
     }
 
+    #[track_caller]
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_segments()
     }
 
+    #[track_caller]
     pub(crate) fn seal_journal_segments(
         &self,
         through_sequence: u64,
@@ -647,6 +662,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
         self.workspace_registry
             .lock()
@@ -655,6 +671,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
         self.workspace_registry
             .lock()
@@ -663,6 +680,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.workspace_registry
             .lock()

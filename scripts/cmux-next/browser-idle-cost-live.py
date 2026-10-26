@@ -3,8 +3,9 @@
 
   scripts/cmux-next/browser-idle-cost-live.py --app PATH --tabs 5 [--out DIR] [--budget FILE]
 
-A local server serves the pages. The tagged app opens --tabs Chromium tabs of a static page and a
-static front tab that stays shown (until the chatty phase), then runs these phases, each one adding a tab:
+The shared page server (tab_pages.py) serves the pages. The tagged app opens --tabs Chromium tabs of a
+static page and a static front tab that stays shown (until the chatty phase), then runs these phases,
+each one adding a tab:
 
   static   only the static tabs;
   loading  one more tab whose load never ends (an image request the server keeps open);
@@ -22,10 +23,11 @@ With --budget, a breach of any limit in the file (see browser-idle-cost-budget.j
 `sample` output of the GPU process and the app for 3 s per phase goes to the artifacts.
 Quits the app through the socket, then ends the tag's daemons (TagTeardown).
 """
-import argparse, glob, http.server, importlib.util, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import argparse, importlib.util, json, os, plistlib, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from tab_pages import PERF100_CLASSES, TabPages, chromium_children, process_table, process_type_kind  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
@@ -67,56 +69,8 @@ CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 RUN = os.urandom(4).hex()
 MARKER = f"cmux-idle-cost-{RUN}"
 failures = []
-stop_serving = threading.Event()
-loaded = set()
-ticks = [0]  # the chatty page's console.log calls, in fours
-visibility = {}  # static page -> its latest document.visibilityState  # the chatty page's console.log calls, in fours
-
-PAGES = {
-    "static": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
-              "<script>fetch('/loaded/{n}',{{method:'POST'}});const v=()=>fetch('/vis/{n}/'+document.visibilityState,{{method:'POST'}});"
-              "v();document.addEventListener('visibilitychange',v)</script>",
-    "loading": "<title>loading</title><body><h1>This load never ends</h1><img src='/never'>"
-               "<script>fetch('/loaded/loading',{{method:'POST'}})</script>",
-    "chatty": "<title>chatty</title><body><h1>Console chatter</h1><script>let i=0;"
-              "setInterval(()=>{{console.log('" + MARKER + " ' + (i++));if(i%4==0)fetch('/tick',{{method:'POST'}})}}, 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
-}
-
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        if self.path == "/never":
-            stop_serving.wait(3600)  # keeps the page loading; ends with the run
-            return
-        kind, _, n = self.path.strip("/").partition("-")
-        if kind not in PAGES:
-            self.send_error(404)
-            return
-        body = PAGES[kind].format(n=n).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self):  # noqa: N802
-        if self.path == "/tick":
-            ticks[0] += 4
-        elif self.path.startswith("/vis/"):
-            parts = self.path.split("/", 3)
-            if len(parts) == 4:
-                visibility[parts[2]] = parts[3]
-        loaded.add(self.path.removeprefix("/loaded/"))
-        self.send_response(204)
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass
-
-
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-threading.Thread(target=server.serve_forever, daemon=True).start()
-ORIGIN = f"http://127.0.0.1:{server.server_port}"
+pages = TabPages(marker=MARKER)  # the static, loading and chatty pages, and what they report
+ORIGIN = pages.origin
 
 
 def check(ok, what):
@@ -155,26 +109,9 @@ def wait_for(predicate, what, seconds=20):
 
 
 def processes(app_pid):
-    """{pid: class} for the app and every Chromium helper it started (by --type)."""
-    out = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    rows = {}
-    for line in out.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) == 3 and int(parts[1]) == app_pid:
-            command = parts[2]
-            if "--type=gpu-process" in command:
-                kind = "gpu"
-            elif "--type=renderer" in command:
-                kind = "extension-renderer" if "--extension-process" in command else "renderer"
-            elif "--type=utility" in command:
-                kind = "utility"
-            elif "--type=" in command:
-                kind = "other-helper"
-            else:
-                continue  # daemons and other children are not this lane's
-            rows[int(parts[0])] = kind
-    rows[app_pid] = "app"
-    return rows
+    """{pid: class} for the app and every child of it with a --type (tab_pages.process_type_kind); its other
+    children (daemons, the Chromium Host) are not this lane's."""
+    return {**chromium_children(app_pid, process_table(), PERF100_CLASSES, process_type_kind), app_pid: "app"}
 
 
 def snapshot(pids):
@@ -196,7 +133,7 @@ def log_size():
 
 def measure(app_pid, phase):
     rows = processes(app_pid)
-    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
+    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), pages.ticks
     time.sleep(opts.idle_s)  # the measured idle window itself
     after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
     classes = {}
@@ -220,8 +157,8 @@ def measure(app_pid, phase):
           and not any(rows[pid] in ("gpu", "renderer") for pid in dropped),
           f"{phase}: the GPU process and renderers are measured ({sorted(classes)}, unmeasured pids {dropped})")
     result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes, "unmeasured_pids": dropped,
-              "console_calls": ticks[0] - ticks_before,
-              "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
+              "console_calls": pages.ticks - ticks_before,
+              "pages_visible": sorted(n for n, state in pages.visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
               "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
     for name in ("debug.cef", "debug.wakeups"):
@@ -240,7 +177,7 @@ def measure(app_pid, phase):
 
 def open_tab(url, key):
     rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
-    wait_for(lambda: key in loaded, f"page {key} loads", 60)
+    wait_for(lambda: key in pages.loaded, f"page {key} loads", 60)
 
 
 def show(url):
@@ -315,10 +252,8 @@ finally:
         except subprocess.TimeoutExpired:
             app.kill()  # the PID launched above, never a pattern
             app.wait()
-    stop_serving.set()
     teardown.end()
-    server.shutdown()
-    server.server_close()
+    pages.close()
 
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)

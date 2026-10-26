@@ -18,6 +18,26 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         /// Other utility processes (storage, audio, data decoder, ...).
         case utility
         case other
+
+        #if DEBUG || CMUX_BENCH_HOOKS
+        /// The kind as `debug.webui` names it: `renderer`, `extension_renderer`, `gpu`, `network`,
+        /// `utility` or `other`.
+        public var name: String {
+            switch self {
+            case .renderer: "renderer"
+            case .extensionRenderer: "extension_renderer"
+            case .gpu: "gpu"
+            case .network: "network"
+            case .utility: "utility"
+            case .other: "other"
+            }
+        }
+
+        /// A tab renderer's client id; nil for every other kind.
+        public var rendererClientID: Int32? {
+            if case .renderer(let clientID) = self { clientID } else { nil }
+        }
+        #endif
     }
 
     public var pid: Int32

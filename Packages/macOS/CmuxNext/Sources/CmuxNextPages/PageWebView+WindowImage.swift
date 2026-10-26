@@ -24,14 +24,19 @@ extension PageRegistry {
     /// parked spare), each with its area in window coordinates, oldest first. A page under
     /// an alpha-0 view (the New Tab spare's off-screen parking, a pane holding its paint) or
     /// outside the window's content is not shown.
-    public static func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
+    public func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
         let content = window.contentView.map { $0.convert($0.bounds, to: nil) } ?? .zero
-        return pages().compactMap { page in
+        return self.pages().compactMap { page in
             guard page.chromiumSession != nil, page.window === window, !page.isParkedSpare,
-                  !page.isHiddenOrHasHiddenAncestor, !isTransparent(page) else { return nil }
+                  !page.isHiddenOrHasHiddenAncestor, !Self.isTransparent(page) else { return nil }
             let rect = page.convert(page.bounds, to: nil)
             return rect.width > 0 && rect.height > 0 && rect.intersects(content) ? (page, rect) : nil
         }
+    }
+
+    /// ``shownChromiumPages(in:)`` of ``processWide`` (removed by p13-webui-010).
+    public static func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
+        processWide.shownChromiumPages(in: window)
     }
 
     private static func isTransparent(_ view: NSView) -> Bool {

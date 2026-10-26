@@ -81,6 +81,7 @@ extension BrowserHibernation {
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
+        savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
         cache.previews.remove(key)

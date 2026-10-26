@@ -17,6 +17,7 @@ extension ControlRouter {
                 let records = watchdog.log.records(after: after).suffix(max(0, limit))
                 let longFrames = watchdog.longFrameStats
                 let gaps = watchdog.gapStats
+                let stalls = watchdog.stallCounts
                 // Scheduled tasks past their class budget (DEBUG and bench launches), newest last.
                 let overBudget = watchdog.overBudget.records(after: call.params["over_budget_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
                     .suffix(max(0, limit))
@@ -25,6 +26,7 @@ extension ControlRouter {
                     watchdog.log.clear()
                     watchdog.overBudget.clear()
                     watchdog.resetLongFrames()
+                    watchdog.resetStallCounts()
                 }
                 return [
                     "installed": .bool(watchdog.isRunning),
@@ -37,6 +39,9 @@ extension ControlRouter {
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),
                     "max_gap_ms": .number(gaps.max.fractionalMilliseconds),
+                    // Work gaps >= 100 ms and >= 250 ms since launch or `clear` (StallCounts; the Nightly readout).
+                    "count100": JSONValue(stalls.count100),
+                    "count250": JSONValue(stalls.count250),
                     // Cumulative main run-loop wakes (idle benches diff two reads; never cleared).
                     "main_wakes": JSONValue(Int(clamping: watchdog.mainRunLoopWakes)),
                     "records": .array(records.map(\.json)),

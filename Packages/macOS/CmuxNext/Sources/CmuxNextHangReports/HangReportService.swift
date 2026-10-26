@@ -119,7 +119,7 @@ public actor HangReportService {
         guard isEnabled, await allowed() else { return }
         await flushOutbox()
         let last = await store.sendLog().lastSentAt ?? .distantPast
-        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, !collector.snapshot().isEmpty {
+        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, hasSendable(collector.snapshot()) {
             await sendReport()
         }
     }
@@ -184,7 +184,7 @@ public actor HangReportService {
         let aggregate = collector.drain()
         let deliveries = waiting
         waiting = []
-        guard !aggregate.isEmpty || !deliveries.isEmpty else { return }
+        guard hasSendable(aggregate) || !deliveries.isEmpty else { return }
         log.day = today
         log.sentToday += 1
         log.lastSentAt = now
@@ -238,9 +238,15 @@ public actor HangReportService {
         return true
     }
 
+    /// Whether `aggregate` holds something this build's wire schema sends: launches alone take no
+    /// daily slot while the schema does not carry them.
+    private func hasSendable(_ aggregate: StallAggregate) -> Bool {
+        builder.wireSchema.carriesLaunches ? !aggregate.isEmpty : !aggregate.isEmptyWithoutLaunches
+    }
+
     /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
     private func isSendable(_ body: Data) -> Bool {
-        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == HangReport.schemaVersion,
+        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == builder.wireSchema.rawValue,
               report.app == HangReportBuilder.safeApp(environment.app) else { return false }
         return scanner.findings(in: body).isEmpty
     }

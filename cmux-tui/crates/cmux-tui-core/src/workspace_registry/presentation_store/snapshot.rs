@@ -4,6 +4,7 @@ use super::*;
 
 impl WorkspaceRegistry {
     /// Groups in order plus the presentation of every live workspace.
+    #[track_caller]
     pub fn presentation_snapshot(&self) -> anyhow::Result<PresentationSnapshot> {
         let groups = read_groups(&self.connection.get())?;
         let db = self.connection.get();

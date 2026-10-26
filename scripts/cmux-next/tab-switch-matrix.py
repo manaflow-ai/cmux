@@ -299,7 +299,8 @@ def time_switches(label, step, count, profile=None):
         table[kind] = line
         cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
         print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
-    stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
+    stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms"),
+              "count250": hangs.get("count250")}  # stalls >= 250 ms since the clear (perf-cron prints the sum)
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)

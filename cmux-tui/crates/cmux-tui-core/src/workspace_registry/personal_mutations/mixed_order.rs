@@ -74,6 +74,7 @@ impl WorkspaceRegistry {
     /// Put group `id` right before the personal workspace at `top_index`
     /// (`index` of `list-personal`; the count or more puts it after every
     /// workspace), or with None after every loose workspace.
+    #[track_caller]
     pub fn set_personal_group_top(
         &mut self,
         id: &str,
@@ -88,6 +89,7 @@ impl WorkspaceRegistry {
 
     /// [`Self::set_personal_group_top`] inside the caller's transaction
     /// (the v2 `workspace_group.update {top_index}` commit).
+    #[track_caller]
     pub(crate) fn set_personal_group_top_in(
         tx: &Transaction<'_>,
         id: &str,

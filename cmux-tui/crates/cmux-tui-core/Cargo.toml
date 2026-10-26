@@ -10,6 +10,14 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 [lints]
 workspace = true
 
+[features]
+default = []
+# Correctness-oracle items (oracle-state, the virtual clock, seeded ids): code
+# behind cfg(any(debug_assertions, feature = "oracle")), so debug and test builds
+# have it and release builds never do. Off by default; the oracle builds
+# `--profile oracle --features oracle` (p15-oracle task 201).
+oracle = []
+
 [dependencies]
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
@@ -61,6 +69,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The generated SDK types decode server-stats sections (server_stats_tests.rs).
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }

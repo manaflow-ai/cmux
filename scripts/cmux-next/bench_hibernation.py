@@ -454,7 +454,7 @@ def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, re
     if simulator is not None:
         simulator.wait(timeout=60)
     else:
-        feed_pressure(sock, "normal")
+        feed_pressure(sock, "none")  # clears the override; "normal" would hold it
     # Pacing: the most pages that went within any one second.
     burst, j = 0, 0
     for i in range(len(timeline)):

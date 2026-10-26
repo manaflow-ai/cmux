@@ -32,9 +32,12 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         let handle: FileHandle
         do { handle = try FileHandle(forWritingTo: file) } catch { throw .filesystem(error.localizedDescription) }
         defer { try? handle.close() }
-        // One delegate callback at a time: the delegate's file writes need no lock.
+        // One delegate callback at a time: the delegate's file writes need no lock. A download with a
+        // progress bar is utility work.
         let queue = OperationQueue()
+        queue.name = "com.cmuxterm.chromium-runtime.download"
         queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .utility
         let delegate = DownloadFileDelegate(handle: handle, existing: existing, progress: progress)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: queue)
         defer { session.invalidateAndCancel() }

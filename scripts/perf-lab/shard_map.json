@@ -1,0 +1,107 @@
+{
+  "classes": {
+    "aws-m4pro": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T1": 7920,
+            "T2": 0
+          },
+          "stories": {
+            "T1": [
+              "chat-anim",
+              "home-idle",
+              "motion",
+              "omnibar",
+              "pane-stress",
+              "perf-gate",
+              "sidebar",
+              "switch",
+              "tab-switch"
+            ],
+            "T2": []
+          }
+        }
+      ],
+      "tiers": [
+        "T1",
+        "T2"
+      ]
+    },
+    "cmux20-bench": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T1": 7920,
+            "T2": 0
+          },
+          "stories": {
+            "T1": [
+              "chat-anim",
+              "home-idle",
+              "motion",
+              "omnibar",
+              "pane-stress",
+              "perf-gate",
+              "sidebar",
+              "switch",
+              "tab-switch"
+            ],
+            "T2": []
+          }
+        }
+      ],
+      "tiers": [
+        "T1",
+        "T2"
+      ]
+    },
+    "m6": {
+      "shards": [
+        {
+          "index": 0,
+          "seconds": {
+            "T0": 120,
+            "T1": 4200
+          },
+          "stories": {
+            "T0": [
+              "launch-warm"
+            ],
+            "T1": [
+              "chat-anim",
+              "motion",
+              "pane-stress",
+              "switch"
+            ]
+          }
+        },
+        {
+          "index": 1,
+          "seconds": {
+            "T0": 0,
+            "T1": 3720
+          },
+          "stories": {
+            "T0": [],
+            "T1": [
+              "home-idle",
+              "omnibar",
+              "perf-gate",
+              "sidebar",
+              "tab-switch"
+            ]
+          }
+        }
+      ],
+      "tiers": [
+        "T0",
+        "T1"
+      ]
+    }
+  },
+  "generated_by": "scripts/perf-lab/gen_shard_map.py (do not edit; run it after a stories.d/ change)",
+  "schema": "cmux-perf-shard-map/v1"
+}

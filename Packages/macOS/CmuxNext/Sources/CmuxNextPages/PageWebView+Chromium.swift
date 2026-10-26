@@ -55,16 +55,29 @@ extension PageWebView {
 
     /// Runs `script` in the page's main frame in whichever engine shows it.
     func evaluateInPage(_ script: String) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if router.debugPageHidden { censusState.pushesWhileHidden &+= 1 }
+        #endif
         scriptTarget.evaluate(script)
+    }
+
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    func setEngineVisible(_ visible: Bool) {
+        chromiumSession?.page.setVisible(visible)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(visible)
+        #endif
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
@@ -174,6 +187,7 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
+        traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 

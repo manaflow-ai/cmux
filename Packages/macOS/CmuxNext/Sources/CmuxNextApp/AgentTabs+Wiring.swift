@@ -106,15 +106,14 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
-        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
+        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, webUI: services.webUI, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
-        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        tabs.launchImages = services.launchImages
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
-        tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
-        tabs.wakeStates = tabs.relaunchWake.take()
+        tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
