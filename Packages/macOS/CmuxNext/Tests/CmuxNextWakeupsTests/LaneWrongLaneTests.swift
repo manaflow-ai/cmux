@@ -1,114 +1,127 @@
+#if DEBUG || CMUX_BLOCKING_CHECKS
+@testable import CmuxNextCompat
+#else
 import CmuxNextCompat
+#endif
 import CmuxNextWakeups
-import Dispatch
 import Foundation
 import Testing
 
-/// The wrong-lane check (plans/cmux-next/chrome-parity/p02-threads.md, task 015): BackgroundWork's `.cpu` lane is sized
-/// to the cores and must not block, as Chrome's thread pool runs a task without `MayBlock` inside
+/// The wrong-lane check (plans/cmux-next/chrome-parity/p02-threads.md, task 015): BackgroundWork's `.cpu` lane is
+/// sized to the cores and must not block, as Chrome's thread pool runs a task without `MayBlock()` inside
 /// `ScopedDisallowBlocking` (base/task/thread_pool/task_tracker.cc). In Debug and bench builds a blocking seam in a
-/// `.cpu` job records a wrong-lane site at its caller's line; in a `.files` or `.system` job it records nothing.
+/// `.cpu` job records a `wrong-lane` site in the `cpu-lane` context at its caller's line; in a `.files` or
+/// `.system` job it records nothing (task 005: those lanes may block).
 ///
-/// A lane job runs on a lane thread, outside the test's task, so its check reports to the process's detector; each
-/// test names its own call line as the site and reads only that site.
+/// A lane job runs on a lane thread, which does not inherit the test's task-locals, so each job binds the test's
+/// own table around its seam call.
 @Suite(.timeLimit(.minutes(1))) struct LaneWrongLaneTests {
-    private let detector = BlockingDetector.forProcess()
-
     /// The file the lane jobs read: it always exists and reads as empty, so no test writes or removes a file.
     private static let url = URL(fileURLWithPath: "/dev/null")
 
-    /// The detector's sites at `line` of this file.
-    private func sites(at line: UInt, fileID: StaticString = #fileID) -> [BlockingSite] {
-        detector.sites.filter { $0.location == "\(fileID):\(line)" }
-    }
-
     #if DEBUG || CMUX_BLOCKING_CHECKS
     @Test func aFileReadInACPULaneJobRecordsOneWrongLaneSite() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
         let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.cpu")
-        let site: UInt = #line
-        let bytes = try await work.run(.userVisible, mayBlock: .cpu) { try Data(blockingContentsOf: Self.url, line: site) }
+        let bytes: Data = try await work.run(.userVisible, mayBlock: .cpu) { () throws -> Data in
+            try BlockingViolationTable.$scoped.withValue(table) { () throws -> Data in
+                try Data(blockingContentsOf: Self.url)
+            }
+        }
+        await table.flush()
 
+        let sites = BlockingDetector(table: table).sites
         #expect(bytes.isEmpty)
-        #expect(sites(at: site).map(\.kind) == [.wrongLane])
-        #expect(sites(at: site).map(\.count) == [1])
+        #expect(sites.map(\.kind) == [.wrongLane])
+        #expect(sites.map(\.context) == [.cpuLane])
+        #expect(sites.map(\.count) == [1])
     }
 
     @Test(arguments: [BlockingLane.files, .system])
     func aFileReadInAMayBlockLaneJobRecordsNothing(lane: BlockingLane) async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
         let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.\(lane)")
-        let site: UInt = #line
-        _ = try await work.run(.userVisible, mayBlock: lane) { try Data(blockingContentsOf: Self.url, line: site) }
+        _ = try await work.run(.userVisible, mayBlock: lane) { () throws -> Data in
+            try BlockingViolationTable.$scoped.withValue(table) { () throws -> Data in
+                try Data(blockingContentsOf: Self.url)
+            }
+        }
+        await table.flush()
 
-        #expect(sites(at: site).isEmpty)
+        #expect(BlockingDetector(table: table).sites.isEmpty)
     }
 
-    /// One site per call line: a later wrong-lane call there adds to its count, and a posted job is checked as an
-    /// awaited one is.
+    /// One site per call line: a later wrong-lane call there adds to its count, a posted job is checked as an
+    /// awaited one is, and each call outside another one is timed.
     @Test func repeatedCallsAtOneSiteCountOnOneSite() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
         let work = BackgroundWork(cpuWidth: 2, label: "test.wrong-lane.repeat")
-        let site: UInt = #line
+        let read: @Sendable () throws -> Data = {
+            try BlockingViolationTable.$scoped.withValue(table) { () throws -> Data in
+                try Data(blockingContentsOf: Self.url)
+            }
+        }
         for _ in 0..<2 {
-            _ = try await work.run(.bestEffort, mayBlock: .cpu) { try Data(blockingContentsOf: Self.url, line: site) }
+            _ = try await work.run(.bestEffort, mayBlock: .cpu, read)
         }
         let (posted, done) = AsyncStream.makeStream(of: Void.self)
         work.post(.bestEffort, mayBlock: .cpu) {
-            _ = try? Data(blockingContentsOf: Self.url, line: site)
+            _ = try? read()
             done.yield()
         }
         var iterator = posted.makeAsyncIterator()
         _ = await iterator.next()
+        await table.flush()
 
-        #expect(sites(at: site).map(\.kind) == [.wrongLane])
-        #expect(sites(at: site).map(\.count) == [3])
+        let sites = BlockingDetector(table: table).sites
+        #expect(sites.map(\.kind) == [.wrongLane])
+        #expect(sites.map(\.count) == [3])
     }
 
-    /// Each lane marks its job's thread with its context, and the mark ends with the job: a plain queue's block is
-    /// unmarked.
+    /// Each lane marks its job's thread: `.cpu` as the cpu lane, `.files` and `.system` as lanes that may block.
     @Test func aLaneJobRunsInItsLanesContext() async throws {
         let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.context")
-        let current: @Sendable () -> BlockingContext? = { BlockingContext.current }
-        let cpu = try await work.run(.userVisible, mayBlock: .cpu, current)
-        let files = try await work.run(.userVisible, mayBlock: .files, current)
-        let system = try await work.run(.userVisible, mayBlock: .system, current)
-        let plain = await Self.onPlainQueue(current)
+        let current: @Sendable () -> BlockingContext = { BlockingContext.current() }
+        let cpu: BlockingContext = try await work.run(.userVisible, mayBlock: .cpu, current)
+        let files: BlockingContext = try await work.run(.userVisible, mayBlock: .files, current)
+        let system: BlockingContext = try await work.run(.userVisible, mayBlock: .system, current)
 
         #expect(cpu == .cpuLane)
         #expect(files == .lane)
         #expect(system == .lane)
-        #expect(plain == nil)
     }
 
-    /// `whileCurrent` nests and restores the outer mark when its body returns.
-    @Test func aNestedContextRestoresTheOuterOne() async {
-        let seen = await Self.onPlainQueue { () -> [BlockingContext?] in
-            let insideOuter = BlockingContext.cpuLane.whileCurrent { () -> [BlockingContext?] in
-                let inner = BlockingContext.lane.whileCurrent { () -> BlockingContext? in BlockingContext.current }
-                return [inner, BlockingContext.current]
+    /// A reviewed `allowBlocking` inside a `.cpu` job marks the thread dedicated for its body, so a seam in it is
+    /// not a wrong-lane call, and the job's mark comes back when the body returns.
+    @Test func allowBlockingInACPUJobIsNotAWrongLaneCall() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.allowed")
+        let seen: [BlockingContext] = try await work.run(.userVisible, mayBlock: .cpu) { () throws -> [BlockingContext] in
+            try BlockingViolationTable.$scoped.withValue(table) { () throws -> [BlockingContext] in
+                let inside = try allowBlocking(BlockingAllowance(reviewed: "test")) { () throws -> BlockingContext in
+                    _ = try Data(blockingContentsOf: Self.url)
+                    return BlockingContext.current()
+                }
+                return [inside, BlockingContext.current()]
             }
-            return insideOuter + [BlockingContext.current]
         }
-        #expect(seen == [.lane, .cpuLane, nil])
+        await table.flush()
+
+        #expect(seen == [.dedicated, .cpuLane])
+        #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #else
-    /// Release: no thread is marked and a seam in a `.cpu` job records nothing (the check is compiled out).
+    /// Release: no thread is marked and the check is compiled out, so a seam in a `.cpu` job only runs its body.
     @Test func releaseRecordsNoWrongLaneSite() async throws {
+        let detector = BlockingDetector.forProcess()
         let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.release")
-        let site: UInt = #line
-        let context = try await work.run(.userVisible, mayBlock: .cpu) { () throws -> BlockingContext? in
-            _ = try Data(blockingContentsOf: Self.url, line: site)
-            return BlockingContext.current
+        let bytes: Data = try await work.run(.userVisible, mayBlock: .cpu) { () throws -> Data in
+            try Data(blockingContentsOf: Self.url)
         }
 
-        #expect(context == nil)
+        #expect(bytes.isEmpty)
         #expect(!detector.isCompiledIn)
-        #expect(sites(at: site).isEmpty)
+        #expect(detector.sites.isEmpty)
     }
     #endif
-
-    /// Runs `body` on a plain serial queue (not a lane) and returns its result.
-    private static func onPlainQueue<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { (done: CheckedContinuation<T, Never>) in
-            DispatchQueue(label: "test.wrong-lane.plain", qos: .userInitiated).async { done.resume(returning: body()) }
-        }
-    }
 }

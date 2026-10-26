@@ -4,9 +4,11 @@ public import Darwin
 #endif
 
 /// Runs `body`, a call that blocks, as a checked blocking call: in builds with the detector (Debug, bench, and
-/// Nightly to come), `body` on the main thread outside ``allowBlocking(_:_:)`` is a violation, and while a
+/// Nightly to come), `body` on the main thread outside ``allowBlocking(_:_:)`` or on a shared pool thread
+/// (``BlockingContext/pool``: the Swift cooperative pool, a GCD root queue) is a violation, and while a
 /// violation is recorded its wall time adds to the call site's total and maximum (`debug.blocking` prints
-/// `total_ms` and `max_ms`). In Release it is `body` alone.
+/// `total_ms` and `max_ms`). On a `BackgroundWork` lane or a dedicated queue or thread it is allowed. In Release
+/// it is `body` alone.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (base/threading/scoped_blocking_call.h): Chrome asserts blocking is
 /// allowed when the scope opens and, in `IOJankMonitoringWindow` (base/threading/scoped_blocking_call_internal.cc),
@@ -17,14 +19,15 @@ public import Darwin
 /// runs the primitive through it and passes its caller's `#fileID` and `#line`, which name the call site.
 ///
 /// A violation: Debug records it once per call site (one unified-log line, the Debug menu and
-/// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench
+/// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench-checks
 /// builds (`-DCMUX_BLOCKING_CHECKS`) record it for `debug.blocking`. To come: a Nightly built with
 /// `-DCMUX_BLOCKING_CHECKS` will record it and continue, and send it to the opt-in hang reports once
-/// their sink is installed.
+/// their sink is installed. A pool violation is recorded the same way (once per site, its own `pool` sites);
+/// it traps only in a Debug build started with `CMUX_BLOCKING_TRAP_POOL=1` (Chrome's task_tracker.cc runs a task
+/// without `MayBlock()` under `ScopedDisallowBlocking`).
 ///
-/// Off the main thread it is one `pthread_main_np()` call, one thread-local read and two branches, with no clock read:
-/// in a job of BackgroundWork's `.cpu` lane, which must not block, the call records a ``BlockingKind/wrongLane``
-/// site (``BlockingContext/cpuLane``). On the main thread
+/// Off the main thread and off the pool it is one `pthread_main_np()` call, one thread-specific read and at most
+/// the queue label's compare, with no clock read. On the main thread
 /// a repeat of a known site is one table probe, two clock reads around `body` and three atomic adds; an allowed
 /// call is not timed.
 ///
@@ -45,8 +48,8 @@ public func blockingCall<Result, Failure: Error>(
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0 else {
-        BlockingContext.checkOffMain(kind, fileID: fileID, line: line)
-        return try body()
+        guard let context = BlockingContext.offMainViolation() else { return try body() }
+        return try BlockingViolationTable.offMainBlockingCall(kind, in: context, fileID: fileID, line: line, body)
     }
     return try BlockingViolationTable.mainThreadBlockingCall(kind, fileID: fileID, line: line, body)
     #else
@@ -58,9 +61,9 @@ public func blockingCall<Result, Failure: Error>(
 /// time. No seam uses it; a seam runs its primitive through ``blockingCall(_:fileID:line:_:)``. It stays as the
 /// bare check that scripts/measure/blocking-checks.sh benches and finds compiled out of Release.
 ///
-/// Off the main thread the check is one `pthread_main_np()` call, one thread-local read and two branches (a
-/// ``BlockingContext/cpuLane`` job records a ``BlockingKind/wrongLane`` site); a repeat of a known call site on the
-/// main thread is one table probe and one atomic add.
+/// Off the main thread and off the pool the check is one `pthread_main_np()` call, one thread-specific read and
+/// at most the queue label's compare; a repeat of a
+/// known call site on the main thread is one table probe and one atomic add.
 ///
 /// - Parameters:
 ///   - kind: What the call waits on.
@@ -71,8 +74,8 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     #if DEBUG || CMUX_BLOCKING_CHECKS
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
-    } else {
-        BlockingContext.checkOffMain(kind, fileID: fileID, line: line)
+    } else if let context = BlockingContext.offMainViolation() {
+        BlockingViolationTable.offMainBlocked(kind, in: context, fileID: fileID, line: line)
     }
     #endif
 }
@@ -84,7 +87,9 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
 /// not inherit it, and while the body runs the main run loop again (a modal panel, `waitUntilExit`,
 /// `RunLoop.run(until:)`) the scope is held back, so the other main-thread work that nested run does is
 /// still checked. Synchronous callbacks from the body itself (a notification, KVO, a delegate call)
-/// share it, as in Chrome. Off the main thread, and in Release builds, it only runs `body`.
+/// share it, as in Chrome. Off the main thread it runs `body` with the thread marked dedicated
+/// (``BlockingContext/dedicated``), so a seam in it on a pool thread is not a pool violation either. In Release
+/// builds it only runs `body`.
 ///
 /// - Parameters:
 ///   - reason: The reviewed allowance (``BlockingAllowance``); each one is listed with its reason
@@ -97,7 +102,7 @@ public func allowBlocking<Result, Failure: Error>(
     _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard pthread_main_np() != 0 else { return try body() }
+    guard pthread_main_np() != 0 else { return try BlockingContext.run(as: .dedicated, body) }
     let table = BlockingViolationTable.active
     let token = table.enterAllowance(reason)
     defer { table.leaveAllowance(token) }

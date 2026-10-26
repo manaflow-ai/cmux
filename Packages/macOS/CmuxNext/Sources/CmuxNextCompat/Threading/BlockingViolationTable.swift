@@ -8,7 +8,10 @@ internal import Foundation
 internal import os
 #endif
 
-/// The main-thread blocking detector's state (Debug and bench builds, Nightly to come; Release compiles it out).
+/// The blocking detector's state (Debug and bench-checks builds, Nightly to come; Release compiles it out): the
+/// violations on the main thread, on the shared pools (``BlockingContext/pool``: the Swift cooperative pool
+/// and GCD root queues) and in items of BackgroundWork's `.cpu` lane (``BlockingContext/cpuLane``, each recorded
+/// as ``BlockingKind/wrongLane``).
 ///
 /// One table per process (``shared``; arch-ratchet exception approved by the Performance Lead with PL-arch,
 /// 2026-10-24): a violation can happen in any module, inside any lock, before the composition root exists,
@@ -16,18 +19,18 @@ internal import os
 /// globals. Only the checks in this module read ``shared``; other modules hold a ``BlockingDetector``. Tests
 /// bind their own table with ``scoped``.
 ///
-/// Threads. Every violation but a wrong-lane one happens on the main thread, so the main thread is the only writer of the
-/// call-site index, the open allowance, the open timed call, the pending ring and the sites' counts and wall
-/// times: the violation path takes no lock and calls nothing it does not own. It probes the index; for a new
-/// site it writes one ring slot, then records the site in the index, and signals a user-data dispatch source.
-/// When the call ends it adds its wall time and 1 to the site's atomics, so a reset during a long call puts the
-/// whole call in the next window (Chrome's IOJankMonitoringWindow puts a call in the window it ends in). The
-/// drain queue
-/// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the ring: it resolves the stack to image UUID +
+/// Threads. The main thread is the only writer of the main call-site index, the open allowance, the open timed
+/// call and the main pending ring: the main violation path takes no lock and calls nothing it does not own. It
+/// probes the index; for a new site it writes one ring slot, then records the site in the index, and signals a
+/// user-data dispatch source. Pool and `.cpu` lane violations come from many threads at once, each context in its
+/// own ``BlockingOffMainSites``: a repeat of a known site probes its index with no lock; only a new site takes
+/// that context's short lock, to take its id and push to its ring (a lane that may block or a dedicated thread
+/// never takes it), and each thread keeps its own open timed call in its ``BlockingThreadFlags``. When a call ends it adds
+/// its wall time and 1 to the site's atomics, so a reset during a long call puts the whole call in the next
+/// window (Chrome's IOJankMonitoringWindow puts a call in the window it ends in). The drain queue
+/// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the rings: it resolves the stack to image UUID +
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
-/// the thread that blocked or inside that thread's locks. A wrong-lane violation (a seam in a `.cpu` lane job,
-/// ``BlockingContext/cpuLane``) happens on a lane thread: it counts in ``BlockingWrongLaneSites`` and a new site
-/// goes to the drain queue the same way.
+/// the thread that blocked or inside that thread's locks.
 @usableFromInline
 final class BlockingViolationTable: Sendable {
     /// The process's table.
@@ -39,14 +42,17 @@ final class BlockingViolationTable: Sendable {
     /// The table the checks on this task report to.
     @usableFromInline static var active: BlockingViolationTable { scoped ?? shared }
 
-    /// The most call sites one launch records (a bound, so a seam reached through unbounded paths cannot
-    /// grow memory; past it a site only counts in ``overflow``).
+    /// The most call sites one launch records per context (a bound, so a seam reached through unbounded paths
+    /// cannot grow memory; past it a site only counts in its context's ``overflow(in:)``).
     static let siteLimit = 128
-    /// The most new sites waiting for the drain. Past it a new site counts in ``overflow`` and is not
-    /// recorded yet, so its next call, after the drain caught up, records it.
+    /// The most new sites per context waiting for the drain. Past it a new site counts in its context's
+    /// ``overflow(in:)`` and is not recorded yet, so its next call, after the drain caught up, records it.
     static let pendingLimit = 64
 
     let mode: BlockingMode
+    /// What a pool violation does: ``BlockingMode/record`` unless a Debug build was started with
+    /// `CMUX_BLOCKING_TRAP_POOL=1`.
+    let poolMode: BlockingMode
     let lockWaitLimitNanos: UInt64
     let uptimeNanos: @Sendable () -> UInt64
 
@@ -55,18 +61,17 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private var allowance: BlockingAllowance? // crash-allow: main thread only (every caller checks pthread_main_np() first)
     nonisolated(unsafe) private var nesting = BlockingRunLoopNesting() // crash-allow: main thread only (allowBlocking and the main run loop's observer, which runs on it)
     nonisolated(unsafe) private var timedCallOpen = false // crash-allow: main thread only (every caller checks pthread_main_np() first)
-    /// One atomic count per site id; written on the main thread, read anywhere.
-    nonisolated(unsafe) private let counts: UnsafeMutablePointer<UnsafeAtomic<Int>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
-    /// One atomic wall-time total and one maximum (nanoseconds) per site id; written on the main thread, read anywhere.
-    nonisolated(unsafe) private let totalNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
-    nonisolated(unsafe) private let maxNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
+    private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
-    private let overflowCount = UnsafeAtomic<Int>.create(0)
-    /// The ``BlockingKind/wrongLane`` sites: seams in `.cpu` lane jobs, recorded off the main thread.
-    private let wrongLane = BlockingWrongLaneSites(limit: BlockingViolationTable.siteLimit)
+    private let mainOverflow = UnsafeAtomic<Int>.create(0)
+    private let pool = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
+                                            pendingLimit: BlockingViolationTable.pendingLimit)
+    /// The ``BlockingKind/wrongLane`` sites: seams in items of BackgroundWork's `.cpu` lane.
+    private let cpuLane = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
+                                               pendingLimit: BlockingViolationTable.pendingLimit)
 
     private let drainQueue = DispatchQueue(label: "com.cmuxterm.app.next.blocking-drain", qos: .utility)
-    nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; the main thread only adds data
+    nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; recording threads only add data
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
@@ -76,6 +81,7 @@ final class BlockingViolationTable: Sendable {
 
     private struct PublishedSite {
         var id: Int
+        var context: BlockingContext
         var kind: BlockingKind
         var location: String
     }
@@ -83,31 +89,28 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` (Debug builds only: every other build records).
-    ///   - mode: A test's mode; nil reads `environment`.
+    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` (Debug builds only: every
+    ///     other build records).
+    ///   - mode: A test's main-thread mode; nil reads `environment`.
+    ///   - poolMode: A test's pool mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait and a ``blockingCall(_:fileID:line:_:)`` violation are
     ///     measured with.
     ///   - startsDrain: False holds the drain until ``startDrain()`` (tests fill the ring).
     init(environment: [String: String] = ProcessInfo.processInfo.environment, mode: BlockingMode? = nil,
-         lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
+         poolMode: BlockingMode? = nil, lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          startsDrain: Bool = true) {
         #if DEBUG
         self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
+        self.poolMode = poolMode ?? (environment["CMUX_BLOCKING_TRAP_POOL"] == "1" ? .trap : .record)
         #else
-        self.mode = .record  // a bench (and, to come, a Nightly) never stops the app, whatever it was asked
+        // A bench (and, to come, a Nightly) never stops the app, whatever it was asked.
+        self.mode = .record
+        self.poolMode = .record
         #endif
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
-        counts = .allocate(capacity: Self.siteLimit)
-        totalNanos = .allocate(capacity: Self.siteLimit)
-        maxNanos = .allocate(capacity: Self.siteLimit)
-        for slot in 0..<Self.siteLimit {
-            (counts + slot).initialize(to: UnsafeAtomic<Int>.Storage(0))
-            (totalNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
-            (maxNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
-        }
         ring = BlockingPendingRing(capacity: Self.pendingLimit)
         wake = DispatchSource.makeUserDataAddSource(queue: drainQueue)
         wake.setEventHandler { [weak self] in self?.drain() }
@@ -117,13 +120,7 @@ final class BlockingViolationTable: Sendable {
     deinit {
         wake.cancel()
         wake.activate()  // a source that never ran must be activated to be released
-        counts.deinitialize(count: Self.siteLimit)
-        counts.deallocate()
-        totalNanos.deinitialize(count: Self.siteLimit)
-        totalNanos.deallocate()
-        maxNanos.deinitialize(count: Self.siteLimit)
-        maxNanos.deallocate()
-        overflowCount.destroy()
+        mainOverflow.destroy()
     }
 
     /// Lets a table made with `startsDrain: false` drain.
@@ -139,7 +136,7 @@ final class BlockingViolationTable: Sendable {
     static func mainThreadBlocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
         let table = active
         guard let site = table.recordedSite(kind, fileID: fileID, line: line) else { return }
-        table.addCall(site: site, nanos: nil)
+        table.mainCounters.add(site: site, nanos: nil)
     }
 
     /// ``blockingCall(_:fileID:line:_:)`` on the main thread: checks the call and, when it is a recorded
@@ -154,7 +151,7 @@ final class BlockingViolationTable: Sendable {
         let table = active
         guard let site = table.recordedSite(kind, fileID: fileID, line: line) else { return try body() }
         guard !table.timedCallOpen else {
-            defer { table.addCall(site: site, nanos: nil) }
+            defer { table.mainCounters.add(site: site, nanos: nil) }
             return try body()
         }
         table.timedCallOpen = true
@@ -162,7 +159,7 @@ final class BlockingViolationTable: Sendable {
         defer {
             let nanos = table.uptimeNanos() &- start
             table.timedCallOpen = false
-            table.addCall(site: site, nanos: nanos)
+            table.mainCounters.add(site: site, nanos: nanos)
         }
         return try body()
     }
@@ -174,29 +171,29 @@ final class BlockingViolationTable: Sendable {
     @inline(never)
     func mainThreadWaitedForLock(fileID: StaticString, line: UInt, nanos: UInt64) {
         guard let site = recordedSite(.lockWait, fileID: fileID, line: line) else { return }
-        addCall(site: site, nanos: timedCallOpen ? nil : nanos)
+        mainCounters.add(site: site, nanos: timedCallOpen ? nil : nanos)
     }
 
     /// Checks the call and returns its site id, or nil when it is allowed or not recorded (the table or the
-    /// ring was full). The caller counts the call when it ends (``addCall(site:nanos:)``).
+    /// ring was full). The caller counts the call when it ends (``BlockingSiteCounters/add(site:nanos:)``).
     private func recordedSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         guard allowance == nil else { return nil }
         #if DEBUG
         if mode == .trap && kind != .lockWait {
-            fatalError("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
+            Self.trap("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
                 + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
         }
         #endif
         let key = BlockingSiteKey(fileID: fileID, line: line)
         if let id = index.find(key) { return id }
         guard let id = index.nextID else {
-            overflowCount.wrappingIncrement(ordering: .relaxed)
+            mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
         var pending = BlockingPendingCall(kind: kind, site: id, fileID: fileID, line: line)
         pending.captureStack()
         guard ring.push(pending) else {
-            overflowCount.wrappingIncrement(ordering: .relaxed)
+            mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
         index.insert(key)
@@ -204,38 +201,89 @@ final class BlockingViolationTable: Sendable {
         return id
     }
 
-    /// Counts one ended call at `site` and adds its `nanos` (nil: not timed) to the site's total and maximum.
-    private func addCall(site: Int, nanos: UInt64?) {
-        if let nanos {
-            UnsafeAtomic<UInt64>(at: totalNanos + site).wrappingIncrement(by: nanos, ordering: .relaxed)
-            let maximum = UnsafeAtomic<UInt64>(at: maxNanos + site)
-            var seen = maximum.load(ordering: .relaxed)
-            while nanos > seen {
-                let (exchanged, original) = maximum.weakCompareExchange(expected: seen, desired: nanos, ordering: .relaxed)
-                if exchanged { break }
-                seen = original
-            }
-        }
-        UnsafeAtomic<Int>(at: counts + site).wrappingIncrement(ordering: .relaxed)
+    #if DEBUG
+    /// Trap mode (Debug only: `CMUX_BLOCKING_TRAP=1`, `CMUX_BLOCKING_TRAP_POOL=1` and the detector's tests): stops
+    /// the process at the violation.
+    private static func trap(_ message: String) -> Never {
+        fatalError(message)
+    }
+    #endif
+
+    // MARK: the off-main path (a pool thread or a `.cpu` lane item)
+
+    /// The sites of an off-main violation context (``BlockingContext/offMainViolation()``).
+    private func offMainSites(_ context: BlockingContext) -> BlockingOffMainSites {
+        context == .cpuLane ? cpuLane : pool
     }
 
-    // MARK: the wrong-lane path (lane threads)
-
-    /// A blocking seam (`kind`) ran in a job of BackgroundWork's `.cpu` lane (``BlockingContext/cpuLane``), which
-    /// must not block: the site counts as ``BlockingKind/wrongLane``. A new site is logged and sent to the sink on the
-    /// drain queue, as a main-thread site is. Recorded only, never a trap: the job runs on its own lane thread, and
-    /// the fix is to move it to `.files` or `.system`.
+    /// ``blockingCall(_:fileID:line:_:)`` on a thread that ``BlockingContext/offMainViolation()`` found in
+    /// `context` (``BlockingContext/pool`` or ``BlockingContext/cpuLane``): a violation, timed like a main-thread
+    /// one. Only the outermost timed call on the thread is timed; a call inside it counts without time.
     @usableFromInline @inline(never)
-    static func blockedInWrongLane(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
-        active.wrongLaneBlocked(kind, fileID: fileID, line: line)
+    static func offMainBlockingCall<Result, Failure: Error>(
+        _ kind: BlockingKind, in context: BlockingContext, fileID: StaticString, line: UInt,
+        _ body: () throws(Failure) -> Result
+    ) throws(Failure) -> Result {
+        let table = active
+        guard let site = table.recordedOffMainSite(kind, in: context, fileID: fileID, line: line) else {
+            return try body()
+        }
+        let counters = table.offMainSites(context).counters
+        let flags = BlockingThreadFlags.load()
+        guard !flags.timedCallOpen else {
+            defer { counters.add(site: site, nanos: nil) }
+            return try body()
+        }
+        BlockingThreadFlags.store(flags.withTimedCallOpen())
+        let start = table.uptimeNanos()
+        defer {
+            let nanos = table.uptimeNanos() &- start
+            BlockingThreadFlags.store(flags)
+            counters.add(site: site, nanos: nanos)
+        }
+        return try body()
     }
 
-    private func wrongLaneBlocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
-        guard wrongLane.record(fileID: fileID, line: line) else { return }
-        var pending = BlockingPendingCall(kind: .wrongLane, site: -1, fileID: fileID, line: line)
+    /// ``assertBlockingAllowed(_:fileID:line:)`` off the main thread in `context`: the call counts at its site
+    /// without time.
+    @usableFromInline @inline(never)
+    static func offMainBlocked(_ kind: BlockingKind, in context: BlockingContext, fileID: StaticString, line: UInt) {
+        let table = active
+        guard let site = table.recordedOffMainSite(kind, in: context, fileID: fileID, line: line) else { return }
+        table.offMainSites(context).counters.add(site: site, nanos: nil)
+    }
+
+    /// The off-main twin of ``recordedSite(_:fileID:line:)``: the site id of a call in `context`, or nil when it
+    /// is not recorded (that context's table or ring was full). A known site is one lock-free probe. A new site
+    /// walks its stack in this frame, as the main path does (so both keep the same caller frames), then
+    /// ``BlockingOffMainSites/insert(_:key:)`` takes its id and pushes it to the ring.
+    ///
+    /// A `.cpu` lane call is recorded as ``BlockingKind/wrongLane`` whatever its seam waited on, and never traps:
+    /// the item runs on its own lane slot, and the fix is to move it to `.files` or `.system`.
+    private func recordedOffMainSite(_ kind: BlockingKind, in context: BlockingContext, fileID: StaticString,
+                                     line: UInt) -> Int? {
+        #if DEBUG
+        if context == .pool && poolMode == .trap {
+            Self.trap("blocking \(kind.rawValue) on the cooperative pool or a GCD root queue at \(fileID):\(line): "
+                + "run it on a BackgroundWork lane, work.run(_:mayBlock:) (plans/cmux-next/threading-model.md)")
+        }
+        #endif
+        let sites = offMainSites(context)
+        let key = BlockingSiteKey(fileID: fileID, line: line)
+        if let id = sites.find(key) { return id }
+        guard !sites.isFull else {
+            sites.countOverflow()
+            return nil
+        }
+        var pending = BlockingPendingCall(kind: context == .cpuLane ? .wrongLane : kind, site: -1, fileID: fileID,
+                                          line: line)
         pending.captureStack()
-        let call = pending
-        drainQueue.async { [self] in reportWrongLane(call, seam: kind) }
+        guard let recorded = sites.insert(pending, key: key) else {
+            sites.countOverflow()
+            return nil
+        }
+        if recorded.isNew { wake.add(data: 1) }
+        return recorded.id
     }
 
     // MARK: allowance (main thread)
@@ -273,25 +321,30 @@ final class BlockingViolationTable: Sendable {
 
     private func drain() {
         var resolver = BlockingFrameResolver()
-        while let pending = ring.pop() {
-            let location = "\(pending.fileID):\(pending.line)"
-            published.withLock { $0.append(PublishedSite(id: pending.site, kind: pending.kind, location: location)) }
-            #if DEBUG
-            logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
-            #endif
-            guard let sink = sink.withLock({ $0 }) else { continue }
-            sink.record(BlockingViolation(kind: pending.kind, frames: resolver.frames(pending.stack)))
-        }
+        drain(ring, context: .main, &resolver)
+        drain(pool.ring, context: .pool, &resolver)
+        drain(cpuLane.ring, context: .cpuLane, &resolver)
     }
 
-    private func reportWrongLane(_ pending: BlockingPendingCall, seam kind: BlockingKind) {
-        #if DEBUG
-        let location = "\(pending.fileID):\(pending.line)"
-        logger.error("blocking \(kind.rawValue, privacy: .public) in a .cpu lane job at \(location, privacy: .public): the .cpu lane must not block; run the job on .files or .system (plans/cmux-next/threading-model.md)")
-        #endif
-        guard let sink = sink.withLock({ $0 }) else { return }
-        var resolver = BlockingFrameResolver()
-        sink.record(BlockingViolation(kind: .wrongLane, frames: resolver.frames(pending.stack)))
+    private func drain(_ ring: BlockingPendingRing, context: BlockingContext, _ resolver: inout BlockingFrameResolver) {
+        while let pending = ring.pop() {
+            let location = "\(pending.fileID):\(pending.line)"
+            published.withLock {
+                $0.append(PublishedSite(id: pending.site, context: context, kind: pending.kind, location: location))
+            }
+            #if DEBUG
+            switch context {
+            case .pool:
+                logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the cooperative pool or a GCD root queue at \(location, privacy: .public): run it on a BackgroundWork lane (plans/cmux-next/threading-model.md)")
+            case .cpuLane:
+                logger.error("blocking in a .cpu lane item at \(location, privacy: .public): the .cpu lane is sized to the cores and must not block; run the item on .files or .system (plans/cmux-next/threading-model.md)")
+            case .main, .lane, .dedicated:
+                logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
+            }
+            #endif
+            guard let sink = sink.withLock({ $0 }) else { continue }
+            sink.record(BlockingViolation(kind: pending.kind, context: context, frames: resolver.frames(pending.stack)))
+        }
     }
 
     /// Waits until the drain has handled every site recorded before the call (tests).
@@ -310,24 +363,34 @@ final class BlockingViolationTable: Sendable {
         self.sink.withLock { $0 = sink }
     }
 
+    /// Every published site of every context, in the order each first reached the drain.
     var sites: [BlockingSite] {
         published.withLock { $0 }.map { site in
-            BlockingSite(kind: site.kind, location: site.location,
-                         count: UnsafeAtomic<Int>(at: counts + site.id).load(ordering: .relaxed),
-                         totalNanos: UnsafeAtomic<UInt64>(at: totalNanos + site.id).load(ordering: .relaxed),
-                         maxNanos: UnsafeAtomic<UInt64>(at: maxNanos + site.id).load(ordering: .relaxed))
-        } + wrongLane.sites
+            let counters = site.context == .main ? mainCounters : offMainSites(site.context).counters
+            let read = counters.read(site: site.id)
+            return BlockingSite(kind: site.kind, location: site.location, count: read.count,
+                                totalNanos: read.totalNanos, maxNanos: read.maxNanos, context: site.context)
+        }
     }
 
-    var overflow: Int { overflowCount.load(ordering: .relaxed) + wrongLane.overflow }
+    /// Blocking calls of every context not recorded as a site.
+    var overflow: Int { overflow(in: .main) + overflow(in: .pool) + overflow(in: .cpuLane) }
+
+    /// Blocking calls in `context` not recorded as a site: its table was full, or its ring held
+    /// ``pendingLimit`` new sites (0 for a context that may block).
+    func overflow(in context: BlockingContext) -> Int {
+        switch context {
+        case .main: mainOverflow.load(ordering: .relaxed)
+        case .pool: pool.overflow
+        case .cpuLane: cpuLane.overflow
+        case .lane, .dedicated: 0
+        }
+    }
 
     func resetCounts() {
-        for slot in 0..<Self.siteLimit {
-            UnsafeAtomic<Int>(at: counts + slot).store(0, ordering: .relaxed)
-            UnsafeAtomic<UInt64>(at: totalNanos + slot).store(0, ordering: .relaxed)
-            UnsafeAtomic<UInt64>(at: maxNanos + slot).store(0, ordering: .relaxed)
-        }
-        wrongLane.resetCounts()
+        mainCounters.reset()
+        pool.counters.reset()
+        cpuLane.counters.reset()
     }
 }
 #endif

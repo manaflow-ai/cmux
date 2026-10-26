@@ -239,11 +239,17 @@ private nonisolated func callEachSeam(step: UInt64) throws -> [BlockingSite] {
     return expected
 }
 
-/// A seam on a thread of the global executor, in the caller's task (its task-local table applies).
-@concurrent nonisolated
-private func blockingCallOffTheMainThread() async {
-    #expect(pthread_main_np() == 0)
-    _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
+/// A seam on a named serial queue (blocking is allowed there; the pool is BlockingPoolContextTests'), with the
+/// caller's table bound there.
+private nonisolated func blockingCallOffTheMainThread() async {
+    let table = BlockingViolationTable.scoped
+    let queue = DispatchQueue(label: "com.cmuxterm.tests.blocking-wall-time-off-main")
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        queue.async {
+            BlockingViolationTable.$scoped.withValue(table) { _ = FileManager.checked.fileExists(atPath: "/etc/hosts") }
+            done.resume()
+        }
+    }
 }
 
 /// A clock for timed blocking calls: each timed call reads it twice (start, end), and timed call `n` measures

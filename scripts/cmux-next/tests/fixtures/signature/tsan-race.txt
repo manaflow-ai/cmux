@@ -1,0 +1,20 @@
+Test Suite 'All tests' started at 2026-10-24 10:00:00.000.
+==================
+WARNING: ThreadSanitizer: data race (pid=51234)
+  Write of size 8 at 0x7b0c00012340 by thread T3:
+    #0 TerminalRegistry.register(_:) TerminalRegistry.swift:41 (CmuxNextPackageTests:arm64+0x1a2b3c)
+    #1 closure #2 in TerminalHost.start() TerminalHost.swift:120 (CmuxNextPackageTests:arm64+0x1a3000)
+    #2 partial apply for closure #2 in TerminalHost.start() <compiler-generated> (CmuxNextPackageTests:arm64+0x1a3100)
+    #3 __tsan::invoke_and_release_block(void*) <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x7a2e0)
+    #4 _dispatch_client_callout <null> (libdispatch.dylib:arm64e+0x3fdc)
+
+  Previous read of size 8 at 0x7b0c00012340 by main thread:
+    #0 TerminalRegistry.count.getter TerminalRegistry.swift:22 (CmuxNextPackageTests:arm64+0x1a2a00)
+    #1 SidebarModel.refresh() SidebarModel.swift:77 (CmuxNextPackageTests:arm64+0x1b0000)
+
+  Location is heap block of size 48 at 0x7b0c00012330 allocated by main thread:
+    #0 malloc <null> (libclang_rt.tsan_osx_dynamic.dylib:arm64e+0x5a3c0)
+    #1 swift_allocObject <null> (libswiftCore.dylib:arm64e+0x3a3c58)
+
+SUMMARY: ThreadSanitizer: data race TerminalRegistry.swift:41 in TerminalRegistry.register(_:)
+==================

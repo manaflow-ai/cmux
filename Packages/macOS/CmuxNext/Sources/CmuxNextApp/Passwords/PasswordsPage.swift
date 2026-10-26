@@ -60,7 +60,7 @@ final class PasswordsPageService: InternalPageProvider {
         let native = services.map { AppPageNativeProvider(services: $0, page: .passwords) }
         var routes = [PageRoute(prefix: "cmux.passwords.", provider: provider)]
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
-        guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
+        guard let page = services?.webUI.open(PageOpenRequest(descriptor: .passwords, routes: routes)) else { return NSView() }
         provider.anchor = { [weak page] in page }
         provider.allowExport = { [weak services] in
             services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false

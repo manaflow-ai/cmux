@@ -452,14 +452,26 @@ private nonisolated func waitUntilSignaled(_ semaphore: DispatchSemaphore) {
     semaphore.wait()
 }
 
-/// The seams on a thread of the global executor: off the main thread, in the caller's task (so its
-/// task-local table applies, unlike a detached task).
-@concurrent nonisolated
-private func blockingCallsOffTheMainThread() async {
-    #expect(pthread_main_np() == 0)
-    _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
-    _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
-    signaledSemaphore().blockingWait()
+/// The seams on a named serial queue, a thread where blocking is allowed (the cooperative pool and GCD root
+/// queues are not: BlockingPoolContextTests), with the caller's table bound there.
+private nonisolated func blockingCallsOffTheMainThread() async {
+    try? await onNamedQueue {
+        _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
+        _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
+        signaledSemaphore().blockingWait()
+    }
+}
+
+/// Runs `body` on a named serial queue with the caller's task-local table bound there (a dispatch block does
+/// not inherit task-locals).
+private nonisolated func onNamedQueue(_ body: @escaping @Sendable () throws -> Void) async throws {
+    let table = BlockingViolationTable.scoped
+    let queue = DispatchQueue(label: "com.cmuxterm.tests.blocking-check")
+    try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+        queue.async {
+            done.resume(with: Result { try BlockingViolationTable.$scoped.withValue(table) { try body() } })
+        }
+    }
 }
 
 /// Starts `/usr/bin/true` through the `Process` spawn seam, from the caller's thread.
@@ -480,11 +492,11 @@ private nonisolated func posixSpawnTrue() throws {
     waitpid(pid, &exit, 0)
 }
 
-/// The same spawn on a thread of the global executor, in the caller's task (its task-local table applies).
-@concurrent
+/// The same spawn on a named serial queue, with the caller's table bound there.
 private nonisolated func spawnTrueOffMain() async throws {
-    #expect(pthread_main_np() == 0)
-    try spawnTrue()
+    try await onNamedQueue {
+        try spawnTrue()
+    }
 }
 
 /// A mutex threads can share (a `Mutex` is not copyable, so a closure cannot capture it).
