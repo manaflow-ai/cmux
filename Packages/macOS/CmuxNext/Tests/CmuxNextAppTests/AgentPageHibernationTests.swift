@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextInput
 import CmuxNextSettings
 import AppKit
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -34,7 +35,7 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
