@@ -140,6 +140,8 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            force_admit: super::requests::can_force(conn.origin)
+                && super::requests::force_asked(params),
         };
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
