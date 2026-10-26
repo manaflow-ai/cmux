@@ -12,7 +12,7 @@ extension SidebarLayoutDocument {
 }
 
 /// One intent's add of the Chief, not echoed yet: the item it adds and the section it makes for it (Add to Top with no
-/// top section yet), as the document will hold them.
+/// top section yet), or an undo's restore of them, as the document will hold them.
 struct SidebarPendingChief: Hashable {
     var item: SidebarDocItem
     var section: SidebarDocSection?
@@ -24,11 +24,12 @@ struct SidebarPendingChief: Hashable {
         var sections: [String: SidebarDocSection] = [:]
         for op in list {
             switch op["op"] as? String {
-            case "section.add":
+            // An add, or an undo's restore (`*.put`, the whole record).
+            case "section.add", "section.put":
                 if let record = Self.decode(SidebarDocWire.Section.self, op["section"])?.record { sections[record.id] = record }
-            case "item.add":
+            case "item.add", "item.put":
                 guard var wire = op["item"] as? [String: Any], wire["id"] as? String == SidebarLayoutDocument.chiefItemID.rawValue else { continue }
-                wire["section"] = (op["to"] as? [String: Any])?["section"] as? String ?? ""
+                if let section = (op["to"] as? [String: Any])?["section"] as? String { wire["section"] = section }
                 item = Self.decode(SidebarDocWire.Item.self, wire)?.record
             default:
                 continue
@@ -95,17 +96,22 @@ extension SidebarDocStore {
     }
 
     /// The Chief's add sent under `key` is settled: echoed, refused, dropped or answered by a load.
-    func settlePendingChief(_ key: String) {
+    /// Whether one was pending.
+    @discardableResult
+    func settlePendingChief(_ key: String) -> Bool {
+        let count = pendingChief.count
         pendingChief.removeAll { $0.key == key }
+        return pendingChief.count != count
     }
 
-    /// An echoed batch settles the Chief's add sent under its key.
-    func settlePendingChief(batch data: Data) {
-        struct Keyed: Decodable {
-            var key: String?
-            enum CodingKeys: String, CodingKey { case key = "idempotency_key" }
-        }
-        guard let key = (try? JSONDecoder().decode(Keyed.self, from: data))?.key else { return }
-        settlePendingChief(key)
+    /// An echoed batch settles the Chief's add sent under its key: the first `sidebar_doc` marker's, else the batch's
+    /// own (as the mirror reads it).
+    @discardableResult
+    func settlePendingChief(batch data: Data) -> Bool {
+        guard let batch = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        let markers = (batch["changes"] as? [[String: Any]] ?? []).filter { $0["resource"] as? String == "sidebar_doc" }
+        let key = markers.lazy.compactMap { ($0["value"] as? [String: Any])?["idempotency_key"] as? String }.first
+            ?? batch["idempotency_key"] as? String
+        return key.map { settlePendingChief($0) } ?? false
     }
 }

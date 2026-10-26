@@ -118,6 +118,8 @@ public final class SidebarDocStore {
         loading = true
         // The load answers the changes unanswered before it was asked for (a later one asks for another load).
         let answering = unanswered
+        // It answers the Chief's adds sent before it too: the mirror drops a replayed one the document already holds.
+        let chiefAnswered = Set(pendingChief.map(\.key))
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -135,7 +137,8 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            for key in answering { mirror.reject(key); self.settlePendingChief(key) }
+            for key in answering { mirror.reject(key) }
+            self.pendingChief.removeAll { chiefAnswered.contains($0.key) }
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -156,7 +159,10 @@ public final class SidebarDocStore {
         }
         // The reducer judges the revision chain: a skipped one refetches.
         switch mirror.apply(batch: data) {
-        case .stale: return
+        case .stale:
+            // Already in the confirmed document: its change is no longer pending.
+            if !pendingChief.isEmpty, settlePendingChief(batch: data) { bump() }
+            return
         case .refetch: return refresh()
         case .applied(let revision):
             if !pendingChief.isEmpty { settlePendingChief(batch: data) }
