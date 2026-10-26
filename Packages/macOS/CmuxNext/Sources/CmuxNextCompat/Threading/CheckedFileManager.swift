@@ -28,7 +28,9 @@ public struct CheckedFileManager: Sendable {
     /// Whether a file or folder exists at `path`, and whether it is a folder. Like `FileManager.fileExists`, checked.
     @inlinable
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?, fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
-        return blockingCall(.fileIO, fileID: fileID, line: line) { FileManager.default.fileExists(atPath: path, isDirectory: isDirectory) }
+        // SAFETY: forwards the caller's pointer to fileExists unchanged, only for the call; the caller's own `unsafe`
+        // states why it is valid for it.
+        return blockingCall(.fileIO, fileID: fileID, line: line) { unsafe FileManager.default.fileExists(atPath: path, isDirectory: isDirectory) }
     }
 
     /// Whether the file at `path` is readable. Like `FileManager.isReadableFile`, checked.

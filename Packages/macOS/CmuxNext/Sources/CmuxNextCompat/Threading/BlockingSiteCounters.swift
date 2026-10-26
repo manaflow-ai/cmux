@@ -4,6 +4,10 @@ internal import Atomics
 /// The per-site atomics of one ``BlockingContext``: a call count, a wall-time total and a maximum
 /// (nanoseconds) per site id, in one fixed allocation of three words per site. Fixed at init, so a recording
 /// thread never allocates; any thread adds, any thread reads.
+///
+/// Memory safety: `words` is the one allocation of `capacity * 3` initialized words that init made; deinit
+/// deinitializes and frees it once. Every word is reached through ``word(_:)``, which checks its index.
+@safe
 final class BlockingSiteCounters: Sendable {
     private let capacity: Int
     /// Site `id` owns words `3 * id` (count), `3 * id + 1` (total) and `3 * id + 2` (maximum).
@@ -11,19 +15,29 @@ final class BlockingSiteCounters: Sendable {
 
     init(capacity: Int) {
         self.capacity = capacity
-        words = .allocate(capacity: capacity * 3)
+        // SAFETY: a fresh allocation of capacity * 3 words, each initialized to zero here; freed once, in deinit.
+        unsafe words = UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage>.allocate(capacity: capacity * 3)
         for slot in 0..<(capacity * 3) {
-            (words + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
+            unsafe (words + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
         }
     }
 
     deinit {
-        words.deinitialize(count: capacity * 3)
-        words.deallocate()
+        // SAFETY: the allocation of init, capacity * 3 initialized words; nothing else holds `self` any more.
+        unsafe words.deinitialize(count: capacity * 3)
+        unsafe words.deallocate()
+    }
+
+    /// Word `index` of the table; traps outside it (a site id at or past `capacity`).
+    private func word(_ index: Int) -> UnsafeAtomic<UInt64> {
+        precondition(index >= 0 && index < capacity * 3, "blocking site id outside the table")
+        // SAFETY: 0 <= index < capacity * 3 (checked above), so the word is inside the allocation, which lives as
+        // long as `self`.
+        return unsafe UnsafeAtomic<UInt64>(at: words + index)
     }
 
     private func word(_ site: Int, _ field: Int) -> UnsafeAtomic<UInt64> {
-        UnsafeAtomic<UInt64>(at: words + (site * 3 + field))
+        word(site * 3 + field)
     }
 
     /// Counts one ended call at `site` and adds its `nanos` (nil: not timed) to the site's total and maximum.
@@ -51,7 +65,7 @@ final class BlockingSiteCounters: Sendable {
     /// Zeroes every site.
     func reset() {
         for slot in 0..<(capacity * 3) {
-            UnsafeAtomic<UInt64>(at: words + slot).store(0, ordering: .relaxed)
+            word(slot).store(0, ordering: .relaxed)
         }
     }
 }

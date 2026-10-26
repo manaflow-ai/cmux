@@ -54,7 +54,8 @@ nonisolated enum AcpmuxVersionHandoff {
     /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
     static func executablePath(pid: Int32) -> String? {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+        guard unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 

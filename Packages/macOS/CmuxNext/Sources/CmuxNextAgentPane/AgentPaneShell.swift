@@ -121,7 +121,8 @@ public final class AgentPaneShell {
             throw .folderMissing
         }
         var pipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
+        // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+        guard unsafe Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
         let (shell, variables, output) = (self.shell, environment.map { "\($0.key)=\($0.value)" }, pipe[1])
         let launcher = self.launcher
@@ -273,36 +274,35 @@ public final class AgentPaneShell {
     /// Spawns `shell -l -c command` in `folder` at `priority`; blocking, so ``run(_:cwd:)`` calls it on a launcher.
     private nonisolated static func spawn(_ command: String, shell: String, variables: [String], folder: String,
                                           output: Int32, priority: MayBlockPriority) throws(Failure) -> pid_t {
+        // SAFETY (every posix_spawn_* call below): each takes the address of `actions` or `attributes`, locals
+        // initialized here and destroyed once by the defers, and copies the C strings it is lent (the NUL-terminated
+        // copies made for the call) before it returns.
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        guard posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawnattr_destroy(&attributes) }
-        let configured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) } == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO) == 0
-            && folder.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } == 0
-            // Its own process group, so Stop reaches what the command started; every other
-            // descriptor of the app closes in the child.
-            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
-            && posix_spawnattr_setpgroup(&attributes, 0) == 0
-        guard configured else { throw .spawnFailed(EINVAL) }
+        guard unsafe posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        guard unsafe posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
+        guard unsafe posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO) == 0,
+              unsafe posix_spawn_file_actions_addchdir_np(&actions, folder) == 0,
+              // Its own process group, so Stop reaches what the command started; every other
+              // descriptor of the app closes in the child.
+              unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0,
+              unsafe posix_spawnattr_setpgroup(&attributes, 0) == 0 else { throw .spawnFailed(EINVAL) }
         let arguments = [shell, "-l", "-c", command]
         var pid: pid_t = 0
-        let status = Self.withCStrings(arguments) { argv in
-            Self.withCStrings(variables) { envp in
-                blockingPosixSpawn(&pid, shell, &actions, &attributes, argv, envp, priority: priority)
+        // SAFETY: argv and envp are NULL-terminated lists that withCStringList lends for its closure; posix_spawn
+        // copies them, writes the child's pid into `pid`, a local, and reads `actions` and `attributes` (above).
+        let status = unsafe withCStringList(arguments) { argv in
+            unsafe withCStringList(variables) { envp in
+                unsafe blockingPosixSpawn(&pid, shell, &actions, &attributes, argv, envp, priority: priority)
             }
         }
+        guard let status = status.flatMap({ $0 }) else { throw .spawnFailed(ENOMEM) }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid
-    }
-
-    private nonisolated static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
-        let pointers = strings.map { strdup($0) } + [nil]
-        defer { for pointer in pointers { free(pointer) } }
-        return body(pointers)
     }
 
     /// A `waitpid` status: an exit code, or the signal that ended it.
