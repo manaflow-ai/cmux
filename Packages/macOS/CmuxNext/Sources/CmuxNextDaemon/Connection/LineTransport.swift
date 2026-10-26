@@ -2,6 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import CmuxNextCompat
+import CmuxNextTrace
 
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {
@@ -99,11 +100,10 @@ final class LineTransport: Sendable {
     /// reaped when the connection closes.
     private let child: BridgeChild?
     /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
-    private let hangs: (any HangWatching)?
+    private let hangWatched: HangWatchedLane?
 
-    init(path: String, bridge: DaemonBridge? = nil, hangs: (any HangWatching)? = nil) throws(DaemonError) {
+    init(path: String, bridge: DaemonBridge? = nil, hangs: (any HangWatchScoping)? = nil) throws(DaemonError) {
         self.path = path
-        self.hangs = hangs
         let fd: Int32
         if let bridge {
             let opened = try bridge.open()
@@ -115,6 +115,8 @@ final class LineTransport: Sendable {
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        // After the last throw: a transport that never opened registers nothing (its deinit does not run).
+        hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -153,6 +155,7 @@ final class LineTransport: Sendable {
     }
 
     deinit {
+        hangWatched?.unregister()
         writer.close()
         socket.withLock { socket in
             if socket.fd >= 0 {
@@ -358,10 +361,8 @@ final class LineTransport: Sendable {
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
     /// the same way, base/threading/hang_watcher.cc).
     private func handle(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
-        guard let hangs else { return route(line, decoder: decoder, onEvent: onEvent) }
-        let token = hangs.enter("daemon.line", deadline: Self.lineHangDeadline)
-        defer { hangs.leave(token) }
-        route(line, decoder: decoder, onEvent: onEvent)
+        guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
+        hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
     }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {

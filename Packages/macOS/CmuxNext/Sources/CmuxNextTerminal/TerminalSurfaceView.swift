@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import IOSurface
@@ -25,6 +26,8 @@ public final class TerminalSurfaceView: NSView {
     let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
+    private let hangWatch: (any HangWatchScoping)?
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -115,10 +118,12 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Lifecycle
 
-    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
+         hangWatch: (any HangWatchScoping)? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
+        self.hangWatch = hangWatch
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode)
@@ -177,7 +182,7 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", hangs: hangWatch)
         if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

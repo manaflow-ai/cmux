@@ -2,6 +2,7 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 import CmuxNextCompat
+import CmuxNextTrace
 import os
 
 /// Serial, non-main lane for every call that must be serialized with
@@ -41,16 +42,25 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     private let backlog = Mutex(Backlog())
     /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
-    private let hangs: (any HangWatching)?
+    private let hangWatched: HangWatchedLane?
     /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
     /// it: a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
     static let feedHangDeadline: Duration = .milliseconds(100)
+    /// Parses one output chunk into the surface: `ghostty_surface_process_output`, or a test's recorder.
+    typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
+    private let parse: Parse
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, hangs: (any HangWatching)? = nil) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, hangs: (any HangWatchScoping)? = nil,
+         parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
         self.surface = surface
         self.highWater = highWater
-        self.hangs = hangs
+        self.parse = parse
+        hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
+    }
+
+    deinit {
+        hangWatched?.unregister()
     }
 
     /// Bytes queued but not parsed yet.
@@ -71,10 +81,14 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     /// Parses one chunk on the lane, inside a ``feedHangDeadline`` hang scope when there is a watcher.
-    // perf-hot: 50ns terminal-feed
+    // perf-hot: 1ms terminal-feed
     private func feed(_ surface: ghostty_surface_t, _ data: Data) {
-        let token = hangs?.enter("terminal.feed", deadline: Self.feedHangDeadline)
-        defer { if let token { hangs?.leave(token) } }
+        guard let hangWatched else { return parse(surface, data) }
+        hangWatched.run { parse(surface, data) }
+    }
+
+    /// The production ``Parse``: Ghostty's VT parser on the surface.
+    static func processOutput(_ surface: ghostty_surface_t, _ data: Data) {
         data.withUnsafeBytes { buffer in
             guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_process_output(surface, base, UInt(buffer.count))

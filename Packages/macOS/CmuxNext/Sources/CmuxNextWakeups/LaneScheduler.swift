@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import Dispatch
 
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
@@ -14,19 +15,12 @@ import Dispatch
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
 ///
-/// With a ``HangScope``, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope` in
-/// `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
+/// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
+/// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
         case shared(width: Int)
-    }
-
-    /// The hang scope every item of the lane runs in.
-    struct HangScope: Sendable {
-        let watcher: any HangWatching
-        let name: StaticString
-        let deadline: Duration
     }
 
     private struct Entry {
@@ -67,14 +61,15 @@ final class LaneScheduler: Sendable {
     }
 
     let policy: Policy
-    private let hangScope: HangScope?
+    /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
+    private let hangWatched: HangWatchedLane?
     private let slots: [DispatchQueue]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy, hangScope: HangScope? = nil) {
+    init(label: String, policy: Policy, hangWatched: HangWatchedLane? = nil) {
         self.policy = policy
-        self.hangScope = hangScope
+        self.hangWatched = hangWatched
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
         case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
@@ -82,6 +77,10 @@ final class LaneScheduler: Sendable {
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
         state = Mutex(State(busy: Array(repeating: false, count: names.count)))
+    }
+
+    deinit {
+        hangWatched?.unregister()
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -195,10 +194,8 @@ final class LaneScheduler: Sendable {
 
     /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
     private func run(_ job: LaneJob) {
-        guard let hangScope else { return job.execute() }
-        let token = hangScope.watcher.enter(hangScope.name, deadline: hangScope.deadline)
-        defer { hangScope.watcher.leave(token) }
-        job.execute()
+        guard let hangWatched else { return job.execute() }
+        hangWatched.run { job.execute() }
     }
 
     private func finish(_ id: UInt64, slot: Int) {

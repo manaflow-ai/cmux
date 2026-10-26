@@ -7,6 +7,7 @@ import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Entry point called from the Xcode target's `App/main.swift`.
@@ -49,7 +50,9 @@ public struct CmuxNextApp {
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
-        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
+        // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
+        let hangWatch = TraceRuntime.shared.hangWatch
+        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork(hangs: hangWatch)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
@@ -58,7 +61,7 @@ public struct CmuxNextApp {
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
-                                              echoesPlacementShift: SidebarMirror.isLinked)
+                                              echoesPlacementShift: SidebarMirror.isLinked, hangWatch: hangWatch)
         DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()

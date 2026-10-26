@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextTerminalFind
+public import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 
@@ -111,6 +112,8 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
+    /// Passed to each surface view this session makes, the first and every swapped-in one.
+    private let hangWatch: (any HangWatchScoping)?
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
@@ -137,9 +140,12 @@ public final class TerminalSession {
     /// Kitty images the owner left out of its image replays (its cap).
     private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// - Parameter hangWatch: watches each output chunk's parse on the surface's output lane; the app's
+    ///   composition root passes its ``HangWatch``. nil watches nothing.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, hangWatch: (any HangWatchScoping)? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
+        self.hangWatch = hangWatch
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
@@ -147,7 +153,7 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, hangWatch: hangWatch)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -436,7 +442,7 @@ public final class TerminalSession {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, hangWatch: hangWatch)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }

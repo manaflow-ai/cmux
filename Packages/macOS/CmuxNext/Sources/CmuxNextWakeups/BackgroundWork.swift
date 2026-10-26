@@ -1,4 +1,5 @@
-public import CmuxNextCompat
+import CmuxNextCompat
+public import CmuxNextTrace
 import Darwin
 import Dispatch
 
@@ -67,7 +68,7 @@ public final class BackgroundWork: Sendable {
     ///   - hangs: watches each item's run on its lane thread for a hang, with the lane's
     ///     ``hangDeadline(_:)``; the wait for a slot is not watched. nil (the default) watches nothing.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
-                hangs: (any HangWatching)? = nil,
+                hangs: (any HangWatchScoping)? = nil,
                 onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
@@ -78,8 +79,8 @@ public final class BackgroundWork: Sendable {
             case .system: .shared(width: Self.systemWidth)
             case .cpu: .shared(width: max(1, cpuWidth))
             }
-            let scope = hangs.map { LaneScheduler.HangScope(watcher: $0, name: Self.hangScopeName(lane), deadline: Self.hangDeadline(lane)) }
-            return LaneScheduler(label: "\(label).\(lane)", policy: policy, hangScope: scope)
+            let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
+            return LaneScheduler(label: "\(label).\(lane)", policy: policy, hangWatched: watched)
         }
     }
 
