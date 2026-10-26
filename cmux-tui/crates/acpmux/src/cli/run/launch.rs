@@ -283,14 +283,20 @@ fn workspace_key(id: &str) -> String {
 }
 
 /// Shows session `id` in the cmux app's sidebar group `group` through the
-/// app's `agent open` action (`cmux agent open`), named `title`.
+/// app's `agent open` action (`cmux agent open`), optionally named `title`.
+/// Unnamed launches omit the title so a peer's generated session name cannot
+/// accidentally match another session's workspace in the same group.
 /// A remote create returns the ID mirrored by the local daemon. Open that
 /// ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
+pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
     let key = workspace_key(id);
-    let args = ["agent", "open", id, "--name", title, "--key", &key, "--group", group];
+    let mut args = vec!["agent", "open", id];
+    if let Some(title) = title {
+        args.extend(["--name", title]);
+    }
+    args.extend(["--key", &key, "--group", group]);
     let retry = std::iter::once("cmux")
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
