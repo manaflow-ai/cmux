@@ -91,16 +91,21 @@ import Testing
         #expect(threads.onMain == [true, false, true, false], "read on main, sample and parse off it")
     }
 
-    /// A bad `kind` is a typed `invalid_params` error, not an answer, and parsing it reads nothing
-    /// but the copied report.
+    /// A bad `kind` (a name that is no content kind, or not a string) is a typed `invalid_params`
+    /// error, not an answer; a real kind keeps that kind's one row, and a null kind keeps all nine.
     @Test func aBadKindIsInvalidParams() async throws {
         let router = router(allowsDebug: false)
-        for bad: JSONValue in ["sidebar_section", 3, true] {
+        for bad: JSONValue in ["tab", "sidebar", 3, true] {
+            #expect(ContentKind(rawValue: bad.stringValue ?? "") == nil, "\(bad) must not be a content kind")
             let reply = await router.handle(ControlRequest(id: "1", method: "debug.discards", params: ["kind": bad]))
             #expect(throws: ControlError.self) { try reply.get() }
             if case .failure(let error) = reply { #expect(error.code == "invalid_params", "\(bad)") }
         }
-        let all = try await router.handle(ControlRequest(id: "2", method: "debug.discards", params: ["kind": .null])).get()
+        let one = try await router.handle(ControlRequest(id: "2", method: "debug.discards", params: ["kind": "sidebar_section"])).get()
+        let rows = one.objectValue?["kinds"]?.arrayValue ?? []
+        #expect(rows.count == 1)
+        #expect(rows.first?.objectValue?["kind"] == .string(ContentKind.sidebarSection.rawValue))
+        let all = try await router.handle(ControlRequest(id: "3", method: "debug.discards", params: ["kind": .null])).get()
         #expect(all.objectValue?["kinds"]?.arrayValue?.count == ContentKind.allCases.count)
     }
 
