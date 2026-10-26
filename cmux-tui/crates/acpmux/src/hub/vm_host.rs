@@ -142,6 +142,23 @@ mod tests {
         assert!(!admits(Some("ownerx"), false));
     }
 
+    /// A team files root this user cannot see into (a root-only `/srv`) is not "absent".
+    #[cfg(unix)]
+    #[test]
+    fn a_team_files_root_that_cannot_be_checked_counts_as_there() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = root(Some("owner"), true);
+        std::fs::set_permissions(d.join("srv"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads through a 000 folder: this check means nothing there.
+        let blocked = std::fs::symlink_metadata(d.join("srv/team")).is_err();
+        let admitted = cmux_vm_at(&d);
+        std::fs::set_permissions(d.join("srv"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+        if blocked {
+            assert!(!admitted, "an unreadable /srv/team must refuse");
+        }
+    }
+
     #[test]
     fn the_config_value_wins_over_the_marker() {
         assert!(effective(None, true), "on by default on a cmux VM");
