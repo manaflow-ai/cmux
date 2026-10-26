@@ -69,6 +69,27 @@ import Testing
         #expect(other.note == RemoteViewStrings.developmentOnly)
     }
 
+    /// A Cloud desktop that streamed and lost its path says "Reconnecting" while it connects
+    /// again, and the next frame clears it; a first connect says "Connecting".
+    @Test @MainActor func aLostCloudDesktopReadsReconnectingUntilItsNextFrame() {
+        let reducer = RemotePaneReducer()
+        var state = RemotePaneState(hostName: "graceful-amber-owl")
+        state.viaCloudTunnel = true
+        state = reducer.reduce(state, .status(RemoteViewStatus(path: .compatibility, state: .streaming)))
+        state = reducer.reduce(state, .frameShown)
+        #expect(state.hasFrame && !state.reconnecting)
+        state = reducer.reduce(state, .status(RemoteViewStatus(path: .compatibility, state: .ended(.connectionLost))))
+        state = reducer.reduce(state, .status(RemoteViewStatus(path: .compatibility, state: .connecting)))
+        #expect(state.reconnecting)
+        #expect(RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true, reconnecting: true).title
+            == RemoteViewStrings.reconnectingTitle("graceful-amber-owl"))
+        state = reducer.reduce(state, .status(RemoteViewStatus(path: .compatibility, state: .streaming)))
+        state = reducer.reduce(state, .frameShown)
+        #expect(!state.reconnecting, "the next frame clears it")
+        #expect(RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true).title
+            == RemoteViewStrings.connectingTitle("graceful-amber-owl"))
+    }
+
     @Test func unconfirmedRecordsRequireConfirmationAndStartInViewMode() throws {
         let record = try #require(RemoteViewTabRecord(host: "local", mode: .control))
         let expected = try #require(RemoteViewTabRecord(host: "local", mode: .view))

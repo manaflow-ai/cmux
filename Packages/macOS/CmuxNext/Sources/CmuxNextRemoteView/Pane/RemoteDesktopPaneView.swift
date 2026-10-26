@@ -60,7 +60,8 @@ public final class RemoteDesktopPaneView: NSView {
             shownOverlay = state.overlay
             card.isHidden = state.overlay == nil
             if let overlay = state.overlay {
-                card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, colors: colors)
+                card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
+                               colors: colors)
             }
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
