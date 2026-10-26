@@ -107,6 +107,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     contentBottom: number;
     /** Whether a menu that clips (the railed one) cuts off a child: the search, the rail and list, an update footer. */
     childClipped: boolean;
+    /** Fixed siblings of the scrolling layout remain inside the capped popup. */
+    fixed: { search: boolean; footer: boolean };
     /** Each scrolling box, scrolled to its end: whether its last row is wholly inside it and the window. */
     scrollers: { rows: number; scrolls: boolean; lastRowShown: boolean; lastRow: string }[];
     profiles: number;
@@ -129,6 +131,10 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         const style = getComputedStyle(menu);
         const outer = box(menu);
         const children = [...menu.children].map(box).filter((child) => child.height > 0);
+        const layout = menu.querySelector<HTMLElement>(":scope > .acpmux-quick-layout");
+        const fixedChildren = layout ? children : [];
+        const search = menu.querySelector<HTMLElement>(":scope > .acpmux-quick-search");
+        const footer = menu.querySelector<HTMLElement>(":scope > .acpmux-quick-update");
         return {
           box: outer,
           available: Number.parseFloat(
@@ -136,8 +142,13 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
           ),
           contentBottom: Math.max(...children.map((child) => child.bottom)) + Number.parseFloat(style.paddingBottom),
           childClipped:
+            !!layout &&
             /hidden|clip/.test(style.overflowY) &&
-            children.some((child) => child.top < outer.top - 0.5 || child.bottom > outer.bottom + 0.5),
+            fixedChildren.some((child) => child.top < outer.top - 0.5 || child.bottom > outer.bottom + 0.5),
+          fixed: {
+            search: !search || (box(search).top >= outer.top - 0.5 && box(search).bottom <= outer.bottom + 0.5),
+            footer: !footer || (box(footer).top >= outer.top - 0.5 && box(footer).bottom <= outer.bottom + 0.5),
+          },
           profiles: [...menu.querySelectorAll(".acpmux-quick-profile")].filter((row) => own(menu, row)).length,
         };
       });
@@ -183,6 +194,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         expect(menu.box.height, `${name} is no taller than its room`).toBeLessThanOrEqual(menu.available + 0.5);
       expect(menu.box.bottom, `${name} is no taller than its rows`).toBeLessThanOrEqual(menu.contentBottom + 1);
       expect(menu.childClipped, `${name} cuts off none of its parts`).toBe(false);
+      expect(menu.fixed.search, `${name} keeps its search field inside the popup`).toBe(true);
+      expect(menu.fixed.footer, `${name} keeps its update footer inside the popup`).toBe(true);
       expect(menu.box.top, `${name} starts inside the window`).toBeGreaterThanOrEqual(-0.5);
       expect(menu.box.bottom, `${name} ends inside the window`).toBeLessThanOrEqual(VIEWPORT.height + 0.5);
       for (const scroller of menu.scrollers)

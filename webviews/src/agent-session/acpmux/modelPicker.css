@@ -257,7 +257,15 @@
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
 .acpmux-quick-railed { display: flex; flex-direction: column; max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: var(--acpmux-quick-room); }
+.acpmux-quick-layout {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  /* Search and the optional update footer are fixed siblings of this layout. Let the list give up
+     its height first so both stay visible when the popup reaches its window cap. */
+  flex: 1 1 auto;
+  max-height: var(--acpmux-quick-room);
+}
 .acpmux-quick-rail,
 .acpmux-quick-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .acpmux-quick-rail {
