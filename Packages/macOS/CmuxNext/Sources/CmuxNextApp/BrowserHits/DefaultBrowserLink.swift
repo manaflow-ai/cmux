@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 
 /// Open Link in Default Browser (cx-k9go): the page's and the terminal's
 /// link rows hand the link to the app macOS opens web links with. While
@@ -21,7 +22,7 @@ enum DefaultBrowserLink {
 
     /// Opens the link in the handler app (tests replace it).
     static var open: @MainActor (URL, URL) -> Void = { url, app in
-        NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openInBackground([url], withApplicationAt: app)
     }
 
     /// Whether `app` is this cmux: the running bundle, or a cmux build of the same identifier.
