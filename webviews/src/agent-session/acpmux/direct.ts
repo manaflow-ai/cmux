@@ -1281,7 +1281,9 @@ export class AcpmuxDirectClient {
   private copyAttaches = 0;
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
-  private attachOut?: { sessionId: string };
+  /// The attach of the selected chat that is out, and each session its row named while it was
+  /// (`createdAt` and machine, one entry each): a reply is of none of the others (`attach`).
+  private attachOut?: { sessionId: string; seen: Map<string, { createdAt: unknown; peer: unknown }> };
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
@@ -1509,7 +1511,7 @@ export class AcpmuxDirectClient {
     if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
     // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
     // fails, copy drawn yet or not.
-    this.copyAttaches += 1;
+    const mine = ++this.copyAttaches;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -1565,6 +1567,9 @@ export class AcpmuxDirectClient {
         } else this.scheduleReconnect();
       };
       socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
+    }).catch((error: unknown) => {
+      this.releaseCopyAttach(mine);
+      throw error;
     });
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
     // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
@@ -1728,6 +1733,7 @@ export class AcpmuxDirectClient {
       this.wire.lifecycle("connect failed", {
         message: error instanceof Error ? error.message : String(error),
       });
+      this.releaseCopyAttach(mine);
       this.socket?.close();
       throw error;
     } finally {
@@ -2011,6 +2017,17 @@ export class AcpmuxDirectClient {
     copy.attaching = false;
     this.emit("peer offline");
     this.reattachIfBack(sessionId);
+  }
+
+  /// An open that failed before its attach of the copy answered (the socket, the handshake or the
+  /// list) leaves the copy offline with no attach out, so a row that says its machine is back
+  /// reads it again (`sessionChanged`). Only while no later attach of the copy took it over.
+  private releaseCopyAttach(mine: number): void {
+    const copy = this.peerCopy;
+    if (mine !== this.copyAttaches || !copy?.attaching || copy.sessionId !== this.selectedSessionId) return;
+    copy.attaching = false;
+    copy.offline = true;
+    this.emit("peer offline");
   }
 
   /// The rows drawn from the Mac's copy are not the chat (its machine failed another way, or the
@@ -2693,6 +2710,11 @@ export class AcpmuxDirectClient {
     tries = 1,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    // An attach of the chat that started after this one (`copyAttaches`: a reconnect's, a
+    // recovery's) decides: this one's reply then changes nothing, on success as on failure.
+    const token = this.copyAttaches;
+    const current = () =>
+      generation === this.selectionGeneration && this.selectedSessionId === sessionId && token === this.copyAttaches;
     // Rows drawn before it (a kept tail, the Mac's copy): what comes live from their draw
     // (`drawKeptTail`) until this attach answers is held until it says whether they are this
     // session's.
@@ -2724,7 +2746,7 @@ export class AcpmuxDirectClient {
       eventStream: true,
       visible,
     });
-    const out = { sessionId };
+    const out = { sessionId, seen: new Map<string, { createdAt: unknown; peer: unknown }>() };
     this.attachOut = out;
     const settled = () => {
       if (this.attachOut === out) this.attachOut = undefined;
@@ -2739,7 +2761,7 @@ export class AcpmuxDirectClient {
     );
     const result = await attaching;
     this.syncView();
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
     // `createdAt`, earlier or later), or another machine: the reply is not of the session listed
     // now, so that one is attached instead. A row that did not change meanwhile only lags what the
@@ -2750,9 +2772,20 @@ export class AcpmuxDirectClient {
     const replyOf = result?.session?.createdAt;
     const recreated =
       typeof listedNow === "number" && listedNow !== askedGen && typeof replyOf === "number" && replyOf !== listedNow;
-    if (recreated || rowNow?.peer !== askedOf) {
+    // The row named another session or machine at some point while the attach was out (A, then B,
+    // then A again): live records of that one may be among those held, so nothing drawn is kept.
+    const strayed = [...out.seen.values()].some(
+      (seen) =>
+        seen.peer !== askedOf ||
+        (typeof seen.createdAt === "number" && typeof replyOf === "number" && seen.createdAt !== replyOf),
+    );
+    if (recreated || strayed || rowNow?.peer !== askedOf) {
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
-      return this.attach(sessionId, generation, keptThrough, tries + 1);
+      if (strayed) {
+        this.resetSessionState();
+        this.copyLive = new Map();
+      }
+      return this.attach(sessionId, generation, strayed ? 0 : keptThrough, tries + 1);
     }
     this.presence.attached(sessionId, result);
     const page = records(result?.events);
@@ -2857,7 +2890,7 @@ export class AcpmuxDirectClient {
           })
         : undefined,
     ]);
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    if (!current()) return [];
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
@@ -2956,6 +2989,11 @@ export class AcpmuxDirectClient {
     this.sessionPages.changedSession(session);
     const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const out = this.attachOut?.sessionId === session.sessionId ? this.attachOut : undefined;
+    out?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
+      createdAt: session.createdAt,
+      peer: session.peer,
+    });
     if (added) this.recheckSenders([session]);
     // A chat read ahead ran on: read it again once the list settles (``readAhead`` throttles it).
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
@@ -5331,6 +5369,8 @@ export class AcpmuxDirectClient {
         await this.typed("_acpmux/detach", { sessionId: previousSessionId }).catch(() => undefined);
       mine = this.copyAttaches;
       await this.attach(sessionId, generation, keptThrough);
+      // A reconnect's attach took the chat over meanwhile: its outcome decides.
+      if (mine !== this.copyAttaches) return sessionId;
     } catch (error) {
       // A reconnect's attach took the chat over meanwhile: its outcome decides.
       if (mine !== this.copyAttaches) return sessionId;

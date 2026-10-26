@@ -29,7 +29,10 @@
 //     attach a reconnect took over leaves the copy to it, and a redraw's attach refused as down
 //     draws the Mac's copy;
 //   - a late record of an attach that failed stays off the offline copy, and every attach reply
-//     is held to the row as it answers (a retry's too, and a createdAt earlier than the reply's).
+//     is held to the row as it answers (a retry's too, and a createdAt earlier than the reply's);
+//   - a recovery attach a reconnect took over changes nothing when it answers, a row that named
+//     another session while the attach was out keeps none of its records, and an open that fails
+//     before its attach leaves the copy offline.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -948,4 +951,83 @@ test("a session recreated with an earlier createdAt is not taken for the one bef
   const shown = text(tab.last());
   expect(shown).toContain("new 3.");
   expect(shown).not.toContain("old ");
+});
+
+test("a recovery attach that a reconnect took over changes nothing when it answers", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "kept"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+  // The machine is back and the copy's attach goes out; a reconnect's attach starts meanwhile
+  // (`open` moves the token on), so the first one's reply is not the chat's to draw.
+  daemon.log = turn(1, 6, "stale");
+  daemon.onAttach = () => {
+    (client as unknown as { copyAttaches: number }).copyAttaches += 1;
+  };
+  daemon.comeBack();
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("kept 4.");
+  expect(shown).not.toContain("stale 6.");
+  expect(tab.last()!.peerCopy).toBeDefined();
+});
+
+test("a row that named another session while the attach was out, then this one again, keeps none of the other's records", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.copy = { events: turn(1, 4, "old"), generation: 100, lastSeq: 4 };
+  daemon.log = turn(1, 3, "a");
+  // While the attach is out the row names session 200, which streams a record, then 100 again.
+  daemon.onAttach = () => {
+    daemon.createdAt = 200;
+    daemon.announce();
+    daemon.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(5, "bee 5. ") }),
+    });
+    daemon.createdAt = 100;
+    daemon.announce();
+  };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("a 3.");
+  expect(shown).not.toContain("bee 5.");
+});
+
+test("an open that fails before its attach leaves the copy offline with no attach out", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "kept"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // A reconnect whose socket never opens.
+  const internals = client as unknown as {
+    openSocket: () => unknown;
+    open: () => Promise<void>;
+    peerCopy?: { offline: boolean; attaching: boolean };
+  };
+  internals.openSocket = () => {
+    const failing = {
+      readyState: 0,
+      onopen: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+      onmessage: null,
+      send() {},
+      close() {
+        failing.readyState = 3;
+      },
+    };
+    queueMicrotask(() => failing.onerror?.());
+    return failing;
+  };
+  await internals.open().catch(() => undefined);
+  await flush();
+  expect(internals.peerCopy?.attaching).toBe(false);
+  expect(internals.peerCopy?.offline).toBe(true);
 });
