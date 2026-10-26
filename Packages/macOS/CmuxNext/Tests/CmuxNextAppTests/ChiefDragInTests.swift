@@ -71,7 +71,9 @@ struct ChiefDragInTests {
     }
 
     /// Home's page goes mid-drag: the drag keeps its `ChiefDragIn` (its monitor and ghost) until it ends, then lets go.
-    @Test func aDragOutlivesItsOwnerUntilItEnds() throws {
+    /// `release`: the drag ends at its mouse-up (which AppKit sends the app however the press began), else at Escape.
+    @Test(arguments: [false, true])
+    func aDragOutlivesItsOwnerUntilItEnds(release: Bool) throws {
         let h = Harness()
         defer { h.end() }
         weak var weakDrag: ChiefDragIn?
@@ -81,7 +83,7 @@ struct ChiefDragInTests {
             weakDrag = owned
         }
         var drag = try #require(weakDrag, "the drag went with its owner: its monitor and ghost stay behind") as ChiefDragIn?
-        _ = drag?.handle(try h.key(53))
+        _ = drag?.handle(release ? try h.mouse(.leftMouseUp, at: h.outside()) : try h.key(53))
         #expect(drag?.isDragging == false)
         drag = nil
         #expect(weakDrag == nil, "the ended drag kept its ChiefDragIn")

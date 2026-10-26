@@ -4,7 +4,7 @@ import AppKit
 import Testing
 
 /// The Chief listed in a machine list or a group (#23933). Its row shows a status or unread change as soon as the
-/// App's item info has it, though nothing else changed to reload the list.
+/// App's item info has it, though nothing else changed to reload the list, in the band's colors.
 @MainActor @Suite(.serialized)
 struct ChiefListedRowTests {
     static let chief = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
@@ -54,6 +54,8 @@ struct ChiefListedRowTests {
         sidebar.renderNow()
         Self.settle(sidebar)
         #expect(row.accessibilityValue() as? String == "2", "the Chief's row kept its old badge")
+        let activity = try #require(row.subviews.lazy.compactMap { $0 as? StatusIndicatorView }.first, "the row draws no status")
+        #expect(activity.usesStatusColors, "the listed Chief's status draws the theme's colors, not the band's status colors")
 
         info.badge = nil
         info.unreadDot = true
@@ -61,6 +63,8 @@ struct ChiefListedRowTests {
         sidebar.renderNow()
         Self.settle(sidebar)
         #expect(row.accessibilityValue() as? String == Strings.unreadDot, "the Chief's row shows no unread dot")
+        let badge = try #require(row.subviews.lazy.compactMap { $0 as? UnreadBadgeView }.first, "the row draws no badge")
+        #expect(badge.notificationDot, "the listed Chief's dot is the badge's, not Home's blue unread dot")
         #expect(sidebar.list.rowViews[Self.chiefKey] === row, "the row was drawn again in a new view, not patched")
     }
 }
