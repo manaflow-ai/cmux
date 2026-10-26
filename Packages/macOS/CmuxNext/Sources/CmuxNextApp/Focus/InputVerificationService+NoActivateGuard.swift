@@ -33,8 +33,10 @@ private enum NoActivateApplicationResolver {
 // key-window and other-app changes in, key and mouse presses from the input tap,
 // each give-back into the input journal and `debug.focus`.
 extension InputVerificationService {
+    /// Installs the guard in the launch turn (`AppServices.init`), before the app activates and its first
+    /// window becomes key, so it sees both and resolves the app the person had in front. Once.
     func startNoActivateGuard(tap: InputEventTap) {
-        guard WindowPlacement.noActivate else { return }
+        guard WindowPlacement.noActivate, keyboardGuard == nil else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
         let guardian = NoActivateKeyboardGuard(host: AppKitKeyboardGuardHost(), frontmost: nil,

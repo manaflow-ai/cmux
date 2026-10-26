@@ -314,6 +314,7 @@ fn exchange(
 ) -> Result<Result<Value, Value>, String> {
     let line = json!({ "id": 1, "method": method, "params": params });
     super::app::send_line(stream, &line)?;
+    // wakeup-allow: cli-only `cmux trace`'s one bound on the reply; the reply ends the read first
     stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
     let reader = stream.try_clone().map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(reader.take(MAX_REPLY_BYTES));
@@ -355,10 +356,12 @@ impl RecordWait for SignalWait {
                 let _ = signalled.send(());
             })
             .ok();
+        // wakeup-allow: cli-only `cmux trace`'s recording window, once; a shutdown signal ends it first
         match signal.recv_timeout(duration) {
             Ok(()) if crate::shutdown_requested() => Waited::Interrupted,
             // No handler is installed (the watcher returned at once): only the clock ends it.
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // wakeup-allow: cli-only `cmux trace`'s rest of the recording window, once, when no signal watcher runs
                 std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
                 Waited::Elapsed
             }
