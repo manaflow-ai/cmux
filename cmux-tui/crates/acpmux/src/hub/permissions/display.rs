@@ -36,7 +36,14 @@ const PARENT_TAG: &str = "mux.parent";
 /// again, so a stale one names nobody, and an id no longer in the hub leaves the index there. A
 /// peer's rows have their own index, kept with them (`remote_rows.rs`).
 #[derive(Default)]
-pub(crate) struct ChildTags(std::sync::Mutex<ChildIndex>);
+pub(crate) struct ChildTags(std::sync::Mutex<ChildIndex>, #[cfg(test)] Pause);
+
+/// A test's hook at a named point of `note` or `child_label`, to run another writer there.
+#[cfg(test)]
+type PauseHook = Arc<dyn Fn(&'static str, &str) + Send + Sync>;
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct Pause(std::sync::Mutex<Option<PauseHook>>);
 
 #[derive(Default)]
 struct ChildIndex {
@@ -51,6 +58,17 @@ impl ChildTags {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    #[cfg(test)]
+    fn pause(&self, point: &'static str, id: &str) {
+        let hook = self.1.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook(point, id);
+        }
+    }
+
+    #[cfg(not(test))]
+    fn pause(&self, _point: &'static str, _id: &str) {}
+
     /// Indexes `session` under its live `mux.parent` and `mux.handle` tags now (or takes it out).
     /// A tag that expires later is dropped by the first lookup that meets it (`child_label`).
     pub(crate) fn note(&self, session: &Session) {
@@ -58,6 +76,7 @@ impl ChildTags {
             let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             live_tag(&meta, PARENT_TAG).zip(live_tag(&meta, HANDLE_TAG))
         };
+        self.pause("note.publish", &session.id);
         let mut index = self.index();
         if let Some(old) = index.pair_of.remove(&session.id)
             && let Some(ids) = index.local.get_mut(&old)
@@ -265,10 +284,12 @@ impl Hub {
                 stale.push(s);
                 return None;
             }
+            self.child_tags.pause("label.read", &s.id);
             let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
             live_tag(&meta, LABEL_TAG)
         });
         for id in gone {
+            self.child_tags.pause("gone.forget", &id);
             self.child_tags.forget(&id);
         }
         // Its tags expired or moved: indexed by what it carries now, so it is met once.
@@ -423,6 +444,109 @@ mod tests {
         assert_eq!(hub.child_label("optchat-chief:h0me", "a12"), None, "an expired handle");
         let index = hub.child_tags.index();
         assert!(index.local.is_empty() && index.pair_of.is_empty(), "{:?}", index.local);
+    }
+
+    /// Runs `write` on its own thread when `point` is first reached, and waits for it at most
+    /// 300 ms: a writer the code under test holds out times out, one it lets in finishes first.
+    /// The returned call waits for the writer to finish.
+    fn race_at(
+        hub: &Arc<Hub>,
+        point: &'static str,
+        write: impl FnOnce() + Send + 'static,
+    ) -> impl FnOnce() {
+        let write = std::sync::Mutex::new(Some(write));
+        let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
+        let spawned = writer.clone();
+        let hook: PauseHook = Arc::new(move |at, _id| {
+            if at != point {
+                return;
+            }
+            let Some(write) = write.lock().unwrap().take() else { return };
+            let (done, finished) = std::sync::mpsc::channel();
+            *spawned.lock().unwrap() = Some(std::thread::spawn(move || {
+                write();
+                let _ = done.send(());
+            }));
+            let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
+        });
+        *hub.child_tags.1.0.lock().unwrap() = Some(hook);
+        move || {
+            let handle = writer.lock().unwrap().take();
+            handle.expect("the race point was never reached").join().unwrap();
+        }
+    }
+
+    fn retag(hub: &Arc<Hub>, kid: &Arc<Session>, tags: Value) -> impl FnOnce() + Send + 'static {
+        let (hub, kid) = (hub.clone(), kid.clone());
+        move || {
+            let set = tags.as_object().unwrap().clone();
+            hub.set_tags(&kid, Some(&set), &[], None);
+        }
+    }
+
+    fn published_kid(hub: &Arc<Hub>, dir: &std::path::Path, tags: Value) -> Arc<Session> {
+        let kid = hub.make_session(serde_json::from_value(kid_meta("kid", dir, tags)).unwrap());
+        hub.sessions.lock().unwrap().insert(kid.id.clone(), kid.clone());
+        kid
+    }
+
+    /// Review 101 of #24337: a lookup checks a child's pair and reads its label under one guard,
+    /// so a retag between the two never puts another child's label on the card.
+    #[test]
+    fn a_retag_during_a_lookup_never_names_another_child() {
+        let (hub, dir) = hub_with_peer("cloud-vm", vec![]);
+        let tags = json!({"mux.handle": {"value": "a12"}, "mux.label": {"value": "Nightly train"}});
+        let kid = published_kid(&hub, dir.path(), tags);
+        let moved = json!({"mux.handle": "a15", "mux.label": "Another child"});
+        let settle = race_at(&hub, "label.read", retag(&hub, &kid, moved));
+        let label = hub.child_label("optchat-chief:h0me", "a12");
+        settle();
+        assert_eq!(label.as_deref(), Some("Nightly train"), "a label read after a retag");
+        // Settled: the child now answers to its new handle only.
+        assert_eq!(hub.child_label("optchat-chief:h0me", "a15").as_deref(), Some("Another child"));
+    }
+
+    /// Review 101 of #24337: two tag writes publish to the index in the order they wrote, so an
+    /// older pair never overwrites a newer one.
+    #[test]
+    fn an_older_tag_write_never_overwrites_a_newer_one_in_the_index() {
+        let (hub, dir) = hub_with_peer("cloud-vm", vec![]);
+        let tags = json!({"mux.handle": {"value": "a12"}, "mux.label": {"value": "Nightly train"}});
+        let kid = published_kid(&hub, dir.path(), tags);
+        let settle = race_at(&hub, "note.publish", retag(&hub, &kid, json!({"mux.handle": "a14"})));
+        retag(&hub, &kid, json!({"mux.handle": "a13"}))();
+        settle();
+        // Whichever write went last, the index holds what the child carries now.
+        let now = live_tag(&kid.meta.lock().unwrap(), HANDLE_TAG).unwrap();
+        let pair = ("optchat-chief:h0me".to_owned(), now.clone());
+        assert_eq!(hub.child_tags.local(&pair).len(), 1, "{now} is not where the index has it");
+    }
+
+    /// Review 101 of #24337: a lookup that found a child not yet published drops only the entry it
+    /// saw, so the publication's own index entry (an import's, a fork's) stays.
+    #[test]
+    fn a_lookup_never_drops_a_child_published_after_it_looked() {
+        let (hub, dir) = hub_with_peer("cloud-vm", vec![]);
+        let tags = json!({"mux.handle": {"value": "a12"}, "mux.label": {"value": "Nightly train"}});
+        // Made, as an import or a fork makes it, and not yet in the hub's sessions.
+        let kid =
+            hub.make_session(serde_json::from_value(kid_meta("kid", dir.path(), tags)).unwrap());
+        let (h, k) = (hub.clone(), kid.clone());
+        let publish = std::sync::Mutex::new(Some(move || {
+            h.sessions.lock().unwrap().insert(k.id.clone(), k.clone());
+            h.child_tags.note(&k);
+        }));
+        let hook: PauseHook = Arc::new(move |at, _| {
+            if at == "gone.forget"
+                && let Some(publish) = publish.lock().unwrap().take()
+            {
+                publish();
+            }
+        });
+        *hub.child_tags.1.0.lock().unwrap() = Some(hook);
+        assert_eq!(hub.child_label("optchat-chief:h0me", "a12"), None, "not yet published");
+        let label = hub.child_label("optchat-chief:h0me", "a12");
+        assert_eq!(label.as_deref(), Some("Nightly train"), "the published child was dropped");
     }
 
     /// Review 35 of #24337: an export carries the display line acpmux works out now, never one
