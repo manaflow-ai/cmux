@@ -766,7 +766,10 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
-    if (batch.connection || batch.inboxStale) { this.viewingBy.clear(); patch.viewing = []; }
+    if (batch.connection || batch.inboxStale) {
+      this.viewingBy.clear();
+      patch.viewing = [];
+    }
     if (batch.connection === "offline") {
       this.drafts.clear();
       this.live.clear();
@@ -818,11 +821,13 @@ export class HomeChannelsStore {
         : threadIncoming;
       patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
-    if (batch.presence) for (const entry of batch.presence) {
-      const people = new Set(entry.participants.filter((p) => p.viewing).map((p) => p.participant));
-      if (people.size) this.viewingBy.set(entry.conversation, people); else this.viewingBy.delete(entry.conversation);
-      if (entry.conversation === selected) patch.viewing = [...people];
-    }
+    if (batch.presence)
+      for (const entry of batch.presence) {
+        const people = new Set(entry.participants.filter((p) => p.viewing).map((p) => p.participant));
+        if (people.size) this.viewingBy.set(entry.conversation, people);
+        else this.viewingBy.delete(entry.conversation);
+        if (entry.conversation === selected) patch.viewing = [...people];
+      }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {

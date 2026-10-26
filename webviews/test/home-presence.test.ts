@@ -62,7 +62,9 @@ test("viewing presence follows the owner's frames, per conversation, and ends on
   await store.start();
   expect(store.getSnapshot().viewing).toEqual([]);
   const ana = { participant: "tailnet:ana@example.com", viewing: true };
-  deliver?.({ presence: [{ conversation: "chief-conv", participants: [ana, { participant: "sam", viewing: false }] }] });
+  deliver?.({
+    presence: [{ conversation: "chief-conv", participants: [ana, { participant: "sam", viewing: false }] }],
+  });
   expect(store.getSnapshot().viewing).toEqual(["tailnet:ana@example.com"]);
   // Another conversation's presence does not show in the open one.
   deliver?.({ presence: [{ conversation: "other", participants: [{ participant: "sam", viewing: true }] }] });

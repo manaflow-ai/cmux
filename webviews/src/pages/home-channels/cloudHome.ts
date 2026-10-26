@@ -272,7 +272,10 @@ export class CloudHome {
         if (typeof event.conversation !== "string" || !Array.isArray(event.participants)) return null;
         const participants = (event.participants as Json[])
           .filter((p) => p && typeof p.participant === "string")
-          .map((p) => ({ participant: this.localize({ participant: p.participant }).participant as string, viewing: p.viewing === true }));
+          .map((p) => ({
+            participant: this.localize({ participant: p.participant }).participant as string,
+            viewing: p.viewing === true,
+          }));
         return { presence: { conversation: event.conversation, participants } };
       }
       case "cloud-conversation-resynced": {

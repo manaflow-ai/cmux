@@ -528,6 +528,7 @@ export class DaemonHomeClient implements PageClient {
             AVATARS_CAPABILITY,
             LIVE_CAPABILITY,
             CLOUD_TYPING_CAPABILITY,
+            CLOUD_PRESENCE_CAPABILITY,
           ],
         });
         await socket.request("subscribe");
@@ -1188,7 +1189,16 @@ export class DaemonHomeClient implements PageClient {
           (batch.inbox ??= []).push(change);
         });
       } else if (event.event === "conversation-presence") {
-        deliver((batch) => (batch.presence ??= []).push({ conversation: String(event.conversation), participants: Array.isArray(event.participants) ? (event.participants as Json[]).filter((p) => p && typeof p.participant === "string").map((p) => ({ participant: String(p.participant), viewing: p.viewing === true })) : [] }));
+        deliver((batch) =>
+          (batch.presence ??= []).push({
+            conversation: String(event.conversation),
+            participants: Array.isArray(event.participants)
+              ? (event.participants as Json[])
+                  .filter((p) => p && typeof p.participant === "string")
+                  .map((p) => ({ participant: String(p.participant), viewing: p.viewing === true }))
+              : [],
+          }),
+        );
       } else if (event.event === "conversation-typing") {
         deliver((batch) => {
           (batch.typing ??= []).push({

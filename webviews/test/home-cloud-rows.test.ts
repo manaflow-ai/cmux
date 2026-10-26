@@ -44,7 +44,6 @@ test("the page's Cloud rows match the shared corpus the daemon's rows follow", a
   }
 });
 
-
 test("CloudHome maps conversation presence and localizes participants", async () => {
   const socket = {
     async request(cmd: string): Promise<unknown> {
@@ -56,11 +55,22 @@ test("CloudHome maps conversation presence and localizes participants", async ()
   } as unknown as DaemonSocket;
   const cloud = new CloudHome(socket, conversation, () => {});
   await cloud.inbox(true);
-  expect(cloud.event({ event: "cloud-conversation-presence", conversation: "conv_presence", participants: [
-    { participant: "user_cloudperson0000000", viewing: true },
-    { participant: "tailnet:teammate", viewing: false },
-  ] })).toEqual({ presence: { conversation: "conv_presence", participants: [
-    { participant: "user_local", viewing: true },
-    { participant: "tailnet:teammate", viewing: false },
-  ] } });
+  expect(
+    cloud.event({
+      event: "cloud-conversation-presence",
+      conversation: "conv_presence",
+      participants: [
+        { participant: "user_cloudperson0000000", viewing: true },
+        { participant: "tailnet:teammate", viewing: false },
+      ],
+    }),
+  ).toEqual({
+    presence: {
+      conversation: "conv_presence",
+      participants: [
+        { participant: "user_local", viewing: true },
+        { participant: "tailnet:teammate", viewing: false },
+      ],
+    },
+  });
 });
