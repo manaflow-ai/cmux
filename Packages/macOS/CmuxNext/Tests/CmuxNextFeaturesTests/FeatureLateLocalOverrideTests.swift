@@ -35,6 +35,21 @@ struct FeatureLateLocalOverrideTests {
         #expect(!enabled(.release, FeatureOverrides(remote: [Self.name: false]), tunable: true))
     }
 
+    /// The one rule both readers call: the seam's value and `features.list`'s live `local` row.
+    @Test func theEffectiveOverrideIsNilWhereTheOverrideDoesNotApply() {
+        let dev = FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: FeatureOverrides())
+        #expect(dev.effectiveLocalOverride(.agentChromium, localOverride: false) == false)
+        #expect(dev.effectiveLocalOverride(.agentChromium, localOverride: nil) == nil)
+        let notTaken: [(Feature.Channel, FeatureOverrides)] = [
+            (.release, FeatureOverrides()), (.dev, FeatureOverrides(policyDisabled: [Self.name])),
+            (.dev, FeatureOverrides(environmentDisabled: [Self.name])), (.nightly, FeatureOverrides(environmentEnabled: [Self.name])),
+        ]
+        for (channel, overrides) in notTaken {
+            let list = FeatureList(registry: FeatureRegistry(), channel: channel, overrides: overrides)
+            #expect(list.effectiveLocalOverride(.agentChromium, localOverride: false) == nil, "\(channel)")
+        }
+    }
+
     @Test func policyAndTheEnvironmentBeatTheOverride() {
         #expect(!enabled(.dev, FeatureOverrides(policyDisabled: [Self.name]), tunable: true))
         #expect(!enabled(.dev, FeatureOverrides(environmentDisabled: [Self.name]), tunable: true))
