@@ -49,6 +49,6 @@ public final class EnergyPolicyDriver {
     private func publish() {
         guard let setting, let inputs else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)
-        source.update(EnergyPolicy(saverReason: reason, onBattery: inputs.onBattery))
+        source.update(EnergyPolicy(saverReason: reason, suspended: inputs.suspended, onBattery: inputs.onBattery))
     }
 }

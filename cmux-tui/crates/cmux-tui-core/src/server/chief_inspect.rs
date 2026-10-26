@@ -142,8 +142,9 @@ fn require_owner(mux: &Mux, client: u64) -> anyhow::Result<()> {
 /// daemon's user.
 #[cfg(unix)]
 pub(super) fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStream> {
+    use cmux_threads::checked::fs as files;
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
-    let meta = std::fs::symlink_metadata(path)
+    let meta = files::symlink_metadata(path)
         .map_err(|e| anyhow::anyhow!("the Chief tools socket is missing: {e}"))?;
     anyhow::ensure!(meta.file_type().is_socket(), "the Chief tools socket is not a socket");
     // SAFETY: geteuid has no preconditions.

@@ -153,6 +153,101 @@ fn wait_for_file(path: &Path) -> bool {
     false
 }
 
+/// The install is on disk: `browser-runtime-status` reads it on a work item
+/// and the reader thread goes on (p02-threads 220). Panic mode: a read left
+/// on the reader thread fails here at its call site.
+#[test]
+fn status_reads_the_install_off_the_reader_thread() {
+    use super::super::request_thread_tests::{next_reply, on_request_thread_with};
+    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+
+    let root = scratch("status-offreq");
+    install(&root, "v-offreq", STAND_IN_HOST);
+    let mux = daemon("rt-status-offreq", &root);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
+        .unwrap();
+    let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
+    let handled =
+        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer));
+    assert_eq!(handled, Some(true));
+    let reply = next_reply(&outbound);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["installed"], json!("v-offreq"), "{reply}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `browser-runtime-start` reads the install on its start thread, not the
+/// reader thread (p02-threads 220): with nothing installed the start answers
+/// not-installed and frees its start slot; once installed it starts. Panic
+/// mode: a read left on the reader thread fails here at its call site.
+#[test]
+fn start_reads_the_install_off_the_reader_thread() {
+    use super::super::request_thread_tests::{next_reply, on_request_thread_with};
+    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+
+    let root = scratch("start-offreq");
+    let mux = daemon("rt-start-offreq", &root);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
+        .unwrap();
+    let start = |id: u64| {
+        let line = json!({"id": id, "cmd": "browser-runtime-start"}).to_string();
+        let writer = writer.clone();
+        on_request_thread_with(&mux, move |mux| super::try_handle(mux, client, &line, &writer))
+    };
+
+    assert_eq!(start(1), Some(true));
+    let refused = next_reply(&outbound);
+    assert_eq!(refused["error_code"], "browser-runtime.not-installed", "{refused}");
+    assert_eq!(mux.control_clients.browser_runtimes.lock().count(client), 0, "slot kept");
+
+    install(&root, "v-start-offreq", STAND_IN_HOST);
+    assert_eq!(start(2), Some(true));
+    let started = next_reply(&outbound);
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(started["data"]["installed"], json!("v-start-offreq"), "{started}");
+    mux.control_clients.browser_runtimes.disconnect(client);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Status reads wait on the files lane: past the per-connection bound a
+/// status is refused at once, so one connection cannot fill the lane.
+#[test]
+fn status_reads_in_flight_are_bounded_per_connection() {
+    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+    use super::{MAX_STATUS_READS_PER_CLIENT, StatusRead};
+
+    let root = scratch("status-bound");
+    let mux = daemon("rt-status-bound", &root);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
+        .unwrap();
+    // Reads still waiting for the lane hold their slots.
+    let held: Vec<StatusRead> = (0..MAX_STATUS_READS_PER_CLIENT)
+        .map(|_| StatusRead::take(&mux, client).expect("a slot"))
+        .collect();
+    let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
+    assert_eq!(super::try_handle(&mux, client, &line, &writer), Some(true));
+    let refused: Value = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
+    assert_eq!(refused["error_code"], "browser-runtime.limit", "{refused}");
+    // Another connection is not refused for this one's reads.
+    let other = mux.control_clients.register(ClientTransport::Unix, writer);
+    assert!(StatusRead::take(&mux, other).is_some());
+    drop(held);
+    assert!(StatusRead::take(&mux, client).is_some(), "a finished read frees its slot");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn browser_runtime_is_refused_until_the_connection_opts_in() {
     let root = scratch("opt-in");
