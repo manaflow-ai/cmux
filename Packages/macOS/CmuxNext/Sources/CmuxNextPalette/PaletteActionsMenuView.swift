@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 import QuartzCore
 
 /// The Cmd-K menu: every command of the selected item on a small glass
@@ -9,6 +11,18 @@ final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
     /// The pointer moved onto the row at this index: the selection follows it.
     var onHover: ((Int) -> Void)?
+    /// Every row's moves, enters and exits, on the menu's one consumer (feature `pointerFrameHover`): a
+    /// frame interval's first one hovers at once and the rest once at its frame, the row under the latest
+    /// point (Chromium's rAF-aligned moves, main_thread_event_queue.cc; boundary events from those moves,
+    /// boundary_event_dispatcher.cc). The pointer leaving the menu and a press are discrete.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "PaletteActionsMenuView.hover", view: self) { [weak self] point in
+        self?.hover(atWindowPoint: point)
+    }
+    /// The windows' frame-aligned pointer input; nil: each move hovers at once.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
 
     /// The panel's material: glass, or opaque under Reduce Transparency.
     let glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
@@ -19,6 +33,7 @@ final class PaletteActionsMenuView: NSView {
     private let empty = PaletteText.label(Typography.body, tone: .tertiary)
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
+    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -62,7 +77,8 @@ final class PaletteActionsMenuView: NSView {
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
             let row = PaletteMenuRow(command: command, keycaps: keycaps, isSelected: index == state.selectedIndex)
             row.onPress = { [weak self] event in self?.track(event) }
-            row.onHover = { [weak self] in self?.onHover?(index) }
+            row.onCross = { [weak self] event in self?.hoverMoves.crossed(event) }
+            row.onMove = { [weak self] event in self?.hoverMoves.moved(event) }
             content.addSubview(row)
             return row
         }
@@ -101,8 +117,29 @@ final class PaletteActionsMenuView: NSView {
         applyColors()
     }
 
+    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+    // The rows' own edges are not; they post like moves.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { hoverMoves.flush() }
+
+    /// One hover delivery: the row under `windowPoint` now (a rebuild since the move hit-tests the new rows).
+    private func hover(atWindowPoint windowPoint: CGPoint) {
+        let point = content.convert(windowPoint, from: nil)
+        guard let index = rowViews.firstIndex(where: { $0.frame.contains(point) }) else { return }
+        onHover?(index)
+    }
+
     /// A press on a row: the selection follows a drag and the release runs the row it ends on.
     private func track(_ event: NSEvent) {
+        hoverMoves.flush() // the frame's pending hover lands before the press
         PalettePress.track(event, in: content, row: { point in
             self.rowViews.firstIndex { $0.frame.contains(point) }
         }, select: { index in
@@ -123,7 +160,10 @@ final class PaletteActionsMenuView: NSView {
 /// One command row in the Actions menu.
 final class PaletteMenuRow: NSView {
     var onPress: ((NSEvent) -> Void)?
-    var onHover: (() -> Void)?
+    /// The pointer entered or left the row: a position like a move, for the menu's frame-aligned hover.
+    var onCross: ((NSEvent) -> Void)?
+    /// A pointer move over the row, for the menu's frame-aligned hover.
+    var onMove: ((NSEvent) -> Void)?
     private let icon = NSImageView()
     private let label = PaletteText.label(Typography.body)
     private let keys = PaletteKeycapsView()
@@ -160,11 +200,15 @@ final class PaletteMenuRow: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onHover?()
+        onCross?(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onCross?(event)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        onHover?()
+        onMove?(event) // the menu's PointerFrameHover coalesces it
     }
 
     override func draw(_ dirtyRect: NSRect) {

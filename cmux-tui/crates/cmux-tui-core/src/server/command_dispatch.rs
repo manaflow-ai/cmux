@@ -4,8 +4,8 @@
 use super::terminal_io_wire::{
     self, AttachSurfaceParams, ClearHistoryParams, CopyParams,
     MintTerminalRendererByTerminalParams, MintTerminalRendererParams, PasteImageParams,
-    ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams, SendKeyParams,
-    SetCellPixelsParams, SubscribeParams, TerminalEventsParams, WaitForParams,
+    ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams, SendKeyParams, SubscribeParams,
+    TerminalEventsParams, WaitForParams,
 };
 use super::*;
 
@@ -35,6 +35,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::DeleteTerminalCommands(_) | Command::SetCellPixels(_) => {
+            anyhow::bail!("this command requires the asynchronous request path")
+        }
         Command::PasteImage(PasteImageParams {
             surface,
             terminal_id,
@@ -58,10 +61,11 @@ pub(super) fn handle_command_with_cancellation(
             offset.map(terminal_io_wire::wire_usize),
             data,
         ),
-        command @ (Command::SetTerminalCommandHistory(_)
-        | Command::ListTerminalCommands(_)
-        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
+        command @ (Command::SetTerminalCommandHistory(_) | Command::ListTerminalCommands(_)) => {
+            command_history::handle(mux, client, command)
+        }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::DebugDaemonLocks => cmd_server::daemon_locks(mux, client),
         Command::TraceStart(params) => {
             cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
         }
@@ -321,9 +325,6 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
         Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
-        Command::SetCellPixels(SetCellPixelsParams { width_px, height_px }) => {
-            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
-        }
         Command::BrowserFramePresented { surface, frame_seq } => {
             cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }

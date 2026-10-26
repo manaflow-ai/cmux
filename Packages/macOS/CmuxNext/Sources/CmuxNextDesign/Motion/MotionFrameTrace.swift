@@ -56,7 +56,7 @@ final class MotionFrameTrace {
             }
             self.client = client
             client.activate()
-            expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
+            expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
             return ["running": true, "views": views.count]
         case "stop":
             let report = self.report(looping: true)

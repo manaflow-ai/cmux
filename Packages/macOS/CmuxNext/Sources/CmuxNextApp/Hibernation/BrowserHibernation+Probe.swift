@@ -53,7 +53,7 @@ extension BrowserHibernation {
     /// An agent called hidden page `key` within `agentGrace` or holds its lease (its next call
     /// would wait on a thaw); what the page shows then is the agent's doing.
     func isAgentDriven(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], ContinuousClock.now - used < .seconds(Self.agentGrace) { return true }
+        if let used = agentUsedAt[key], now() - used < .seconds(Self.agentGrace) { return true }
         return leased.contains(key)
     }
 

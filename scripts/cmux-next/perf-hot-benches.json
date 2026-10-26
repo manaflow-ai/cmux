@@ -23,7 +23,7 @@
     },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
-      "bench": "scripts/cmux-next/bench-typing.py",
+      "bench": "CMUX_BENCH=1 swift test -c release --filter KeyRouterBench (KEY-ROUTER-BENCH JSON: plain_p99_us, chord_p99_us, plain_allocs, chord_allocs, tis_calls, key_equiv_views; plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C in a terminal, 60 workspaces, 30 panes), then scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing",
       "trace": [
         "key.frame",
@@ -169,6 +169,11 @@
     "trace-ring-write-interned": {
       "what": "one trace ring record under a run-time name (TraceRing.write(_ InternedName)): the catalog-id write plus one relaxed load and a tag compare after the name's first record in the ring",
       "bench": "swift test -c release --filter 'TraceNamesTests.*internedWriteCost' (31-record batch p50, interned vs catalog id)",
+      "owner": "p09-observability"
+    },
+    "metrics-record": {
+      "what": "one field-histogram sample (Metrics.record into MetricsStore): an acquire load of the runtime's store, one dictionary probe, an acquire load of the active block and three relaxed adds (bucket, count, sum)",
+      "bench": "swift test -c release --filter 'HistogramTests.*recordCost' (1000-record batch p50, ns per record)",
       "owner": "p09-observability"
     },
     "main-turn": {

@@ -75,6 +75,13 @@ final class AgentPageHibernation {
     var liveHiddenLimit: Int? {
         didSet { if liveHiddenLimit != oldValue { replan() } }
     }
+    /// The app's one urgent pass over tabs, chats and pages takes the critical memory event's discard
+    /// (feature `memoryUrgentDiscardRanking`, set by the browser hibernation): at critical pressure the
+    /// timeout then lets one chat go per urgent pace interval, and none until one interval after the
+    /// pressure turns critical and after each urgent pass (``urgentPassDidRun()``).
+    var leavesCriticalEventToUrgentPass = false
+    /// Until when the timeout lets no chat go (``leavesCriticalEventToUrgentPass``).
+    private(set) var noReleaseBefore: ContinuousClock.Instant?
 
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
@@ -118,6 +125,8 @@ final class AgentPageHibernation {
 
     func update(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) {
         guard setting != self.setting || pressure != self.pressure else { return }
+        if pressure == .critical, self.pressure != .critical, leavesCriticalEventToUrgentPass { holdReleases() }
+        if pressure != .critical { noReleaseBefore = nil }
         (self.setting, self.pressure) = (setting, pressure)
         replan()
     }
@@ -170,13 +179,20 @@ final class AgentPageHibernation {
         var next: Double?
         // The hidden pages still live: not on their way out.
         var live = hiddenAt.filter { !releasing.contains($0.key) }
-        for (key, at) in live where keepsPage(key, onScreen: false) == nil {
+        // Left to the urgent pass at critical pressure: one chat per urgent pace interval, oldest first.
+        let paced = leavesCriticalEventToUrgentPass && pressure == .critical
+        if let hold = noReleaseBefore, current >= hold { noReleaseBefore = nil }
+        for (key, at) in live.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }) where keepsPage(key, onScreen: false) == nil {
             let remaining = threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
+            } else if paced, let hold = noReleaseBefore {
+                let wait = (hold - current).seconds
+                next = min(next ?? wait, wait)
             } else if keepsPage(key) == nil {
                 release(key)
                 live[key] = nil
+                if paced { holdReleases() }
             } else {
                 // Still in its window: a hide comes before the pane swaps its content, and
                 // the swap sends no event of its own. Look again, backing off the longer it
@@ -188,7 +204,7 @@ final class AgentPageHibernation {
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
         deadlineDelay = next
         if let next {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -301,5 +317,40 @@ final class AgentPageHibernation {
             await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
         }
         return frame.flatMap { $0 }
+    }
+}
+
+// The app's one urgent pass over tabs, chats and pages (`UrgentDiscardRanker.run`, feature
+// `memoryUrgentDiscardRanking`) ranks the hidden chats with the browser tabs and cmux pages.
+extension AgentPageHibernation: UrgentDiscardOwner {
+    /// The hidden chats that may go now: live, hidden at least ``minimumHidden`` (the composer's last
+    /// keystrokes reach acpmux), out of their window, and nothing keeps them. O(hidden chats).
+    func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
+        guard let tabs = store() else { return [] }
+        let current = now()
+        return hiddenAt.compactMap { entry -> UrgentDiscardRanker.Candidate? in
+            let hiddenFor = (current - entry.value).seconds
+            guard hiddenFor >= Self.minimumHidden, !releasing.contains(entry.key), tabs.existingView(entry.key) != nil,
+                  keepsPage(entry.key) == nil else { return nil }
+            return UrgentDiscardRanker.Candidate(key: entry.key, kind: .agentPage, hiddenFor: hiddenFor)
+        }
+    }
+
+    /// Lets chat `key`'s page go (after its wake state and frame); false when it is not a hidden chat
+    /// that may go now.
+    func urgentDiscard(_ key: String) -> Bool {
+        guard hiddenAt[key] != nil, !releasing.contains(key), keepsPage(key) == nil else { return false }
+        release(key)
+        return releasing.contains(key)
+    }
+
+    /// The timeout lets no chat go for one urgent pace interval from now.
+    func urgentPassDidRun() {
+        holdReleases()
+        replan()
+    }
+
+    private func holdReleases() {
+        noReleaseBefore = now() + .seconds(HibernationPlanner.Pace.chromeUrgent.interval)
     }
 }

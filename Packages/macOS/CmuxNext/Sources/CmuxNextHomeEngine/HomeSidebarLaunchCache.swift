@@ -41,6 +41,8 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
     }
 }
 
+// memory: fixed at most two snapshots of one account's list (the one waiting to be written and the
+// last one written), a few KB of JSON each; a newer save replaces the waiting one.
 /// The launch snapshot's file: read synchronously before the Home list's first frame (a few KB of
 /// JSON, like `HomeCache.load`), written off the main actor after the list changes: one write at a
 /// time, the newest snapshot wins, an unchanged one is not written (no timer: the list's changes

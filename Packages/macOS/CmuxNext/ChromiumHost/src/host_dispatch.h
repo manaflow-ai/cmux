@@ -25,6 +25,12 @@
 //   kOpInitialize                               cmux_shim_initialize's arguments
 //                                              without the function pointers, in
 //                                              header order (switches as a str list)
+//   kOpTextInputWatch                           i32 browser, i32 watch: text input
+//                                              pushes for the browser start or stop;
+//                                              answered with the fork's result
+//                                              (host_text_input.h)
+//   kOpTextInputStats                           no fields: answered with the text
+//                                              input push counters (host_text_input.h)
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -36,6 +42,8 @@
 //   kOpEvent   EncodeEvent's fields, after the MIRRORs the event refreshes
 //   kOpAck     reply flag, token: the op ran
 //   kOpReply   reply flag, token, the op's result and out-parameters
+//   kOpTextInputState  a watched browser's text input state, at most once per
+//              display frame (host_text_input.h)
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -56,6 +64,7 @@
 #include "chromium_host_tlv.h"
 #include "host_mirror.h"
 #include "host_window_request_ids.h"
+#include "host_text_input.h"
 
 namespace cmux_host {
 
@@ -128,7 +137,10 @@ class HostContext {
   // does not declare yet).
   using Resolve = void* (*)(const char* name);
 
-  HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve);
+  // `request_frame` runs the text input flush at the next display frame
+  // (TextInputPushes::RequestFrame).
+  HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve,
+              TextInputPushes::RequestFrame request_frame = nullptr);
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
@@ -144,7 +156,9 @@ class HostContext {
   static void OnShimEvent(void* ctx, int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
                           const char* s2);
   // The policy handlers installed through InstallPolicy* (initialize's ctx).
-  static int OnFocusRequest(void* ctx, int browser_id, int source);
+  // cmux_shim_browser_text_input_watch's fn; ctx is this HostContext and
+  // `state` the fork's cmux_text_input_state_t.
+  static void OnTextInput(void* ctx, int browser_id, const void* state);
 
   // The interface of the generated host_dispatch.inc.
   int Browser(int32_t client_id);
@@ -170,9 +184,11 @@ class HostContext {
   // so cmux reads the host's value after the op once the ACK clears its mark.
   void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 
-  // Puts the host's own focus handler in the shim and leaves window requests
-  // to cmux's pushed policy (InstallPolicy* and Resume).
+  // Clears the shim's focus and window-request handlers: the shim's embedder-active
+  // rule decides focus and cmux's pushed policy windows (InstallPolicy* and Resume).
   void InstallHostPolicies();
+
+  const TextInputPushes& text_input() const { return text_input_; }
 
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
@@ -192,6 +208,12 @@ class HostContext {
   bool HandleHello(const control::Message& message);
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
+  bool HandleTextInputWatch(const control::Message& message);
+  // Watches `chromium_id`'s text input in the fork: its result (0 refused).
+  int ArmTextInputWatch(int chromium_id);
+  // True while `client_id` is a minted id whose creation event has not come.
+  bool AwaitsCreation(int32_t client_id) const;
+  void ReplyResult(uint32_t token, int32_t result);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
   void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
   void Refresh(const MirrorEvent& event);
@@ -209,7 +231,8 @@ class HostContext {
   void ReleaseView(uint64_t token);
   void Bind(int32_t client_id, int chromium_id);
   int32_t ClientOf(int chromium_id) const;
-  void Post(control::Message message);
+  // False when the message did not go out (logged).
+  bool Post(control::Message message);
 
   Send send_;
   HostDelegate& delegate_;
@@ -224,7 +247,6 @@ class HostContext {
   // so ids it minted are bound first and every MIRROR and EVENT the op
   // caused reaches cmux before its ack (read-your-writes, task 016b).
   bool dispatching_ = false;
-  uint16_t dispatching_op_ = 0;
   uint64_t dispatching_view_ = 0;      // the page view token the op being dispatched opened
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;
@@ -255,6 +277,13 @@ class HostContext {
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
   std::unordered_map<int, uint64_t> devtools_view_of_browser_;
+
+  // Browsers cmux watches the text input of, by Chromium id.
+  TextInputPushes text_input_;
+  // Text input watches of minted ids whose creation has not come, by the
+  // minted id: the watch tokens Bind arms and answers. Bounded with
+  // pending_binds_ (AwaitsCreation).
+  std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
 };
 
 }  // namespace cmux_host

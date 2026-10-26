@@ -39,6 +39,10 @@ final class AppControl {
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
+    #if CMUX_PGO_PROFILE
+    /// The profile build's flushes (`LaunchOrder.profileFlush`): `debug.pgo_flush` writes the rest profile.
+    var profileFlush: ProfileFlush?
+    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
@@ -99,7 +103,7 @@ final class AppControl {
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -110,7 +114,7 @@ final class AppControl {
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
     func startErrorJournal(_ services: AppServices, on router: ControlRouter) {
-        let errors = ErrorJournalService.make(environment: services.environment)
+        let errors = ErrorJournalService.make(environment: services.environment, energy: services.mainWork.energy)
         errors.start()
         errorJournal = errors
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
@@ -150,6 +154,7 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    await withCheckedContinuation { continuation in
                                                        mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {

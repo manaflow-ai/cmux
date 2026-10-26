@@ -156,7 +156,7 @@ public final class SocketTasksSource: TasksSource {
     /// One attempt after the next `Backoff` delay (a one-shot timer, never a poll).
     private func scheduleAttempt() {
         guard !retryTimer.isScheduled, sink != nil, !connected else { return }
-        retryTimer.schedule(after: backoff.next()) { @MainActor [weak self] in
+        retryTimer.scheduleOnMain(after: backoff.next()) { [weak self] in
             self?.attempt()
         }
     }

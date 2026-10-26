@@ -59,7 +59,7 @@
       "args": {
         "method": "pane.rename",
         "params": {
-          "name": "oracle"
+          "name": "left"
         },
         "idempotencyKey": "pane-rename-ok.call"
       },
@@ -71,7 +71,17 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the pane's name is set"
+    },
+    {
+      "id": "named",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes/0/name",
+        "equals": "left",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

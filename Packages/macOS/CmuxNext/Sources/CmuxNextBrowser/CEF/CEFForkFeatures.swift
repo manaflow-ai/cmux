@@ -9,6 +9,12 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// (``CEFLayerHosting/resizeFenceForkAPI``), which the fork bundle p14-energy-136 sets with its pin.
     static let energySaverForkAPI: Int32 = 33
 
+    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` (manaflow-ai/cef
+    /// `cp/p13-webui-011` at 17a7f8ff, `libcef/browser/cmux/cmux_page_groups.cc`). That commit has no
+    /// number of its own: the fork train ledger (`scripts/cmux-next/cef-fork-train.json`, p07-memory 074)
+    /// gives each unnumbered export the train's API, 32. This gate moves with the train's number.
+    static let pageSiteSharingForkAPI: Int32 = 32
+
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
     /// The shim exports every renderer-path call (`CEFShimLibrary.hasRendererPaths`).

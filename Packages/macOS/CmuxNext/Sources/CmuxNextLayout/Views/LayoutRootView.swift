@@ -752,7 +752,7 @@ extension LayoutRootView {
     /// (`ScreenContentView.landStripWhereItShows()`), before a press, a pointer move, a new scroll
     /// gesture or a wheel notch reaches a view. O(screens); nothing when no strip shows moved.
     func landStripsWhereTheyShow() {
-        for view in screenViews.values where view.stripContainer.showsMoved { view.landStripWhereItShows() }
+        for view in screenViews.values where view.showsPanMoved { view.landStripWhereItShows() }
     }
 
     /// Holds a pointer-move intercept exactly while a strip shows moved: a move then lands it before
@@ -760,7 +760,7 @@ extension LayoutRootView {
     /// routes land it in the root's own intercept (``handleMonitored(_:)``). Called when a strip starts
     /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
     func updatePointerLanding() {
-        let moved = isLive && screenViews.values.contains { $0.stripContainer.showsMoved }
+        let moved = isLive && screenViews.values.contains { $0.showsPanMoved }
         if moved, pointerLanding == nil {
             pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
                 if let self, event.window === self.window { self.landStripsWhereTheyShow() }

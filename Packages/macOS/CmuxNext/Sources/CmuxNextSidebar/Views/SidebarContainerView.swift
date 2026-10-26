@@ -310,7 +310,7 @@ public final class SidebarContainerView: NSView {
             refreshHover()
             return
         }
-        hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { @MainActor [weak self] in self?.refreshHover() }
+        hoverRefresh.scheduleOnMainIfIdle(after: Self.hoverRefreshDelay) { [weak self] in self?.refreshHover() }
     }
 
     /// Sets every constraint and visibility for the model without animating.

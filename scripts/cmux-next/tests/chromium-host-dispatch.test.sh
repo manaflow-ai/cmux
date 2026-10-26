@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Compiles the Chromium Host's dispatcher (ChromiumHost/src/host_dispatch.mm
-# and host_mirror.mm, no AppKit in them, so as C++) against the generated
-# cases gen-chromium-host-wire.py writes for this header and ops JSON (into a
-# scratch root, never the checkout), and runs:
+# Compiles the Chromium Host's dispatcher (ChromiumHost/src/host_dispatch.mm,
+# host_mirror.mm and host_text_input.mm, no AppKit in them, so as C++) against
+# the generated cases gen-chromium-host-wire.py writes for this header and ops
+# JSON (into a scratch root, never the checkout), and runs:
 #   host_dispatch_test.cpp  the dispatcher alone, frame by frame
+#   host_text_input_test.cpp  the text input pushes, alone and through the
+#                           dispatcher (task p01-process-044)
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
 #                           on a socket pair: what cmux's shim reads
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
-# them all). First, both sources compile alone with -Werror against the same
+# them all). First, the sources compile alone with -Werror against the same
 # generated file, as build-chromium-host.sh compiles them. No CEF; runs on
 # Linux and macOS.
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
-# host_dispatch.{h,mm}, host_mirror.{h,mm}, the generator's host output or
+# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, the generator's host output or
 # the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -51,7 +53,7 @@ cp "$host"/src/*.h "$host"/src/*.mm "$host"/src/*.cc "$work/src/"
 cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "$work/src/generated/"
 
 flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header")
-for src in host_dispatch.mm host_mirror.mm; do
+for src in host_dispatch.mm host_mirror.mm host_text_input.mm; do
   "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
 
@@ -69,10 +71,13 @@ for e in exports:
 print("}")
 PY
 
-sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/shim_stubs.cpp")
+sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm" "$work/shim_stubs.cpp")
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_dispatch_test" "$host/tests/host_dispatch_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_dispatch_test"
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_text_input_test" "$host/tests/host_text_input_test.cpp" \
+  -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
+"$work/host_text_input_test"
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"

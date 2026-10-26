@@ -570,15 +570,6 @@ private final class FakeOtherLinks: OtherFrameLinks {
     }
 }
 
-/// Runs main run loop passes (not main-queue jobs) until `done` or 5 s.
-@MainActor
-private func spinMainRunLoop(until done: () -> Bool) {
-    let end = Date(timeIntervalSinceNow: 5)
-    while !done(), Date() < end {
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-    }
-}
-
 @MainActor
 private final class IdleFakeInput: InputPendingSource {
     var pending = false

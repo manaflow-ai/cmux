@@ -353,6 +353,9 @@ final class CEFDevToolsController {
         tab.container.addSubview(host)
         tab.container.addSubview(divider)
         views = (host, divider)
+        // Host mode: the DevTools frontend is a widget context filling this view, docked in the pane or
+        // in cmux's DevTools window, as the view moves (dockViews, undockViews).
+        if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: host) }
         return (host, divider)
     }
 
@@ -360,6 +363,7 @@ final class CEFDevToolsController {
         closeWindow()
         guard let views else { return }
         self.views = nil
+        if let tab, let browserID = tab.browserID { tab.runtime.widgetHost?.place(.devTools, owner: browserID, in: nil) }
         views.host.layerHosting.stop()
         views.divider.removeFromSuperview()
         views.host.removeFromSuperview()

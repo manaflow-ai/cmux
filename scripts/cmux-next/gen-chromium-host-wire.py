@@ -49,10 +49,11 @@ Inputs (paths relative to --root, the repository by default):
            preinit  queued in the client and applied in order before CefInitialize. A non-void one
                     returns the client's own check and names `reply_event` wire:REPLY: the host's
                     verdict, sent by token when it applies the op
-         `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
-         the client marks them pending under the op's token until the host's ack, and the host
-         pushes them again after it runs the op and before that ack (RefreshMirror), so the value
-         cmux reads once the mark clears is the host's after the op. `local` and
+         `pending_keys` are mirror keys a post (or an async op) changes, `*` for a param the op
+         does not name: the client marks them pending under the op's token until the host's ack
+         (an async op's: its REPLY), and the host pushes them again after it runs the op and
+         before that ack or REPLY (RefreshMirror), so the value cmux reads once the mark clears is
+         the host's after the op. `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
          `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
@@ -62,10 +63,11 @@ Inputs (paths relative to --root, the repository by default):
          sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
-         with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), and
-         an async or mint call in the token form, inside a closure handed to CEFRuntime's
-         sendAsync, siteCall or profileWrite (CEFRuntime+HostReplies.swift), which await the
-         answer the same way in both backends.
+         with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
+         async call in the token form, inside a closure handed to CEFRuntime's sendAsync, siteCall
+         or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
+         both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
+         wait for its reply_event).
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -201,10 +203,11 @@ REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
 # becomes `kept`, with a change that names the task that did it.
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
-# (CEFRuntime+HostReplies.swift, task p01-process-021): a call in a closure handed to one is in the
-# token form, and --swift-sites no longer lists it.
+# (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
+# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
+# returns nothing sent for it), so it stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
-TOKEN_FORM_CLASSES = ("async", "mint")
+TOKEN_FORM_CLASSES = ("async",)
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -941,8 +944,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror key is ints and strings only; its only out-parameters are int*")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
-    if op.pending_keys and cls not in ("post", "view", "preinit", "mint"):
-        out.append("pending_keys are for posts")
+    if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
+        out.append("pending_keys are for ops the host acks or answers")
     if cls == "async":
         if op.reply_event is None:
             out.append(f"an async export names its answer: reply_event is an event kind or {REPLY_WIRE}")
@@ -1865,6 +1868,7 @@ class Site:
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
     token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
+    mint_form: bool = False  # a mint_returns id call whose id keys the wait for its reply_event (in_mint_form)
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -2120,7 +2124,7 @@ def swift_sites(root: Path) -> list[Site]:
             owner, function = context_at(scopes, begin)
             sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
                               result_used(masked, start, close + 1), owner, function, begin,
-                              in_token_form(masked, scopes, begin)))
+                              in_token_form(masked, scopes, begin), in_mint_form(masked, scopes, start)))
     return sites
 
 
@@ -2160,10 +2164,53 @@ def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
     return False
 
 
+MINT_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*$")
+REPLY_WAIT = re.compile(r"\.reply\(\s*for\s*:")
+
+
+def in_mint_form(masked: str, scopes: list[Scope], start: int) -> bool:
+    """Whether the call whose expression starts at `start` is in the mint form: its result is bound to a
+    local (`let message = shim.devToolsCall(...)`) that keys, directly or through locals made from it, a
+    `.reply(for:` wait later in the same function. The minted id is the key in both backends: the host
+    answers it in the export's reply_event, a refusal included, so nothing reads an answer in the call."""
+    line_start = masked.rfind("\n", 0, start) + 1
+    bound = MINT_BINDING.search(masked, line_start, start)
+    body = min((s for s in scopes if s.kind == "func" and s.open < start < s.close),
+               key=lambda s: s.close - s.open, default=None)
+    if bound is None or body is None:
+        return False
+    rest = masked[start:body.close]
+    names = {bound.group(1)}
+    for m in re.finditer(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=([^\n]*)", rest):
+        if any(re.search(rf"\b{re.escape(n)}\b", m.group(2)) for n in names):
+            names.add(m.group(1))
+    for m in REPLY_WAIT.finditer(rest):
+        key = first_argument(rest, m.end(), matching_close(rest, rest.index("(", m.start()), "(", ")"))
+        if any(re.search(rf"\b{re.escape(n)}\b", key) for n in names):
+            return True
+    return False
+
+
+def first_argument(text: str, begin: int, close: int) -> str:
+    """text[begin:close] up to its first comma outside nested brackets."""
+    depth = 0
+    for i in range(begin, close):
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth -= 1
+        elif text[i] == "," and depth == 0:
+            return text[begin:i]
+    return text[begin:close]
+
+
 def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async or
-    mint call in the token form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
+    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
+    settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS

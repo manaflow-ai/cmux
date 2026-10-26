@@ -95,7 +95,27 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the two panes of the split trade places"
+    },
+    {
+      "id": "swapped-first",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/first/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "swapped-second",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

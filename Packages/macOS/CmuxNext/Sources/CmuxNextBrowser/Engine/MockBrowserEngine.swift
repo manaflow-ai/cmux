@@ -107,6 +107,8 @@ public final class MockBrowserTab: BrowserTab {
     public var pageText = ""
     /// Canned result for `evaluate`.
     public var evaluationResult: BrowserJSValue = .null
+    /// The history a hibernation would save (`MockBrowserTab+Hibernation`); nil: the page cannot hibernate.
+    @ObservationIgnored public var hibernationRestore: BrowserRestoreState?
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?

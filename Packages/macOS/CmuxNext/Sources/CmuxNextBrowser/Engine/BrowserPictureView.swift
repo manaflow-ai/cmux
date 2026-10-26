@@ -57,8 +57,9 @@ public final class BrowserPictureView: NSImageView {
     }
 
     /// `image` drawn into a bitmap of its size and color space, keeping its alpha if it has one
-    /// (a page with a transparent background).
-    private nonisolated static func decoded(_ image: CGImage) -> CGImage {
+    /// (a page with a transparent background). Blocking CPU work: call it off the main thread (the intent
+    /// prewarm decodes a hibernated tab's picture on the app's `.cpu` lane ahead of its wake).
+    public nonisolated static func decoded(_ image: CGImage) -> CGImage {
         let opaque = [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
         guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),

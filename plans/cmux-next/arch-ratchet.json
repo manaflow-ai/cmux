@@ -693,6 +693,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
     }
   ],
   "observer_wrappers": [
