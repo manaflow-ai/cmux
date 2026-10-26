@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextHistory
 import CmuxNextPages
+import CmuxNextWakeups
 import Observation
 
 /// The session vault: past agent sessions (Claude Code, Codex, …) of every
@@ -23,16 +24,20 @@ final class SessionVault {
     @ObservationIgnored let pullRequests: VaultPullRequests
     @ObservationIgnored let copyText: @MainActor (String) -> Void
     @ObservationIgnored let openURL: @MainActor (URL) -> Void
+    /// Where ``startReload()`` runs its read.
+    @ObservationIgnored private let work: BackgroundWork
 
     /// - Parameters:
     ///   - source: The sessions (`AgentHistorySource` in the app).
+    ///   - work: The app's background work (``startReload()``'s read).
     ///   - copyText: Puts Copy Resume Command's text on the pasteboard (tests record it: they run
     ///     without a pasteboard server).
     ///   - openURL: Opens a session's pull request (the app's link router).
-    init(source: any VaultSessionSource, pullRequests: VaultPullRequests = VaultPullRequests(),
+    init(source: any VaultSessionSource, work: BackgroundWork, pullRequests: VaultPullRequests = VaultPullRequests(),
          copyText: @escaping @MainActor (String) -> Void = SessionVault.writeGeneralPasteboard,
          openURL: @escaping @MainActor (URL) -> Void = { _ = LinkRouter.shared.open($0) }) {
         self.source = source
+        self.work = work
         self.pullRequests = pullRequests
         self.copyText = copyText
         self.openURL = openURL
@@ -49,10 +54,11 @@ final class SessionVault {
         isLoading = false
     }
 
-    /// Starts ``reload()`` without waiting: the person's Refresh and the vault page's reload.
+    /// Starts ``reload()`` without waiting: the person's Refresh and the vault page's reload, at user-blocking
+    /// priority (the rest of their click or key).
     func startReload() {
-        // main-hop-allow: reload is the vault's main-actor async read (the source's journal refresh is its own async call); this task only starts it
-        Task { await reload() }
+        // task-owner: BackgroundWork (quit skips it); one read, it ends when the rows are rebuilt (recipe R-hop)
+        work.task(.userBlocking) { [weak self] in await self?.reload() }
     }
 
     /// Rebuilds the rows from what the source already holds.

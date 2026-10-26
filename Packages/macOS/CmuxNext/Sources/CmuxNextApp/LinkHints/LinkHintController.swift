@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextFocusUI
+import CmuxNextWakeups
 import Foundation
 
 /// Link hints on a focused Chromium page (`f` follows, `F` opens a link in a
@@ -23,7 +24,16 @@ final class LinkHintController {
 
     private var session: Session? { didSet { noteActive() } }
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
-    private var work: Task<Void, Never>?
+    private var pending: Task<Void, any Error>?
+    /// What runs with the pending call's value, on main; the task carries none of it.
+    private var pendingThen: ((BrowserJSValue?) async -> Void)?
+    /// Where the page calls run: each is the rest of the person's `f` or hint key, at user-blocking priority
+    /// (Chrome's `TaskPriority::USER_BLOCKING` for input replies, base/task/task_traits.h).
+    private let work: BackgroundWork
+
+    init(work: BackgroundWork) {
+        self.work = work
+    }
 
     var isActive: Bool { session != nil }
 
@@ -46,13 +56,19 @@ final class LinkHintController {
     /// Runs `script` in `tab`'s isolated world as the pending page call, replacing the one in flight, then `then` with
     /// its value (nil when it failed) unless a newer call or ``cancel()`` replaced it first.
     private func call(_ script: String, on tab: CEFTab, then: @escaping (BrowserJSValue?) async -> Void) {
-        work?.cancel()
-        // main-hop-allow: the person's hint keys (userBlocking rest, p06 rule 2) reach the page through CEFTab's main-actor async evaluate; this task only starts that call and hands its value on
-        work = Task {
-            let value = try? await tab.evaluate(script, world: .isolated, gesture: .cmux)
-            guard !Task.isCancelled else { return }
-            await then(value)
-        }
+        pending?.cancel()
+        pendingThen = then
+        // task-owner: LinkHintController.pending; a newer call or cancel() cancels it, quit skips it (recipe R-hop)
+        pending = work.task(.userBlocking) { [weak self] in await self?.evaluate(script, on: tab) }
+    }
+
+    /// The pending page call of ``call(_:on:then:)``: CEFTab's evaluate, then its `then` unless a newer call or
+    /// ``cancel()`` replaced it first.
+    private func evaluate(_ script: String, on tab: CEFTab) async {
+        let value = try? await tab.evaluate(script, world: .isolated, gesture: .cmux)
+        guard !Task.isCancelled, let then = pendingThen else { return }
+        pendingThen = nil
+        await then(value)
     }
 
     /// Every key-down while labels show (``KeyRouter`` asks first). Returns
@@ -86,16 +102,16 @@ final class LinkHintController {
     }
 
     func cancel() {
-        work?.cancel()
-        work = nil
+        pending?.cancel()
+        pending = nil
+        pendingThen = nil
         guard let tab = session?.tab else {
             session = nil
             return
         }
         session = nil
-        // task-owner: fire-and-forget overlay removal; nothing waits on it.
-        // main-hop-allow: the removal is CEFTab's main-actor async evaluate, which this task only starts; no later call may cancel it
-        Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
+        // task-owner: BackgroundWork; one overlay removal nothing waits on and no later call cancels (recipe R-hop)
+        work.task(.userBlocking) { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
     private func collected(_ targets: [LinkHintTarget], from tab: CEFTab) {

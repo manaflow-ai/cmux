@@ -86,9 +86,9 @@ final class TaskManagerPageService: InternalPageProvider {
         guard let key, signaler.terminate(key.pid) else {
             throw ActionFailure(message: TaskManagerKillRefusal.signalFailed.message)
         }
-        // task-owner: one refresh after the kill; ends when the snapshot is read
-        // main-hop-allow: refresh is TaskManagerModel's main-actor async sample (its source samples off main); this task only starts it
-        if let model { Task { await model.refresh() } }
+        // task-owner: BackgroundWork (quit skips it); one refresh after the person's kill, it ends when the snapshot
+        // is read (recipe R-hop)
+        if let model, let work = services?.work { work.task(.userBlocking) { await model.refresh() } }
     }
 
     // MARK: InternalPageProvider

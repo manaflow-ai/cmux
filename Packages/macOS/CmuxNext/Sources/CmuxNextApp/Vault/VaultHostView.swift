@@ -17,6 +17,8 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     /// is hidden resolves the colors once, on show.
     private let visibility = ViewVisibility("vault")
     private var visibilityNode: VisibilityNode { visibility.node }
+    /// How many times the list's colors were resolved (tests: a hidden vault resolves none until it shows).
+    private(set) var colorResolves = 0
 
     /// Its SwiftUI leaves the hierarchy while the vault tab is hidden (``VisibilityGatedHostingView``); the
     /// right sidebar's section follows no node.
@@ -85,6 +87,7 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     }
 
     private func resolveColors() {
+        colorResolves += 1
         let colors = performWithTheme {
             VaultColors(background: .clear, primary: Self.color(Palette.textPrimary), secondary: Self.color(Palette.textSecondary),
                         tertiary: Self.color(Palette.textTertiary), selection: Self.color(Palette.selectionFill),

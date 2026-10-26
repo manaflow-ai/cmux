@@ -1,8 +1,10 @@
+import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextPages
 import Testing
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 
 /// The icon picker is warm before its first open (cx-ag5.9.2): the app prepares its panel, page
 /// and symbol catalog at an idle moment after launch, so the first Set Icon opens as fast as later
@@ -37,6 +39,31 @@ struct IconPickerWarmTests {
         #expect(picker.isWarm)
         #expect(host.openPages.count == 1)
     }
+
+    /// A pick that arrives while the launch-idle prepare's catalog load runs opens as the person's work
+    /// (p06-scheduler-320, rule 2): its reply is userBlocking, not the prepare's background class, so a launch that
+    /// still holds background work does not hold the open.
+    @Test(.timeLimit(.minutes(1))) func aPickDuringTheBackgroundPrepareOpensWhileBackgroundIsHeld() async {
+        // A launch that never reveals: background tasks stay held for the whole test.
+        let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(), startup: startup)
+        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost(), mainWork: mainWork)
+        var prepared = false
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            picker.onOpened = { [weak picker] _ in
+                picker?.onOpened = nil
+                done.resume()
+            }
+            picker.prepare { prepared = true }
+            picker.pick(current: nil, target: "workspace:1", at: Self.anchor) { _ in }
+        }
+        #expect(picker.open?.target == "workspace:1")
+        #expect(!prepared, "the prepare's own reply is background work, still held by the launch")
+    }
+
+    /// An anchor in no window: the picker opens without showing its panel.
+    private static let anchor = IconPickerService.Anchor(view: NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)),
+                                                         rect: NSRect(x: 10, y: 10, width: 2, height: 2))
 }
 
 extension WebUIHost {

@@ -54,7 +54,7 @@ enum AgentHarnessHandlers {
                 let answer = try await center.doctor(id: id)
                 guard answer["ok"]?.boolValue == true else {
                     let failed = answer["steps"]?.arrayValue?.first { $0["ok"]?.boolValue == false }
-                    throw ActionFailure(message: AgentHarnessStrings.doctorFailed(
+                    throw AgentHarnessFailure.doctorFailed(AgentHarnessStrings.doctorFailed(
                         id, step: failed?["name"]?.stringValue ?? "doctor",
                         detail: [failed?["detail"]?.stringValue, failed?["fix"]?.stringValue].compactMap { $0 }.joined(separator: " ")))
                 }

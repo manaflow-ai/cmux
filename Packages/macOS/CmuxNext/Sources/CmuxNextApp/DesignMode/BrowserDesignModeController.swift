@@ -26,17 +26,22 @@ final class BrowserDesignModeController {
     func toggle(_ entry: BrowserEntry, key: String) {
         let modes = entry.chrome.toolbarButtons.modes
         modes.designMode.toggle()
-        let on = modes.designMode, tab = entry.tab
+        let on = modes.designMode
         cards[key] = on ? BrowserDesignModeCards() : nil
-        // main-hop-allow: the person's toggle shows in this turn (the toolbar mode); the page script is the tab's main-actor async call, which this task only starts, and a failure resets the mode in its resume
-        Task { [weak self, weak chrome = entry.chrome] in
-            guard on else { return await tab.disableDesignMode() }
-            do {
-                try await tab.enableDesignMode(self?.script ?? BrowserDesignModeScript())
-            } catch {
-                modes.designMode = false
-                chrome?.showNotice(self?.strings.couldNotStart ?? "")
-            }
+        // The person's toggle shows in this turn (the toolbar mode); the page script is the rest of their action.
+        // task-owner: BackgroundWork (quit skips it); one page script, it ends when the page answers (recipe R-hop)
+        services?.work.task(.userBlocking) { [weak self] in await self?.runPageScript(on, key: key) }
+    }
+
+    /// Design mode's page script on or off in browser tab `key`; a failed start turns the toolbar mode off again.
+    private func runPageScript(_ on: Bool, key: String) async {
+        guard let entry = services?.cache.existingBrowser(key) else { return }
+        guard on else { return await entry.tab.disableDesignMode() }
+        do {
+            try await entry.tab.enableDesignMode(script)
+        } catch {
+            entry.chrome.toolbarButtons.modes.designMode = false
+            entry.chrome.showNotice(strings.couldNotStart)
         }
     }
 
@@ -70,18 +75,25 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
-        // main-hop-allow: the page snapshot and Home's attachment intake are main-actor async view calls (the page's engine, the composer's drop); the crop and the card files are the only work between them
-        Task { [weak self, weak page, weak chat, weak home] in
-            guard let page else { return }
-            let shot = await Self.capture(page)
-            for card in rest {
-                let png = shot.flatMap { Self.crop($0, to: card) }
-                if let home {
-                    await self?.attach(card, png: png, to: home)
-                } else if let chat {
-                    // The same id replaces an edited card's chips in the agent chat composer.
-                    AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
-                }
+        // task-owner: BackgroundWork (quit skips it); one snapshot and the cards' delivery, it ends with the last card
+        // (recipe R-hop). `userVisible`: the person's highlight on the page caused it, and nothing waits on it.
+        services.work.task(.userVisible) { [weak self, weak chat, weak home] in
+            await self?.deliver(rest, from: key, home: home, chat: chat)
+        }
+    }
+
+    /// Gives `cards` of browser tab `key`, each with its crop of one page snapshot, to the Home composer, else to the
+    /// agent chat composer.
+    private func deliver(_ cards: [BrowserDesignModeCard], from key: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) async {
+        guard let page = services?.cache.existingBrowser(key)?.tab else { return }
+        let shot = await Self.capture(page)
+        for card in cards {
+            let png = shot.flatMap { Self.crop($0, to: card) }
+            if let home {
+                await attach(card, png: png, to: home)
+            } else if let chat {
+                // The same id replaces an edited card's chips in the agent chat composer.
+                AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
             }
         }
     }

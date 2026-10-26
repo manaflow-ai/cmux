@@ -48,8 +48,12 @@ final class IconPickerService {
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
     private var catalog: IconPickerSymbolCatalog?
-    /// What runs once the catalog is loaded, each in its class: a pick `userBlocking`, the idle prepare `background`.
-    private var catalogWaiters: [(workClass: BudgetedWorkClass, then: () -> Void)] = []
+    /// The catalog read in flight: every caller that asks while it runs shares it.
+    private var catalogLoad: Task<IconPickerSymbolCatalog, Never>?
+    /// What runs once the catalog is loaded, by waiter: each waiter's reply is its own task in its own class (a pick
+    /// `userBlocking`, the idle prepare `background`), so a pick never waits behind the prepare's class.
+    private var catalogWaiters: [Int: () -> Void] = [:]
+    private var nextCatalogWaiter = 0
     /// The app's main-thread scheduler: the catalog's reply and its waiters are posted tasks on it.
     private let mainWork: MainWorkScheduler
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
@@ -140,23 +144,28 @@ final class IconPickerService {
     }
 
     /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then` as a task of `workClass`.
-    /// One load serves every caller that asks while it runs; its reply runs in the first caller's class.
+    /// One load serves every caller that asks while it runs; each caller's reply is posted in that caller's class.
     private func loadCatalog(_ workClass: BudgetedWorkClass, then: @escaping () -> Void) {
-        catalogWaiters.append((workClass, then))
-        guard catalogWaiters.count == 1 else { return }
+        let waiter = nextCatalogWaiter
+        nextCatalogWaiter += 1
+        catalogWaiters[waiter] = then
+        // task-owner: one read per first open; it ends with the read, and every waiter's reply holds it
+        let load = catalogLoad ?? Task { @concurrent in await IconPickerSymbolCatalog.load() }
+        catalogLoad = load
         let mainWork = mainWork
-        // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
+        // task-owner: one wait per waiter; it ends when the shared read does, and the service outlives it weakly
         Task { @concurrent [weak self] in
-            let loaded = await IconPickerSymbolCatalog.load()
-            mainWork.postFromAnyThread(workClass, owner: "IconPickerService.catalog") { [weak self] in self?.catalogLoaded(loaded) }
+            let loaded = await load.value
+            mainWork.postFromAnyThread(workClass, owner: "IconPickerService.catalog") { [weak self] in
+                self?.catalogLoaded(loaded, waiter: waiter)
+            }
         }
     }
 
-    private func catalogLoaded(_ loaded: IconPickerSymbolCatalog) {
+    private func catalogLoaded(_ loaded: IconPickerSymbolCatalog, waiter: Int) {
         if catalog == nil { catalog = loaded }
-        let waiters = catalogWaiters
-        catalogWaiters = []
-        for waiter in waiters { mainWork.post(waiter.workClass, owner: "IconPickerService.catalogReady") { waiter.then() } }
+        catalogLoad = nil
+        catalogWaiters.removeValue(forKey: waiter)?()
     }
 
     /// The picker page's engine options: it shows in a floating glass panel that closes when it

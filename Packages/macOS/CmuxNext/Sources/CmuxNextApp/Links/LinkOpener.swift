@@ -26,8 +26,8 @@ final class LinkOpener {
     /// it. Returns false when nothing opened (the opener reported why).
     typealias Make = @MainActor (_ pane: PaneController, _ placed: (@MainActor (SurfaceID) -> Void)?) -> Bool
 
-    /// How long a move waits for the store to list the new tab.
-    static let listLimit: Duration = .seconds(30)
+    /// How long a move waits for the store to list the new tab (tests shorten it).
+    var listLimit: Duration = .seconds(30)
 
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
@@ -284,7 +284,7 @@ final class LinkOpener {
             step.yield { failure }
             step.finish()
         }
-        FirstValueWait.start(end.workClass, owner: "LinkOpener.tabListed", within: Self.listLimit, work: services.mainWork,
+        FirstValueWait.start(end.workClass, owner: "LinkOpener.tabListed", within: listLimit, work: services.mainWork,
                              deadlines: services.mainDeadlines) {
             // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
             _ = store.tabListRevision
