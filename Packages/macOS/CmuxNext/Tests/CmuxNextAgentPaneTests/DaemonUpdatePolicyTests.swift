@@ -189,6 +189,47 @@ import Testing
         #expect(fixture.calls == ["peer", "peer"])
     }
 
+    /// Review of #25387: the ledger can't be written (its directory is a file). The failure is
+    /// still final for this build in this run: offered again, the target is not tried again.
+    @Test func aFailureWhoseLedgerCannotBeWrittenIsNotRetried() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let blocked = fixture.root.appendingPathComponent("not-a-directory")
+        try Data().write(to: blocked)
+        let target = fixture.target("cmux16", build: Self.older, outcomes: [.rolledBack(reason: "new daemon reported 0123456ff")])
+        let policy = fixture.policy([target], directory: blocked)
+        await policy.run()
+        await policy.offer(target)
+        await policy.drained()
+        await policy.run()
+
+        #expect(fixture.calls == ["cmux16"], "a rolled-back build was tried again because its ledger was not written")
+        #expect(fixture.notices.count == 1)
+    }
+
+    /// Review of #25387: the bundled acpmux's `--version` never answers. The probe ends at its
+    /// bound with no build, so the queue drains (pushes nothing) instead of waiting forever.
+    @Test(.timeLimit(.minutes(1))) func aBundledVersionThatNeverAnswersEndsAtItsBound() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let hung = fixture.root.appendingPathComponent("acpmux")
+        try "#!/bin/sh\nexec sleep 120\n".write(to: hung, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hung.path)
+        let started = ContinuousClock.now
+        #expect(await DaemonUpdatePolicy.bundledBuild(of: hung, within: .milliseconds(500)) == nil)
+        #expect(ContinuousClock.now - started < .seconds(10))
+    }
+
+    /// The probe reads the build from `acpmux --version`.
+    @Test func theBundledVersionGivesTheBuild() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let acpmux = fixture.root.appendingPathComponent("acpmux")
+        try "#!/bin/sh\necho 'acpmux 0.1.0 (abc123def 2026-10-20)'\n".write(to: acpmux, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: acpmux.path)
+        #expect(await DaemonUpdatePolicy.bundledBuild(of: acpmux, within: .seconds(10)) == Self.bundled)
+    }
+
     @Test func noBinaryIsNotRecordedAndSaysNothing() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -372,7 +413,7 @@ nonisolated final class PolicyFixture: Sendable {
     func policy(_ targets: [FakeUpdateTarget], bundled: String = DaemonUpdatePolicyTests.bundled, clock: any Clock<Duration> = PolicyTestClock(),
                 enabled: Bool = true, isEnabled: (@Sendable () -> Bool)? = nil,
                 board: (@Sendable (DaemonUpdateEvent) async -> Void)? = nil,
-                updateBusyAfter: Duration? = nil) -> DaemonUpdatePolicy {
+                updateBusyAfter: Duration? = nil, directory: URL? = nil) -> DaemonUpdatePolicy {
         var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled },
             targets: {
@@ -384,7 +425,7 @@ nonisolated final class PolicyFixture: Sendable {
                 self.log.withLock { $0.events.append(event) }
                 await board?(event)
             },
-            directory: root,
+            directory: directory ?? root,
             clock: clock
         )
         if let updateBusyAfter { dependencies.updateBusyAfter = updateBusyAfter }
