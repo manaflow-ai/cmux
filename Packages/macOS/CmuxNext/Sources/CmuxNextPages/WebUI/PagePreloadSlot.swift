@@ -28,7 +28,7 @@ import QuartzCore
 ///   live frame, or at ``coverLimit`` when no frame comes (a renderer that died while parked).
 ///   Nothing animates: every layer change runs with actions disabled.
 /// - Drop: any non-normal memory pressure (``memoryPressureDidChange(_:)``, through
-///   ``WebUIHost``'s one subscription) closes the page, and no preload starts until normal.
+///   ``WebUIHost``'s memory coordinator registration) closes the page, and no preload starts until normal.
 ///
 /// Which page to preload and when (first paint or 3 s, then 750 ms of quiet input) is the pure
 /// `PreloadSelector`'s choice (p13-webui-042); the slot only holds what it is given.
@@ -128,6 +128,11 @@ public final class PagePreloadSlot {
     public private(set) var pressure: MemoryPressureLevel = .normal
     /// The last claim (`debug.webui`).
     public private(set) var lastClaim: ClaimRecord?
+    /// Called with the key of the page that left after a claim or a drop emptied the slot, so the
+    /// default preload (New Tab, p13-webui-044) arms its next one when another page leaves, as
+    /// Chrome's preload manager preloads again once its contents are taken
+    /// (webui_contents_preload_manager.cc, `Request`).
+    public var onEmptied: (@MainActor (Key) -> Void)?
     private let trace: @MainActor (Move, UInt64) -> Void
     /// Where the refit's quiet deadline and each cover's limit go (the app's `mainDeadlines`).
     private let deadlines: MainDeadlineScheduler
@@ -228,8 +233,10 @@ public final class PagePreloadSlot {
     ///   - key: The page the open shows.
     ///   - container: The tab content that shows it.
     ///   - frame: Its frame in `container`.
+    ///   - covers: False when the opener does not know the size the page will show at yet (a new
+    ///     workspace's first pane): a cover of the parked size would show stretched there.
     /// - Returns: The claim, or nil when the slot holds no page of `key` (the open builds one).
-    public func claim(_ key: Key, into container: NSView, frame: NSRect) -> Claim? {
+    public func claim(_ key: Key, into container: NSView, frame: NSRect, cover covers: Bool = true) -> Claim? {
         guard let held, held.key == key else { return nil }
         let start = ContinuousClock.now
         self.held = nil
@@ -241,7 +248,7 @@ public final class PagePreloadSlot {
         Self.withoutActions {
             // In the page view, on top: it moves with the page and goes with it if the page closes
             // first. Only at the size it was taken at: autoresized to another frame it would stretch.
-            if held.phase == .parked, !refit, let image = held.cover {
+            if covers, held.phase == .parked, !refit, let image = held.cover {
                 let made = PagePreloadCoverView(image: image, frame: view.bounds)
                 view.addSubview(made, positioned: .above, relativeTo: nil)
                 cover = made
@@ -261,6 +268,7 @@ public final class PagePreloadSlot {
         trace(.claim, page.preloadTraceID)
         let milliseconds = Self.milliseconds(since: start)
         lastClaim = ClaimRecord(key: key, covered: cover != nil, refit: refit, milliseconds: milliseconds)
+        onEmptied?(key)
         return Claim(page: page, covered: cover != nil, refit: refit, milliseconds: milliseconds)
     }
 
@@ -273,9 +281,10 @@ public final class PagePreloadSlot {
         trace(.drop, held.page.preloadTraceID)
         held.page.preloadView.removeFromSuperview()
         held.page.close()
+        onEmptied?(held.key)
     }
 
-    /// The memory pressure changed (``WebUIHost``'s one subscription): anything but normal drops
+    /// The memory pressure changed (``WebUIHost``'s memory registration): anything but normal drops
     /// the held page, and no preload starts until normal again (Chrome makes no preload under
     /// heavy pressure).
     public func memoryPressureDidChange(_ level: MemoryPressureLevel) {

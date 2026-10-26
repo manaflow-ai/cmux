@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextLaunch
 import CmuxNextMacScreen
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextSignposts
@@ -18,8 +19,9 @@ import Observation
 /// to another pane keeps its surface and the destination pane reparents the
 /// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
 /// the keep-alive band (off-screen columns within one viewport width, paused)
-/// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
-/// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
+/// plus an LRU of recently hidden ones (`WarmSetBudget`); older hidden surfaces are destroyed and re-attach
+/// from the daemon replay when shown. Previews of destroyed surfaces stay in an image LRU sized by
+/// ``ImageCacheShares`` from the Mac's memory.
 final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
@@ -29,7 +31,16 @@ final class TabContentCache {
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
+    var browsers: [String: BrowserEntry] = [:] {
+        didSet {
+            guard browsers.count != oldValue.count else { return }
+            pageRequests.media.tabsChanged()
+            if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
+        }
+    }
+    /// Each Chromium tab's renderers, for the busy watchdog off the main thread (p14-energy-124): a tab
+    /// publishes itself at mount (`CEFTab.publishRenderers`) and leaves with its entry.
+    let tabRenderers = TabRendererDirectory()
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
@@ -41,12 +52,25 @@ final class TabContentCache {
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm, and the memory consumer that sets it under pressure.
     var warmBudget = WarmSetBudget.standard, warmSetRelease: WarmSetRelease?
+    /// Lets paused away terminals' GPU memory go (`terminalGPURelease`, `ghostty_surface_set_gpu_resident`); nil: none.
+    let gpuResidency: (any TerminalGPUResidency)?
+    /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces`: larger with
+    /// ``gpuResidency``); `WarmSetRelease` scales it under pressure.
+    let normalWarmCapacity: Int
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
     var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
     let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
-    let previews = PreviewImageCache()
+    /// The full sizes of its picture stores and of the hibernation's (``ImageCacheShares``).
+    let imageCaches: ImageCacheShares
+    /// Terminal previews, which a terminal pictures again on its next hover: a rebuildable memory consumer
+    /// once registered (`memoryImageCaches`), which gives memory back at warning.
+    let previews: PreviewImageCache
+    /// Discarded internal pages' last pictures (`InternalPageTabStore.discardedPicture(of:)`), the only copy
+    /// (a hidden or discarded page cannot be pictured again): a memory consumer the coordinator limits only
+    /// at critical pressure.
+    let internalPagePictures: PreviewImageCache
     /// New tabs' `create.tab` intervals waiting for their first frame (p09-observability task 030).
     let createTabs = CreateTabTimings()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
@@ -56,8 +80,9 @@ final class TabContentCache {
     let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
-    /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
-    let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// its version moved. A hidden page's thumbnail is the only copy (the engine cannot picture a
+    /// hidden page), so the coordinator limits it only at critical pressure.
+    let pageThumbnails: PreviewImageCache
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped (the capture runs on the
@@ -168,16 +193,28 @@ final class TabContentCache {
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
+    ///   - imageCaches: The picture stores' full sizes: this Mac's budget shares with `memoryImageCaches` on, the
+    ///     fixed sizes from before it otherwise (the default, which tests get).
+    ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler) {
+         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
+         imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil) {
+        self.imageCaches = imageCaches
+        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
+        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
+        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
-        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
+        self.gpuResidency = gpuResidency
+        normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
         wireNotices()
+        _ = ledger.setCapacity(normalWarmCapacity)  // no surface yet: closes nothing
+        warmBudgetDidChange(to: normalWarmCapacity)
     }
 
     var liveTerminalCount: Int { terminals.count }
@@ -200,14 +237,8 @@ final class TabContentCache {
         }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        if let stale = terminals.removeValue(forKey: tab.id) {
-            // Daemon restarted or the tab's surface changed: the pane
-            // presenting the old view lets it go before it closes.
-            if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
-            applyLifecycle(lifecycle.send(.removed(tab.id)))
-            pendingMounts[tab.id] = nil
-            stale.close()
-        }
+        // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
+        discardTerminal(tab.id)
         let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
                                              cursorDefault: .user)
         // Paused (and not claiming geometry) until a visible pane presents it.
@@ -227,6 +258,7 @@ final class TabContentCache {
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render
+        session.releasesGPUWhilePaused = ledger.isAway(tab.id)
         contentDidMount(tab.id)
         return entry
     }
@@ -432,6 +464,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        (page as? CEFTab)?.publishRenderers(as: key, into: tabRenderers) { [weak self] in self?.browsers[key]?.tab === $0 }
         hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -498,6 +531,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        internalPagePictures.remove(key)
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)

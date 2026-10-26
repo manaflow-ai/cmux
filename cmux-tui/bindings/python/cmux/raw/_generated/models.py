@@ -41,6 +41,32 @@ class AccessRequestKind(str, Enum):
     FILE = 'file'
     SECRET = 'secret'
 
+class AgentInventoryAuth(str, Enum):
+    SIGNEDIN = 'signedIn'
+    SIGNEDOUT = 'signedOut'
+    UNKNOWN = 'unknown'
+
+class AgentInventoryChannel(str, Enum):
+    NPM = 'npm'
+    BUN = 'bun'
+    BREW = 'brew'
+    BREWCASK = 'brewCask'
+    NATIVE = 'native'
+    LAUNCHER = 'launcher'
+    STANDALONE = 'standalone'
+    MISSING = 'missing'
+
+class AgentInventoryFamily(str, Enum):
+    CLAUDE = 'claude'
+    CODEX = 'codex'
+    OPENCODE = 'opencode'
+    PI = 'pi'
+    CHIEF = 'chief'
+    GEMINI = 'gemini'
+    AMP = 'amp'
+    COPILOT = 'copilot'
+    CURSOR = 'cursor'
+
 class AgentPresenceActivity(str, Enum):
     THINKING = 'thinking'
     EDITING = 'editing'
@@ -533,6 +559,45 @@ class AgentCLIStoredIntent:
     receipt: Union[AgentCLIJobReceipt, None]
     root_key: str
     session: str
+
+
+@dataclass(frozen=True)
+class AgentInventoryHarness:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryHarness'
+    auth: AgentInventoryAuth
+    channel: AgentInventoryChannel
+    checkedAt: int
+    family: Union[AgentInventoryFamily, None]
+    id: str
+    latest: Union[str, None]
+    latestCheckedAt: Union[int, None]
+    outdated: bool
+    version: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentInventoryRefreshResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryRefreshResult'
+    cached: Literal[True]
+    harnesses: List[AgentInventoryHarness]
+    machine: str
+    view: Literal['inventory']
+
+
+@dataclass(frozen=True)
+class AgentInventoryResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryResult'
+    cached: Literal[True]
+    harnesses: List[AgentInventoryHarness]
+    view: Literal['inventory']
+
+
+@dataclass(frozen=True)
+class AgentInventoryWatchActive:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryWatchActive'
+    machine: str
+    revision: int
+    watch_id: str
 
 
 @dataclass(frozen=True)
@@ -2985,6 +3050,27 @@ class AgentCliUpdateJobResolveRequest:
 
 
 @dataclass(frozen=True)
+class AgentInventoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory/request'
+    expected_machine_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentInventoryRefreshRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory-refresh/request'
+    expected_machine_id: str
+
+
+@dataclass(frozen=True)
+class AgentInventoryWatchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory-watch/request'
+    enabled: bool
+    expected_machine_id: str
+    admission_receipt: Union[bool, MissingType] = field(default=MISSING)
+    expected_watch_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class AgentSessionAttachRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-attach/request'
     surface: Id
@@ -4505,6 +4591,12 @@ class CreateWorkspaceGroupRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DebugDaemonLocksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/debug-daemon-locks/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -7466,6 +7558,7 @@ class WorkspaceRenamedEvent(EventBase):
 # Named protocol aliases.
 AccessRequestStatus = Union[AccessRequestStatusDelivered, AccessRequestStatusDenied, AccessRequestStatusPending]
 AgentCLIJobResolution = Union[AgentCLIJobResolutionCreated, AgentCLIJobResolutionFailed, AgentCLIJobResolutionIndeterminate, AgentCLIJobResolutionNotFound, AgentCLIJobResolutionPending, AgentCLIJobResolutionPrepared]
+AgentInventoryWatchResult = Union[AgentInventoryWatchActive, EmptyResult]
 AgentSessionAcpmuxReply = Any
 AgentSessionPage = Any
 AgentSessionSummary = Any
@@ -7495,6 +7588,9 @@ __all__ = [
     'KnownEvent',
     'AnyEvent',
     'AccessRequestKind',
+    'AgentInventoryAuth',
+    'AgentInventoryChannel',
+    'AgentInventoryFamily',
     'AgentPresenceActivity',
     'AgentReportSource',
     'AgentSource',
@@ -7556,6 +7652,10 @@ __all__ = [
     'AgentCLIJobResolutionPending',
     'AgentCLIJobResolutionPrepared',
     'AgentCLIStoredIntent',
+    'AgentInventoryHarness',
+    'AgentInventoryRefreshResult',
+    'AgentInventoryResult',
+    'AgentInventoryWatchActive',
     'AgentRecord',
     'AgentSessionAnsweredBy',
     'AgentSessionSource',
@@ -7811,6 +7911,9 @@ __all__ = [
     'AgentCliIntentsSettleResult',
     'AgentCliUpdateJobRequest',
     'AgentCliUpdateJobResolveRequest',
+    'AgentInventoryRequest',
+    'AgentInventoryRefreshRequest',
+    'AgentInventoryWatchRequest',
     'AgentSessionAttachRequest',
     'AgentSessionCancelRequest',
     'AgentSessionCancelResult',
@@ -7993,6 +8096,7 @@ __all__ = [
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DebugDaemonLocksRequest',
     'DeleteBookmarkRequest',
     'DeleteBookmarkResult',
     'DeleteBrowserProfileRequest',
@@ -8320,6 +8424,7 @@ __all__ = [
     'WorkspaceRenamedEvent',
     'AccessRequestStatus',
     'AgentCLIJobResolution',
+    'AgentInventoryWatchResult',
     'AgentSessionAcpmuxReply',
     'AgentSessionPage',
     'AgentSessionSummary',

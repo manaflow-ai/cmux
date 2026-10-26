@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+public import CmuxNextWakeups
 public import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
@@ -20,9 +21,6 @@ public final class WebUIHost {
     public let chromium: (any PageChromiumHosting)?
     /// Answers a WebKit page's `<input type="file">`; nil: a file input does nothing.
     public let openPanel: MadeAheadOpenPanel?
-    /// The app's one memory pressure service, for the page lifecycle and the preload slot that
-    /// subscribe through this host (p13-webui-043, 047).
-    public let memoryPressure: MemoryPressureEvents
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
     /// The shared web content processes of the WebKit pages that ask for them
@@ -32,14 +30,27 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
-    /// The app's one preloaded page (p13-webui.md 3.D); this host's pressure subscription drops it
-    /// at any level but normal. Nil until the composition root installs it with the app's deadline
-    /// scheduler (p13-webui-044, 045); installing it hands it the current level.
+    /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
+    /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
+    /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
     package var preload: PagePreloadSlot? {
-        didSet { preload?.memoryPressureDidChange(memoryPressure.currentLevel) }
+        didSet { preloadLevelDidChange() }
     }
-    /// The host's one memory pressure subscription (p13-webui-047 moves the page lifecycle onto it).
-    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// The preload slot's place in the app's one memory pressure path (p13-webui-047): a spare
+    /// consumer of the memory coordinator, as Chromium's spare windows are (`ChromiumWarmup`). The
+    /// coordinator hands every spare the level in the level's own turn, the debug override included,
+    /// and runs the critical urgent discard pass over tabs, chats and pages (`BrowserHibernation`) on a
+    /// later frame, so the cheapest memory, nothing a person made, goes first.
+    private var preloadMemory: SpareMemoryConsumer?
+    /// The crash budgets of the pages that share a renderer (p13-webui.md 3.C). A page opened while
+    /// ``lifecycle`` is set uses them and loads after a crash it had while hidden when it shows
+    /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once. The
+    /// composition root sets them with the lifecycle: Chromium's grouping and how to read a renderer.
+    package var crashGroups = PageCrashGroups()
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
+    /// `hoverFrameInput`): each page this host opens gets it for its popup's rows
+    /// (``PageWebView/popupHoverFrameInput``). Nil: each move hovers at once.
+    public let hoverFrameInput: FrameInputCoalescers?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// A page starts its document, and its renderer, at its first show, not when it opens
@@ -57,26 +68,36 @@ public final class WebUIHost {
     /// - Parameters:
     ///   - chromium: The app's Chromium page maker (`ChromiumPageHost`); nil for WebKit only.
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`).
-    ///   - memoryPressure: The app's one memory pressure service.
+    ///   - memory: The app's memory coordinator: the preload slot registers with it at once.
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
+    ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
-                memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
+                memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
-                startsPagesAtFirstShow: Bool = false) {
+                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil) {
         self.chromium = chromium
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
+        self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
-        self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
-        pressureObservation = memoryPressure.observe { [weak self] level in
-            self?.preload?.memoryPressureDidChange(level)
-        }
+        preloadMemory = SpareMemoryConsumer(
+            name: "webui-preload", registry: memory, spares: { [weak self] in self?.preload?.count ?? 0 },
+            drop: { [weak self] in self?.preloadLevelDidChange() }, refill: { [weak self] in self?.preloadLevelDidChange() })
+    }
+
+    /// The memory pressure level the preload slot follows (the coordinator's, the debug override
+    /// included); normal until the registration hands the first one.
+    private var memoryLevel: MemoryPressureLevel { preloadMemory?.level ?? .normal }
+
+    /// Hands the slot the coordinator's level: anything but normal drops its page and holds new ones.
+    private func preloadLevelDidChange() {
+        preload?.memoryPressureDidChange(memoryLevel)
     }
 
     /// Makes the page `request` asks for, in the engine ``PageEnginePolicy`` picks with this host's
@@ -90,6 +111,10 @@ public final class WebUIHost {
                                      processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
+        if lifecycle != nil { view.crash.groups = crashGroups }
+        // The view joined processGroups (PageWebView(request:...) passes them on these terms).
+        view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
+        view.popupHoverFrameInput = hoverFrameInput
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
@@ -97,8 +122,8 @@ public final class WebUIHost {
         return view
     }
 
-    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists. Safe to
-    /// call twice and for a view this host did not open (it is only closed).
+    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists and its own
+    /// crash budget. Safe to call twice and for a view this host did not open (it is only closed).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
@@ -106,6 +131,7 @@ public final class WebUIHost {
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
+        crashGroups.forget(ObjectIdentifier(view))
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages

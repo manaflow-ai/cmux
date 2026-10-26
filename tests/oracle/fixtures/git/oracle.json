@@ -1,0 +1,30 @@
+{
+  "$comment": "p15-oracle-068: the repository of the daemon-ops git family, built under $CASE_ROOT/repos/ by make_repo.py before the first step of a case whose fixture.repo is oracle. main has one pushed and one unpushed commit (git.push fast-forwards origin/main), notes.txt is edited but not staged (git.commit paths), scratch.txt is untracked (git.checkpoint.create), and oracle-feature is a linked worktree on cmux/feature with the base git.worktree.create records and one commit that only it has (git.worktree.apply succeeds there, git.worktree.remove refuses it as unpushed_commits). Every commit date is the epoch plus one minute per commit, so the commit ids are the same on every run.",
+  "name": "oracle",
+  "branch": "main",
+  "epoch": 1767225600,
+  "identity": {"name": "cmux oracle", "email": "oracle@localhost"},
+  "origin": "oracle.git",
+  "commits": [
+    {
+      "message": "fixture: first commit",
+      "files": {"README.md": "oracle fixture repository\n", "notes.txt": "notes\n", "src/app.txt": "one\n"},
+      "pushed": true
+    },
+    {
+      "message": "fixture: unpushed commit",
+      "files": {"src/app.txt": "one\ntwo\n"},
+      "pushed": false
+    }
+  ],
+  "worktrees": [
+    {
+      "path": "oracle-feature",
+      "branch": "cmux/feature",
+      "base": "main",
+      "commits": [{"message": "fixture: feature", "files": {"feature.txt": "feature\n"}}]
+    }
+  ],
+  "dirty": {"notes.txt": "notes\nedited\n"},
+  "untracked": {"scratch.txt": "scratch\n"}
+}

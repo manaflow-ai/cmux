@@ -38,6 +38,10 @@ import Testing
         let value = Atomic(true)
     }
 
+    final class Count: Sendable {
+        let value = Atomic(0)
+    }
+
     private func spin(for duration: Duration, while condition: Flag) -> Thread {
         let thread = Thread {
             let end = ContinuousClock.now + duration
@@ -68,6 +72,103 @@ import Testing
         #expect(busy.first?.details["scope"] == "process")
         #expect(log.summary.busyCount >= 1)
         #expect(log.summary.count == 0)
+    }
+
+    /// p14-energy-124: a busy renderer's record names every tab it serves. This process stands in for
+    /// renderer 7: one tab reports it as its main frame's renderer, a same-site tab hosts a frame in it
+    /// (client id 7), and a third has another renderer and is not named.
+    @Test func aBusyRendererNamesEveryTabItServes() async throws {
+        let log = HangLog()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
+        let me = getpid()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-renderer", rendererClientID: 7)] }
+        let directory = TabRendererDirectory()
+        directory.update(ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: me, rendererClients: [7]))
+        directory.update(ProcessUsage.TabRenderers(tab: "b", title: "Docs 2", pid: nil, rendererClients: [7]))
+        directory.update(ProcessUsage.TabRenderers(tab: "c", title: "Other", pid: me &+ 1, rendererClients: [8]))
+        watchdog.setTabSource { directory.snapshot() }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(400))
+        running.value.store(false, ordering: .relaxed)
+        let helper = try #require(log.records().first { $0.kind == .busy && $0.details["scope"] == "helper" })
+        #expect(helper.details["serves"] == "cef-renderer")
+        let named = helper.details["tabs"]?.arrayValue?.compactMap { $0["tab"]?.stringValue }
+        #expect(named == ["a", "b"])
+        #expect(helper.details["tabs"]?.arrayValue?.first?["title"]?.stringValue == "Docs")
+    }
+
+    /// A busy helper that is not a tab renderer (GPU, an extension renderer) names no tab, even when a stale
+    /// tab pid names it, and the tab source is not read.
+    @Test func aBusyHelperThatIsNotATabRendererNamesNoTabs() async throws {
+        let log = HangLog()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
+        let me = getpid()
+        let reads = Count()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-gpu")] }
+        watchdog.setTabSource {
+            reads.value.add(1, ordering: .relaxed)
+            return [ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: me, rendererClients: [])]
+        }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(400))
+        running.value.store(false, ordering: .relaxed)
+        let helper = try #require(log.records().first { $0.kind == .busy && $0.details["scope"] == "helper" })
+        #expect(helper.details["serves"] == "cef-gpu")
+        #expect(helper.details["tabs"] == nil)
+        #expect(reads.value.load(ordering: .relaxed) == 0)
+    }
+
+    /// The close of a window must not keep the watch going by itself. Reading the tabs used to hop to the
+    /// main actor, which woke the main run loop and counted as the app being awake: an idle app with one
+    /// busy renderer then opened a window and wrote a record every window, without end. The tab source
+    /// here wakes the watchdog as that hop did; with no other wake there is one window and one record.
+    @Test func aBusyRendererWithNoOtherWakeGivesOneWindowAndOneRecord() async throws {
+        let log = HangLog()
+        let ledger = WakeupLedger()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(200), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: ledger, activity: ExpectedActivity())
+        let me = getpid()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-renderer", rendererClientID: 7)] }
+        watchdog.setTabSource {
+            watchdog.noteAwake()
+            return [ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: me, rendererClients: [7])]
+        }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(800))
+        running.value.store(false, ordering: .relaxed)
+        let helpers = log.records().filter { $0.kind == .busy && $0.details["scope"] == "helper" }
+        #expect(helpers.count == 1)
+        #expect(helpers.first?.details["tabs"]?.arrayValue?.compactMap { $0["tab"]?.stringValue } == ["a"])
+        #expect(ledger.snapshot().first { $0.owner == "BusyWatchdog.window" }?.count == 1)
+    }
+
+    /// Without a tab source a busy helper's record is as before: its kind, no tabs.
+    @Test func withoutATabSourceABusyHelperNamesNoTabs() async throws {
+        let log = HangLog()
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 0.05, logBusy: false),
+                                    log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
+        let me = getpid()
+        watchdog.setHelperSource { [.init(pid: me, label: "cef-renderer", rendererClientID: 7)] }
+        let running = Flag()
+        _ = spin(for: .seconds(2), while: running)
+        watchdog.noteAwake()
+        try await settle(log, window: .milliseconds(400))
+        running.value.store(false, ordering: .relaxed)
+        let helper = try #require(log.records().first { $0.kind == .busy && $0.details["scope"] == "helper" })
+        #expect(helper.details["tabs"] == nil)
     }
 
     @Test func cpuDuringInputIsExpected() async throws {

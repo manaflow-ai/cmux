@@ -11,7 +11,8 @@ import os
 ///   create latency).
 /// - The ring's async pair is keyed by the intent id (``intentID``): begin `arg0` the kind's code, end `arg0`
 ///   the outcome (``Outcome``). An instant of the same name and id (``standInShown(afterCommit:)``) marks the
-///   commit of the stand-in, the tab the app shows before the daemon made it.
+///   commit of the stand-in, the tab the app shows before the daemon made it. The open's later steps (a chat's
+///   stages) are instants on its ``scope``, keyed by the same id.
 ///
 /// Chrome times the same span as one async trace event from the input to the presented frame of the new
 /// content, closed by `ContentToVisibleTimeReporter` (content/browser/renderer_host/visible_time_request_trigger.h);
@@ -80,6 +81,8 @@ public final class CreateTabInterval {
     private let signposter: Signposter
     private let signpostID: OSSignpostID
     private var interval: SignpostInterval?
+    /// Whether the begin wrote a ring record: the open's instants go to the ring only then, as its end does.
+    private let isTraced: Bool
 
     /// Begins the interval now, in the intent's turn.
     ///
@@ -93,6 +96,13 @@ public final class CreateTabInterval {
         interval = begun.interval
         signpostID = begun.id
         intentID = begun.intentID
+        isTraced = begun.interval.isTraced
+    }
+
+    /// Where this open's steps go, during the interval and after its end: the content's own stages, which a reader
+    /// groups with this pair by the intent id.
+    public var scope: Scope {
+        Scope(kind: kind, intentID: intentID, signpostID: signpostID.rawValue, isTraced: isTraced, signposter: signposter)
     }
 
     /// Whether the interval has not ended.
@@ -117,6 +127,38 @@ public final class CreateTabInterval {
         self.interval = nil
         self.outcome = outcome
         signposter.endCreateTab(interval, outcome: outcome)
+    }
+}
+
+extension CreateTabInterval {
+    /// One open's async scope: its steps are instants on the interval's id, as Chrome writes
+    /// `TRACE_EVENT_NESTABLE_ASYNC_INSTANT` steps with the id of their async event (base/trace_event/trace_event.h).
+    /// A step may come after the pair's end (a loading cover's fade ends after the first paint) and keeps the id.
+    /// Content made with no open (a prewarmed page, a restored pane) has no scope, so it writes no step.
+    public nonisolated struct Scope: Sendable {
+        /// What the open shows.
+        public let kind: Kind
+        /// The open's intent id: the pair's async id and each step's `arg1`.
+        public let intentID: UInt64
+        /// The interval's `OSSignpostID` raw value: each step's log event is on it.
+        let signpostID: UInt64
+        /// Whether the begin wrote a ring record (each step writes one only then).
+        let isTraced: Bool
+        let signposter: Signposter
+
+        /// Writes one step named `name` (a ``SignpostCategory/create`` name, ``SignpostName/createTab``): a log event
+        /// on the interval's id with `message`, and, when the begin wrote a ring record, a ring instant with `arg0`
+        /// and the intent id in `arg1`. One log event per step of one open: never per frame.
+        ///
+        /// - Parameters:
+        ///   - name: The step's catalog name.
+        ///   - message: Public text for the log system (fixed names, never user content).
+        ///   - arg0: The ring record's first number (the name's doc comment says what it holds).
+        public func event(_ name: SignpostName, _ message: String, arg0: UInt64) {
+            assert(name.category == .create, "\(name) is not a create step")
+            signposter.signposter.emitEvent(name.staticName, id: OSSignpostID(signpostID), "\(message, privacy: .public)")
+            if isTraced { signposter.trace.event(name, arg0: arg0, arg1: intentID) }
+        }
     }
 }
 

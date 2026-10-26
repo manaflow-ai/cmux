@@ -50,8 +50,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
-    /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
+    /// The burst marks of grid echoes and first outputs (nil: none), in every build while a recording runs.
     private let burstTrace: BurstTrace?
+    /// The daemon surface whose marks this view writes.
+    private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
@@ -64,7 +66,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `createIntent`: the `create.tab` intent id of the new tab this view shows (0: none, a restore): its first
     /// attach writes that create's stages (`NewTerminalTrace.FirstAttach`).
     /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
-    /// go while the burst bench records (`debug.burst`).
+    /// go while a recording runs (`debug.burst`, or a trace recording's `burst` category).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
@@ -113,7 +115,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             // without a live link, while hidden, or of the size it already holds.
             onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
                 { size, expectsEcho in
-                    guard trace.isArmed else { return }
                     trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
                 }
             }
@@ -121,11 +122,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.driver = driver
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
+        self.surface = surface
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
                 screenChanged?()
-                if let burstTrace, burstTrace.isArmed {
+                // Each mark checks for a recording itself; with none, it drops an ended one's echo matching.
+                if let burstTrace {
                     switch event {
                     case .output: burstTrace.output(surface: surface)
                     // The daemon applied a grid: its first output after this is at that size.
@@ -152,6 +155,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     deinit {
         driver.close()
+        burstTrace?.forget(surface: surface)
     }
 
     // MARK: TerminalIO

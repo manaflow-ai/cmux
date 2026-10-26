@@ -47,7 +47,8 @@ struct HangReportServiceTests {
 
     func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) },
                  build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true },
-                 wireSchema: HangReport.WireSchema = .v2, inputLatency: (any HangReportInputLatencySource)? = nil)
+                 wireSchema: HangReport.WireSchema = .v2, inputLatency: (any HangReportInputLatencySource)? = nil,
+                 mainThread: MainThreadReportLedger? = nil)
         -> HangReportService {
         let clock = clock
         let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
@@ -58,7 +59,7 @@ struct HangReportServiceTests {
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: build, channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
-                counts: counts, now: { clock.now }, stillAllowed: allowed, inputLatency: inputLatency))
+                counts: counts, now: { clock.now }, stillAllowed: allowed, inputLatency: inputLatency, mainThread: mainThread))
     }
 
     @Test func offSendsNothing() async {

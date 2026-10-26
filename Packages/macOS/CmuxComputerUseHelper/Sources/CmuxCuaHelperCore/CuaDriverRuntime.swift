@@ -7,7 +7,10 @@ import Foundation
 /// The library is the pinned libcua_driver_sdk.dylib in the helper's
 /// Frameworks directory; it is opened with dlopen so the package builds
 /// without it. There is no upstream daemon and no upstream socket.
-public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
+/// An actor: the C ABI does not promise that one driver handle takes calls
+/// from several threads at once, so list and invoke submissions run one at a
+/// time. The actor is reentrant, so a pending invoke never blocks the next.
+public actor CuaDriverRuntime: ToolInvoking {
     typealias VersionFn = @convention(c) (UnsafeMutablePointer<CuaDriverAbiVersion>?) -> Int32
     typealias CompatibleFn = @convention(c) (UInt16, UInt16) -> Bool
     typealias FreeFn = @convention(c) (UnsafeMutablePointer<CuaDriverBuffer>?) -> Void
@@ -53,10 +56,10 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
         let version = try symbol("cua_driver_abi_version_v1", VersionFn.self)
         let compatible = try symbol("cua_driver_abi_is_compatible_v1", CompatibleFn.self)
         let create = try symbol("cua_driver_create_v1", CreateFn.self)
-        free = try symbol("cua_driver_buffer_free_v1", FreeFn.self)
-        list = try symbol("cua_driver_list_tools_json_v1", ListFn.self)
-        invokeFn = try symbol("cua_driver_invoke_v1", InvokeFn.self)
-        release = try symbol("cua_driver_operation_release_v1", ReleaseFn.self)
+        let free = try symbol("cua_driver_buffer_free_v1", FreeFn.self)
+        let list = try symbol("cua_driver_list_tools_json_v1", ListFn.self)
+        let invokeFn = try symbol("cua_driver_invoke_v1", InvokeFn.self)
+        let release = try symbol("cua_driver_operation_release_v1", ReleaseFn.self)
         var runtimeVersion = CuaDriverAbiVersion()
         runtimeVersion.struct_size = UInt32(MemoryLayout<CuaDriverAbiVersion>.size)
         guard version(&runtimeVersion) == 0,
@@ -73,6 +76,10 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
         }
         self.library = library
         self.handle = created
+        self.free = free
+        self.list = list
+        self.invokeFn = invokeFn
+        self.release = release
     }
 
     public func listTools() async throws -> Data {
@@ -115,6 +122,7 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
         return String(decoding: UnsafeBufferPointer(start: data, count: buffer.len), as: UTF8.self)
     }
 
+    // crash-allow: two immutable lets, a CheckedContinuation (Sendable) and a C function pointer (a code address with no state); the ABI calls the completion exactly once.
     final class CompletionBox: @unchecked Sendable {
         let continuation: CheckedContinuation<Data, any Error>
         let free: FreeFn
