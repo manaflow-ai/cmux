@@ -30,12 +30,14 @@
     "palette-key": {
       "what": "Command Palette open and each query key to its first painted frame",
       "bench": "scripts/cmux-next/palette-open-stages.py",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["key.palette_search"]
     },
     "omnibar-key": {
       "what": "omnibar suggestions per typed key",
       "bench": "scripts/cmux-next/omnibar-click-bench.py (focus), then bench-typing.py with the omnibar focused",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["key.omnibar_suggest"]
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
