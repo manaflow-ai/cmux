@@ -1050,6 +1050,16 @@ every task that changes behavior or performance and is not repeated per row.
   header documents the API version; fence released on every path.
 - Test phase: cmux-ci build cef (incremental); cef-resize-sync-bench.py main wait p99 = 0.
 - Size L. Depends: 041.
+- Landed in the fork at API 32: manaflow-ai/cef `cp/p03-rendering-042` (`741a509a`, on `cp/p01-process-173`,
+  the API 31 train line). `cmux_browser_set_resize_fence(id, port, deadline_frames)` replaces API 31's
+  `cmux_browser_resize_fence` (a deadline in ms that held the commit): the fork takes its own send right and
+  joins the page's context (hosting context, or the page window's own) for the call's turn and for the commit
+  that shows the first frame at the new size (`SetCALayerParams` tells the window,
+  `-cmuxEmbedderDidReceiveFrame`), then drops it; also at the deadline (display frames, at most 30; 0 after
+  the turn's commit), with no resize, and on hide, hosting off and close. An embedded page window never calls
+  `Synchronize()` and never waits in pre-commit, so `cmux_browser_set_resize_sync` has no effect from API 32.
+  App shim: `cmux_shim_browser_set_resize_fence` (`shim_windows.mm`), not bound in host mode. Task 043 checks
+  for `>= 32`. Embedder case `helper-resize-fence` (not run here: no Chromium tree).
 
 #### p03-rendering-043 App fence transactions
 - Files: `.../CmuxNextBrowser/CEF/CEFLayerHosting.swift`, `.../CmuxNextRemoteLayer/include/CmuxNextRemoteLayer.h`,

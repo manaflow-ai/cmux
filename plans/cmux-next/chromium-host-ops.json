@@ -291,6 +291,31 @@
       "reason": "The resize fence goes over XPC with a one-frame deadline (task 052), owned by ChromiumHostPageView."
     },
     {
+      "name": "cmux_shim_browser_set_resize_fence",
+      "class": "view",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "fence_port",
+          "type": "unsigned int"
+        },
+        {
+          "name": "deadline_frames",
+          "type": "unsigned int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A Mach port name is this process's: in host mode CEFShimLibrary does not bind the export, and the fence reaches the host as a port right over XPC (task 052), owned by ChromiumHostPageView."
+    },
+    {
       "name": "cmux_shim_browser_set_detached_hosting",
       "class": "view",
       "args": [

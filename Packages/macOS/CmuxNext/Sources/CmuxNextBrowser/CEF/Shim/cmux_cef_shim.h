@@ -300,9 +300,28 @@ CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int dialog_id, int multiple, c
 CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
 // Fork API 27: how long (ms) a resize of browser_id's page window may hold
 // this app's Core Animation commit for Chromium's frame at the new size; 0
-// never holds it (the fork's default). Returns 0 when the fork lacks the call
-// or the browser has no page window.
+// never holds it (the fork's default). From fork API 32 the timeout has no
+// effect: a page window never holds the commit (use the resize fence). Returns
+// 0 when the fork lacks the call or the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
+// Fork API 32 (cmux_browser_set_resize_fence; p03-rendering-042): browser_id's
+// page shows its first frame at its new size in the same WindowServer update
+// as the app's commit that resized its parent view, with no main-thread wait.
+// The app makes fence_port (a send right name of this process) with
+// -[CAContext createFencePort] on its window's context, holds that commit on
+// it (-[CAContext setFencePort:]), calls this for each page the transaction
+// resizes, in the same main-thread turn as the geometry change, and drops its
+// own right after its commit. The fork takes its own send right and drops it
+// after the commit that shows the page at the new size, at the deadline
+// (deadline_frames display frames of the parent window's screen, at most 30;
+// 0: after this turn's commit), or when the page hides, stops being layer
+// hosted or closes; a busy or crashed renderer never holds it past the
+// deadline. The app's right stays the app's. Returns 1 when the fork took its
+// right; 0 for port 0, an unknown browser, a hidden page, a page with no
+// context yet, or a fork without the call. In-process only: a port name means
+// nothing in another process. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
+                                                        unsigned int deadline_frames);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
