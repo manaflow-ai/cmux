@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Builds cmux-chromium-host, the executable of the Chromium host app
-# (prototype behind browserHost.helperPrototype,
-# plans/cmux-next/cef-helper-app-DESIGN.md), from
-# Packages/macOS/CmuxNext/ChromiumHost against one single-arch shim build of
-# build-cef-shim.sh (its libcef_dll_wrapper.a) and that build's CEF artifact,
-# and libcmux_cef_shim_remote.dylib, the shim ABI cmux loads in host mode
+# Builds cmux-chromium-host, the executable of the Chromium Host
+# (plans/cmux-next/chrome-parity/p01-process.md 3.1-3.4), from
+# Packages/macOS/CmuxNext/ChromiumHost and the real shim's sources
+# (CEFShim/src/shim_*.mm, linked in: the host runs every cmux_shim_* call),
+# against one single-arch shim build of build-cef-shim.sh (its
+# libcef_dll_wrapper.a) and that build's CEF artifact, and
+# libcmux_cef_shim_remote.dylib, the shim ABI cmux loads in host mode
 # (ChromiumHost/client, plans/cmux-next/chrome-parity/p01-process.md 3.2). The
 # remote shim links no CEF; its exports come from client/generated/remote_shim.inc
 # (scripts/cmux-next/gen-chromium-host-wire.py), checked here against the
@@ -17,10 +18,15 @@
 # makes Release users download the engine again or rebuilds the shim cache.
 # embed-cef.sh calls this for Debug builds only.
 #
-# The host links libcef_dll_wrapper.a, so it compiles with the wrapper's own
-# flags: `common` below is build-cef-shim.sh's `common`, copied here so the
-# flags live in no file that a shim or pack key hashes.
-# tests/chromium-host-flags.test.sh fails when the two differ.
+# Every source compiles with the wrapper's own flags: `common` below is
+# build-cef-shim.sh's `common`, copied here so the flags live in no file that
+# a shim or pack key hashes. tests/chromium-host-flags.test.sh fails when the
+# two differ. The shim's sources get exactly the shim build's flags; the
+# host's own (ChromiumHost/src) also -Werror.
+#
+# ChromiumHost/src/generated/host_dispatch.inc comes from
+# scripts/cmux-next/gen-chromium-host-wire.py; a checkout without it builds
+# no host.
 #
 # Usage: build-chromium-host.sh <cef_dir> <shim_dir> <cache_dir>
 #   cef_dir:  the CEF artifact shim_dir was built from (one architecture).
@@ -29,7 +35,7 @@
 # Prints the output directory (cmux-chromium-host, libcmux_cef_shim_remote.dylib
 # and .build-key) on stdout.
 # Content-addressed like build-cef-shim.sh: the key hashes the shim build key
-# (which covers the artifact, the CEFShim headers the host includes, clang,
+# (which covers the artifact, every CEFShim source, the shim header, clang,
 # the architecture and the minimum macOS), the host sources and this script
 # (so the flags). A finished directory is never changed; a build renames a
 # private temporary directory into place.
@@ -42,8 +48,10 @@ CACHE_DIR="${3:?$usage}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HOST_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/ChromiumHost"
-SHIM_SRC="$REPO_ROOT/Packages/macOS/CmuxNext/CEFShim/src"
-SHIM_HEADER="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
+SHIM_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/CEFShim"
+SHIM_SRC="$SHIM_DIR/src"
+SHIM_HEADER_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
+ABI_ID="$(shasum -a 256 "$SHIM_HEADER_DIR/cmux_cef_shim.h" | awk '{print $1}')"
 REMOTE_INC="$HOST_DIR/client/generated/remote_shim.inc"
 
 ARCH="${CMUX_CEF_ARCH:-arm64}"
@@ -54,9 +62,12 @@ for need in .build-key libcef_dll_wrapper.a; do
 done
 [[ -d "$CEF_DIR/include" ]] || { echo "error: $CEF_DIR is not a CEF artifact (no include/)" >&2; exit 1; }
 # A stale remote_shim.inc carries another header's ABI id, which CEFShimLibrary refuses.
-abi_id="$(shasum -a 256 "$SHIM_HEADER" | awk '{print $1}')"
-grep -q "kShimAbiID\[\] = \"$abi_id\"" "$REMOTE_INC" 2>/dev/null || {
+grep -q "kShimAbiID\[\] = \"$ABI_ID\"" "$REMOTE_INC" 2>/dev/null || {
   echo "error: $REMOTE_INC is missing or stale: run python3 scripts/cmux-next/gen-chromium-host-wire.py" >&2
+  exit 1
+}
+[[ -f "$HOST_DIR/src/generated/host_dispatch.inc" ]] || {
+  echo "error: no ChromiumHost/src/generated/host_dispatch.inc (python3 scripts/cmux-next/gen-chromium-host-wire.py writes it)" >&2
   exit 1
 }
 
@@ -94,15 +105,31 @@ common=(
   -I"$CEF_DIR"
   -Wno-deprecated-declarations -Wno-undefined-var-template -Werror=unguarded-availability-new
 )
-"$CXX" "${common[@]}" -I"$SHIM_SRC" \
-  -o "$OUT_DIR/cmux-chromium-host" \
-  "$HOST_DIR/src/browser_host_main.mm" \
-  "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
+mkdir -p "$OUT_DIR/obj"
+objects=()
+# The real shim, as build-cef-shim.sh compiles it (helper_main.mm is the helpers' own executable).
+for src in "$SHIM_SRC"/shim_*.mm; do
+  obj="$OUT_DIR/obj/shim_$(basename "$src").o"
+  "$CXX" "${common[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$obj"
+  objects+=("$obj")
+done
+# The host's own sources: the dispatcher, the control channel, main.
+for src in "$HOST_DIR"/src/*.mm "$HOST_DIR"/src/*.cc; do
+  [[ -f "$src" ]] || continue
+  obj="$OUT_DIR/obj/host_$(basename "$src").o"
+  "$CXX" "${common[@]}" -Werror -Wno-unused-command-line-argument -I"$HOST_DIR/src" -I"$SHIM_SRC" \
+    -I"$SHIM_HEADER_DIR" -c "$src" -o "$obj"
+  objects+=("$obj")
+done
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+  -o "$OUT_DIR/cmux-chromium-host" "${objects[@]}" \
+  "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore -lobjc
+rm -rf "$OUT_DIR/obj"
 # The remote shim links neither CEF nor the wrapper, so it takes the flags of
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 \
   -std=c++20 -fno-exceptions -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Werror \
-  -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
+  -I"$SHIM_HEADER_DIR" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
   "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc" -lobjc

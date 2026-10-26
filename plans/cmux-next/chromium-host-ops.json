@@ -843,7 +843,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Back/Forward menu JSON, pushed before the event that changes it."
+      "reason": "Back/Forward menu JSON. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event; BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_tab_go_to_entry",
@@ -896,7 +896,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "AFTER_CREATED and TAB_EVENT carry the window id already (a = window id)."
+      "reason": "host_mirror.mm pushes the event's window (a) at AFTER_CREATED and TAB_EVENT inserted (0) and moved (2), the fork's at removed (3), for every open tab; BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_load_url",
@@ -1473,14 +1473,14 @@
       "refresh_events": [
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_TAB_EVENT:4",
-        "CMUX_SHIM_TAB_EVENT:7",
         "CMUX_SHIM_ADDRESS",
         "CMUX_SHIM_LOAD_END",
-        "CMUX_SHIM_TAB_EVENT:0"
+        "CMUX_SHIM_TAB_EVENT:0",
+        "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Toolbar actions, per tab (badges are per page). TAB_EVENT 4 reports changes in a window and refreshes every tab of it; TAB_EVENT 7 (extensions changed) every tab; LOAD_END and TAB_EVENT 0 the tab, where CEFTab+Events and CEFRuntime+Events read it. icon_px is CEFExtensionAction.iconPixels at every site."
+      "reason": "Toolbar actions, per tab (badges are per page), pushed by host_mirror.mm for every open tab with icon_px = CEFExtensionAction.iconPixels (kExtActionIconPixels, the only size cmux reads). TAB_EVENT 4 reports every action change in a window, an install or enable included, and refreshes every tab of that window, as in process CEFRuntime+Events refreshes the actions only on 4; LOAD_END and TAB_EVENT 0 refresh the tab, where CEFTab+Events and CEFRuntime+Events read it. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_ext_action_run",
@@ -1604,7 +1604,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "History with page state for hibernation and restore; PageState refresh on hide is task 093."
+      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event, so a read in LOAD_START's turn has the new entry; BEFORE_CLOSE pushes no value (forget). PageState refresh on hide is task 093."
     },
     {
       "name": "cmux_shim_tab_restore_navigation",
@@ -1647,7 +1647,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A fork capability, fixed for the host's life. Feature detection is mirror, never post (task 017)."
+      "reason": "A fork capability, fixed for the host's life: pushed once in the hello (host_mirror.mm owns it). Feature detection is mirror, never post (task 017)."
     },
     {
       "name": "cmux_shim_ext_list",
@@ -1665,11 +1665,12 @@
       "mirror_key": "tab.ext_list[browser_id]",
       "refresh_events": [
         "CMUX_SHIM_AFTER_CREATED",
-        "CMUX_SHIM_TAB_EVENT:7"
+        "CMUX_SHIM_TAB_EVENT:7",
+        "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Extensions of the tab's profile; TAB_EVENT 7 reports install, removal, enable and disable in the profile, so it refreshes every watched key (HOST/src/host_mirror.mm)."
+      "reason": "Extensions of the tab's profile, pushed by host_mirror.mm for every open tab; TAB_EVENT 7 reports install, removal, enable and disable and refreshes every tab of the event's profile. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_ext_set_enabled",
@@ -1885,11 +1886,12 @@
       "mirror_key": "tab.ext_commands[browser_id]",
       "refresh_events": [
         "CMUX_SHIM_AFTER_CREATED",
-        "CMUX_SHIM_TAB_EVENT:7"
+        "CMUX_SHIM_TAB_EVENT:7",
+        "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Extension shortcuts; the key path reads them in the key's turn (ext_command_run). TAB_EVENT 7 is profile-wide: it refreshes every watched key."
+      "reason": "Extension shortcuts; the key path reads them in the key's turn (ext_command_run). Pushed by host_mirror.mm for every open tab; TAB_EVENT 7 refreshes every tab of the event's profile. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_ext_command_run",
@@ -2139,11 +2141,12 @@
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_TAB_EVENT:0",
         "CMUX_SHIM_TAB_EVENT:2",
-        "CMUX_SHIM_TAB_EVENT:12"
+        "CMUX_SHIM_TAB_EVENT:12",
+        "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The side panel belongs to the tab's Chromium window: TAB_EVENT 12 reports every change in that window and refreshes every tab the host knows in it (HOST/src/host_mirror.mm tracks tab to window from AFTER_CREATED and TAB_EVENT 0, 2 and 3); TAB_EVENT 0 and 2 (inserted, moved to another window) refresh the tab when it changes window."
+      "reason": "The side panel belongs to the tab's Chromium window: TAB_EVENT 12 reports every change in that window and refreshes every open tab of it (host_mirror.mm keeps each tab's window from AFTER_CREATED and TAB_EVENT 0, 2, 3 and 6); TAB_EVENT 0 and 2 (inserted, moved to another window) refresh the tab when it changes window. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_side_panel_press",
@@ -2205,11 +2208,12 @@
       "mirror_key": "tab.omnibox_keywords[browser_id]",
       "refresh_events": [
         "CMUX_SHIM_AFTER_CREATED",
-        "CMUX_SHIM_TAB_EVENT:7"
+        "CMUX_SHIM_TAB_EVENT:7",
+        "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "chrome.omnibox keywords of the tab's profile, read on every omnibox key. TAB_EVENT 7 is profile-wide: it refreshes every watched key."
+      "reason": "chrome.omnibox keywords of the tab's profile, read on every omnibox key. Pushed by host_mirror.mm for every open tab; TAB_EVENT 7 refreshes every tab of the event's profile. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_omnibox_input",
@@ -2280,7 +2284,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "TAB_EVENT 9 reports each foreign Browser the fork blocks."
+      "reason": "TAB_EVENT 9 reports each foreign Browser the fork blocks, 6 a destroyed one; host_mirror.mm reads the fork's count."
     },
     {
       "name": "cmux_shim_download_url",
@@ -2397,7 +2401,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Counts AFTER_CREATED minus BEFORE_CLOSE in the host."
+      "reason": "The shim's browser map, read by host_mirror.mm after AFTER_CREATED adds and BEFORE_CLOSE removes a browser."
     },
     {
       "name": "cmux_shim_window_count",
@@ -2412,11 +2416,13 @@
         "attach",
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_TAB_EVENT:6",
+        "CMUX_SHIM_TAB_EVENT:9",
+        "CMUX_SHIM_TAB_EVENT:10",
         "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "TAB_EVENT 6 (window destroyed) carries the remaining count."
+      "reason": "host_mirror.mm pushes the remaining count TAB_EVENT 6 (window destroyed) carries in b, since the fork still counts that window; other refreshes read the fork. A blocked foreign Browser (9) and a hidden popup window (10) are windows too."
     },
     {
       "name": "cmux_shim_shutdown",
@@ -3055,7 +3061,7 @@
     },
     {
       "name": "cmux_shim_ssl_status",
-      "class": "mirror",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -3066,16 +3072,11 @@
       "result_used_by": [
         "CmuxNextBrowser/CEF/CEFRuntime+Site.swift"
       ],
-      "mirror_key": "tab.ssl_status[browser_id]",
-      "refresh_events": [
-        "CMUX_SHIM_ADDRESS",
-        "CMUX_SHIM_LOAD_START",
-        "CMUX_SHIM_LOAD_END",
-        "CMUX_SHIM_LOAD_ERROR"
-      ],
+      "mirror_key": null,
+      "refresh_events": [],
       "pending_keys": [],
-      "reply_event": null,
-      "reason": "The visible entry's SSLStatus, pushed before each event that commits or ends a main-frame load. cmux reads it only in the turn of those events (CEFTab+Events: LOAD_START commit and LOAD_END, syncSecurityFromChromium) and for Page Info's certificate chain, which is fixed at commit, so the pushed value is what an in-process read returns at every site. content_status can still change after LOAD_END (content/browser/ssl/ssl_manager.cc, DidChangeVisibleSecurityState); no site reads it then in either backend. Chrome's toolbar likewise reads the SecurityStateTabHelper state cached on that notification (chrome/browser/ssl/security_state_tab_helper.cc)."
+      "reply_event": "wire:REPLY",
+      "reason": "SSLStatus.content_status changes on the committed entry after the load ends, when subresources run or display insecure content or content with certificate errors (content/browser/ssl/ssl_manager.cc: DidRunMixedContent and DidDisplayContentWithCertificateErrors call DidChangeVisibleSecurityState), and Chrome's toolbar computes the security level live from the visible entry on that notification (chrome/browser/ssl/security_state_tab_helper.cc, GetVisibleSecurityState). No shim event reports it, so a mirror would serve a stale secure state. Page Info and the security refresh read it on demand and can take a reply (host_mode_rewrites). A mirror needs a shim event for DidChangeVisibleSecurityState first."
     },
     {
       "name": "cmux_shim_clear_certificate_exceptions",
@@ -3314,7 +3315,7 @@
     },
     {
       "name": "cmux_shim_pref_get",
-      "class": "mirror",
+      "class": "async",
       "args": [
         {
           "name": "profile_cache_path",
@@ -3327,14 +3328,11 @@
       ],
       "returns": "char*",
       "result_used_by": [],
-      "mirror_key": "profile.pref[profile_cache_path,pref_name]",
-      "refresh_events": [
-        "CMUX_SHIM_AFTER_CREATED",
-        "CMUX_SHIM_PREF_CHANGED"
-      ],
+      "mirror_key": null,
+      "refresh_events": [],
       "pending_keys": [],
-      "reply_event": null,
-      "reason": "Watched: when cmux watches a key, the host's producer registers cmux_shim_pref_watch for it itself (Chrome's PrefChangeRegistrar per observer, components/prefs/pref_change_registrar.cc) and pushes the value; PREF_CHANGED refreshes only the key it names (s2 profile, s1 name). A profile is known once a tab of it opened, so AFTER_CREATED registers the watch again and refreshes every pref key (HOST/src/host_mirror.mm). No Swift site reads it today."
+      "reply_event": "wire:REPLY",
+      "reason": "PREF_CHANGED fires only for a watched name and only on a change, and no event gives the first value or a profile becoming known, so a mirror would miss every key until it changes. No Swift site reads it today."
     },
     {
       "name": "cmux_shim_pref_set_bool",
@@ -3357,11 +3355,9 @@
       "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
-      "pending_keys": [
-        "profile.pref[profile_cache_path,pref_name]"
-      ],
+      "pending_keys": [],
       "reply_event": null,
-      "reason": "Marks the pref mirror pending until the ack; the host's PREF_CHANGED for the watched key carries the new value, a refusal leaves the old one."
+      "reason": "Optimistic in the mirror; PREF_CHANGED confirms it, a refusal reverts it."
     },
     {
       "name": "cmux_shim_pref_watch",
@@ -3386,7 +3382,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "PREF_CHANGED forwarding on or off. The pref_get mirror needs no call: the host watches each mirrored key itself. Disabling a name the mirror watches also stops its refreshes until the next AFTER_CREATED (the shim keeps one watch per name)."
+      "reason": "PREF_CHANGED forwarding on or off."
     },
     {
       "name": "cmux_shim_bookmarks_sync",
@@ -3544,7 +3540,6 @@
       "refreshes": [
         "host.live_browser_count",
         "host.window_count",
-        "profile.pref[profile_cache_path,pref_name]",
         "tab.ext_actions[browser_id,icon_px]",
         "tab.ext_commands[browser_id]",
         "tab.ext_list[browser_id]",
@@ -3564,8 +3559,13 @@
         "host.window_count",
         "tab.devtools_browser[browser_id]",
         "tab.devtools_inspected_bounds[browser_id]",
+        "tab.ext_actions[browser_id,icon_px]",
+        "tab.ext_commands[browser_id]",
+        "tab.ext_list[browser_id]",
         "tab.navigation_entries[browser_id]",
         "tab.navigation_state[browser_id]",
+        "tab.omnibox_keywords[browser_id]",
+        "tab.side_panel_state[browser_id]",
         "tab.window_id[browser_id]"
       ]
     },
@@ -3575,8 +3575,7 @@
       "refreshes": [
         "tab.ext_actions[browser_id,icon_px]",
         "tab.navigation_entries[browser_id]",
-        "tab.navigation_state[browser_id]",
-        "tab.ssl_status[browser_id]"
+        "tab.navigation_state[browser_id]"
       ]
     },
     {
@@ -3604,8 +3603,7 @@
       "value": 8,
       "refreshes": [
         "tab.navigation_entries[browser_id]",
-        "tab.navigation_state[browser_id]",
-        "tab.ssl_status[browser_id]"
+        "tab.navigation_state[browser_id]"
       ]
     },
     {
@@ -3613,16 +3611,13 @@
       "value": 9,
       "refreshes": [
         "tab.ext_actions[browser_id,icon_px]",
-        "tab.navigation_state[browser_id]",
-        "tab.ssl_status[browser_id]"
+        "tab.navigation_state[browser_id]"
       ]
     },
     {
       "kind": "CMUX_SHIM_LOAD_ERROR",
       "value": 10,
-      "refreshes": [
-        "tab.ssl_status[browser_id]"
-      ]
+      "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_PROGRESS",
@@ -3757,9 +3752,7 @@
     {
       "kind": "CMUX_SHIM_PREF_CHANGED",
       "value": 33,
-      "refreshes": [
-        "profile.pref[profile_cache_path,pref_name]"
-      ]
+      "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_DOWNLOAD_STARTED",
@@ -4114,6 +4107,24 @@
       "needs": "reply",
       "change": "The immediate return is the client's check; host refusals arrive as replies off main and are logged there.",
       "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.sslStatus(_:)",
+      "exports": [
+        "cmux_shim_ssl_status"
+      ],
+      "needs": "reply",
+      "change": "Becomes async (token + REPLY, as siteCall).",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/PageInfo/Engine/CEFTab+PageInfo.swift: pageInfoCertificateChain() and syncSecurityFromChromium()",
+      "exports": [
+        "cmux_shim_ssl_status"
+      ],
+      "needs": "reply",
+      "change": "Await sslStatus; syncSecurityFromChromium applies the security state when the reply comes, if the tab still shows the same entry.",
+      "task": "p01-process-022"
     }
   ]
 }

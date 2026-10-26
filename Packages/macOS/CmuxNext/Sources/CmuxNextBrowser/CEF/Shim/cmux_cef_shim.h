@@ -358,8 +358,10 @@ CMUX_SHIM_EXPORT int cmux_shim_add_native_messaging_dir(const char* path, int us
 // methods (the host app's NSApplication subclass must), 0 otherwise. The shim
 // no longer patches NSApp. Check before cmux_shim_initialize.
 CMUX_SHIM_EXPORT int cmux_shim_prepare_application(void);
-// CefInitialize with external_message_pump. CONTEXT_INITIALIZED arrives
-// before this returns. Returns 1 on success.
+// CefInitialize with external_message_pump (schedule asks for
+// cmux_shim_do_work); with schedule NULL there is no external pump and the
+// caller runs CefRunMessageLoop (the Chromium Host). CONTEXT_INITIALIZED
+// arrives before this returns. Returns 1 on success.
 //   framework_dir     .../Chromium Embedded Framework.framework
 //   main_bundle_path  the .app
 //   subprocess_path   base helper executable

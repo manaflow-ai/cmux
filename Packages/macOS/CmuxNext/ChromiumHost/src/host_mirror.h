@@ -1,103 +1,118 @@
-// Which watched mirror keys an event refreshes in the Chromium Host
+// The Chromium Host's producers of the tab and host mirrors
 // (plans/cmux-next/chrome-parity/p01-process.md 3.2, tasks p01-process-016
-// and 017). The generated ProduceMirror reads one key from the shim;
-// HostMirror picks the keys: those of the event's tab, of every tab in the
-// event's Chromium window, of the whole profile, or the one preference the
-// event names. Chrome scopes its observers the same way: WebContentsObserver
-// per tab, a Browser's TabStripModelObserver per window,
-// ExtensionRegistryObserver per profile and PrefChangeRegistrar per
-// preference (components/prefs/pref_change_registrar.cc).
+// and 017): tab_navigation_entries, tab_navigation_state, tab_window_id,
+// window_count, live_browser_count, foreign_browser_count and
+// navigation_restore_supported (016); side_panel_state, ext_actions,
+// ext_list, ext_commands and omnibox_keywords (017). Each export's
+// refresh_events in plans/cmux-next/chromium-host-ops.json say which events
+// push it (kMirrorRefreshes in the generated host_dispatch.inc).
 //
-// The dispatcher (host_dispatch.mm, task 013) asks Refreshes for each key it
-// watches before it pushes the event, then calls Track. Runs on the host's UI
-// thread only; no lock.
+// The host pushes every open tab's keys before each event that changes them,
+// with no watch from cmux: the remote shim's cache (remote_shim_mirror.h)
+// holds tab_navigation_state's new entry in the same main-thread batch as
+// the LOAD_START that made it. Chrome's browser process pushes session
+// history the same way, from NavigationEntryCommitted to the session service
+// (components/sessions/content/session_tab_helper.cc); nobody asks for it.
+//
+// Which tabs a refresh names depends on the mirror and the event, as Chrome
+// scopes each observer to its owner: most refreshes name the event's tab
+// (WebContentsObserver); the side panel's and the toolbar actions' change in
+// a window names every tab of that Chromium window (SidePanelCoordinator and
+// ExtensionsToolbarContainer belong to a Browser,
+// chrome/browser/ui/views/side_panel/side_panel_coordinator.h); an extension
+// install, removal, enable or disable names every tab of the event's profile
+// (ExtensionRegistryObserver is per BrowserContext,
+// extensions/browser/extension_registry_observer.h). The host keeps each open
+// tab's window and profile for that: a window has one profile, as a Browser
+// has one Profile (chrome/browser/ui/browser.h).
+//
+// Where the event carries the value, that value is pushed, as Chrome's
+// TabStripModelChange carries the strip's state
+// (chrome/browser/ui/tabs/tab_strip_model_observer.h): a tab's window at
+// AFTER_CREATED and TAB_EVENT inserted or moved, the windows that remain at
+// TAB_EVENT window destroyed (the fork counts that window until its
+// destructor runs). A tab is open from its AFTER_CREATED to its BEFORE_CLOSE,
+// whose keys go out with no value, so cmux's cache forgets them.
+//
+// UI thread only, like host_dispatch.mm: no lock.
 #pragma once
 
 #include <cstdint>
-#include <functional>
-#include <unordered_map>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "chromium_host_control.h"
 
 namespace cmux_host {
 
-// cmux_tab_event_t of the fork (include/cef_cmux.h; CEFForkTabEvent in
-// CEFShimEvent.swift): CMUX_SHIM_TAB_EVENT's request. a = window id.
-enum TabEventKind : int {
-  kTabInserted = 0,
-  kTabMoved = 2,
-  kTabRemoved = 3,
-  kTabExtensionActionsChanged = 4,
-  kTabWindowDestroyed = 6,
-  kTabExtensionsChanged = 7,
-  kTabPopupWindowCreated = 10,
-  kTabPopupWindowBounds = 11,
-  kTabSidePanelChanged = 12,
-};
+class HostContext;
 
-// One shim event with cmux's ids (the browser is the client id).
+// CEFExtensionAction.iconPixels (OmnibarStyle.buttonSize * 2), the icon_px
+// of every ext_actions read in cmux; chromium-host-dispatch.test.sh checks
+// the Swift value.
+inline constexpr int32_t kExtActionIconPixels = 56;
+
+// One shim event as the host forwards it; browser is cmux's id for the tab
+// (the minted id once bound), 0 for an event about no tab.
 struct MirrorEvent {
-  int kind = 0;  // cmux_shim_event_kind_t, or a pseudo event (< 0: attach)
+  int kind = 0;
+  int request = 0;  // CMUX_SHIM_TAB_EVENT's sub-kind (cmux_tab_event_t)
   int32_t browser = 0;
-  int request = 0;
   int64_t a = 0;
   int64_t b = 0;
-  const char* s1 = nullptr;
-  const char* s2 = nullptr;
+  // AFTER_CREATED of a create_window: its profile_cache_path ("" the default
+  // profile). Unset for a tab Chromium made: it takes its window's profile.
+  std::optional<std::string> profile;
 };
 
-// A mirror key: the export's arguments as the watch carried them.
-using MirrorKey = std::vector<control::Field>;
-
-// The keys an event names.
-enum class MirrorScope : uint8_t {
-  kNone,       // a pseudo event: only keys with no arguments
-  kTab,        // key[0] is the event's tab
-  kWindow,     // key[0] is a tab in the event's window (a), or the event's tab
-  kWindowKey,  // key[0] is the event's window id (popup_window.bounds)
-  kProfile,    // every key: a profile-wide change reported from one of its tabs
-};
-
-class HostMirror {
+class HostMirrors {
  public:
-  // Registers CMUX_SHIM_PREF_CHANGED for one preference
-  // (cmux_shim_pref_watch(profile_cache_path, pref_name, 1) in the host).
-  using WatchPref = std::function<int(const char* profile_cache_path, const char* pref_name)>;
+  // Before the event's refreshed mirrors are pushed.
+  void EventArrived(const MirrorEvent& event);
+  // Pushes `op` as `event` leaves it. False for a mirror these producers do
+  // not own: the caller pushes its watched keys.
+  bool Produce(HostContext& ctx, uint16_t op, const MirrorEvent& event) const;
+  // After the event's refreshed mirrors are pushed.
+  void EventSent(const MirrorEvent& event);
 
-  // pref_get_op: the generated id of cmux_shim_pref_get (kOpPrefGet).
-  HostMirror(uint16_t pref_get_op, WatchPref watch_pref);
-  HostMirror(const HostMirror&) = delete;
-  HostMirror& operator=(const HostMirror&) = delete;
+  // A watched key of a mirror these producers do not own (the caller's
+  // watched_): true when `event` names it. Its first field is a tab, or a
+  // Chromium window for popup_window_bounds, which TAB_EVENT 6, 10 and 11
+  // name in a.
+  static bool Names(uint16_t op, const MirrorEvent& event, const std::vector<control::Field>& key);
+  // True when the watched `key` of `op` belongs to tab `browser` (forgotten when it closes).
+  static bool NamesTab(uint16_t op, const std::vector<control::Field>& key, int32_t browser);
 
-  // The scope of an event for every mirror but pref_get.
-  static MirrorScope ScopeOf(const MirrorEvent& event);
-
-  // True when `event` refreshes the watched `key` of mirror `op`. A key
-  // with no arguments is refreshed by every refresh event of its mirror.
-  bool Refreshes(uint16_t op, const MirrorEvent& event, const MirrorKey& key) const;
-
-  // Before ProduceMirror reads `key`: a pref_get key gets its preference
-  // watch, at the watch from cmux (cause null) and at each refresh other
-  // than its own PREF_CHANGED. The shim drops watches with the profile
-  // (cmux_shim_release_context) and refuses one for a profile not known
-  // yet, so AFTER_CREATED registers it again; a repeat costs nothing.
-  void BeforeProduce(uint16_t op, const MirrorKey& key, const MirrorEvent* cause);
-
-  // After the event's refresh: keeps the tab -> window map that kWindow uses.
-  void Track(const MirrorEvent& event);
-
-  // The Chromium window of a tab, 0 when unknown.
+  size_t open_tabs() const { return tabs_.size(); }
+  // The tab's Chromium window, 0 when unknown or not open.
   int64_t WindowOf(int32_t browser) const;
+  // The tab's profile cache path, nullopt when unknown or not open.
+  std::optional<std::string> ProfileOf(int32_t browser) const;
 
  private:
-  bool IsTab(const MirrorKey& key, int64_t id) const;
-  bool NamesPref(const MirrorKey& key, const MirrorEvent& event) const;
+  struct Tab {
+    int64_t window = 0;
+    std::optional<std::string> profile;
+  };
 
-  const uint16_t pref_get_op_;
-  const WatchPref watch_pref_;
-  // Bounded by the host's live browsers: BEFORE_CLOSE and window destruction erase.
-  std::unordered_map<int32_t, int64_t> window_of_;
+  // The open tabs `op`'s refresh at `event` names, in id order.
+  std::vector<int32_t> TabsFor(uint16_t op, const MirrorEvent& event) const;
+  void Place(int32_t browser, int64_t window);
+  void SetProfile(int32_t browser, const std::string& profile);
+  void Unplace(int32_t browser);
+  void Close(int32_t browser);
+  void WindowDestroyed(int64_t window);
+
+  // cmux's ids of the tabs between AFTER_CREATED and BEFORE_CLOSE, and the
+  // two indexes over them: all bounded by Chromium's live browsers and
+  // windows, so a window or profile refresh costs the tabs it names.
+  std::map<int32_t, Tab> tabs_;
+  std::map<int64_t, std::set<int32_t>> tabs_of_window_;
+  std::map<std::string, std::set<int32_t>> tabs_of_profile_;
+  std::map<int64_t, std::string> profile_of_window_;
 };
 
 }  // namespace cmux_host

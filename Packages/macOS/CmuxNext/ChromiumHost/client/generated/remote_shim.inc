@@ -167,9 +167,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
-inline constexpr char kShimAbiID[] = "edc6e21b8e271bc1982d0e7608a54d80eb12dcab1ad916fdbbd5bbb5923eb4a7";
+inline constexpr char kShimAbiID[] = "a3e29cb6eb2ce901a5c43dad484a2211de664d2034b460ef1be69564bfa44b96";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "44e40ae4e1a0fc3f8cb7e814c2cdf145d8c7408c42188f3d2fefcaee1f23f1bd";
+inline constexpr char kWireID[] = "547a041823989ac9e176716a1b79f10f9758904acdce56d6cda103e7988907ae";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -1293,12 +1293,12 @@ CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* arg_profile_cache_pat
 }
 
 CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int arg_browser_id) {
-  TlvWriter key_w;
-  key_w.I32(arg_browser_id);
-  TlvReader value_r = MirrorLookup(kOpSslStatus, key_w);
-  if (!value_r.present()) return nullptr;
-  const std::optional<std::string> mirror_result = value_r.Str();
-  return mirror_result ? Dup(*mirror_result) : nullptr;
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpSslStatus, op_token, op_w);
+  (void)op_sent;
+  return nullptr;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int arg_browser_id, int arg_reply) {
@@ -1379,13 +1379,13 @@ CMUX_SHIM_EXPORT void cmux_shim_set_auth_callback(int arg_browser_id, const char
 }
 
 CMUX_SHIM_EXPORT char* cmux_shim_pref_get(const char* arg_profile_cache_path, const char* arg_pref_name) {
-  TlvWriter key_w;
-  key_w.Str(arg_profile_cache_path);
-  key_w.Str(arg_pref_name);
-  TlvReader value_r = MirrorLookup(kOpPrefGet, key_w);
-  if (!value_r.present()) return nullptr;
-  const std::optional<std::string> mirror_result = value_r.Str();
-  return mirror_result ? Dup(*mirror_result) : nullptr;
+  TlvWriter op_w;
+  op_w.Str(arg_profile_cache_path);
+  op_w.Str(arg_pref_name);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpPrefGet, op_token, op_w);
+  (void)op_sent;
+  return nullptr;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* arg_profile_cache_path, const char* arg_pref_name, int arg_value) {
@@ -1393,12 +1393,7 @@ CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* arg_profile_cache_path,
   op_w.Str(arg_profile_cache_path);
   op_w.Str(arg_pref_name);
   op_w.I32(arg_value);
-  const uint32_t op_token = NextToken();
-  TlvWriter pending_profile_pref;
-  pending_profile_pref.Str(arg_profile_cache_path);
-  pending_profile_pref.Str(arg_pref_name);
-  MarkPending(kOpPrefGet, op_token, pending_profile_pref, 0x0u);  // profile.pref[profile_cache_path,pref_name]
-  (void)Post(kOpPrefSetBool, op_token, op_w);
+  (void)Post(kOpPrefSetBool, 0, op_w);
   return 1;
 }
 
