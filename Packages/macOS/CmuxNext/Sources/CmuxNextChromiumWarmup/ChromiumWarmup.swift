@@ -265,7 +265,7 @@ public final class ChromiumWarmup {
         waitingForSpare = forSpare
         observeInput()
         armIdle(after: policy.idleInput)
-        giveUpTimer.schedule(after: policy.maxWait) { @MainActor [weak self] in self?.finishWaiting() }
+        giveUpTimer.scheduleOnMain(after: policy.maxWait) { [weak self] in self?.finishWaiting() }
     }
 
     public func stop() {
@@ -275,7 +275,7 @@ public final class ChromiumWarmup {
     }
 
     private func armIdle(after delay: Duration) {
-        idleTimer.schedule(after: delay) { @MainActor [weak self] in self?.idleDeadline() }
+        idleTimer.scheduleOnMain(after: delay) { [weak self] in self?.idleDeadline() }
     }
 
     /// The quiet period may have ended: warm up, or wait for the rest of it

@@ -103,7 +103,7 @@ public final class TooltipPresenter {
             scrolling = true
             watch()
         }
-        quiet.schedule(after: Self.scrollQuiet) { @MainActor [weak self] in
+        quiet.scheduleOnMain(after: Self.scrollQuiet) { [weak self] in
             guard let self else { return }
             scrolling = false
             resolve()
@@ -136,7 +136,7 @@ public final class TooltipPresenter {
         for effect in effects {
             switch effect {
             case .schedule(let token, let delay):
-                intentTimer.schedule(after: delay) { @MainActor [weak self] in self?.deadline(token) }
+                intentTimer.scheduleOnMain(after: delay) { [weak self] in self?.deadline(token) }
             case .cancelTimer:
                 intentTimer.cancel()
             case .show(let id):
@@ -194,7 +194,7 @@ public final class TooltipPresenter {
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
     /// pointer over it; else it goes, as if the pointer left.
     private func scheduleCheck() {
-        checker.schedule(after: Self.recheck) { @MainActor [weak self] in
+        checker.scheduleOnMain(after: Self.recheck) { [weak self] in
             guard let self, let tracker = current, shown != nil else { return }
             if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
         }

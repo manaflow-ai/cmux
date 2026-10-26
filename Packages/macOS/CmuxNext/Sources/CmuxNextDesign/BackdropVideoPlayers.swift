@@ -132,7 +132,7 @@ public final class BackdropVideoPlayers {
         if entry.seen.isEmpty, entry.looper != nil {
             // The minute counts from when the last viewer went out of sight, not from each update.
             if !entry.release.isScheduled {
-                entry.release.schedule(after: releaseAfter) { @MainActor [weak self] in self?.releaseIfUnseen(url) }
+                entry.release.scheduleOnMain(after: releaseAfter) { [weak self] in self?.releaseIfUnseen(url) }
             }
         } else {
             entry.release.cancel()

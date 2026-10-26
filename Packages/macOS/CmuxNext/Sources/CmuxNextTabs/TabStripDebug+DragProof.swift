@@ -23,7 +23,7 @@ extension TabStripDebug {
         send(.leftMouseDown, 0)
         for step in 1...12 {
             let tick = DemandTimer(owner: "debug.frame_strip.drag")
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in tick.schedule(after: .milliseconds(16)) { @MainActor in done.resume() } }
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in tick.scheduleOnMain(after: .milliseconds(16)) { done.resume() } }
             send(.leftMouseDragged, CGFloat(step) * 18)
             if step == 4 { midway() }
         }
