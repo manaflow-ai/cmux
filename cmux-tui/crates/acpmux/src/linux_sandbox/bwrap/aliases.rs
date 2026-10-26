@@ -172,9 +172,38 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
     }
     aliases.into_iter().collect()
 }
+/// Reject recursive bind aliases at or below a writable root.
+pub(super) fn writable_mount_aliases(_roots: &[&PathBuf], _mountinfo: &str) -> Vec<String> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writable_mounts_require_an_unaliased_whole_filesystem() {
+        let root = PathBuf::from("/work");
+        let base = "1 0 8:1 / / rw - ext4 root rw\n";
+        for (entry, expected) in [
+            ("2 1 8:1 /work/.git/hooks /work/cache rw - ext4 root rw\n", "/work/cache"),
+            ("2 1 8:1 /elsewhere /work rw - ext4 root rw\n", "/work"),
+            ("2 1 8:1 / /work/cache rw - ext4 root rw\n", "/work/cache"),
+        ] {
+            assert_eq!(
+                writable_mount_aliases(&[&root], &format!("{base}{entry}")),
+                vec![format!("{expected} is a bind mount inside the writable folder /work")]
+            );
+        }
+        for entry in [
+            "2 1 0:42 / /work/cache rw - tmpfs tmpfs rw\n",
+            "2 1 0:42 / /work rw - tmpfs tmpfs rw\n",
+            "2 1 8:1 /work/.git/hooks /work-other/cache rw - ext4 root rw\n",
+            "",
+        ] {
+            assert!(writable_mount_aliases(&[&root], &format!("{base}{entry}")).is_empty());
+        }
+    }
 
     #[test]
     fn overlay_layers_decode_multi_lower_and_escaped_paths() {

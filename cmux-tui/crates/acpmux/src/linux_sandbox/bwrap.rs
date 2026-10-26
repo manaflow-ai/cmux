@@ -276,7 +276,8 @@ pub(crate) fn plan(
             Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
         }
     }
-    let aliases = mount_aliases(&protected, mountinfo);
+    let mut aliases = mount_aliases(&protected, mountinfo);
+    aliases.extend(aliases::writable_mount_aliases(&writable, mountinfo));
     if !aliases.is_empty() {
         return Err(aliases.join("; "));
     }
@@ -453,6 +454,32 @@ mod tests {
                 }
                 Ok(())
             });
+        }
+    }
+
+    #[test]
+    fn plan_refuses_bind_mounts_under_each_writable_root() {
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        for root in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
+            // The source is separate from memory and read denials, so only
+            // the writable-folder mount check can reject this alias.
+            let point = root.join("cache");
+            let encode = |p: &Path| p.to_str().unwrap().replace(' ', "\\040");
+            let info = format!(
+                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} {} rw - ext4 root rw\n",
+                encode(&root.join(".git/hooks")),
+                encode(&point)
+            );
+            let error = plan(&paths, &[], &info, &strings(&["true"])).unwrap_err();
+            assert_eq!(
+                error,
+                format!(
+                    "{} is a bind mount inside the writable folder {}",
+                    point.display(),
+                    root.display()
+                )
+            );
         }
     }
 
