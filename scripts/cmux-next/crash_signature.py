@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Crash signatures: one stable id per bug, from any crash, panic, sanitizer or hang report.
 
-Usage: crash_signature.py [--ignore FILE] [--include-test] PATH...
+Usage: crash_signature.py [--ignore FILE] [--include-test] [--process NAME] PATH...
 
 Reads each report and prints one JSON line per signature:
 {kind, process, exception, frames, hash12, source, ...}. Kinds:
@@ -16,9 +16,12 @@ Reads each report and prints one JSON line per signature:
 The signature is ClusterFuzz's crash state (google/clusterfuzz
 src/clusterfuzz/stacktraces/__init__.py, constants.py): drop the frames that
 match signature-ignore.txt (runtime, libc, allocators, assertion and panic
-helpers, sanitizer runtime), normalize the rest (no offsets, addresses, generic
-arguments, closure numbers, Rust symbol hashes or compiler thunks), and keep
-the top 3. hash12 is the first 12 hex digits of sha256 over kind, exception
+helpers, sanitizer runtime, Rust std source files), normalize the rest (no
+offsets, addresses, generic arguments, closure numbers, Rust symbol hashes,
+compiler thunks or outlining and LTO suffixes such as `.cold.1` and
+`.llvm.123`), and keep the top 3. A Rust panic starts below its panic entry
+point (`rust_begin_unwind`, `core::panicking::*`), and an inlined Rust frame's
+bare name is qualified by its source file. hash12 is the first 12 hex digits of sha256 over kind, exception
 and those frames, so the same bug from two builds gets the same id. A frame
 with no symbol is its image plus offset, which buckets one build's
 unsymbolicated crashes together. When every frame is ignored, the top 3
@@ -47,11 +50,12 @@ MESSAGE_LIMIT = 300
 
 @dataclass(frozen=True)
 class Frame:
-    """One stack frame: a function name (may be empty), its image and the offset in that image."""
+    """One stack frame: a function name (may be empty), its image, the offset in that image and its source file."""
 
     function: str
     image: str = ""
     offset: int | None = None
+    file: str = ""
 
 
 @dataclass
@@ -73,32 +77,38 @@ class Signature:
 
 
 class IgnoreList:
-    """signature-ignore.txt: function regexes, and `image:` regexes for whole binaries."""
+    """signature-ignore.txt: function regexes, `image:` regexes for whole binaries, `file:` regexes for source files."""
 
-    def __init__(self, function_patterns: list[str], image_patterns: list[str]):
+    def __init__(self, function_patterns: list[str], image_patterns: list[str], file_patterns: list[str] = ()):
         self.functions = [re.compile(pattern) for pattern in function_patterns]
         self.images = [re.compile(pattern) for pattern in image_patterns]
+        self.files = [re.compile(pattern) for pattern in file_patterns]
 
     @classmethod
     def parse(cls, text: str) -> IgnoreList:
         functions: list[str] = []
         images: list[str] = []
+        files: list[str] = []
         for raw in text.splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
             if line.startswith("image:"):
                 images.append(line[len("image:"):].strip())
+            elif line.startswith("file:"):
+                files.append(line[len("file:"):].strip())
             else:
                 functions.append(line)
-        return cls(functions, images)
+        return cls(functions, images, files)
 
     @classmethod
     def load(cls, path: Path = DEFAULT_IGNORE) -> IgnoreList:
         return cls.parse(path.read_text(encoding="utf-8"))
 
-    def ignores(self, function: str, image: str) -> bool:
+    def ignores(self, function: str, image: str, file: str = "") -> bool:
         if image and any(pattern.search(image) for pattern in self.images):
+            return True
+        if file and any(pattern.search(file) for pattern in self.files):
             return True
         return bool(function) and any(pattern.search(function) for pattern in self.functions)
 
@@ -106,12 +116,14 @@ class IgnoreList:
 # ---------------------------------------------------------------- normalization
 
 _RUST_HASH = re.compile(r"::h[0-9a-f]{16}$")
+# Compiler outlining, partial inlining and ThinLTO suffixes: `foo.cold.1`, `bar.part.0`, `baz::h<hash>.llvm.123`.
+_OUTLINED_SUFFIX = re.compile(r"(?:\.(?:cold|part|isra|constprop|llvm)\.\d+)+$")
 _RUST_CLOSURE = re.compile(r"\{\{closure\}\}|\{closure#\d+\}")
 _OBJC_BLOCK = re.compile(r"^__\d+(?=[-+]\[)")
 _OBJC_BLOCK_SUFFIX = re.compile(r"(_block_invoke)(?:[._]\d+)+$")
 _CLOSURE = re.compile(r"\b(implicit closure|closure)(?: #\d+)?(?: [@(][^#]*?)? in ")
 _ASYNC_RESUME = re.compile(r"^\(\d+\) (?:await|suspend) resume partial function for ")
-_SPECIALIZATION = re.compile(r"^(?:generic|function signature|generic partial) specialization\s*(?:<[^>]*>)?\s*of ")
+_SPECIALIZATION = re.compile(r"^(?:generic|function signature|generic partial) specialization\s*")
 _WITNESS = re.compile(r"^protocol witness for (.+?) in conformance ([^\s:]+)")
 _PREFIXES = (
     "specialized ",
@@ -148,11 +160,15 @@ def _strip_generics(text: str) -> str:
             out.append(text[i:])
             break
         inner = text[i + 1:end]
-        at_segment_start = i == 0 or text[max(0, i - 2):i] == "::" or text[i - 1] in " ("
-        if at_segment_start:
+        if text[max(0, i - 2):i] == "::":
+            # Rust turbofish `load::<cmux::Config>`: generic arguments, dropped with their `::`.
+            del out[-2:]
+        elif i == 0 or text[i - 1] in " (":
             qualified = _split_top_level(inner, " as ")
             if qualified is not None:
                 out.append(f"<{_strip_generics(qualified[0])} as {_strip_generics(qualified[1])}>")
+            elif inner.startswith("impl "):
+                out.append(f"<{_strip_generics(inner)}>")
             else:
                 out.append(_strip_generics(inner))
         i = end + 1
@@ -225,6 +241,20 @@ def _split_all_top_level(text: str, separator: str) -> list[str]:
     return parts
 
 
+def _strip_specialization(text: str) -> str:
+    """`generic specialization <Swift.Array<Swift.Int>> of Foo.bar()` -> `Foo.bar()`, any nesting in the brackets."""
+    match = _SPECIALIZATION.match(text)
+    if not match:
+        return text
+    rest = text[match.end():]
+    if rest.startswith("<"):
+        end = _matching(rest, 0, "<", ">")
+        if end < 0:
+            return text
+        rest = rest[end + 1:].lstrip()
+    return rest.removeprefix("of ") if rest.startswith("of ") else text
+
+
 def _witness(text: str) -> str:
     """`protocol witness for P.load() in conformance Model` -> `Model.load()`, the implementation it calls."""
     match = _WITNESS.match(text)
@@ -244,6 +274,7 @@ def normalize_function(name: str) -> str:
     if not text:
         return ""
     text = re.sub(r"\s*\+\s*(?:0x[0-9a-fA-F]+|\d+)$", "", text)
+    text = _OUTLINED_SUFFIX.sub("", text)
     if text.startswith(("$s", "_$s", "$S", "_$S")):
         text = _MANGLED_CLOSURE.sub(r"f\1_", text)
         return _MANGLED_SUFFIX.sub("", text)
@@ -256,7 +287,7 @@ def normalize_function(name: str) -> str:
         changed = False
         before = text
         text = _ASYNC_RESUME.sub("", text)
-        text = _SPECIALIZATION.sub("", text)
+        text = _strip_specialization(text)
         for prefix in _PREFIXES:
             text = text.removeprefix(prefix)
         changed = text != before
@@ -270,9 +301,15 @@ def normalize_function(name: str) -> str:
 
 
 def frame_label(frame: Frame) -> str:
-    """The normalized function, or `image+0xoffset` for an unsymbolicated frame."""
+    """The normalized function, or `image+0xoffset` for an unsymbolicated frame.
+
+    An inlined Rust frame is a bare name (`sorted`, `{closure}`); its source file qualifies it, so two functions of
+    one name in different modules stay apart: `sorted (acpmux/src/server/sessions.rs)`.
+    """
     function = normalize_function(frame.function)
     if function and function not in ("???", "<unknown>", "<null>"):
+        if frame.file and "::" not in function and not function.startswith(("<", "-[", "+[")):
+            return f"{function} ({_crate_relative(frame.file)})"
         return function
     image = frame.image or "?"
     return f"{image}+0x{frame.offset:x}" if frame.offset is not None else image
@@ -288,7 +325,7 @@ def crash_state(frames: list[Frame], ignore: IgnoreList) -> list[str]:
             continue
         if not every or every[-1] != label:
             every.append(label)
-        if ignore.ignores(normalize_function(frame.function), frame.image):
+        if ignore.ignores(normalize_function(frame.function), frame.image, frame.file):
             continue
         if kept and kept[-1] == label:
             continue
@@ -296,6 +333,15 @@ def crash_state(frames: list[Frame], ignore: IgnoreList) -> list[str]:
         if len(kept) == TOP_FRAMES:
             break
     return kept or every[:TOP_FRAMES]
+
+
+def _crate_relative(path: str) -> str:
+    """`/Users/me/cmux/cmux-tui/crates/acpmux/src/lib.rs` -> `acpmux/src/lib.rs`: no checkout path in the label."""
+    path = path.replace("\\", "/")
+    src = path.rfind("/src/")
+    if src < 0:
+        return os.path.basename(path)
+    return path[path.rfind("/", 0, src) + 1:]
 
 
 def signature_hash(kind: str, exception: str, frames: list[str]) -> str:
@@ -330,7 +376,7 @@ def parse_ips(text: str, ignore: IgnoreList, source: str = "") -> list[Signature
     process = body.get("procName") or header.get("app_name") or header.get("name") or ""
     exception_info = body.get("exception") or {}
     message = _ips_message(body)
-    main_uuid = images[0].get("uuid", "") if images and isinstance(images[0], dict) else ""
+    main_uuid = _main_image_uuid(header, body, images)
     version = header.get("app_version") or header.get("build_version") or ""
 
     last_exception = body.get("lastExceptionBacktrace")
@@ -360,6 +406,16 @@ def parse_ips(text: str, ignore: IgnoreList, source: str = "") -> list[Signature
     return [make_signature("crash", process, exception, frames, ignore, source, message,
                            build_uuid=main_uuid, version=version, queue=crashed.get("queue", ""),
                            exception_type=exception_type)]
+
+
+def _main_image_uuid(header: dict, body: dict, images: list) -> str:
+    """The app's own build UUID: the header's slice_uuid, else the image at procPath (usedImages has no fixed order)."""
+    if header.get("slice_uuid"):
+        return str(header["slice_uuid"])
+    proc_path = body.get("procPath")
+    main = next((image for image in images if isinstance(image, dict) and proc_path
+                 and image.get("path") == proc_path), None)
+    return str(main.get("uuid") or "") if main else ""
 
 
 def _ips_frame(frame: dict, images: list) -> Frame:
@@ -392,6 +448,13 @@ def _nsexception_name(body: dict) -> str:
 # ---------------------------------------------------------------- Rust panic JSONL
 
 _RUST_FRAME = re.compile(r"^\s*\d+:\s+(?:0x[0-9a-f]+ - )?(.+?)\s*$")
+_RUST_AT = re.compile(r"^\s*at\s+(?P<file>.+?)(?::\d+){1,2}\s*$")
+# The frame std or core calls the panic hook from. Every frame above it is the hook and panic machinery, as
+# ClusterFuzz skips everything above the sanitizer's or the runtime's report entry. `rust_begin_unwind` is
+# `__rustc::rust_begin_unwind` since Rust 1.88; `std::panicking::begin_panic` is `panic!` with a non-format payload.
+_RUST_PANIC_ENTRY = re.compile(
+    r"^(?:__rustc::)?rust_begin_unwind$|^core::panicking::|^std::panicking::begin_panic$|^std::panic::panic_any$"
+)
 _PANIC_CLASSES = (
     (re.compile(r"called `Option::unwrap\(\)` on a `None` value"), "unwrap-none"),
     (re.compile(r"called `Result::unwrap\(\)` on an `Err` value"), "unwrap-err"),
@@ -420,15 +483,9 @@ def parse_rust_panic_jsonl(text: str, ignore: IgnoreList, source: str = "",
             continue
         if record.get("test") and not include_test:
             continue
-        frames = []
-        for backtrace_line in str(record.get("backtrace") or "").splitlines():
-            if backtrace_line.strip().startswith("at "):
-                continue
-            match = _RUST_FRAME.match(backtrace_line)
-            if match and match.group(1) != "<unknown>":
-                frames.append(Frame(function=match.group(1)))
+        frames = _rust_frames(str(record.get("backtrace") or ""))
         location = str(record.get("location") or "")
-        if all(ignore.ignores(normalize_function(frame.function), "") for frame in frames):
+        if all(ignore.ignores(normalize_function(frame.function), "", frame.file) for frame in frames):
             file_only = re.sub(r":\d+(?::\d+)?$", "", location)
             if file_only:
                 frames.append(Frame(function=file_only))
@@ -438,6 +495,23 @@ def parse_rust_panic_jsonl(text: str, ignore: IgnoreList, source: str = "",
                                          message, location=location, thread=record.get("thread", ""),
                                          version=record.get("version", "")))
     return signatures
+
+
+def _rust_frames(backtrace: str) -> list[Frame]:
+    """std's `Backtrace` text as frames with their `at` file, starting below the panic entry point."""
+    frames: list[Frame] = []
+    for line in backtrace.splitlines():
+        at = _RUST_AT.match(line)
+        if at:
+            if frames and not frames[-1].file:
+                frames[-1] = Frame(function=frames[-1].function, file=at.group("file").replace("\\", "/"))
+            continue
+        match = _RUST_FRAME.match(line)
+        if match and match.group(1) != "<unknown>":
+            frames.append(Frame(function=match.group(1)))
+    entry = max((index for index, frame in enumerate(frames)
+                 if _RUST_PANIC_ENTRY.search(normalize_function(frame.function))), default=-1)
+    return frames[entry + 1:]
 
 
 def _panic_class(message: str) -> str:
@@ -452,7 +526,19 @@ def _panic_class(message: str) -> str:
 _SAN_FRAME = re.compile(r"^\s*#(\d+)\s+(.*)$")
 _SAN_MODULE = re.compile(r"\s*\((?P<image>[^()]+?)(?::[A-Za-z0-9_]+)?\+0x(?P<offset>[0-9a-fA-F]+)\)\s*$")
 _SAN_LOCATION = re.compile(r"\s+(?:\S+:\d+(?::\d+)?|<null>|<compiler-generated>)$")
-_ASAN_ERROR = re.compile(r"==\d+==ERROR: AddressSanitizer: (?P<type>[\w-]+)")
+_ASAN_ERROR = re.compile(r"==\d+==ERROR: AddressSanitizer: (?P<type>.+)$")
+# Headers whose words are not one type token, named as in the report's SUMMARY line (compiler-rt asan_errors.cpp).
+_ASAN_HEADER_TYPES = (
+    ("attempting double-free", "double-free"),
+    ("attempting free on address which was not malloc()-ed", "bad-free"),
+    ("requested allocation size", "allocation-size-too-big"),
+    ("calloc parameters overflow", "calloc-overflow"),
+    ("reallocarray parameters overflow", "reallocarray-overflow"),
+    ("out of memory", "out-of-memory"),
+    ("invalid alignment requested", "invalid-allocation-alignment"),
+    ("invalid allocation alignment", "invalid-allocation-alignment"),
+)
+_ASAN_TYPE_END = re.compile(r" on | \(|:| at pc ")
 _ASAN_ACCESS = re.compile(r"^(?P<access>READ|WRITE) of size \d+")
 _LSAN_ERROR = re.compile(r"==\d+==ERROR: LeakSanitizer: detected memory leaks")
 _LSAN_LEAK = re.compile(r"^(?P<which>Direct|Indirect) leak of \d+ byte")
@@ -479,6 +565,27 @@ def _sanitizer_frame(text: str) -> Frame:
     return Frame(function=rest, image=image, offset=offset)
 
 
+def _asan_type(header: str) -> str:
+    """`heap-use-after-free on address 0x...` -> `heap-use-after-free`; multi-word headers map to their summary type."""
+    for prefix, name in _ASAN_HEADER_TYPES:
+        if header.startswith(prefix):
+            return name
+    head = _ASAN_TYPE_END.split(header, 1)[0]
+    head = re.sub(r"0x[0-9a-fA-F]+|\bT\d+\b", "", head)
+    return _SPACES.sub(" ", head).strip() or "unknown-crash"
+
+
+_CARGO_TEST_HASH = re.compile(r"-[0-9a-f]{16}$")
+
+
+def _report_process(frames: list[Frame], ignore: IgnoreList) -> str:
+    """The image of the report's first frame outside the runtime: the binary the bug is in."""
+    for frame in frames:
+        if frame.image and not ignore.ignores(normalize_function(frame.function), frame.image):
+            return _CARGO_TEST_HASH.sub("", frame.image)
+    return ""
+
+
 def _ubsan_kind(message: str) -> str:
     text = message.split(":", 1)[0]
     text = re.sub(r"0x[0-9a-fA-F]+", "", text)
@@ -488,7 +595,11 @@ def _ubsan_kind(message: str) -> str:
 
 
 def parse_sanitizer(text: str, ignore: IgnoreList, source: str = "", process: str = "") -> list[Signature]:
-    """Every ASan, LSan, TSan and UBSan report in `text`, each from its first stack."""
+    """Every ASan, LSan, TSan and UBSan report in `text`, each from its first stack.
+
+    A report's process is the image of its first frame outside the runtime, else `process` (the binary the lane
+    ran; a symbolized frame names no image).
+    """
     signatures: list[Signature] = []
     current: dict | None = None
     lines = text.splitlines()
@@ -497,8 +608,8 @@ def parse_sanitizer(text: str, ignore: IgnoreList, source: str = "", process: st
         nonlocal current
         if current is not None and (current["frames"] or current.get("fallback")):
             frames = current["frames"] or [Frame(function=current["fallback"])]
-            signatures.append(make_signature(current["kind"], process, current["exception"], frames, ignore, source,
-                                             current.get("message", "")))
+            signatures.append(make_signature(current["kind"], _report_process(frames, ignore) or process,
+                                             current["exception"], frames, ignore, source, current.get("message", "")))
         current = None
 
     for line in lines:
@@ -511,7 +622,7 @@ def parse_sanitizer(text: str, ignore: IgnoreList, source: str = "", process: st
             continue
         if asan:
             finish()
-            current = {"kind": "asan", "exception": asan.group("type"), "frames": [], "state": "header",
+            current = {"kind": "asan", "exception": _asan_type(asan.group("type")), "frames": [], "state": "header",
                        "message": _PID.sub("", line).strip()}
             continue
         if tsan:
@@ -664,7 +775,7 @@ def detect_kind(text: str, name: str = "") -> str:
 
 
 def signatures_from_text(text: str, name: str = "", ignore: IgnoreList | None = None,
-                         include_test: bool = False) -> list[Signature]:
+                         include_test: bool = False, process: str = "") -> list[Signature]:
     ignore = ignore or IgnoreList.load()
     kind = detect_kind(text, name)
     if kind == "ips":
@@ -672,15 +783,16 @@ def signatures_from_text(text: str, name: str = "", ignore: IgnoreList | None = 
     if kind == "rust-panic":
         return parse_rust_panic_jsonl(text, ignore, name, include_test)
     if kind == "sanitizer":
-        return parse_sanitizer(text, ignore, name)
+        return parse_sanitizer(text, ignore, name, process)
     if kind == "hang":
         return parse_hang(text, ignore, name)
     return []
 
 
-def signatures_from_path(path: Path, ignore: IgnoreList | None = None, include_test: bool = False) -> list[Signature]:
+def signatures_from_path(path: Path, ignore: IgnoreList | None = None, include_test: bool = False,
+                         process: str = "") -> list[Signature]:
     text = Path(path).read_text(encoding="utf-8", errors="replace")
-    return signatures_from_text(text, os.path.basename(str(path)), ignore, include_test)
+    return signatures_from_text(text, os.path.basename(str(path)), ignore, include_test, process)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -688,12 +800,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--ignore", type=Path, default=DEFAULT_IGNORE, help="frame ignore list")
     parser.add_argument("--include-test", action="store_true", help="keep panic-log lines marked test")
+    parser.add_argument("--process", default="",
+                        help="the binary a sanitizer log came from, used when its frames name no image")
     args = parser.parse_args(argv)
     ignore = IgnoreList.load(args.ignore)
     status = 0
     for path in args.paths:
         try:
-            signatures = signatures_from_path(path, ignore, args.include_test)
+            signatures = signatures_from_path(path, ignore, args.include_test, args.process)
         except OSError as error:
             print(f"crash_signature: {path}: {error}", file=sys.stderr)
             status = 1

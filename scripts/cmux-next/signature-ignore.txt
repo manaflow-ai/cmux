@@ -5,7 +5,9 @@
 # runtime, libc, allocators, assertion helpers and sanitizers say how a process
 # died, not where the bug is. One Python regex per line, searched in the
 # normalized function name. A line that starts with `image:` is searched in the
-# frame's image (binary) name instead. `#` starts a comment.
+# frame's image (binary) name instead, and one that starts with `file:` in the
+# frame's source file (Rust backtraces print it on an `at` line). `#` starts a
+# comment.
 
 # --- Images: the whole binary is runtime or system plumbing.
 image:^libsystem_
@@ -20,6 +22,12 @@ image:^libc\.so
 image:^libpthread
 image:^ld-linux
 image:^libgcc_s
+
+# --- Source files: Rust std, core and alloc (their inlined helpers print as
+# bare `index`, `unwrap`, `expect`), crates from the registry, and the panic hook.
+file:^/rustc/
+file:/\.cargo/(registry|git)/
+file:(^|/)cmux-panic-log/
 
 # --- Swift runtime and stdlib assertion helpers (also matched when the image is unknown).
 ^_?swift_
@@ -101,6 +109,8 @@ image:^libgcc_s
 ^\+\[NSException exceptionWithName
 ^-\[NSAssertionHandler handleFailure
 ^_?_NSArrayRaise
+^_?_CFThrowFormattedException$
+^_?_CFThrow
 
 # --- libdispatch frames when the image is not named.
 ^_?_dispatch_
@@ -127,9 +137,10 @@ image:^libgcc_s
 ^std::backtrace_rs::
 ^std::thread::Builder::spawn_unchecked
 ^std::thread::lifecycle
-^rust_begin_unwind$
+^(__rustc::)?rust_begin_unwind$
 ^rust_panic
 ^__rust_
+^__rustc::
 ^__r[dg]l_(alloc|dealloc|realloc)
 ^alloc::alloc::
 ^alloc::raw_vec::

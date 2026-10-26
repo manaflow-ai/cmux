@@ -40,7 +40,21 @@ class SixKindsTests(unittest.TestCase):
                                       "closure in WorkspaceStore.refresh(reason:)"])
         self.assertRegex(sig.hash12, r"^[0-9a-f]{12}$")
 
+    def test_build_uuid_is_the_app_image_when_it_is_not_the_first_image(self):
+        # macOS lists usedImages in frame reference order, so index 0 is often a system dylib.
+        path = FIXTURES / "trap-main-image-not-first.ips"
+        sig = one(path.name)
+        self.assertEqual(sig.extra["build_uuid"], "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa")
+        self.assertEqual(sig.hash12, one("trap-build-a.ips").hash12)
+        # With no slice_uuid in the header, the image at procPath names the build.
+        header_text, _, body_text = path.read_text().partition("\n")
+        header = json.loads(header_text)
+        del header["slice_uuid"]
+        no_slice = cs.signatures_from_text(json.dumps(header) + "\n" + body_text, path.name, IGNORE)[0]
+        self.assertEqual(no_slice.extra["build_uuid"], "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa")
+
     def test_nsexception_uses_the_throwing_stack(self):
+        # The fixture has _CFThrowFormattedException and the outlined `.cold.1` part of the method above it.
         sig = one("nsexception.ips")
         self.assertEqual(sig.kind, "nsexception")
         self.assertEqual(sig.exception, "NSRangeException")
@@ -64,6 +78,45 @@ class SixKindsTests(unittest.TestCase):
         self.assertEqual(len(with_test), 4)
         self.assertEqual(with_test[2].frames, ["acpmux::daemon::panic_for_test"])
 
+    def test_rust_1_95_panics_start_below_the_panic_entry_point(self):
+        # Captured from rustc 1.95.0 (rust-toolchain.toml) through Backtrace::force_capture, as cmux-panic-log does:
+        # five panics in the dev profile (opt-level 1, line-tables-only), then the same five in release.
+        signatures = cs.signatures_from_path(FIXTURES / "rust-1.95-panics.jsonl", IGNORE)
+        self.assertEqual(len(signatures), 10)
+        for sig in signatures:
+            for frame in sig.frames:
+                self.assertNotIn("rust_begin_unwind", frame)
+                self.assertNotIn("cmux-panic-log", frame)
+                self.assertNotRegex(frame, r"^(index|unwrap|expect) ", sig.frames)
+        dev_index, _, dev_unwrap, _, dev_expect = signatures[:5]
+        self.assertEqual(dev_index.frames, ["sorted (acpmux/src/main.rs)", "list (acpmux/src/main.rs)",
+                                            "{closure} (acpmux/src/main.rs)"])
+        self.assertEqual(dev_unwrap.frames[0], "focused (acpmux/src/main.rs)")
+        self.assertEqual(dev_expect.frames[0], "load (acpmux/src/main.rs)")
+        self.assertEqual(signatures[5].frames, ["acpmux::sessions::SessionTable::sorted",
+                                                "acpmux::sessions::SessionTable::list", "acpmux::main"])
+        self.assertEqual(signatures[7].frames[0], "acpmux::sessions::SessionTable::focused")
+
+    def test_two_different_rust_unwraps_have_different_hashes(self):
+        signatures = cs.signatures_from_path(FIXTURES / "rust-1.95-panics.jsonl", IGNORE)
+        # Dev index, dev unwrap, release index, release unwrap: each pair is one panic kind in two functions.
+        for first, second in [(0, 1), (2, 3), (5, 6), (7, 8)]:
+            a, b = signatures[first], signatures[second]
+            self.assertEqual(a.exception, b.exception)
+            self.assertNotEqual(a.hash12, b.hash12, (a.frames, b.frames))
+
+    def test_inlined_rust_names_are_qualified_by_their_file(self):
+        def panic(path: str) -> cs.Signature:
+            backtrace = ("   0: __rustc::rust_begin_unwind\n"
+                         "             at /rustc/0123/library/std/src/panicking.rs:689:5\n"
+                         "   1: sorted\n"
+                         f"             at /home/ci/cmux/cmux-tui/crates/{path}:12:5\n")
+            line = json.dumps({"process": "acpmux", "message": "boom", "backtrace": backtrace})
+            return cs.signatures_from_text(line, "panics.jsonl", IGNORE)[0]
+        sessions = panic("acpmux/src/server/sessions.rs")
+        self.assertEqual(sessions.frames, ["sorted (acpmux/src/server/sessions.rs)"])
+        self.assertNotEqual(sessions.hash12, panic("acpmux/src/panes.rs").hash12)
+
     def test_stripped_rust_panic_buckets_by_source_file(self):
         stripped = cs.signatures_from_path(FIXTURES / "rust-panics.jsonl", IGNORE)[2]
         self.assertEqual(stripped.process, "cmux-tui-owner")
@@ -73,6 +126,7 @@ class SixKindsTests(unittest.TestCase):
     def test_tsan_race(self):
         sig = one("tsan-race.txt")
         self.assertEqual(sig.kind, "tsan")
+        self.assertEqual(sig.process, "CmuxNextPackageTests")
         self.assertEqual(sig.exception, "data race")
         # The first stack only; the TSan block-invoke and libdispatch frames are dropped.
         self.assertEqual(sig.frames, ["TerminalRegistry.register(_:)", "closure in TerminalHost.start()"])
@@ -82,11 +136,48 @@ class SixKindsTests(unittest.TestCase):
         self.assertEqual(sig.kind, "asan")
         self.assertEqual(sig.exception, "heap-use-after-free READ")
         self.assertEqual(sig.frames, ["cmux_pty::reader::Reader::drain", "cmux_pty::reader::Reader::poll::{closure}"])
+        # Symbolized frames name no image (the rest are runtime), so the lane's --process names the binary.
+        self.assertEqual(sig.process, "")
+        named = cs.signatures_from_path(FIXTURES / "asan-uaf.txt", IGNORE, process="cmux_pty-tests")[0]
+        self.assertEqual(named.process, "cmux_pty-tests")
+        self.assertEqual(named.hash12, sig.hash12)
+
+    def test_asan_process_is_the_first_non_runtime_image(self):
+        report = (
+            "==7==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602 at pc 0x55 bp 0x7f sp 0x7e\n"
+            "READ of size 4 at 0x602 thread T0\n"
+            "    #0 0x7f01 in __asan_memcpy (/usr/lib/llvm-18/lib/linux/libclang_rt.asan-x86_64.so+0xd1000)\n"
+            "    #1 0x5501 (/work/target/debug/deps/cmux_pty-0a1b2c3d4e5f6a7b+0x1234)\n"
+        )
+        sig = cs.signatures_from_text(report, "asan.log", IGNORE, process="used-only-when-no-image-is-named")[0]
+        self.assertEqual(sig.process, "cmux_pty")
+        self.assertEqual(sig.frames, ["cmux_pty-0a1b2c3d4e5f6a7b+0x1234"])
+
+    def test_asan_multi_word_error_types_stay_apart(self):
+        def report(header: str) -> cs.Signature:
+            text = (f"==42==ERROR: AddressSanitizer: {header}\n"
+                    "    #0 0x1050d1234 in free+0x98 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x55234)\n"
+                    "    #1 0x104a19000 in cmux_pty::reader::Reader::reset::h3d4e5f6a7b8c9d0e reader.rs:60\n")
+            return cs.signatures_from_text(text, "asan.log", IGNORE)[0]
+        double_free = report("attempting double-free on 0x602000000010 in thread T0:")
+        bad_free = report("attempting free on address which was not malloc()-ed: 0x7ffd4a1c in thread T0")
+        self.assertEqual(double_free.exception, "double-free")
+        self.assertEqual(bad_free.exception, "bad-free")
+        self.assertEqual(double_free.frames, bad_free.frames)
+        self.assertNotEqual(double_free.hash12, bad_free.hash12)
+        self.assertEqual(report("SEGV on unknown address 0x000000000000 (pc 0x1 bp 0x2 sp 0x3 T0)").exception, "SEGV")
+        self.assertEqual(report("alloc-dealloc-mismatch (malloc vs operator delete) on 0x6020").exception,
+                         "alloc-dealloc-mismatch")
+        self.assertEqual(report("requested allocation size 0xffffffffffffffff (0x0 after adjustments) exceeds "
+                                "maximum supported size of 0x10000000000 (thread T0)").exception,
+                         "allocation-size-too-big")
 
     def test_ubsan_and_lsan_in_one_log(self):
-        signatures = cs.signatures_from_path(FIXTURES / "ubsan-lsan.txt", IGNORE)
+        signatures = cs.signatures_from_path(FIXTURES / "ubsan-lsan.txt", IGNORE, process="ghostty-vt-tests")
         self.assertEqual([sig.kind for sig in signatures], ["ubsan", "lsan"])
         ubsan, lsan = signatures
+        # No frame outside the runtime names an image, so both take the lane's process.
+        self.assertEqual([ubsan.process, lsan.process], ["ghostty-vt-tests", "ghostty-vt-tests"])
         self.assertEqual(ubsan.exception, "signed integer overflow")
         self.assertEqual(ubsan.frames, ["vt_parser_csi_param", "vt_parser_feed", "ghostty_vt::parser::Parser::advance"])
         # The direct leak only; the allocator frames are dropped.
@@ -171,6 +262,9 @@ class NormalizeTests(unittest.TestCase):
             "partial apply for closure #3 in WorkspaceStore.refresh(reason:)": "closure in WorkspaceStore.refresh(reason:)",
             "@objc TabStripController.mouseDown(with:)": "TabStripController.mouseDown(with:)",
             "$s4main3fooyyFyyXEfU0_TA": "$s4main3fooyyFyyXEfU_",
+            "generic specialization <Swift.Int> of Foo.bar<A>(A) -> ()": "Foo.bar(A)",
+            "generic specialization <Swift.Array<Swift.Int>> of Foo.bar<A>(A) -> ()": "Foo.bar(A)",
+            "function signature specialization <Arg[0] = Owned To Guaranteed> of Foo.bar() -> ()": "Foo.bar()",
         }
         for raw, expected in cases.items():
             self.assertEqual(cs.normalize_function(raw), expected, raw)
@@ -185,6 +279,25 @@ class NormalizeTests(unittest.TestCase):
             "std::vector<int>::push_back(int const&)": "std::vector::push_back(int const&)",
             "operator<(Foo const&, Foo const&)": "operator<(Foo const&, Foo const&)",
             "__24-[AppDelegate run:]_block_invoke_2": "-[AppDelegate run:]_block_invoke",
+            "cmux::store::load::<cmux::Config>": "cmux::store::load",
+            "cmux::store::load::<alloc::vec::Vec<u8>>": "cmux::store::load",
+            "std::sys::backtrace::__rust_end_short_backtrace::<std::panicking::panic_handler::{closure#0}, !>":
+                "std::sys::backtrace::__rust_end_short_backtrace",
+            "<impl cmux::Foo>::bar": "<impl cmux::Foo>::bar",
+            "<alloc::vec::Vec<u8>>::push": "alloc::vec::Vec::push",
+            "load<alloc::vec::Vec<u8, alloc::alloc::Global>>": "load",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(cs.normalize_function(raw), expected, raw)
+
+    def test_outlining_and_lto_suffixes(self):
+        cases = {
+            "-[__NSArrayM objectAtIndexedSubscript:].cold.1": "-[__NSArrayM objectAtIndexedSubscript:]",
+            "cmux_tui::render::Frame::draw::h0123456789abcdef.llvm.4851029314": "cmux_tui::render::Frame::draw",
+            "vt_parser_feed.part.0": "vt_parser_feed",
+            "vt_parser_feed.isra.0.constprop.1": "vt_parser_feed",
+            "SessionModel.pane(at:).cold.2 + 12": "SessionModel.pane(at:)",
+            "Weather.cold": "Weather.cold",
         }
         for raw, expected in cases.items():
             self.assertEqual(cs.normalize_function(raw), expected, raw)
@@ -208,8 +321,18 @@ class IgnoreListTests(unittest.TestCase):
             ("__asan_report_load8", ""),
             ("__tsan::invoke_and_release_block(void*)", ""),
             ("free", "libclang_rt.asan_osx_dynamic.dylib"),
+            ("_CFThrowFormattedException", "CoreFoundation"),
+            ("__rustc::rust_begin_unwind", ""),
+            ("rust_begin_unwind", ""),
         ]:
             self.assertTrue(IGNORE.ignores(cs.normalize_function(function), image), function)
+
+    def test_rust_std_and_registry_files_are_ignored(self):
+        for file in ["/rustc/59807616e1fa/library/core/src/slice/index.rs",
+                     "/Users/me/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.47.1/src/task.rs",
+                     "/home/ci/cmux/cmux-tui/crates/cmux-panic-log/src/lib.rs"]:
+            self.assertTrue(IGNORE.ignores("index", "", file), file)
+        self.assertFalse(IGNORE.ignores("sorted", "", "/home/ci/cmux/cmux-tui/crates/acpmux/src/server/sessions.rs"))
 
     def test_app_frames_are_kept(self):
         for function in ["SessionModel.pane(at:)", "acpmux::server::sessions::SessionTable::sorted",
@@ -217,8 +340,9 @@ class IgnoreListTests(unittest.TestCase):
             self.assertFalse(IGNORE.ignores(function, "cmux NEXT"), function)
 
     def test_every_pattern_compiles_and_comments_are_skipped(self):
-        parsed = cs.IgnoreList.parse("# comment\n\nimage:^libfoo\n^bar$\n")
+        parsed = cs.IgnoreList.parse("# comment\n\nimage:^libfoo\nfile:^/rustc/\n^bar$\n")
         self.assertEqual(len(parsed.images), 1)
+        self.assertEqual(len(parsed.files), 1)
         self.assertEqual(len(parsed.functions), 1)
         self.assertGreater(len(IGNORE.functions), 50)
 
@@ -237,6 +361,13 @@ class CliTests(unittest.TestCase):
         lines = [json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual([line["kind"] for line in lines], ["ubsan", "lsan", "crash"])
         self.assertEqual(lines[2]["build_uuid"], "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa")
+
+    def test_process_option_names_a_sanitizer_log(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            status = cs.main(["--process", "cmux_pty-tests", str(FIXTURES / "asan-uaf.txt")])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(out.getvalue())["process"], "cmux_pty-tests")
 
     def test_unknown_text_gives_no_signature(self):
         self.assertEqual(cs.signatures_from_text("hello\nworld\n", "notes.txt", IGNORE), [])

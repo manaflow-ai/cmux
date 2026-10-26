@@ -145,6 +145,18 @@
       "symbolLocation": 88
     },
     {
+      "imageOffset": 104000,
+      "imageIndex": 5,
+      "symbol": "_CFThrowFormattedException",
+      "symbolLocation": 200
+    },
+    {
+      "imageOffset": 108000,
+      "imageIndex": 5,
+      "symbol": "-[__NSArrayM objectAtIndexedSubscript:].cold.1",
+      "symbolLocation": 16
+    },
+    {
       "imageOffset": 110000,
       "imageIndex": 5,
       "symbol": "-[__NSArrayM objectAtIndexedSubscript:]",
