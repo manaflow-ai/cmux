@@ -666,6 +666,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
