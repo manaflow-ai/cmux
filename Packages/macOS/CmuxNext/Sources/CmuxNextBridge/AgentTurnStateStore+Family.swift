@@ -57,14 +57,20 @@ extension AgentTurnStateStore {
     /// the session that started it. Never the chat itself.
     public func isFamily(_ session: String, of chat: String) -> Bool {
         guard session != chat else { return false }
-        let source = AgentTurnStateStore.localSource
-        if sessions[key(chat, source: source)]?.startedBy == session { return true }
+        if familyRecord(chat)?.startedBy == session { return true }
         var current = session
         for _ in 0..<Self.maxFamilyDepth {
-            guard let parent = sessions[key(current, source: source)]?.startedBy else { return false }
+            guard let parent = familyRecord(current)?.startedBy else { return false }
             if parent == chat { return true }
             current = parent
         }
         return false
+    }
+
+    /// Family callers predate host-aware refs; prefer this Mac's watch, then retain the old
+    /// host-agnostic fallback for mirrored links. Host-aware title reads never use this path.
+    private func familyRecord(_ session: String) -> Session? {
+        sessions[key(session, source: AgentTurnStateStore.localSource)]
+            ?? sessions.first { $0.key.session == session }?.value
     }
 }
