@@ -221,11 +221,14 @@ public nonisolated struct SSHLinkTarget: Equatable, Sendable {
     /// `host` without IPv6 brackets, lowercased: OpenSSH lowercases the host before it reads
     /// its config, and DNS names compare without case. Nothing else is folded: `example.com.`
     /// or another spelling of an address is another string to ssh's `Host` patterns, so it asks.
+    /// An IPv6 zone (`fe80::1%en0`) keeps its spelling: it names an interface, not a DNS label.
     public static func trustKey(_ host: String) -> String {
         var key = host.trimmingCharacters(in: .whitespaces)
         if key.hasPrefix("["), key.hasSuffix("]") { key = String(key.dropFirst().dropLast()) }
+        let zone = key.firstIndex(of: "%").map { String(key[$0...]) } ?? ""
+        let address = String(key.dropLast(zone.count))
         // ASCII letters only: Unicode lowercasing folds the Kelvin sign into `k`.
-        return String(decoding: key.utf8.map { (65...90).contains($0) ? $0 + 32 : $0 }, as: UTF8.self)
+        return String(decoding: address.utf8.map { (65...90).contains($0) ? $0 + 32 : $0 }, as: UTF8.self) + zone
     }
 
     /// The command typed into the new terminal, as Terminal runs the link.

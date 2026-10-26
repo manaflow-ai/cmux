@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -115,5 +116,17 @@ import Testing
         #expect(v6.display == "leo@[::1]:2222")
         #expect(v6.command == "ssh -p 2222 -- 'leo@[::1]'")
         #expect(try target("ssh://build.example.com").command == "ssh -- 'build.example.com'")
+    }
+
+    @Test func anIPv6ZoneKeepsItsSpellingInTheTrustKey() {
+        #expect(SSHLinkTarget.trustKey("[FE80::1%en0]") == "fe80::1%en0")
+        #expect(SSHLinkTarget.trustKey("FE80::1%EN0") == "fe80::1%EN0")
+        #expect(SSHLinkTarget.trustKey("Lab.Example.COM") == "lab.example.com")
+    }
+
+    @Test func aWindowThatClosedBeforeTheQuestionAnswersCancel() async {
+        let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        #expect(!closed.isVisible)
+        #expect(await ExternalLinkGate.ask(SSHLinkTarget(user: nil, host: "build.example.com", port: nil), in: closed) == .cancel)
     }
 }

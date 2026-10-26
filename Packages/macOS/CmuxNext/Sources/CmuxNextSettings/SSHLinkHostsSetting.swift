@@ -25,7 +25,7 @@ public nonisolated struct SSHLinkHostsSetting: Sendable {
             group: SettingsText.keyed("settings.group.sshLinks", "SSH Links"),
             title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
             help: SettingsText.keyed("settings.machines.sshLinkHosts.help",
-                                     "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again."),
+                                     "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."),
             kind: .stringList, default: .array([]),
             keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"]
         )

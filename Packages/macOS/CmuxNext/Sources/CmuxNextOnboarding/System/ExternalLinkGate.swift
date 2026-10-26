@@ -73,9 +73,10 @@ public final class ExternalLinkGate {
     /// The question: classic's `cmux://ssh` confirmation and its wording, naming `target` as
     /// parsed and the command it runs, with Connect (Return) and Cancel (Escape) and "Always
     /// allow this host". Only the person answers it (`DebugDialog.userOnly`); with no window to
-    /// ask in, or a dialog closed without a press, it answers Cancel.
+    /// ask in (none, or one that closed while the known hosts were read), or a dialog closed
+    /// without a press, it answers Cancel.
     public static func ask(_ target: SSHLinkTarget, in window: NSWindow?) async -> SSHLinkAnswer {
-        guard let window else { return .cancel }
+        guard let window, window.isVisible else { return .cancel }
         let spec = CmuxDialogSpec(
             title: ExternalLinkStrings.sshTitle, lines: ExternalLinkStrings.sshMessage(target.display).components(separatedBy: "\n\n"),
             // The command on its own line, so a long target is not cut off before the host.
