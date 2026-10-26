@@ -1,23 +1,27 @@
 import CmuxNextCompat
-import Observation
 
 /// When a ``FrameObservation`` applies a change (plans/cmux-next/chrome-parity/p04-input.md,
 /// section B, task 025). Every case coalesces: however many changes come before the apply, it
-/// reads once and applies once.
+/// reads once and applies once. Whatever the delivery, a change a person's input caused
+/// (``ObservationCauses/currentCause`` is ``ObservationCause/person``) applies in that input's
+/// response pass, before its commit (``ObservationCauses/flushPersonCaused()``).
 public enum FrameObservationDelivery {
     /// Screen updates: one apply in the `visible` class at the next frame of the
-    /// ``MainWorkScheduler`` (within the class budget, after a person's pending input), held while
-    /// the node is hidden, occluded or frozen and run when it shows. Pass the window's node, or a
-    /// narrower one; nil is node-free (it applies hidden too) and needs a `// node-free: <why>`
-    /// comment at the call site.
+    /// ``MainWorkScheduler`` (within the class budget, after a person's pending input). Pass the
+    /// window's node, or a narrower one: while it is hidden the observation tracks nothing, and
+    /// when it shows it reads once and applies a changed value. nil is node-free (it applies
+    /// hidden too) and needs a `// node-free: <why>` comment at the call site.
     case visible(VisibilityNode?)
     /// Work an agent, the CLI or another process waits for: one apply in the `automation` class.
     /// It never needs a display link: with none running, it applies on the next main run loop
     /// turn, so an occluded window's automation keeps working.
     case automation
-    /// A model or cache that code in the same input turn may read: one apply on the next main run
-    /// loop pass, before the next event, with no frame wait. The reason says why a frame is too
-    /// late (the allow comment of the old hop).
+    /// A model or cache that code in the change's own turn reads. That reader calls
+    /// ``FrameObservation/flushIfDirty()`` (or reads ``FrameObservation/currentValue``) first,
+    /// which applies a pending change at once, as Blink forces a style and layout update on read
+    /// (`Document::UpdateStyleAndLayoutForNode`, third_party/blink/renderer/core/dom/document.cc).
+    /// With no such read, it applies on the next main run loop pass, with no frame wait. The
+    /// reason says why a frame is too late (the allow comment of the old hop).
     case sameTurn(StaticString)
 }
 
@@ -40,12 +44,15 @@ public enum FrameObservationDelivery {
 /// ```
 ///
 /// Behavior:
-/// 1. `init` runs `track` under `withObservationTracking` in the caller's turn and keeps the
-///    result in ``value``; it does not call `onChange`.
-/// 2. The first change of anything `track` read marks the observation dirty and schedules one
-///    apply for its delivery. The tracking is gone after that change, so later changes before the
-///    apply cost nothing: no task, no read.
-/// 3. The apply runs `track` once with a fresh tracking, stores ``value`` and calls `onChange`.
+/// 1. `init` reads `track` in the caller's turn (tracking it unless its node is hidden) and keeps
+///    the result in ``value``; it does not call `onChange`.
+/// 2. The first change of anything `track` read marks the observation dirty with the scheduler's
+///    ``ObservationCauses/currentCause`` and schedules one apply for its delivery; a person cause
+///    also queues it for the input-response pass. Until the cause is person, each change re-arms
+///    the tracking (one read, no task), so a person's later change still raises it; after that,
+///    changes cost nothing until the apply. The tracking core is ``VisibleObservation``'s.
+/// 3. The apply reads `track` once with a fresh tracking and stores ``value``; when the value is
+///    `Equatable` and equal to the one before, it does not call `onChange`.
 ///
 /// A change off the main thread reaches the main actor one hop later (``MainDelivery``).
 /// Release the token or call ``cancel()`` when the owner goes away: either fires the cancel
@@ -56,30 +63,27 @@ public final class FrameObservation<Value> {
     public let owner: String
     /// When it applies.
     public let delivery: FrameObservationDelivery
-    /// What `track` returned last.
+    /// What `track` returned at the last apply (or at `init`). ``currentValue`` applies a pending
+    /// change first.
     public private(set) var value: Value
 
     private let work: MainWorkScheduler
-    private let track: @MainActor () -> Value
     private let onChange: @MainActor (Value) -> Void
     private let taskOwner: MainTaskOwner
-    private let counts: ObservationLedger.Owner
     private let site: MainPostSite
-    /// The node's visible queue, for `.visible` with a node.
+    /// The `.visible` delivery's node; nil for the other deliveries and a node-free `.visible`.
+    private let node: VisibilityNode?
+    /// The node's visible queue the applies run on.
     private let nodeQueue: MainTaskQueue?
-    /// Written to fire the armed tracking, so the registrar drops it.
-    private let signal: VisibleObservationCancelSignal
-    /// Lets the tracking callback reach this observation, weakly (it is armed before `self` exists).
-    private let relay: Relay
-    private var armed = false
-    /// The armed tracking's generation; a callback of an older one is stale.
-    private var generation: UInt64 = 0
-    /// An apply is scheduled and has not run.
-    private var dirty = false
+    /// The tracking, its cancel signal and the pending change's cause (shared with ``VisibleObservation``).
+    private let tracker: ObservationTracker<Value>
+    /// `==` of an Equatable value; nil calls `onChange` on every apply.
+    private let isEqual: ((Value, Value) -> Bool)?
+    private var visibility: VisibilitySubscription?
     private var cancelled = false
 
     /// Tracking callbacks received, stale ones included.
-    package private(set) var trackingCallbacks = 0
+    package var trackingCallbacks: Int { tracker.callbacks }
     /// Applies scheduled (one task, post or run loop block each): one per dirty period, never one per change.
     package private(set) var deliveriesScheduled = 0
 
@@ -88,104 +92,93 @@ public final class FrameObservation<Value> {
     /// - Parameters:
     ///   - owner: The observation's name (interned once on the scheduler's board).
     ///   - delivery: When a change applies.
-    ///   - work: The app's one main-thread scheduler.
+    ///   - work: The app's one main-thread scheduler; its ``MainWorkScheduler/causes`` names each
+    ///     change's cause.
     ///   - file: The creating file (leave the default): the board names it as each apply's post site.
     ///   - line: The creating line (leave the default).
     ///   - track: The observed expression; it runs on the main actor with tracking.
-    ///   - onChange: Runs after each apply's read with the new value.
+    ///   - onChange: Runs after an apply's read with a new value.
     public init(owner: String, delivery: FrameObservationDelivery, on work: MainWorkScheduler,
                 file: StaticString = #fileID, line: UInt = #line,
                 track: @escaping @MainActor () -> Value, onChange: @escaping @MainActor (Value) -> Void) {
         self.owner = owner
         self.delivery = delivery
         self.work = work
-        self.track = track
         self.onChange = onChange
         taskOwner = work.taskOwner(owner)
-        counts = work.observationOwner(owner)
         site = MainPostSite(file: file, line: line)
-        if case .visible(let node?) = delivery {
-            nodeQueue = node.queue(.visible, owner: owner, on: work)
-        } else {
-            nodeQueue = nil
+        var visibleNode: VisibilityNode?
+        if case .visible(let given?) = delivery { visibleNode = given }
+        node = visibleNode
+        nodeQueue = visibleNode?.queue(.visible, owner: owner, on: work)
+        isEqual = ObservationTracker<Value>.equality()
+        let tracker = ObservationTracker(counts: work.observationOwner(owner), causes: work.causes, read: track)
+        self.tracker = tracker
+        let tracks = visibleNode?.isVisible ?? true
+        value = tracks ? tracker.track() : tracker.readUntracked()
+        tracker.client = self
+        visibility = visibleNode?.subscribe(owner: owner) { [weak self] state in
+            if state.isVisible { self?.show() } else { self?.hide() }
         }
-        let signal = VisibleObservationCancelSignal(), relay = Relay()
-        self.signal = signal
-        self.relay = relay
-        generation = 1
-        value = FrameObservation.tracked(track, generation: 1, signal: signal, relay: relay, causes: work.causes)
-        armed = true
-        counts.armed()
-        relay.observation = self
     }
 
-    // The scheduler's queues hold no reference to this observation; only an armed tracking
-    // outlives it. A generic main-actor class needs a nonisolated deinit (#23050, as
-    // VisibleObservation), so the signal write hops when released off main.
-    nonisolated deinit {
-        guard armed else { return }
-        counts.disarmed()
-        let signal = self.signal
-        MainDelivery().run { signal.epoch &+= 1 }
-    }
+    // The scheduler's queues hold no reference to this observation; the tracker's deinit drops an
+    // armed tracking. Generic: an isolated deinit crashes the -O build (#23050, guardrail
+    // generic-class-deinit).
+    nonisolated deinit {}
 
     /// Stops the observation: no later read or apply. Idempotent.
     public func cancel() {
         guard !cancelled else { return }
         cancelled = true
-        dirty = false
-        disarm()
+        tracker.disarm()
+        tracker.clean()
+        visibility?.cancel()
+        visibility = nil
     }
 
     /// Whether ``cancel()`` ran.
     public var isCancelled: Bool { cancelled }
 
-    // MARK: Tracking
-
-    /// Re-reads `track` with a fresh one-shot tracking whose callback marks this observation dirty.
-    private func arm() {
-        generation &+= 1
-        armed = true
-        counts.armed()
-        value = Self.tracked(track, generation: generation, signal: signal, relay: relay, causes: work.causes)
+    /// Applies a pending change now, in the caller's turn, so a reader in the change's own turn
+    /// sees it (in ``value`` and in what `onChange` writes); the scheduled apply then finds
+    /// nothing. A `.visible` observation whose node is hidden or frozen applies nothing.
+    public func flushIfDirty() {
+        guard tracker.dirtyCause != nil, mayApplyNow else { return }
+        applyNow()
     }
 
-    /// Reads `track` under a one-shot tracking that also reads `signal` (a signal write fires it);
-    /// its callback reaches the observation through `relay` on the main actor.
-    private static func tracked(_ track: @escaping @MainActor () -> Value, generation: UInt64,
-                                signal: VisibleObservationCancelSignal, relay: Relay,
-                                causes: ObservationCauses) -> Value {
-        withObservationTracking {
-            _ = signal.epoch
-            return track()
-        } onChange: { @Sendable in
-            MainDelivery().run {
-                guard let observation = relay.observation else {
-                    causes.noteReleasedTrackingFire()
-                    return
-                }
-                observation.trackingFired(generation)
-            }
-        }
+    /// ``value`` after ``flushIfDirty()``: the newest value in the change's own turn.
+    public var currentValue: Value {
+        flushIfDirty()
+        return value
     }
 
-    /// Fires the armed tracking, so the registrar drops it; its callback is stale.
-    private func disarm() {
-        generation &+= 1
-        guard armed else { return }
-        armed = false
-        counts.disarmed()
-        signal.epoch &+= 1
+    private var mayApplyNow: Bool {
+        guard !cancelled else { return false }
+        guard let node else { return true }
+        return node.isVisible && !node.isFrozen
     }
 
-    private func trackingFired(_ generation: UInt64) { // perf-hot: 0.01ms frame-tick (each observed will-set)
-        trackingCallbacks += 1
-        guard !cancelled, armed, generation == self.generation else { return }
-        armed = false
-        counts.disarmed()  // the tracking fired, and so is gone
-        dirty = true
-        schedule()
+    // MARK: Visibility
+
+    private func show() {
+        guard !cancelled, !tracker.isArmed, tracker.dirtyCause == nil else { return }
+        let start = work.budget.uptimeNanos()
+        let previous = value
+        value = tracker.track()
+        tracker.counts.showReread(nanos: work.budget.uptimeNanos() &- start)
+        guard isNew(since: previous) else { return }
+        tracker.counts.applied()
+        onChange(value)
     }
+
+    private func hide() {
+        tracker.disarm()
+        tracker.clean()
+    }
+
+    // MARK: Apply
 
     /// Schedules the one apply of this dirty period for the delivery.
     private func schedule() {
@@ -193,31 +186,53 @@ public final class FrameObservation<Value> {
         switch delivery {
         case .visible:
             if let nodeQueue {
-                nodeQueue.post(key: "flush", file: site.file, line: site.line) { [weak self] in self?.apply() }
+                nodeQueue.post(key: "flush", file: site.file, line: site.line) { [weak self] in self?.applyQueued() }
             } else {
-                work.post(.visible, owner: taskOwner, file: site.file, line: site.line) { [weak self] in self?.apply() }
+                work.post(.visible, owner: taskOwner, file: site.file, line: site.line) { [weak self] in self?.applyQueued() }
             }
         case .automation:
-            work.post(.automation, owner: taskOwner, file: site.file, line: site.line) { [weak self] in self?.apply() }
+            work.post(.automation, owner: taskOwner, file: site.file, line: site.line) { [weak self] in self?.applyQueued() }
         case .sameTurn:
-            MainRunLoopBlock.perform { [weak self] in self?.apply() }
+            MainRunLoopBlock.perform { [weak self] in self?.applyQueued() }
         }
     }
 
-    /// Reads once with a fresh tracking and hands the value to `onChange`.
-    private func apply() { // perf-hot: 0.05ms frame-tick (one apply per dirty observation)
-        guard !cancelled, dirty else { return }
-        dirty = false
-        arm()
-        counts.evaluated(applied: true)
-        onChange(value)
+    /// The scheduled apply: it finds nothing when the input-response pass, a ``flushIfDirty()``
+    /// or a hide ended the dirty period first.
+    private func applyQueued() { // perf-hot: 0.05ms frame-tick (one apply per dirty observation)
+        guard !cancelled, tracker.dirtyCause != nil else { return }
+        applyNow()
     }
 
-    /// The tracking callback's weak path to the observation.
-    @MainActor private final class Relay {
-        weak var observation: FrameObservation<Value>?
+    /// Reads once with a fresh tracking in place of the re-armed one, and hands a new value to `onChange`.
+    private func applyNow() {
+        tracker.clean()
+        tracker.disarm()
+        let previous = value
+        value = tracker.track()
+        let changed = isNew(since: previous)
+        tracker.counts.evaluated(applied: changed)
+        if changed { onChange(value) }
+    }
 
-        // Generic by context: an isolated deinit crashes the -O build (guardrail generic-class-deinit).
-        nonisolated deinit {}
+    /// Whether ``value`` differs from `previous`; always true for a value that is not `Equatable`.
+    private func isNew(since previous: Value) -> Bool {
+        guard let isEqual else { return true }
+        return !isEqual(previous, value)
+    }
+}
+
+extension FrameObservation: ObservationTrackerClient {
+    /// Schedules the apply when a dirty period starts; a raised cause needs nothing more (the
+    /// tracker queued a person cause for the pass).
+    func dirtied(_ cause: ObservationCause, after previous: ObservationCause?) {
+        if previous == nil { schedule() }
+    }
+
+    func flushPersonCaused() -> Bool {
+        guard mayApplyNow else { return false }
+        // Its scheduled apply finds nothing pending and returns.
+        work.budget.run(.frame, owner: taskOwner) { applyNow() }
+        return true
     }
 }

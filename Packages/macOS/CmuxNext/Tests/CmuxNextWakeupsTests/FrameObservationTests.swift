@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -6,7 +7,9 @@ import Testing
 
 /// FrameObservation (plans/cmux-next/chrome-parity/p04-input.md, task 025): one scheduled apply per
 /// dirty period, never a task per change; one apply per frame for `.visible`; `.automation` with no
-/// display link; `.sameTurn` on the next run loop pass; both budgeted kinds yield to pending input.
+/// display link; `.sameTurn` on the next run loop pass or at once for a reader in the same turn;
+/// both budgeted kinds yield to pending input; a person-caused change applies in the input-response
+/// pass before any frame; an equal value applies nothing.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameObservationTests {
     @Test func aHundredChangesScheduleOneDeliveryAndApplyOnceInTheNextFrame() {
         let rig = ObservationRig()
@@ -14,16 +17,97 @@ import Testing
         #expect(rig.reads == 1, "init reads once in the caller's turn")
         #expect(rig.applied.isEmpty, "init does not call onChange")
         for value in 1...100 { rig.model.value = value }
-        #expect(watch.trackingCallbacks == 1, "the tracking fires once; later changes cost nothing")
         #expect(watch.deliveriesScheduled == 1, "one delivery for 100 changes, not one task per change")
-        #expect(rig.reads == 1, "no read before the apply")
+        #expect(watch.trackingCallbacks == 100 && rig.reads == 101,
+                "a program change re-arms with one read, so a person's later change can raise the cause")
         #expect(rig.applied.isEmpty, "a change applies nothing in its own turn")
         rig.frame()
         #expect(rig.applied == [100])
-        #expect(rig.reads == 2, "the apply reads once")
+        #expect(rig.reads == 102, "the apply reads once")
         #expect(watch.value == 100)
         rig.frame()
         #expect(rig.applied == [100], "a frame with no change applies nothing")
+        rig.stop(watch)
+    }
+
+    @Test(arguments: [Kind.visible, Kind.automation, Kind.sameTurn])
+    func aPersonCausedChangeAppliesInTheInputResponsePassBeforeAnyFrame(_ kind: Kind) {
+        let rig = ObservationRig()
+        var classes: [MainWorkClass?] = []
+        let watch = rig.watch(rig.delivery(kind)) { classes.append(rig.work.budget.board.running?.workClass) }
+        rig.input.pending = true
+        rig.work.causes.withCause(.person) {
+            for value in 1...100 { rig.model.value = value }
+        }
+        #expect(watch.trackingCallbacks == 1 && rig.reads == 1, "a person-caused dirty period re-armed")
+        #expect(rig.work.causes.personPendingCount == 1)
+        #expect(rig.work.causes.flushPersonCaused() == 1)
+        #expect(rig.applied == [100], "the person's change waited for a frame")
+        #expect(classes == [.frame], "it applied outside the input-response pass")
+        #expect(rig.reads == 2)
+        rig.input.pending = false
+        rig.frame()
+        rig.frame()
+        #expect(rig.applied == [100], "the scheduled apply ran again after the pass")
+        #expect(rig.reads == 2)
+        #expect(watch.deliveriesScheduled == 1)
+        rig.stop(watch)
+    }
+
+    @Test func aPersonChangeAfterAProgramChangeRaisesTheApplyIntoThePass() {
+        let rig = ObservationRig()
+        let watch = rig.watch(.visible(rig.node))
+        rig.model.value = 1
+        #expect(rig.work.causes.flushPersonCaused() == 0, "a program change applied in the pass")
+        rig.work.causes.withCause(.person) { rig.model.value = 2 }
+        #expect(rig.work.causes.flushPersonCaused() == 1)
+        #expect(rig.applied == [2])
+        rig.frame()
+        #expect(rig.applied == [2])
+        #expect(watch.deliveriesScheduled == 1)
+        rig.stop(watch)
+    }
+
+    @Test func aHiddenNodeLeavesAPersonChangeToTheShow() {
+        let rig = ObservationRig()
+        let watch = rig.watch(.visible(rig.node))
+        rig.node.set(.hidden)
+        rig.work.causes.withCause(.person) { rig.model.value = 1 }
+        #expect(rig.work.causes.flushPersonCaused() == 0, "the pass applied to a hidden window")
+        #expect(rig.applied.isEmpty)
+        rig.node.set(.visible)
+        #expect(rig.applied == [1])
+        rig.stop(watch)
+    }
+
+    @Test func aSameTurnReaderSeesTheChangeInItsOwnTurn() {
+        let rig = ObservationRig(makeLink: false)
+        let watch = rig.watch(.sameTurn("the key handler reads the cache in its own turn"))
+        rig.model.value = 7
+        #expect(watch.value == 0, "value applied a change before anyone asked")
+        #expect(watch.currentValue == 7, "a reader in the change's turn read the old value")
+        #expect(rig.applied == [7], "flushIfDirty did not run onChange, so a cache it writes is stale")
+        let reads = rig.reads
+        watch.flushIfDirty()
+        #expect(rig.reads == reads, "flushIfDirty read with nothing pending")
+        rig.drainRunLoopBlocks()
+        #expect(rig.applied == [7], "the run loop block applied again")
+        rig.stop(watch)
+    }
+
+    @Test func aValueSetAndRestoredBeforeTheFrameAppliesNothing() throws {
+        let rig = ObservationRig()
+        let watch = rig.watch(.visible(rig.node))
+        rig.model.value = 1
+        rig.model.value = 0
+        rig.frame()
+        #expect(rig.applied.isEmpty, "onChange ran for the value it already had")
+        let counts = try #require(rig.work.observations.snapshot(matching: "test.frameObservation").first)
+        #expect(counts.applies == 0)
+        #expect(counts.evaluations >= 1)
+        rig.model.value = 3
+        rig.frame()
+        #expect(rig.applied == [3])
         rig.stop(watch)
     }
 
@@ -53,7 +137,7 @@ import Testing
         rig.stop(watch)
     }
 
-    @Test func aHiddenNodeHoldsTheApplyUntilItShows() {
+    @Test func aHiddenNodeTracksNothingAndAppliesOnceWhenItShows() {
         let rig = ObservationRig()
         let watch = rig.watch(.visible(rig.node))
         rig.node.set(.hidden)
@@ -62,9 +146,12 @@ import Testing
         rig.frame()
         #expect(rig.applied.isEmpty, "a hidden window applied")
         #expect(rig.reads == 1, "a hidden window read")
+        #expect(watch.trackingCallbacks == 1, "a tracking stayed registered after hide (the hide's own fire only)")
         rig.node.set(.visible)
+        #expect(rig.applied == [10], "the show reads once and applies the latest value")
         rig.frame()
-        #expect(rig.applied == [10], "the held apply runs once with the latest value after show")
+        #expect(rig.applied == [10])
+        #expect(rig.reads == 2)
         rig.stop(watch)
     }
 
@@ -81,7 +168,7 @@ import Testing
     @Test(arguments: [Kind.visible, Kind.automation])
     func pendingInputHoldsTheApplyLikeAVisibleBatch(_ kind: Kind) {
         let rig = ObservationRig()
-        let watch = rig.watch(kind == .visible ? .visible(rig.node) : .automation)
+        let watch = rig.watch(rig.delivery(kind))
         rig.input.pending = true
         rig.model.value = 1
         rig.frame()
@@ -135,11 +222,12 @@ import Testing
         let watch = rig.watch(.visible(rig.node))
         rig.model.value = 1
         watch.cancel()
+        let reads = rig.reads
         rig.frame()
         rig.model.value = 2
         rig.frame()
         #expect(rig.applied.isEmpty, "a cancelled observation applied")
-        #expect(rig.reads == 1)
+        #expect(rig.reads == reads, "a cancelled observation read")
         #expect(watch.isCancelled)
         rig.stop(watch)
     }
@@ -152,18 +240,27 @@ import Testing
         }
         #expect(try counts().armed == 1)
         for value in 1...5 { rig.model.value = value }
+        #expect(try counts().armed == 1, "the re-armed tracking replaced the fired one")
+        rig.work.causes.withCause(.person) { rig.model.value = 6 }
         #expect(try counts().armed == 0, "the fired tracking is gone until the apply")
         rig.frame()
         let applied = try counts()
-        #expect(applied.armed == 1 && applied.evaluations == 1 && applied.applies == 1)
+        #expect(applied.armed == 1 && applied.applies == 1)
+        #expect(applied.evaluations == 6, "five re-arm reads and the apply's")
         watch.cancel()
         #expect(try counts().armed == 0, "a cancelled observation is disarmed")
         rig.stop(watch)
     }
 
     enum Kind: CustomTestStringConvertible {
-        case visible, automation
-        var testDescription: String { self == .visible ? "visible" : "automation" }
+        case visible, automation, sameTurn
+        var testDescription: String {
+            switch self {
+            case .visible: "visible"
+            case .automation: "automation"
+            case .sameTurn: "sameTurn"
+            }
+        }
     }
 }
 
@@ -185,6 +282,7 @@ private final class ObservationRig {
     private var keeper: FrameClient?
     private(set) var reads = 0
     private(set) var applied: [Int] = []
+    private var drained = false
 
     /// - Parameter makeLink: false: the link factory returns nil (an occluded window, a headless run).
     init(makeLink: Bool = true) {
@@ -200,6 +298,14 @@ private final class ObservationRig {
         let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         keeper.activate()
         self.keeper = keeper
+    }
+
+    func delivery(_ kind: FrameObservationTests.Kind) -> FrameObservationDelivery {
+        switch kind {
+        case .visible: .visible(node)
+        case .automation: .automation
+        case .sameTurn: .sameTurn("the test reads in the change's turn")
+        }
     }
 
     func watch(_ delivery: FrameObservationDelivery, onApply: @escaping @MainActor () -> Void = {}) -> FrameObservation<Int> {
@@ -224,6 +330,13 @@ private final class ObservationRig {
         while !done(), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
+    }
+
+    /// Spins the main run loop until every block queued before the call ran (they run in order).
+    func drainRunLoopBlocks() {
+        drained = false
+        MainRunLoopBlock.perform { [weak self] in self?.drained = true }
+        spinMainRunLoop { drained }
     }
 
     func stop(_ watch: FrameObservation<Int>) {
