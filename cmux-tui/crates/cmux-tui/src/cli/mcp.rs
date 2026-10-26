@@ -20,10 +20,12 @@ mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod caller_scope;
 mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod placement;
 mod render_tool;
 mod schema;
 mod terminal_talk_tools;
@@ -101,6 +103,7 @@ pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
     Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
+    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
     call passes focus: true or the tool's purpose is focus. \
@@ -164,6 +167,14 @@ pub(super) trait Backend {
             "acpmux.unavailable",
             "this server cannot reach acpmux agent dispatch",
         ))
+    }
+    /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
+    }
+    /// The app's focus from `snapshot.get` (placement.rs).
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
     }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
@@ -229,6 +240,14 @@ impl Backend for LiveBackend {
         prefixes: &[Prefix],
     ) -> Result<Value, CallFailure> {
         transport::resource(&self.routed(session)?, plan, prefixes)
+    }
+
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        placement::app_identity(&self.global)
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        placement::app_focus(&self.global)
     }
 
     fn session_events(
@@ -862,10 +881,17 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
-        let call = match tool.plan(arguments) {
+        let arguments = match self.place_beside(tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
+        if let Err(error) = self.place_caller(&mut call) {
+            return tool_error(envelope(error, "not_run", None));
+        }
         let page = call.page;
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) => success(

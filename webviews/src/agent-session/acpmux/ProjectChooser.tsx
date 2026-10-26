@@ -1,7 +1,8 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
+import { Combobox } from "../../ui/Combobox";
 import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
@@ -60,11 +61,8 @@ export function ProjectChooser({
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
-  // The highlighted row, by key: the list re-sorts as chats update while the menu is open.
-  const [active, setActive] = useState<string | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const menuId = useId();
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
@@ -81,18 +79,15 @@ export function ProjectChooser({
     if (onNoProject && !query.trim()) listed.push({ key: NO_PROJECT_KEY });
     return listed;
   }, [shown, onNoProject, query]);
+  const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
+  const isCurrent = (key: string) =>
+    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
   }, [query]);
-  const selected = Math.max(
-    0,
-    rows.findIndex((row) => row.key === active),
-  );
-
   const show = () => {
     setQuery("");
-    setActive(currentKey ?? (onNoProject && noProject ? NO_PROJECT_KEY : undefined));
     setOpen(true);
   };
   const close = (refocus: boolean) => {
@@ -123,19 +118,15 @@ export function ProjectChooser({
     return () => window.removeEventListener("blur", blur);
   }, [open]);
 
-  const keyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (rows.length > 0)
-        setActive(rows[(selected + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]!.key);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(rows[selected]);
-    }
+  const suggestions = rows.map((row) => row.key);
+  if (typedPath && shown.length === 0) suggestions.push(typedPath);
+  const rowLabel = (key: string) => {
+    const project = rowsByKey.get(key)?.project;
+    return project
+      ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
+      : key === NO_PROJECT_KEY
+        ? t("project.noProject")
+        : key;
   };
 
   const label = currentLabel ?? t("project.choose");
@@ -148,7 +139,6 @@ export function ProjectChooser({
         aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
         {...press}
       >
         {!inline &&
@@ -171,58 +161,39 @@ export function ProjectChooser({
         finalFocus={false}
       >
         <div>
-          <div className="acpmux-project-search">
-            <SearchIcon />
-            <input
-              ref={search}
-              type="text"
-              // A combobox that owns the project list: the role carries aria-expanded and aria-controls.
-              // oxlint-disable-next-line jsx-a11y/no-redundant-roles
-              role="combobox"
-              aria-label={t("project.search")}
-              aria-expanded="true"
-              aria-controls={menuId}
-              aria-autocomplete="list"
-              aria-activedescendant={rows.length > 0 ? `${menuId}-${selected}` : undefined}
-              placeholder={t("project.search")}
-              value={query}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(undefined);
-              }}
-              onKeyDown={keyDown}
-            />
-          </div>
-          <div
-            id={menuId}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="listbox"
-            aria-label={t("project.label")}
-          >
-            {rows.map((row, index) => {
-              const project = row.project;
-              const checked = project ? row.key === currentKey : noProject;
-              const name = project ? project.label : t("project.noProject");
+          <Combobox
+            inputRef={search}
+            suggestions={suggestions}
+            onQuery={setQuery}
+            onSubmit={(key) => {
+              const row =
+                rowsByKey.get(key) ??
+                (!key && !query.trim()
+                  ? (rows.find(
+                      (candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY),
+                    ) ?? rows[0])
+                  : undefined);
+              if (row || (typedPath && key === typedPath)) pick(row);
+            }}
+            onCancel={() => close(true)}
+            cancelOnBlur={false}
+            autoHighlight
+            label={t("project.search")}
+            placeholder={t("project.search")}
+            inputClassName="acpmux-project-search-field"
+            listClassName="m-0 list-none p-0"
+            itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
+            itemLabel={rowLabel}
+            isItemCurrent={isCurrent}
+            completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
+            renderItem={(key) => {
+              const row = rowsByKey.get(key);
+              const project = row?.project;
+              const checked = isCurrent(key);
+              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
               return (
-                <div
-                  key={row.key}
-                  id={`${menuId}-${index}`}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === selected}
-                  aria-checked={checked}
-                  aria-label={project ? [project.label, project.host, project.cwd].filter(Boolean).join(", ") : name}
-                  className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}${project ? "" : " acpmux-project-none"}`}
-                  onPointerMove={() => setActive(row.key)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(row);
-                  }}
-                >
-                  {project ? <ProjectBadge project={project} /> : <NoProjectIcon />}
+                <>
+                  {project ? <ProjectBadge project={project} /> : row ? <NoProjectIcon /> : icon}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
                     {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
@@ -236,28 +207,14 @@ export function ProjectChooser({
                   <span className="acpmux-project-check" aria-hidden="true">
                     {checked ? "✓" : ""}
                   </span>
-                </div>
+                </>
               );
-            })}
-            {shown.length === 0 &&
-              (typedPath ? (
-                <button
-                  type="button"
-                  className="acpmux-menu-item acpmux-menu-active"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(undefined);
-                  }}
-                >
-                  {icon}
-                  <span className="acpmux-menu-label">{t("project.usePath", { path: typedPath })}</span>
-                </button>
-              ) : (
-                (query.trim() || !onNoProject) && (
-                  <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
-                )
-              ))}
-          </div>
+            }}
+            inline
+          />
+          {suggestions.length === 0 && (query.trim() || !onNoProject) && (
+            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
+          )}
           {onBrowse && (
             <button
               type="button"
@@ -285,26 +242,6 @@ export function ProjectChooser({
         }}
       />
     </span>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="7" cy="7" r="4.25" />
-      <path d="m10.25 10.25 3 3" />
-    </svg>
   );
 }
 

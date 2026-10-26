@@ -1364,12 +1364,17 @@ fn start(
             // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
             // workspace is the same kind of workspace as one the user makes (it outlives the app
             // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
+            // A Chief no app opened (`cmux chief --chief-home`): the link dangles, so
+            // its workspaces go to this host's own session until an app opens Home.
+            let fallback = (Path::new(daemon_socket) != daemon.as_path())
+                .then(|| PathBuf::from(daemon_socket));
             Some(Arc::new(crate::workspaces::DaemonWorkspaces {
                 daemon,
                 host: crate::workspaces::chief_host(home),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: true,
+                fallback,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         crate::workspaces::Placement::Cloud(daemon, install) => {
@@ -1379,6 +1384,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         // Fresh Chief with no app in its environment (user 12374): the host's own session.
@@ -1389,6 +1395,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
     };
@@ -1418,6 +1425,7 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
+        .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
