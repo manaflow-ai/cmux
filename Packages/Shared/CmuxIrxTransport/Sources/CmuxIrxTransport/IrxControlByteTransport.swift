@@ -285,9 +285,10 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     /// Whether the stream this I/O used has been, or is about to be, replaced.
     private func laneWasReplaced(since generation: UInt64) async -> Bool {
-        if generation != laneGeneration { return true }
-        guard laneReplacementInProgress else { return false }
-        try? await withOnceContinuation { laneReplacementWaiters.append($0) }
+        // An abandoned wait (a fault) waits again instead of reporting a replacement still in progress as done.
+        while generation == laneGeneration, laneReplacementInProgress {
+            try? await withOnceContinuation { laneReplacementWaiters.append($0) }
+        }
         return generation != laneGeneration
     }
 

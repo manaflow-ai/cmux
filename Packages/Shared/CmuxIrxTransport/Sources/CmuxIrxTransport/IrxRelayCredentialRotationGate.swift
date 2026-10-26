@@ -19,7 +19,8 @@ actor IrxRelayCredentialRotationGate {
     }
 
     func invalidate() async {
-        if mutationInFlight {
+        // An abandoned wait (a fault) waits again: generation never moves while an insert runs.
+        while mutationInFlight {
             try? await withOnceContinuation { continuation in
                 mutationWaiters.append(continuation)
             }
