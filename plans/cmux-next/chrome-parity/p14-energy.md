@@ -1195,6 +1195,15 @@ repositories.
 - Acceptance: switching the source to saver re-aligns pending flexible entries to 32 ms and leaves precise entries.
 - Test phase: `swift test --filter "MainWakeUpQueueTests|EnergyPolicy"` on the fleet.
 - Size S. Depends: 013.
+- As landed (review fixes): only `EnergyPolicy`, `EnergyPolicySource` and `MainWakeUpQueue(energy:)`, with no
+  default source. As in Chrome, an entry keeps the leeway it was inserted with and the grid applies at wake time
+  (`AdjustDelayedRunTime`), so a switch snaps pending entries to 32 ms only up to their latest time. DemandTimer and
+  FrameScheduler do not change here. 012 owns DemandTimer's `policy:` and tolerance (precise asks 0), and 028 owns the
+  ambient rate class and its source (every FrameScheduler gets it, MainWorkScheduler's too). Still open for 012/014/024:
+  how the 188 `DemandTimer(` sites that use defaults get the app's source. A static setter
+  (`DemandTimer.setProcessDefaults`) breaks arch-ratchet `stateful_singletons`. So 014 adds a seam that the
+  composition root sets once (for example, the MainWakeUpQueue it injects carries the source), or 024 threads the queue
+  through the sites and its "+30 lines" acceptance changes.
 
 #### p14-energy-024 Composition root wiring
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`,

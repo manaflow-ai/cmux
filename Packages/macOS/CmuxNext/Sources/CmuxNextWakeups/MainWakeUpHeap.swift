@@ -19,6 +19,9 @@ struct MainWakeUpHeap<Payload> {
         let earliest: UInt64
         /// The entry must run by here.
         let latest: UInt64
+        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid
+        /// (a flexible window below one second, ``WakeLeeway``'s table).
+        let followsAlignment: Bool
         let owner: String
         let payload: Payload
 
@@ -28,10 +31,16 @@ struct MainWakeUpHeap<Payload> {
             self.window = window
             self.earliest = window.earliest(deadline: deadline)
             self.latest = window.latest(deadline: deadline)
+            self.followsAlignment = window.policy != .precise && window.delay < WakeLeeway.wholeSecondDelay
             self.owner = owner
             self.payload = payload
         }
     }
+
+    /// The grid of entries that follow the alignment, in ns (> 0): 8 ms, 32 ms under Energy Saver. It is
+    /// read at wake time, as `MessagePump::AdjustDelayedRunTime` reads the current leeway, so a change
+    /// moves no entry: each keeps the latest time it was posted with.
+    var alignment: UInt64 = WakeLeeway.defaultAlignment.nanosecondCount
 
     private var entries: [Entry] = []
     private var positions: [UInt64: Int] = [:]
@@ -66,11 +75,14 @@ struct MainWakeUpHeap<Payload> {
     ///
     /// The date is the top's ``WakeLeeway/fireTime(deadline:)``: `MessagePump::AdjustDelayedRunTime`
     /// (base/message_loop/message_pump.cc) under `kAlignWakeUps`, the earliest time snapped up to the
-    /// grid and clamped to the latest time. The top has the smallest latest time, so the fire is never
-    /// after any entry's latest. An exact top fires at its own time.
+    /// grid (``alignment`` for an entry that follows it) and clamped to the latest time. The top has the
+    /// smallest latest time, so the fire is never after any entry's latest. An exact top fires at its own time.
     func wakeUp() -> (date: UInt64, latest: UInt64)? {
         guard let top = entries.first else { return nil }
-        return (top.window.fireTime(deadline: top.deadline), top.latest)
+        let date = top.followsAlignment
+            ? top.window.fireTime(deadline: top.deadline, grid: .nanoseconds(max(alignment, 1)))
+            : top.window.fireTime(deadline: top.deadline)
+        return (date, top.latest)
     }
 
     // MARK: - Binary heap
