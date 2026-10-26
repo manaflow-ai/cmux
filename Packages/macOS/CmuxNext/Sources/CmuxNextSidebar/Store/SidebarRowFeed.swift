@@ -188,25 +188,18 @@ public final class SidebarRowFeed {
             // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
             // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
             // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
-            if remap || (!entry.armed && dirty[id] == nil) { remapped(id, entry) }
+            if remap || (!entry.armed && dirty[id] == nil) {
+                let row = arm(id, entry)
+                // A re-map (an inputs change) is a re-read as in a flush; a new stub's first map is an arm only.
+                if entry.revision != 0 { observations?.evaluated(applied: row != entry.row) }
+                entry.row = row
+            }
             // The pass holds this row already, unless it was a stub or was mapped again since.
             if entry.revision != entry.namedRevision { rows.append(entry.row) }
             entry.namedRevision = entry.revision
         }
         if remap, !dirty.isEmpty { for id in named { dirty[id] = nil } }
         return SidebarRowIndex.patching(rows, in: sections)
-    }
-
-    /// Maps `entry` again in `fill` and stores the row. A row mapped before (not a new stub) is a re-read
-    /// in `debug.observations`, as in a flush: an inputs change re-reads every row and is counted per row.
-    private func remapped(_ id: WorkspaceID, _ entry: Entry) {
-        let stub = entry.revision == 0  // a stub's row was never written
-        let row = arm(id, entry)
-        if !stub {
-            observations?.evaluated()
-            if row != entry.row { observations?.applied() }
-        }
-        entry.row = row
     }
 
     /// Maps `entry` under an observation that marks it dirty on its next
@@ -269,9 +262,9 @@ public final class SidebarRowFeed {
             for id in ids {
                 guard let entry = entries[id], !entry.armed else { continue }
                 let row = arm(id, entry)
-                observations?.evaluated()
-                guard row != entry.row else { continue }
-                observations?.applied()
+                let differs = row != entry.row
+                observations?.evaluated(applied: differs)
+                guard differs else { continue }
                 entry.row = row
                 changed.append(row)
             }

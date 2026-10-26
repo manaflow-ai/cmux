@@ -62,6 +62,12 @@ public final class ObservationLedger: Sendable {
             applies.add(1, ordering: .relaxed)
         }
 
+        /// One observation ran its read after a change and, when `applied`, applied a new value.
+        public func evaluated(applied: Bool) {
+            evaluations.add(1, ordering: .relaxed)
+            if applied { applies.add(1, ordering: .relaxed) }
+        }
+
         /// One observation re-read its value because its node was shown, in `nanos` (monotonic).
         public func showReread(nanos: UInt64) {
             showRereads.add(1, ordering: .relaxed)
