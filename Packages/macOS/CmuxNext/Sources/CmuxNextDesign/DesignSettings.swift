@@ -109,7 +109,7 @@ public final class DesignSettings {
     public var wallpaperTint = false {
         didSet {
             guard wallpaperTint != oldValue else { return }
-            BackdropImageStore.shared.desktop.refreshViews()
+            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.

@@ -101,6 +101,7 @@ import Testing
         var shown = bluePicture
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: DesktopWallpaperWatch.sample)
 
+        watch.tintEnabled = true
         watch.refresh()
         await watch.settled()
         let first = try #require(watch.tint)
@@ -142,6 +143,7 @@ import Testing
             await Task.detached { for await _ in newerStarted {} }.value
             return Self.red
         })
+        watch.tintEnabled = true
         watch.refresh()
         shown = fast
         watch.refresh()
@@ -158,6 +160,7 @@ import Testing
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: url.path)
         let color = OSAllocatedUnfairLock(initialState: Self.blue)
         let watch = DesktopWallpaperWatch(read: { Self.reading(url, folder: folder) }, sample: { _ in color.withLock { $0 } })
+        watch.tintEnabled = true
         watch.refresh()
         await watch.settled()
         watch.refresh()
@@ -173,15 +176,39 @@ import Testing
         #expect(watch.generation == 1)
     }
 
+    /// Hidden, the app reads nothing; the first read after it shows again catches up. With the tint
+    /// off, a new picture still moves the generation (the Desktop Wallpaper art reloads) but takes
+    /// no sample; turning the tint on samples the picture shown then.
+    @Test func noWorkWhileHiddenAndNoSampleWhileOff() async throws {
+        let folder = try Self.folder()
+        var shown = folder.appendingPathComponent("blue.png"), hidden = true
+        let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: { _ in Self.blue },
+                                          isHidden: { hidden })
+        watch.refresh()
+        #expect(watch.generation == 0 && watch.sampleCount == 0 && watch.tint == nil, "hidden: nothing read")
+
+        hidden = false
+        watch.refresh()
+        shown = folder.appendingPathComponent("red.png")
+        watch.refresh()
+        await watch.settled()
+        #expect(watch.generation == 1, "the art follows the picture with the tint off")
+        #expect(watch.sampleCount == 0 && watch.tint == nil, "no sample while the tint is off")
+
+        watch.tintEnabled = true
+        await watch.settled()
+        #expect(watch.sampleCount == 1 && watch.tint == Self.blue)
+        watch.refresh()
+        #expect(watch.sampleCount == 1, "the same picture is not sampled again")
+    }
+
     /// A registered window material re-applies with each new color: its tint follows the picture.
     @Test func aWindowsTintFollowsThePicture() async throws {
-        let wasOn = DesignSettings.shared.wallpaperTint
-        DesignSettings.shared.wallpaperTint = true
-        defer { DesignSettings.shared.wallpaperTint = wasOn }
         let folder = try Self.folder()
         let color = OSAllocatedUnfairLock(initialState: Self.blue)
         let watch = DesktopWallpaperWatch(read: { Self.reading(folder.appendingPathComponent("\(color.withLock { $0.red }).png"), folder: folder) },
                                           sample: { _ in color.withLock { $0 } })
+        watch.tintEnabled = true
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: BackdropImageStore(desktop: watch),
                                       videos: BackdropVideoPlayers())
         view.apply(WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: 0), tint: Self.darkGrey)
