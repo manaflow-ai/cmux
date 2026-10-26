@@ -1,3 +1,5 @@
+import CmuxNextActions
+@testable import CmuxNextApp
 import CmuxNextCloud
 import Foundation
 import Testing
@@ -53,5 +55,16 @@ struct CloudAPIClientRunTests {
         #expect(RunAPI.seen.map(\.method) == ["POST", "GET"])
         #expect(RunAPI.seen.map(\.path) == ["/api/runs", "/api/runs/run-1/wait?timeoutMs=10000"])
         #expect(RunAPI.seen.first?.key == "key-1")
+    }
+}
+
+/// The run methods belong to the Cloud feature: an administrator who turns Cloud off turns them off.
+@Suite struct RunMethodsFeaturePolicyTests {
+    @Test func runMethodsAreCloudFeatureMethods() {
+        for method in ["runs.sandbox.create", "runs.wait", "runs.cancel"] {
+            #expect(AppControl.policyFeature(of: method) == .cloud)
+            #expect(AppControl.policyRefusal(method, disabled: [.cloud])?.code == "feature.disabled")
+            #expect(AppControl.policyRefusal(method, disabled: []) == nil)
+        }
     }
 }

@@ -165,6 +165,8 @@ extension AppControl {
             switch error {
             case .notSignedIn: throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module))
             case .timedOut: throw ControlError(code: "timeout", message: error.description)
+            // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
+            case .http(401, _, _): throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module))
             case .http(_, "run_sandbox_unavailable", _): throw ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
             case .http(_, "run_image_invalid", _): throw ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
             case .http(_, "run_agent_invalid", _): throw ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
