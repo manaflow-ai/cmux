@@ -44,7 +44,7 @@ final class InternalPageTabStore {
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
     /// Page tab discards (`memoryDiscardInternalPages`; nil while off): when views go, and what each
-    /// discarded tab keeps until its view is made again (InternalPageTabStore+Discard).
+    /// discarded tab keeps until its view is made again (InternalPageTabStore+Show).
     @ObservationIgnored var discarding: InternalPageDiscards?
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
@@ -154,7 +154,7 @@ final class InternalPageTabStore {
         return view
     }
 
-    /// Takes the view kept under provider key `key` out of the store (a discard, InternalPageTabStore+Discard).
+    /// Takes the view kept under provider key `key` out of the store (a discard, InternalPageTabStore+Show).
     func takeView(_ key: String) -> InternalPageView? { views.removeValue(forKey: key) }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
