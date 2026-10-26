@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::remote_entry::{RemoteGate, RemotePeer};
 use super::{
@@ -27,7 +27,7 @@ use super::{
     RenderService, SinkControl, transport,
 };
 use crate::fs_ops::stream::{self, StreamRequest};
-use crate::fs_ops::{FsError, FsService, frame_command};
+use crate::fs_ops::{FsError, FsService, frame_command, object_command};
 use crate::mux::Mux;
 
 /// A stream that sends nothing for this long is cancelled.
@@ -46,6 +46,14 @@ impl RemoteGate for FsGate {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::OneOf(&crate::fs_ops::FS_COMMANDS)],
+        stage: crate::server::FrameStage::Fs,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles an `fs.*` line; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -56,7 +64,10 @@ pub(super) fn try_handle(
     if !message.contains("\"fs.") {
         return None;
     }
-    frame_command(message)?;
+    let Ok(Value::Object(request)) = crate::line_parses::parse::<Value>(message) else {
+        return None;
+    };
+    object_command(&request)?;
     // The transport first, then the principal of this frame: a remote client
     // needs a bound peer whose install may keep its streams (a revoke or the
     // 72 h limit refuses it before its stream closes). Either one missing:
@@ -65,11 +76,11 @@ pub(super) fn try_handle(
         .then(|| mux.frame_principal(client))
         .flatten()
         .map(super::remote_relay::Principal::participant);
-    let reply = answer_line(
+    let reply = answer_request(
         crate::fs_ops::installed(),
         owner.is_some(),
         owner.as_deref().unwrap_or(super::remote_relay::NO_PRINCIPAL),
-        message,
+        request,
     );
     Some(writer.send_control(&reply).is_ok())
 }
@@ -85,22 +96,34 @@ fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
 /// The answer to one `fs.*` request line. `owner` keys the caller's
 /// listing snapshots (the connection's principal, so a later dial of the
 /// same peer can page a listing).
+#[cfg(test)]
 pub(super) fn answer_line(
     service: Option<&FsService>,
     transport_allowed: bool,
     owner: &str,
     line: &str,
 ) -> Value {
-    let Ok(Value::Object(request)) = serde_json::from_str::<Value>(line) else {
+    let Ok(Value::Object(request)) = crate::line_parses::parse::<Value>(line) else {
         return stream::answer(
             &Value::Null,
             Err(FsError::ParamsInvalid("not a JSON object".into())),
         );
     };
-    let id = request.get("id").cloned().unwrap_or(Value::Null);
-    if frame_command(line).is_none() {
+    if object_command(&request).is_none() {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
         return stream::answer(&id, Err(FsError::ParamsInvalid("unknown fs op".into())));
     }
+    answer_request(service, transport_allowed, owner, request)
+}
+
+/// The answer to a decoded `fs.*` request (its op is named by `cmd`).
+fn answer_request(
+    service: Option<&FsService>,
+    transport_allowed: bool,
+    owner: &str,
+    request: Map<String, Value>,
+) -> Value {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
     if !transport_allowed {
         return stream::answer(&id, Err(FsError::PermissionDenied));
     }
@@ -118,7 +141,7 @@ pub(super) fn answer_line(
 
 /// Runs one `fs-v1` line op on `service`: `request` is the whole frame
 /// (`{id?, cmd: "fs.<op>", ...flat params}`), decoded by its `cmd`. `owner`
-/// keys the caller's listing snapshots. `answer_line` calls it after its
+/// keys the caller's listing snapshots. `answer_request` calls it after its
 /// transport and stream checks; a test that serves a real [`FsService`] on
 /// a socket of its own calls it the same way.
 pub fn answer_fs_request(

@@ -2728,7 +2728,9 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_head;
 mod request_spans;
+mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
@@ -2737,9 +2739,8 @@ use connection_frame::{
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
-use request_spans::{
-    AsyncReply, RequestArrival, RequestHead, RequestMethod, RequestSpan, request_id_hash,
-};
+use request_head::RequestHead;
+use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
 /// One layout node. `split_ids`: the public ids of the splits
 /// (`State::resource_indexes`); a split with one carries it as `split_id`

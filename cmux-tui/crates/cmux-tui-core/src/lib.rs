@@ -76,6 +76,7 @@ mod pty_input_room;
 mod pty_write;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
+mod line_parses;
 mod login_shell;
 pub mod release;
 mod request_origin;
