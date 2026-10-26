@@ -23,7 +23,7 @@ extension AgentLaunchEnvironmentPolicy {
         return updates
     }
 
-    private func selectedNodeOptions(from env: [String: String]) -> String? {
+    func selectedNodeOptions(from env: [String: String]) -> String? {
         let marker = env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         switch marker?.isEmpty == false ? marker : nil {
         case "1":
