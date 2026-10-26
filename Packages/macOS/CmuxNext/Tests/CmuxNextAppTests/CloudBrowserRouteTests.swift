@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextRemoteLocalhost
 @testable import CmuxNextRemoteLocalhostService
@@ -180,5 +181,14 @@ struct ProxiedBrowserTabsRestoreTests {
         }
         #expect(configuration.machineStore == nil)
         #expect(configuration.navigationGuard == .noLoopback)
+    }
+}
+
+/// A click resumed a paused machine: its daemon connected while its record still read paused, so a
+/// stranded page's refetch was refused and the page stayed on "not connected" (#25595 re-review).
+struct CloudBrowserRefetchGateTests {
+    @Test(arguments: [(true, false, true), (false, true, true), (true, true, true), (false, false, false)])
+    func aPageMayAskForTheRouteOfARunningOrConnectedMachineOnly(live: Bool, connected: Bool, may: Bool) {
+        #expect(BrowserTabOpen.mayRefetch(live: live, connected: connected) == may)
     }
 }
