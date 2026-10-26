@@ -5169,6 +5169,15 @@ jobs:
       # live is not mac, or is unreadable; or NIGHTLY_NEXT_HOLD is 1).
       refused: ${{ steps.gate.outputs.refused }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
+      # For publish-nightly-next-github: what to publish and the release body's parts.
+      # feed_written is false when a newer build was already on the feed.
+      variant_pattern: ${{ steps.source.outputs.variant_pattern }}
+      tested_pattern: ${{ steps.source.outputs.tested_pattern }}
+      tip_sha: ${{ steps.source.outputs.tip_sha }}
+      behind: ${{ steps.source.outputs.behind }}
+      behind_hours: ${{ steps.source.outputs.behind_hours }}
+      downloads: ${{ steps.notes.outputs.downloads }}
+      feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -5564,7 +5573,7 @@ jobs:
           fi
 
       - name: Prune old nightly release assets
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -5580,7 +5589,7 @@ jobs:
 
       - name: Publish nightly release assets
         id: publish_assets
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           # A refused upload backs off within 30 minutes (publish-release-assets.py), not 10:
@@ -5619,57 +5628,9 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --replace-feeds "${args[@]}"
 
-      - name: Download the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'own' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-next-source-archive
-          path: source-archive
-
-      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
-      # Tags the build commit cmux-next-src-<11 characters> and attaches
-      # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
-      # step removes it only together with the app assets of <build>, whose
-      # source offer names it (prune_nightly_release_assets.py), never by age.
-      # A recovered build carries its source archive in the recovered variant.
-      - name: Take the recovered build's source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'recovered' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
-        run: mv nightly-out/source-archive source-archive
-
-      - name: Publish the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
-          HEAD_SHA: ${{ steps.source.outputs.build_sha }}
-        run: |
-          set -euo pipefail
-          short="${HEAD_SHA:0:11}"
-          src=(source-archive/cmux-next-source-*.tar.gz)
-          [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
-          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --rev "$HEAD_SHA" --print-source | sed -n 's/^libghostty-vt source: //p')"
-          next=()
-          if [[ "${vt%% *}" != ghostty ]]; then
-            next=(--next-name "${vt%% *}" --next-revision "${vt##* }"
-              --next-license-manifest "source-archive/${vt%% *}-licenses/SOURCE-MANIFEST.json")
-          fi
-          python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
-            --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
-            --revision "$(git rev-parse "$HEAD_SHA:ghostty")" ${next[@]+"${next[@]}"}
-          mkdir -p source-out
-          cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
-          if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then
-            [[ "$existing" == "$HEAD_SHA" ]] || { echo "tag cmux-next-src-$short points at $existing, not $HEAD_SHA" >&2; exit 1; }
-          else
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
-          fi
-          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
-
       - name: Mint release tag app token
         id: release-tag-token
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -5689,7 +5650,7 @@ jobs:
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
         id: publish_metadata
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -5753,6 +5714,47 @@ jobs:
             echo "R2 appcast upload complete: ${CHANNEL_FEED_BASE}/$appcast"
           done
 
+      # cmux NEXT's critical path (Leo, 2026-10-26: "how are we even spending more than one
+      # minute on uploads?"): the DMG goes to the feed's own R2 base and the feed names it
+      # there, so the feed never waits on GitHub. The release upload spent 13-18 minutes in
+      # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
+      # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
+      # the feed. Same bytes, so the item's EdDSA signature is unchanged.
+      - name: Publish the nightly-next download to R2
+        id: next_downloads
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          dmg="${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+          python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" upload --file "nightly-out/$dmg"
+          for feed in $NIGHTLY_FEEDS; do
+            python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" rewrite --feed "nightly-out/$feed" --name "$dmg"
+          done
+
+      # What publish-nightly-next-github publishes to the release: the feed as it went
+      # live and the release body's PR list.
+      - name: Hand the published feed to the GitHub release job
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p next-github
+          for feed in $NIGHTLY_FEEDS; do cp "nightly-out/$feed" next-github/; done
+          if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then cp "$RUNNER_TEMP/nightly-prs.md" next-github/; fi
+
+      - name: Upload the published feed for the GitHub release job
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
+          path: next-github/*
+          if-no-files-found: error
+          retention-days: 1
+
       # The nightly-next track writes only its own bucket prefix with its own
       # scoped token (release-next secrets), after the guard has checked every
       # appcast enclosure and object key. It never receives CF_R2_* .
@@ -5785,18 +5787,12 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          # Compare-and-swap: written only while the live feed's newest build is below this
+          # one (If-Match on the bytes read), so a slower older run never moves it back.
           for appcast in $NIGHTLY_FEEDS; do
-            key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
-            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
-              --file "nightly-out/$appcast" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
-              --key "$key" \
-              --content-type "application/xml" \
-              --cache-control "no-cache, no-store, must-revalidate"
-            echo "R2 appcast upload complete: ${CHANNEL_FEED_BASE}/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast" \
+              --github-output "$GITHUB_OUTPUT"
           done
 
       # The marker is written only after immutable assets, aliases, release
@@ -5804,7 +5800,7 @@ jobs:
       # it as an idempotency record without mistaking a partial publication for
       # a complete one.
       - name: Record verified nightly publication
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -5852,7 +5848,7 @@ jobs:
       # remain the publication record if this marker is stale.
       - name: Move channel release tag to built commit
         id: move-channel-release-tag
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -5874,7 +5870,9 @@ jobs:
         id: tag-outcome
         if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
-          TAG_MOVE_OUTCOME: ${{ steps.move-channel-release-tag.outcome }}
+          # nightly-next: the feed on R2 is the publication; publish-nightly-next-github
+          # moves the tag afterwards, off the feed's path.
+          TAG_MOVE_OUTCOME: ${{ needs.decide.outputs.track == 'nightly-next' && steps.upload_next_appcasts.outcome || steps.move-channel-release-tag.outcome }}
           ASSETS_OUTCOME: ${{ steps.publish_assets.outcome }}
           METADATA_OUTCOME: ${{ steps.publish_metadata.outcome }}
           APPCASTS_OUTCOME: ${{ steps.upload_appcasts.outcome }}
@@ -5883,7 +5881,14 @@ jobs:
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
-          if [ "$TAG_MOVE_OUTCOME" = "success" ]; then
+          if [ "$TAG_MOVE_OUTCOME" = "success" ] && [ "$CHANNEL_RELEASE_TAG" = nightly-next ]; then
+            echo "tag_status=updated" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Feed updated"
+              echo ""
+              echo "\`$CHANNEL_FEED_BASE\` serves \`$HEAD_SHA\` from R2; publish-nightly-next-github copies it to the release and moves the tag."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAG_MOVE_OUTCOME" = "success" ]; then
             echo "tag_status=updated" >> "$GITHUB_OUTPUT"
             {
               echo "### Channel release tag updated"
@@ -5927,6 +5932,249 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+
+  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly). Its
+  # uploads may wait out GitHub's rate limits as long as they need: the feed never waits on
+  # this job, and no concurrency group can replace a waiting run of it. Two runs can overlap,
+  # so the mutable parts (rolling DMG name, feed copy, release body, tag) are written only
+  # while this build is still the newest on the live feed; immutable assets always upload.
+  publish-nightly-next-github:
+    needs: [decide, publish-nightly]
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
+    # Nothing needs this job, so a failure shows red on the run and holds nothing.
+    environment: ${{ needs.decide.outputs.environment }}
+    permissions:
+      contents: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 150
+    env:
+      NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
+    steps:
+      - name: Checkout publish ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.publish-nightly.outputs.build_sha }}
+
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      - name: Download nightly variant artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ${{ needs.publish-nightly.outputs.variant_pattern }}
+          path: nightly-out
+          merge-multiple: true
+
+      - name: Download verified DMG digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ${{ needs.publish-nightly.outputs.tested_pattern }}
+          path: tested
+          merge-multiple: true
+
+      - name: Download SSH daemon assets for publication
+        if: needs.publish-nightly.outputs.source == 'own'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: nightly-out
+
+      - name: Download the published feed
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
+          path: next-github
+
+      # The bytes publish-nightly checked and put on R2: the tested digest again, then the
+      # feed exactly as it went live.
+      - name: Require the DMG to match a tested digest
+        run: |
+          set -euo pipefail
+          dmg="nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+          actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+          cat tested/*.sha256 | grep -Fxq "$actual  $(basename "$dmg")" || { echo "$dmg ($actual) is not the tested DMG" >&2; exit 1; }
+          for feed in $NIGHTLY_FEEDS; do cp "next-github/$feed" "nightly-out/$feed"; done
+          if [ -f next-github/nightly-prs.md ]; then cp next-github/nightly-prs.md "$RUNNER_TEMP/nightly-prs.md"; fi
+
+      - name: Check this build is still the feed's newest
+        id: order
+        run: |
+          set -euo pipefail
+          live="$(mktemp)"
+          curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
+            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}"
+          newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
+          if (( newest > NIGHTLY_BUILD )); then
+            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: only this build's immutable assets go to the release."
+            echo "newest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "newest=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prune old nightly release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
+            --repo manaflow-ai/cmux \
+            --release-tag "$CHANNEL_RELEASE_TAG" \
+            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
+            --keep-builds 100 \
+            --max-assets 950 \
+            --best-effort \
+            --execute
+
+      - name: Publish nightly-next release assets
+        id: publish_assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Off the feed's path: this job may wait out the limit as long as its timeout allows.
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
+          NEWEST: ${{ steps.order.outputs.newest }}
+        run: |
+          set -euo pipefail
+          args=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg")
+          for daemon in linux-arm64 linux-amd64 darwin-arm64 darwin-amd64; do
+            args+=(--immutable "nightly-out/cmuxd-remote-${daemon}-${NIGHTLY_BUILD}")
+          done
+          args+=(--immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt")
+          args+=(--immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")
+          args+=(--immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt")
+          if [ "$NEWEST" = true ]; then
+            args+=(--alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg")
+            for feed in $NIGHTLY_FEEDS; do args+=(--feed "nightly-out/$feed"); done
+          fi
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT" \
+            --replace-feeds "${args[@]}"
+
+      - name: Download the cmux-next source archive
+        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'own'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-source-archive
+          path: source-archive
+
+      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
+      # Tags the build commit cmux-next-src-<11 characters> and attaches
+      # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
+      # step removes it only together with the app assets of <build>, whose
+      # source offer names it (prune_nightly_release_assets.py), never by age.
+      # A recovered build carries its source archive in the recovered variant.
+      - name: Take the recovered build's source archive
+        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'recovered'
+        run: mv nightly-out/source-archive source-archive
+
+      - name: Publish the cmux-next source archive
+        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+          HEAD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
+        run: |
+          set -euo pipefail
+          short="${HEAD_SHA:0:11}"
+          src=(source-archive/cmux-next-source-*.tar.gz)
+          [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --rev "$HEAD_SHA" --print-source | sed -n 's/^libghostty-vt source: //p')"
+          next=()
+          if [[ "${vt%% *}" != ghostty ]]; then
+            next=(--next-name "${vt%% *}" --next-revision "${vt##* }"
+              --next-license-manifest "source-archive/${vt%% *}-licenses/SOURCE-MANIFEST.json")
+          fi
+          python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
+            --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
+            --revision "$(git rev-parse "$HEAD_SHA:ghostty")" ${next[@]+"${next[@]}"}
+          mkdir -p source-out
+          cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
+          if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then
+            [[ "$existing" == "$HEAD_SHA" ]] || { echo "tag cmux-next-src-$short points at $existing, not $HEAD_SHA" >&2; exit 1; }
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
+          fi
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
+
+      - name: Mint release tag app token
+        id: release-tag-token
+        if: steps.order.outputs.newest == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      # The release body with the cmux-published-sha marker decide reads, as publish-nightly's
+      # Record step writes it on the other channels.
+      - name: Record verified nightly publication
+        if: steps.order.outputs.newest == 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ needs.publish-nightly.outputs.tip_sha }}
+          BEHIND: ${{ needs.publish-nightly.outputs.behind }}
+          BEHIND_HOURS: ${{ needs.publish-nightly.outputs.behind_hours }}
+          DOWNLOADS: ${{ needs.publish-nightly.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "${BUILD_SHA:0:7}" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+            if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then
+              printf '\n'
+              cat "$RUNNER_TEMP/nightly-prs.md"
+            fi
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
+
+      - name: Move channel release tag to built commit
+        if: steps.order.outputs.newest == 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
+          GITHUB_TOKEN: ''
+          BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
+        run: |
+          set -euo pipefail
+          python3 "$PUBLISH_TOOLING/ci/update-release-tag.py" \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --sha "$BUILD_SHA" --allow-non-descendant
 
   # A published nightly-next build's dSYMs, kept on R2 (build-nightly-app's artifact is a
   # 21-day handoff; Actions storage is not an archive). Its own job, outside the
@@ -6442,9 +6690,13 @@ jobs:
             # address the publish step checks), not the API. gh release
             # download spent GITHUB_TOKEN calls and failed with "API rate limit
             # exceeded for installation" (runs 40234225207, 40240049419).
+            # R2 first: publish-nightly puts it there before the feed names it, and
+            # the release copy follows later (publish-nightly-next-github).
             name="${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
-            curl -fsSL --proto '=https' --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 \
-              -o "next-in/$name" "https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$name"
+            curl -fsSL --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 \
+                -o "next-in/$name" "${NIGHTLY_NEXT_FEED_BASE}/$name" \
+              || curl -fsSL --proto '=https' --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 \
+                -o "next-in/$name" "https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$name"
           fi
           if [ -z "$SOURCE_RUN" ]; then
             find next-in -maxdepth 1 -name "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" -print -quit | grep -q .
@@ -7374,6 +7626,8 @@ jobs:
             scripts/ci/nightly-next-guard.py
             scripts/ci/publish-release-assets.py
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/upload-r2-object.py
           sparse-checkout-cone-mode: false
 
       - name: Wait through GitHub API rate limits in this job's gh calls
@@ -7401,16 +7655,20 @@ jobs:
           # The tag itself: `commits/<name>` resolves the nightly-next branch,
           # which the promote job moves ahead during a build, and a skipped
           # republish leaves the feed without its previous item (cx-urd.67).
-          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
-          read -r tag_type current_sha <<< "$tag_object"
-          if [ "$tag_type" = tag ]; then
-            current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
-          fi
-          # The publication moved the tag to the resolved build commit.
-          if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
-            echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # nightly-next: publish-nightly-next-github moves the tag later, off the feed's
+          # path; the live feed check below is the order check there.
+          if [ "${TRACK:-}" != nightly-next ]; then
+            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
+            read -r tag_type current_sha <<< "$tag_object"
+            if [ "$tag_type" = tag ]; then
+              current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
+            fi
+            # The publication moved the tag to the resolved build commit.
+            if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
+              echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           if [ -n "${CHANNEL_FEED_BASE:-}" ]; then
             live_feed="$(mktemp)"
@@ -7449,6 +7707,11 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
+          if [ "${TRACK:-}" = nightly-next ]; then
+            # The deltas and the revised feed go to R2 in the next step, not to the release.
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The workflow commit's publisher: its rate-limit backoff, serial uploads, shared wait.
           publisher=.publish-tooling/scripts/ci/publish-release-assets.py
           python3 "$publisher" \
@@ -7488,19 +7751,18 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          r2=.publish-tooling/scripts/ci/publish-nightly-next-r2.py
+          # The deltas beside the DMG on R2, all at once; then every enclosure R2 serves at
+          # its length points there (an older build from before R2 keeps its release URL).
+          files=()
+          for delta in nightly-deltas/*.delta; do files+=(--file "$delta"); done
+          python3 "$r2" upload "${files[@]}"
           for feed in nightly-deltas/appcast*.xml; do
             [ -f "$feed" ] || continue
-            name="$(basename "$feed")"
-            key="${NIGHTLY_NEXT_R2_PREFIX}${name}"
+            python3 "$r2" rewrite --feed "$feed" --if-public
             python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
-            python3 .publish-tooling/scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            python3 scripts/ci/upload-r2-object.py \
-              --file "$feed" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
-              --key "$key" \
-              --content-type "application/xml" \
-              --cache-control "no-cache, no-store, must-revalidate"
+            # Only while the live feed still serves this build (If-Match on the bytes read).
+            python3 "$r2" write-feed --feed "$feed" --same-build
           done
 
   # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
