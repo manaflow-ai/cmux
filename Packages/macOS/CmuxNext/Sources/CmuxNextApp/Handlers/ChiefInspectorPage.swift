@@ -44,6 +44,9 @@ final class ChiefInspectorPageService: InternalPageProvider {
         return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
     }
 
+    /// A tab inspects the server `machineID` named when it opened, not when it first shows.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // Each tab keeps the server it was opened for; a tab restored at
         // launch (no open request yet) takes the first server that serves

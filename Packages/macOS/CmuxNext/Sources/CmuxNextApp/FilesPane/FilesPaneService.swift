@@ -108,6 +108,9 @@ final class FilesPaneService: InternalPageProvider {
 
     // MARK: InternalPageProvider
 
+    /// The open's folder and selection are `pendingFolder` and `pendingSelection`, read once.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         var tab = tabs[key] ?? makeTab(pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser)
         pendingFolder = nil

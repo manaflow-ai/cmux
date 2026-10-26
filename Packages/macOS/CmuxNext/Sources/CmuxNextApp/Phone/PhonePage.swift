@@ -30,6 +30,9 @@ final class PhonePageTab: InternalPageProvider {
     var title: String { String(localized: "phone.tab.title", defaultValue: "Phone", table: "Phone", bundle: .module) }
     var symbol: String { "iphone" }
 
+    /// The open's device is `nextDevice`, read once; `phone.show` then selects it on the view.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let device: PhoneDeviceID?
         if let known = routes[key] {

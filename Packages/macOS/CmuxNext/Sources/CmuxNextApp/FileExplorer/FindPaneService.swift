@@ -46,6 +46,9 @@ final class FindPaneService: InternalPageProvider {
         if focus, let find = view.content as? FindSectionView { view.window?.makeFirstResponder(find.field) }
     }
 
+    /// The open's folder is `pendingFolder`, cleared once `open` returns.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let folder = roots[key] ?? pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser
         roots[key] = folder

@@ -26,6 +26,9 @@ final class ChangelogPageTab: InternalPageProvider {
     var symbol: String { "sparkles" }
     var icon: IconName? { .fileText }
 
+    /// The open's route is `pendingRoute`, cleared once `open` returns.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let route = pendingRoute
         pendingRoute = nil

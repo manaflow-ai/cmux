@@ -142,6 +142,9 @@ final class ChiefMemoryPageService: InternalPageProvider {
         }
     }
 
+    /// The open's route is `nextRoute`, cleared once `open` returns, which then answers the new tab's key from `routes`.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let route = routes[key] ?? nextRoute ?? .defaultChief
         routes[key] = route

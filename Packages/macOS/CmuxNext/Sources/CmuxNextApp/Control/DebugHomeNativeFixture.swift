@@ -35,6 +35,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
+    /// The open's attachments are `nextAttachments`, read once.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel, mainWork: mainWork)
         nextAttachments = false

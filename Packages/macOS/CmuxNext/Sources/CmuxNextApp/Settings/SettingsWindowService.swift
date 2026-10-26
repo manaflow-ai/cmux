@@ -168,6 +168,9 @@ final class SettingsWindowService: InternalPageProvider {
     var icon: IconName? { .settings }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
+    /// The open's route is `pendingRoute`, read once.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let route = pendingRoute
         pendingRoute = nil

@@ -185,6 +185,9 @@ extension AppsService: InternalPageProvider {
 
     /// The React App Store page; it opens on the route of the show that made it. Missing page
     /// resources (a build without the web bundles) show an empty view, never a second store.
+    /// The open's route is `pendingRoute`, cleared once `showStore` returns.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let discarded = discardedRoutes.removeValue(forKey: key)
         let route = pendingRoute ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)

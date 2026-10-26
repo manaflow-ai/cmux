@@ -40,6 +40,9 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     var title: String { WorkspaceChecklistStrings.pageTitle }
     var symbol: String { "checklist" }
 
+    /// The open's workspace is `next`, cleared once `show` returns, which then sets the new model's workspace.
+    var makesViewAtOpen: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let id = pending.removeValue(forKey: key) ?? next ?? window?.state.workspaceID ?? ""
         let model = WorkspaceTodoPageModel(

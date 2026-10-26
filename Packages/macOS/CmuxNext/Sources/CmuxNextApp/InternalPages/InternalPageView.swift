@@ -16,12 +16,48 @@ protocol InternalPageFocusing: NSView {
 /// that looks for the page (`content as? PageWebView`) finds it with or without
 /// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
 /// click inside the page moves the responder within it as usual.
+///
+/// The tab's view can exist before its content (``init(key:page:make:)``): the provider makes the
+/// content when the tab first shows (``build()``, or the first read of ``content``), so a tab opened
+/// or restored out of sight costs no page. Chrome loads a background tab only once it is activated
+/// (chrome/browser/sessions/tab_loader.cc, `NavigationController::LoadIfNecessary`).
 final class InternalPageView: NSView {
+    /// The provider's view, its optional bar, and what runs once both are in the tab's view.
+    struct Parts {
+        var content: NSView
+        var topBar: NSView?
+        /// Runs right after the parts are installed (a discarded tab's picture and state going back).
+        var installed: (@MainActor (InternalPageView) -> Void)?
+
+        init(content: NSView, topBar: NSView? = nil, installed: (@MainActor (InternalPageView) -> Void)? = nil) {
+            self.content = content
+            self.topBar = topBar
+            self.installed = installed
+        }
+    }
+
+    /// The content waiting for the tab's first show, or made.
+    private enum Stage {
+        case waiting(@MainActor () -> Parts)
+        case built(Parts)
+    }
+
     let key: String
     let page: InternalPageID
-    let content: NSView
+    private var stage: Stage
+    /// Whether the provider's content exists (the tab showed, or a caller read ``content``).
+    var isBuilt: Bool {
+        if case .built = stage { return true }
+        return false
+    }
+    /// The provider's view, made now when the tab has not shown yet.
+    var content: NSView { build().content }
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
-    let topBar: NSView?
+    /// Nil until the content is made.
+    var topBar: NSView? {
+        if case .built(let parts) = stage { return parts.topBar }
+        return nil
+    }
     /// The edge `topBar` sits on (`browser.toolbarPosition`); the pane sets it.
     var toolbarPosition: ToolbarPosition = .top {
         didSet {
@@ -33,15 +69,41 @@ final class InternalPageView: NSView {
     /// The constraints that put `topBar` above or below the content; one set is active.
     private let barEdge = ToolbarEdgeConstraints()
 
-    init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
+    /// A tab view whose content is made already.
+    convenience init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
+        self.init(key: key, page: page) { Parts(content: content, topBar: topBar) }
+        build()
+    }
+
+    /// A tab view whose content `make` makes at its first ``build()``.
+    init(key: String, page: InternalPageID, make: @escaping @MainActor () -> Parts) {
         self.key = key
         self.page = page
-        self.content = content
-        self.topBar = topBar
+        self.stage = .waiting(make)
         super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.page.\(page.rawValue)")
+    }
+
+    /// Makes and installs the content the first time; later calls return it.
+    @discardableResult
+    func build() -> Parts {
+        switch stage {
+        case .built(let parts):
+            return parts
+        case .waiting(let make):
+            let parts = make()
+            stage = .built(parts)
+            install(parts)
+            parts.installed?(self)
+            return parts
+        }
+    }
+
+    private func install(_ parts: Parts) {
+        let content = parts.content
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
-        if let topBar {
+        if let topBar = parts.topBar {
             topBar.translatesAutoresizingMaskIntoConstraints = false
             addSubview(topBar)
             NSLayoutConstraint.activate([
@@ -69,7 +131,6 @@ final class InternalPageView: NSView {
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        setAccessibilityIdentifier("cmux.page.\(page.rawValue)")
     }
 
     @available(*, unavailable)
