@@ -2,13 +2,13 @@ import Foundation
 
 extension MainTurnMeter {
     /// The meter's counters: totals per kind of time, the turn and task histograms (fixed buckets,
-    /// ``bucketEdges``) and the longest unattributed turns. A value: a report folds the percentiles
-    /// from it on any thread.
-    public struct Snapshot: Sendable, Equatable {
+    /// ``bucketEdges``) and the longest unattributed turns. A value: the main thread only copies it,
+    /// and a report folds the percentiles from it on any thread.
+    public nonisolated struct Snapshot: Sendable, Equatable {
         /// Busy turns measured, and how many ran inside a nested run loop.
         public var turns = 0
         public var nestedTurns = 0
-        /// Turns longer than ``MainTurnMeter/stallNanos`` (each emitted `stall.main_turn`).
+        /// Turns longer than ``MainTurnMeter/stallNanos`` (each wrote `stall.main_turn`).
         public var turnsOverStall = 0
         /// The turns' busy time in all, and its split, in nanoseconds.
         public var busyNanos: UInt64 = 0
@@ -23,7 +23,8 @@ extension MainTurnMeter {
         public var tasks = 0
         public var maxTaskNanos: UInt64 = 0
         public var taskBuckets = [UInt32](repeating: 0, count: Snapshot.bucketEdges.count + 1)
-        /// The turns with the most unattributed time; from ``MainTurnMeter/snapshot()``, longest first.
+        /// The slots of the turns with the most unattributed time, in no order (empty slots are
+        /// zero); ``longestUnattributed`` sorts them.
         public var topUnattributed = [TopTurn](repeating: TopTurn(), count: MainTurnMeter.topCount)
 
         /// The buckets' upper edges in nanoseconds: 4 ms (the turn target) and 16.7 ms (a 60 Hz frame)
@@ -38,6 +39,11 @@ extension MainTurnMeter {
             var index = 0
             while index < bucketEdges.count, nanos > bucketEdges[index] { index += 1 }
             return index
+        }
+
+        /// The kept turns with unattributed time, longest first (a report's fold, off the main thread).
+        public var longestUnattributed: [TopTurn] {
+            topUnattributed.filter { $0.unattributedNanos > 0 }.sorted { $0.unattributedNanos > $1.unattributedNanos }
         }
 
         /// Unattributed time over busy time (0 with no busy time).
@@ -62,7 +68,7 @@ extension MainTurnMeter {
 
     /// One measured turn: its busy time, its split, when it ended and whether it ran inside a nested
     /// run loop.
-    public struct TopTurn: Sendable, Equatable {
+    public nonisolated struct TopTurn: Sendable, Equatable {
         public var turnNanos: UInt64 = 0
         public var unattributedNanos: UInt64 = 0
         public var scheduledNanos: UInt64 = 0
@@ -83,12 +89,18 @@ extension MainTurnMeter {
             self.nested = nested
         }
 
-        /// The `stall.main_turn` message: `ms=<turn> scheduled_ms= render_ms= input_ms= unattributed_ms= nested=`.
-        var message: String {
-            "ms=\(Self.ms(turnNanos)) scheduled_ms=\(Self.ms(scheduledNanos)) render_ms=\(Self.ms(renderNanos)) "
-                + "input_ms=\(Self.ms(inputNanos)) unattributed_ms=\(Self.ms(unattributedNanos)) nested=\(nested ? 1 : 0)"
+        /// The `stall.main_turn` record's `arg0`: the turn in microseconds, bit 63 set for a nested turn.
+        var ringArg0: UInt64 {
+            min(turnNanos / 1_000, (1 << 63) - 1) | (nested ? 1 << 63 : 0)
         }
 
-        private static func ms(_ nanos: UInt64) -> String { String(format: "%.2f", Double(nanos) / 1_000_000) }
+        /// The `stall.main_turn` record's `arg1`: scheduled, render, input and unattributed time, 16 bits
+        /// each from bit 0, in 100 µs units (0xFFFF for 6.5 s or more).
+        var ringArg1: UInt64 {
+            Self.tenths(scheduledNanos) | Self.tenths(renderNanos) << 16 | Self.tenths(inputNanos) << 32
+                | Self.tenths(unattributedNanos) << 48
+        }
+
+        private static func tenths(_ nanos: UInt64) -> UInt64 { min(nanos / 100_000, 0xFFFF) }
     }
 }

@@ -244,14 +244,14 @@ public final class MainThreadWatchdog: Sendable {
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first
-        // (order CFIndex.min); before-waiting stamps last (CFIndex.max), so
+        // (order CFIndex.min); before-waiting stamps last (lastOrder), so
         // AppKit's layout, display and the Core Animation commit, which run
         // in before-waiting observers, count as main-thread work.
         let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, MainRunLoopObserver.lastOrder) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)

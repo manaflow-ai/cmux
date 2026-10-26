@@ -29,7 +29,7 @@ import Testing
         #expect(abs(snapshot.unattributedShare - 0.4) < 1e-9)
         #expect(snapshot.tasks == 1)
         #expect(snapshot.maxTaskNanos == 3 * Self.ms)
-        #expect(snapshot.topUnattributed.first?.unattributedNanos == 2 * Self.ms)
+        #expect(snapshot.longestUnattributed.first?.unattributedNanos == 2 * Self.ms)
     }
 
     @Test func aTurnSplitsIntoScheduledRenderInputAndUnattributed() {
@@ -81,7 +81,8 @@ import Testing
     }
 
     /// A menu or modal loop run from `sendEvent`: the outer turn ends at the nested entry, the inner
-    /// loop's turns are its own, and the `sendEvent` span is closed for their time.
+    /// loop's turns are its own, and the `sendEvent` span is closed while the loop runs. The menu's
+    /// last turn goes on to `sendEvent`'s return, and the outer code's turn starts there.
     @Test func aNestedLoopInsideSendEventIsTheInnerTurnsAndIsNotCountedTwice() {
         let clock = TurnClock()
         let turns = MainTurnMeter(uptimeNanos: clock.read)
@@ -112,8 +113,9 @@ import Testing
         #expect(snapshot.unattributedNanos == 5 * Self.ms)
         #expect(snapshot.renderNanos == 500_000)
         #expect(snapshot.busyNanos == 7_500_000, "every millisecond once")
-        #expect(snapshot.topUnattributed.first == MainTurnMeter.TopTurn(turnNanos: 3 * Self.ms, unattributedNanos: 3 * Self.ms,
-                                                                          endNanos: snapshot.topUnattributed.first?.endNanos ?? 0, nested: true))
+        let longest = snapshot.longestUnattributed.first
+        #expect(longest == MainTurnMeter.TopTurn(turnNanos: 4 * Self.ms, unattributedNanos: 3 * Self.ms, inputNanos: Self.ms,
+                                                 endNanos: longest?.endNanos ?? 0, nested: true))
     }
 
     /// The same as a real `CFRunLoopRunInMode` on the main run loop, observed through the meter's own
@@ -162,6 +164,96 @@ import Testing
         #expect(snapshot.unattributedNanos == Self.ms)
     }
 
+    /// A live resize or drag loop calls `nextEvent` once per event, so its nested loop exits and
+    /// enters again around each event's work with no wait between: one nested level, one turn per
+    /// wait, as at the top level, and no outer turn between the calls.
+    @Test func aTrackingLoopsNextEventPerEventStaysOneNestedLevelWithOneTurnPerWait() {
+        let clock = TurnClock()
+        let turns = MainTurnMeter(uptimeNanos: clock.read)
+        turns.loopEntered()
+        turns.loopWoke()
+        turns.loopWillExit()
+        turns.loopExited()
+        turns.inputDispatch {
+            clock.advance(ms: 1)
+            for _ in 0..<3 {
+                turns.loopEntered()
+                turns.loopWillWait()
+                turns.loopDidRender()
+                turns.loopWoke()
+                clock.advance(ms: 1)
+                turns.loopWillExit()
+                turns.loopExited()
+                // The resize handler's layout and display, between two nextEvent calls.
+                clock.advance(ms: 5)
+            }
+        }
+        turns.loopEntered()
+        turns.loopWillWait()
+        turns.loopDidRender()
+        let snapshot = turns.snapshot()
+        #expect(snapshot.turns == 6, "the mouse-down's turn, the first wait's, three 6 ms event turns, the turn after")
+        #expect(snapshot.nestedTurns == 4)
+        #expect(snapshot.turns - snapshot.nestedTurns == 2, "no outer turn between the nextEvent calls")
+        #expect(snapshot.maxTurnNanos == 6 * Self.ms, "an event's 1 ms in the loop and its 5 ms handler are one turn")
+        #expect(snapshot.inputNanos == 16 * Self.ms, "the handler's work is the sendEvent's")
+        #expect(snapshot.unattributedNanos == 3 * Self.ms)
+        #expect(snapshot.busyNanos == 19 * Self.ms, "every millisecond once")
+    }
+
+    /// AppKit catches an Objective-C exception thrown in a modal session run from `sendEvent` and goes
+    /// on: the exception skipped the span's end and the loop's exit, and `reportException` resyncs.
+    @Test func anExceptionUnwindGoesBackToTheTopLevel() {
+        let clock = TurnClock()
+        let turns = MainTurnMeter(uptimeNanos: clock.read)
+        turns.loopEntered()
+        turns.loopWoke()
+        turns.loopWillExit()
+        turns.loopExited()
+        turns.beginSpan(.input, at: clock.read())
+        turns.loopEntered()
+        clock.advance(ms: 1)
+        turns.unwindToTopLevel()
+        let before = turns.snapshot()
+        turns.loopEntered()
+        turns.loopWillWait()
+        clock.advance(ms: 2)
+        turns.loopDidRender()
+        turns.loopWoke()
+        clock.advance(ms: 3)
+        turns.loopWillWait()
+        turns.loopDidRender()
+        let after = turns.snapshot()
+        #expect(after.turns == before.turns + 2)
+        #expect(after.nestedTurns == before.nestedTurns, "the turns after the unwind are top-level ones")
+        #expect(after.inputNanos == before.inputNanos, "the dead sendEvent span is not charged")
+        #expect(after.renderNanos - before.renderNanos == 2 * Self.ms)
+        #expect(after.unattributedNanos - before.unattributedNanos == 3 * Self.ms)
+    }
+
+    /// Work after the commit, as `AfterFrameCommit` and `MainRunLoopObserver.once(.., order: .max)`
+    /// run it: a `.max` before-waiting observer added after the meter's still runs inside the turn.
+    @Test func aMaxOrderObserverAddedAfterTheMeterRunsInsideTheTurn() {
+        let clock = TurnClock()
+        let turns = MainTurnMeter(uptimeNanos: clock.read)
+        let mode = CFRunLoopMode("MainTurnMeterTests.afterCommit" as CFString)
+        turns.observe(mode: mode)
+        let late = MainRunLoopObserver(activities: .beforeWaiting, order: .max, mode: mode) { _ in
+            clock.advance(ms: 2)
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        // A timer far off keeps the mode from being empty, so the loop reaches before-waiting.
+        let keepAlive: CFRunLoopTimer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 60, 0, 0, 0) { _ in }
+        CFRunLoopAddTimer(CFRunLoopGetMain(), keepAlive, mode)
+        _ = CFRunLoopRunInMode(mode, 5, false)
+        CFRunLoopTimerInvalidate(keepAlive)
+        late.invalidate()
+        let snapshot = turns.snapshot()
+        #expect(snapshot.turns == 1)
+        #expect(snapshot.busyNanos == 2 * Self.ms, "the late observer's 2 ms are in the turn")
+        #expect(snapshot.renderNanos == 2 * Self.ms)
+    }
+
     @Test func theTopUnattributedTurnsAreTheLongestEightLongestFirst() {
         let clock = TurnClock()
         let turns = MainTurnMeter(uptimeNanos: clock.read)
@@ -171,7 +263,7 @@ import Testing
             turns.loopWillWait()
             turns.loopDidRender()
         }
-        let top = turns.snapshot().topUnattributed.map { $0.unattributedNanos / Self.ms }
+        let top = turns.snapshot().longestUnattributed.map { $0.unattributedNanos / Self.ms }
         #expect(top == [10, 9, 8, 7, 6, 5, 4, 3])
     }
 
@@ -202,6 +294,30 @@ import Testing
         #expect(turns.snapshot().turns > 3_000)
     }
 
+    /// The app's meter (`signposts: true`) on turns over the 4 ms stall line: `stall.main_turn` goes to
+    /// the trace ring as numbers, so the slow turn allocates nothing either.
+    @Test func aStallTurnWithSignpostsAllocatesNothing() throws {
+        let clock = TurnClock()
+        let turns = MainTurnMeter(signposts: true, uptimeNanos: clock.read)
+        let control = TurnMallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        for _ in 0..<16 { stallTurn(turns, clock: clock) }
+        let measured = try #require(TurnMallocProbe.allocations {
+            for _ in 0..<500 { stallTurn(turns, clock: clock) }
+        })
+        #expect(measured == 0)
+        #expect(turns.snapshot().turnsOverStall == 516)
+    }
+
+    /// One 5 ms turn: a 3 ms input dispatch and 2 ms of render.
+    private func stallTurn(_ turns: MainTurnMeter, clock: TurnClock) {
+        turns.loopWoke()
+        turns.inputDispatch { clock.advance(ms: 3) }
+        turns.loopWillWait()
+        clock.advance(ms: 2)
+        turns.loopDidRender()
+    }
+
     /// One top-level turn with a task, a `sendEvent` that runs a nested loop, and a render phase.
     private func oneTurn(_ turns: MainTurnMeter, clock: TurnClock, read: () -> UInt64) {
         turns.loopEntered()
@@ -222,7 +338,7 @@ import Testing
         turns.loopDidRender()
     }
 
-    @Test func theReportKeepsEveryFieldAndAddsTheTurnFields() throws {
+    @Test func theReportKeepsEveryFieldAndAddsTheTurnFields() async throws {
         let clock = TurnClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
@@ -241,6 +357,10 @@ import Testing
         #expect(report["turn_ms"]?["max"]?.doubleValue == 5)
         #expect(report["task_ms"]?["count"]?.intValue == 1)
         #expect(report["top_unattributed_turns"]?.arrayValue?.first?["unattributed_ms"]?.doubleValue == 2)
+        // debug.main_budget copies on main and folds the turns off it: the same report.
+        let (fields, turns) = budget.reportParts
+        let folded = await Task.detached { turns.report(merging: fields) }.value
+        #expect(folded == budget.report)
         budget.resetStats()
         #expect(budget.turns.snapshot().turns == 0, "debug.main_budget reset clears the turns too")
     }

@@ -92,6 +92,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         meter.observe()
     }
 
+    // perf-hot: 100ns main-turn (every event's dispatch: the turn meter's input span)
     override func sendEvent(_ event: NSEvent) {
         guard let turnMeter else { return dispatchInContext(event) }
         turnMeter.inputDispatch { dispatchInContext(event) }
@@ -163,8 +164,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// written first; the next launch's notice and report then name it.
     ///
     /// With crashing on, the crash has begun here: the crash deadline then
-    /// ends the process even if a crash handler after this blocks.
+    /// ends the process even if a crash handler after this blocks. With it
+    /// off, AppKit's loop goes on at the top level, and the turn meter goes
+    /// back there too (the exception skipped its span ends and loop exits).
     override func reportException(_ exception: NSException) {
+        turnMeter?.unwindToTopLevel()
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
                                       record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
     }

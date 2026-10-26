@@ -7,7 +7,8 @@ import Darwin
 /// dispatch and unattributed time (plans/cmux-next/chrome-parity/p06-scheduler.md, "Attribution").
 ///
 /// A turn starts when the run loop wakes (after-waiting) and ends at the end of its before-waiting
-/// phase (layout, display and the Core Animation commit), or at a nested loop's boundary. AppKit's
+/// phase (layout, display, the Core Animation commit and every later observer: the meter's end has
+/// the one order above ``MainRunLoopObserver/lastOrder``), or at a nested loop's boundary. AppKit's
 /// own loop leaves the run loop to dispatch each event (`nextEvent`, then `sendEvent`) and enters it
 /// again: that exit and entry stay inside one turn, and the exit's commit counts as render.
 ///
@@ -15,19 +16,27 @@ import Darwin
 /// levels (base/task/sequence_manager/thread_controller.h, `RunLevelTracker`; the observers are
 /// base/message_loop/message_pump_apple.mm's `EnterExitObserver`): a loop entered while a span is
 /// open or from inside another loop is nested, and only the innermost level's turn is attributed.
-/// Its entry ends the turn that was running and starts the inner one; its exit ends the inner turn
-/// and starts a new one of the outer code. The spans open when it started (the `sendEvent` that
-/// runs a menu) are closed for the inner loop's time and resume after it, so no time is counted twice.
+/// Its first entry ends the turn that was running and starts the inner one. The spans open then
+/// (the `sendEvent` that runs a menu) are closed while the inner loop runs, so no time is counted
+/// twice. A session calls `nextEvent` once per event, so its loop exits and enters again around
+/// each event's work: that stays one nested level and one turn, as at the top level. The level ends,
+/// and a turn of the outer code starts, when the span that entered it closes (the menu or modal
+/// returns) or the outer loop goes on.
 ///
 /// Attribution comes from spans: ``MainFrameBudget/run(_:owner:_:)`` opens a ``Span/scheduled`` span
 /// per task, and the app's `sendEvent` runs inside ``inputDispatch(_:)``. Time goes to the innermost
-/// open span. What no span and no render phase covers is unattributed: main-thread work the
-/// scheduler has not classified yet.
+/// open span the running loop level sees. What no span and no render phase covers is unattributed:
+/// main-thread work the scheduler has not classified yet.
+///
+/// An Objective-C exception that AppKit catches and survives unwinds past span ends and loop exits
+/// without running them; the app calls ``unwindToTopLevel()`` from `reportException`, where AppKit's
+/// own loop goes on at the top level.
 ///
 /// Always on: a turn reads the clock once per observer callout (wake, and each render phase's start
 /// and end) and a span twice (the budget's spans reuse its own reads); nothing allocates per turn.
-/// The histograms have fixed buckets (``Snapshot/bucketEdges``) and a report folds their
-/// percentiles from a ``Snapshot``. A turn over ``stallNanos`` emits `stall.main_turn`.
+/// The histograms have fixed buckets (``Snapshot/bucketEdges``) and a report folds their percentiles
+/// from a ``Snapshot`` off the main thread. A turn over ``stallNanos`` writes `stall.main_turn` to
+/// the trace ring: numbers only, no message text (Chrome's `TRACE_EVENT_INSTANT`).
 ///
 /// ```swift
 /// let budget = MainFrameBudget(input: SessionInputPending(), signposts: true)
@@ -56,11 +65,15 @@ public final class MainTurnMeter {
     private var counters = Snapshot()
     private var observers: [MainRunLoopObserver] = []
 
-    // The run loop's depth; per level, the span depth when it was entered (the spans it hides) and
-    // whether it was entered nested.
+    // The run-loop levels, innermost last: running loops, and nested loops that exited to the code
+    // that ran them (parked) while that session goes on. Per level: the span depth at its entry
+    // (the spans it hides), whether it is nested and whether it is parked.
     private var loopDepth = 0
     private var loopSpanBase = [Int](repeating: 0, count: MainTurnMeter.maxDepth)
     private var nestedLoops: UInt64 = 0
+    private var parkedLoops: UInt64 = 0
+    // The spans the innermost running level hides.
+    private var visibleBase = 0
     // Open spans: bit i set when the span at depth i + 1 is input dispatch.
     private var spanDepth = 0
     private var inputSpans: UInt64 = 0
@@ -85,9 +98,10 @@ public final class MainTurnMeter {
     }
 
     /// Observes the main run loop in `mode` (the app: the common modes, which hold event tracking and
-    /// modal panels): the first observer of entry, after-waiting, before-waiting and exit, and the last
-    /// of before-waiting and exit, so every other observer of a phase (the Core Animation commit's
-    /// included) runs inside them. A second call replaces the first.
+    /// modal panels): the first observer of entry, after-waiting, before-waiting and exit, and the very
+    /// last of before-waiting and exit (``MainRunLoopObserver/init(endingTurn:mode:_:)``), so every
+    /// other observer of a phase (the Core Animation commit's and every `.max` one included) runs inside
+    /// them. A second call replaces the first.
     public func observe(mode: CFRunLoopMode = .commonModes) {
         observers = []
         let first = MainRunLoopObserver(activities: [.entry, .afterWaiting, .beforeWaiting, .exit], order: .min, mode: mode) { [weak self] activity in
@@ -98,7 +112,7 @@ public final class MainTurnMeter {
             default: self?.loopWillWait()
             }
         }
-        let last = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: .max, mode: mode) { [weak self] activity in
+        let last = MainRunLoopObserver(endingTurn: [.beforeWaiting, .exit], mode: mode) { [weak self] activity in
             if activity == .exit { self?.loopExited() } else { self?.loopDidRender() }
         }
         observers = [first, last]
@@ -107,6 +121,7 @@ public final class MainTurnMeter {
     // MARK: Spans
 
     /// Runs one event's dispatch as a ``Span/input`` span.
+    // perf-hot: 100ns main-turn (every event's dispatch)
     public func inputDispatch<T>(_ body: () throws -> T) rethrows -> T {
         beginSpan(.input, at: uptimeNanos())
         defer { endSpan(at: uptimeNanos()) }
@@ -114,6 +129,7 @@ public final class MainTurnMeter {
     }
 
     /// Opens a span at `now` (the caller's own clock read).
+    // perf-hot: 100ns main-turn (every task and event)
     public func beginSpan(_ span: Span, at now: UInt64) {
         credit(now)
         if spanDepth < Self.maxDepth {
@@ -123,15 +139,19 @@ public final class MainTurnMeter {
         spanDepth += 1
     }
 
-    /// Closes the innermost span at `now`.
+    /// Closes the innermost span at `now`. A parked nested level the span entered (the menu or modal
+    /// session it ran) ends with it, and a turn of the outer code starts.
+    // perf-hot: 100ns main-turn (every task and event)
     public func endSpan(at now: UInt64) {
         guard spanDepth > 0 else { return }
         credit(now)
         spanDepth -= 1
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: false) }
     }
 
     /// Closes the innermost span, a ``Span/scheduled`` one, at `now`, and counts the task's own time
     /// (its time less its nested tasks') in the task histogram.
+    // perf-hot: 100ns main-turn (every task)
     public func endTask(at now: UInt64, ownNanos: UInt64) {
         endSpan(at: now)
         counters.tasks += 1
@@ -142,66 +162,100 @@ public final class MainTurnMeter {
     // MARK: Run-loop activities (the observers call these; tests call them in order)
 
     /// The run loop was entered (the entry's first observer). A loop entered from inside another or
-    /// inside a span is nested: the running turn ends and the inner loop's starts.
+    /// inside a span is nested: the running turn ends and the inner loop's starts. A parked level
+    /// entered again from the same span (the session's next `nextEvent`) runs again in the same turn.
+    // perf-hot: 100ns main-turn (every run-loop entry)
     public func loopEntered() {
-        let nested = loopDepth > 0 || spanDepth > 0
-        if nested {
-            let now = uptimeNanos()
+        let now = uptimeNanos()
+        if let level = parkedTop, loopSpanBase[level] == spanDepth {
+            credit(now)
+            parkedLoops &= ~(1 << UInt64(level))
+            visibleBase = spanDepth
+            if !inTurn { beginTurn(at: now) }
+        } else if loopDepth > 0 || spanDepth > 0 {
             endTurn(at: now)
             enterLevel(nested: true)
             beginTurn(at: now)
         } else {
             enterLevel(nested: false)
-            if !inTurn { beginTurn(at: uptimeNanos()) }
+            if !inTurn { beginTurn(at: now) }
         }
     }
 
     /// The run loop woke from waiting (the first observer after waiting).
+    // perf-hot: 100ns main-turn (every run-loop wake)
     public func loopWoke() {
-        if !inTurn { beginTurn(at: uptimeNanos()) }
+        let now = uptimeNanos()
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: true) }
+        if !inTurn { beginTurn(at: now) }
     }
 
     /// The before-waiting phase began (its first observer): the render phase starts.
+    // perf-hot: 100ns main-turn (every run-loop turn)
     public func loopWillWait() {
-        beginRender(at: uptimeNanos())
+        let now = uptimeNanos()
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: true) }
+        beginRender(at: now)
     }
 
-    /// The before-waiting phase ended (its last observer): the turn ends.
+    /// The before-waiting phase ended (its last observer, after every other one): the turn ends.
+    // perf-hot: 100ns main-turn (every run-loop turn)
     public func loopDidRender() {
-        endTurn(at: uptimeNanos())
+        let now = uptimeNanos()
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: true) }
+        endTurn(at: now)
     }
 
     /// The run loop is exiting (the exit's first observer): Core Animation commits at the exit too,
     /// so a render phase starts.
+    // perf-hot: 100ns main-turn (every run-loop exit)
     public func loopWillExit() {
-        beginRender(at: uptimeNanos())
+        let now = uptimeNanos()
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: true) }
+        beginRender(at: now)
     }
 
-    /// The run loop exited (the exit's last observer). A nested loop's exit ends its turn and starts
-    /// one of the outer code, whose spans resume; a top-level exit (AppKit leaving the loop to
-    /// dispatch an event) keeps the turn.
+    /// The run loop exited (the exit's last observer); the turn goes on. A top-level exit is AppKit
+    /// leaving the loop to dispatch an event. A nested exit returns to the session that ran the loop
+    /// (a tracking loop's next event, a menu's action): the level parks until the session enters it
+    /// again or ends.
+    // perf-hot: 100ns main-turn (every run-loop exit)
     public func loopExited() {
-        guard loopDepth > 0 else { return }
         let now = uptimeNanos()
+        if parkedLoops != 0 { leaveParkedLevels(at: now, all: true) }
+        guard loopDepth > 0 else { return }
         // Charged at the inner level: the spans the loop hid stay closed up to here.
         credit(now)
         closeRender(at: now)
-        loopDepth -= 1
-        guard loopDepth < Self.maxDepth else { return }
-        let bit: UInt64 = 1 << UInt64(loopDepth)
-        guard nestedLoops & bit != 0 else { return }
-        nestedLoops &= ~bit
+        let level = loopDepth - 1
+        if level < Self.maxDepth, nestedLoops & (1 << UInt64(level)) != 0 {
+            parkedLoops |= 1 << UInt64(level)
+        } else {
+            loopDepth -= 1
+        }
+        refreshVisibleBase()
+    }
+
+    /// AppKit caught an Objective-C exception and goes on (`NSApplication.reportException`). The
+    /// exception unwound past span ends and loop exits that never ran, so the meter goes back to
+    /// the top level: the turn in progress ends and a non-nested one starts.
+    public func unwindToTopLevel() {
+        let now = uptimeNanos()
         endTurn(at: now)
+        loopDepth = 0
+        nestedLoops = 0
+        parkedLoops = 0
+        visibleBase = 0
+        spanDepth = 0
+        inputSpans = 0
         beginTurn(at: now)
     }
 
     // MARK: Reading
 
-    /// The counters, with the longest unattributed turns sorted longest first.
+    /// A copy of the counters; ``Snapshot/longestUnattributed`` sorts the top turns off the main thread.
     public func snapshot() -> Snapshot {
-        var copy = counters
-        copy.topUnattributed = copy.topUnattributed.filter { $0.unattributedNanos > 0 }.sorted { $0.unattributedNanos > $1.unattributedNanos }
-        return copy
+        counters
     }
 
     /// Clears the counters (`debug.main_budget reset`); the turn in progress is kept.
@@ -209,27 +263,57 @@ public final class MainTurnMeter {
         counters = Snapshot()
     }
 
-    // MARK: Turns
+    // MARK: Levels
+
+    /// The innermost level, when it is parked and tracked.
+    private var parkedTop: Int? {
+        guard loopDepth > 0, loopDepth <= Self.maxDepth else { return nil }
+        let level = loopDepth - 1
+        return parkedLoops & (1 << UInt64(level)) != 0 ? level : nil
+    }
 
     private func enterLevel(nested: Bool) {
         if loopDepth < Self.maxDepth {
             let bit: UInt64 = 1 << UInt64(loopDepth)
             loopSpanBase[loopDepth] = spanDepth
             if nested { nestedLoops |= bit } else { nestedLoops &= ~bit }
+            parkedLoops &= ~bit
         }
         loopDepth += 1
+        visibleBase = spanDepth
     }
 
-    /// The spans the innermost loop level hides: those open when it was entered.
-    private var visibleSpanBase: Int {
-        loopDepth == 0 ? 0 : loopSpanBase[min(loopDepth, Self.maxDepth) - 1]
+    /// Ends the parked levels at the top: with `all`, every one (an activity of a lower loop came,
+    /// so the sessions returned); else those whose entering span closed. The session's turn ends and
+    /// one of the outer code starts.
+    private func leaveParkedLevels(at now: UInt64, all: Bool) {
+        guard let first = parkedTop, all || loopSpanBase[first] > spanDepth else { return }
+        endTurn(at: now)
+        while let level = parkedTop, all || loopSpanBase[level] > spanDepth {
+            let bit: UInt64 = 1 << UInt64(level)
+            parkedLoops &= ~bit
+            nestedLoops &= ~bit
+            loopDepth -= 1
+        }
+        refreshVisibleBase()
+        beginTurn(at: now)
     }
 
-    /// Charges the time since the last mark to the innermost span the current loop level sees.
+    /// The spans the innermost running level hides (none when every level is parked).
+    private func refreshVisibleBase() {
+        var level = min(loopDepth, Self.maxDepth) - 1
+        while level >= 0, parkedLoops & (1 << UInt64(level)) != 0 { level -= 1 }
+        visibleBase = level >= 0 ? loopSpanBase[level] : 0
+    }
+
+    // MARK: Turns
+
+    /// Charges the time since the last mark to the innermost span the running loop level sees.
+    // perf-hot: 100ns main-turn (every span edge and observer callout)
     private func credit(_ now: UInt64) {
         let elapsed = now > mark ? now - mark : 0
         mark = now
-        guard inTurn, spanDepth > visibleSpanBase else { return }
+        guard inTurn, spanDepth > visibleBase else { return }
         let top = min(spanDepth, Self.maxDepth) - 1
         if inputSpans & (1 << UInt64(top)) != 0 { input &+= elapsed } else { scheduled &+= elapsed }
     }
@@ -275,6 +359,7 @@ public final class MainTurnMeter {
                        inputNanos: input, renderNanos: render, endNanos: now, nested: turnNested))
     }
 
+    // perf-hot: 100ns main-turn (every run-loop turn)
     private func record(_ turn: TopTurn) {
         counters.turns += 1
         if turn.nested { counters.nestedTurns += 1 }
@@ -287,7 +372,7 @@ public final class MainTurnMeter {
         counters.turnBuckets[Snapshot.bucket(turn.turnNanos)] &+= 1
         if turn.turnNanos > Self.stallNanos {
             counters.turnsOverStall += 1
-            if signposts { Signposter.stall.event(.stallMainTurn, turn.message) }
+            if signposts { Signposter.event(.stallMainTurn, arg0: turn.ringArg0, arg1: turn.ringArg1) }
         }
         guard turn.unattributedNanos > 0 else { return }
         var smallest = 0

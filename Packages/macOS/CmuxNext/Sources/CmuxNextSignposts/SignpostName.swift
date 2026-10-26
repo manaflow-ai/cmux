@@ -13,7 +13,7 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget`` and ``stallMainTurn`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget`` and ``stallMainTurn`` (the trace ring's) have an emitter today. The other cases are
 /// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -282,9 +282,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case resizeFrame = 68
 
     // MARK: stall, continued (emitter: CmuxNextWakeups `MainTurnMeter`, task p06-scheduler-008)
-    /// A point event: one busy main run-loop turn (the innermost nested loop's) ran past 4 ms. Message:
-    /// `ms=<turn> scheduled_ms=<tasks> render_ms=<before-waiting phase> input_ms=<sendEvent>
-    /// unattributed_ms=<the rest> nested=<0|1>`. Per turn: never mirrored to MetricKit.
+    /// One busy main run-loop turn (the innermost nested loop's) ran past 4 ms. Ring only, no
+    /// `os_signpost` (it is written on the main thread inside the slow turn, with no allocation):
+    /// instant; arg0 the turn in us, bit 63 set for a nested turn; arg1 the scheduled tasks', render
+    /// (before-waiting phase), input (`sendEvent`) and unattributed time, 16 bits each from bit 0, in
+    /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
     case stallMainTurn = 69
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
