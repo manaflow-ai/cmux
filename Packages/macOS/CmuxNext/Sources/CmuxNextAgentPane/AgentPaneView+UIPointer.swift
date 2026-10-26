@@ -7,19 +7,17 @@ import CmuxNextPages
 extension AgentPaneView {
     /// Installs or removes the debug picker in this pane's document.
     public func setUiPointerInspector(_ enabled: Bool) {
-        page?.evaluate(enabled ? Self.uiPointerScript : Self.uiPointerStopScript)
-        if page == nil { webView.evaluateJavaScript(enabled ? Self.uiPointerScript : Self.uiPointerStopScript, completionHandler: nil) }
+        page.evaluate(enabled ? Self.uiPointerScript : Self.uiPointerStopScript)
     }
 
     /// Runs a picker operation in whichever engine currently draws this pane.
     public func evaluateUiPointer(_ script: String) {
-        if let page { page.evaluate(script) } else { webView.evaluateJavaScript(script, completionHandler: nil) }
+        page.evaluate(script)
     }
 
     /// View points per CSS pixel for the page currently drawing this pane.
     public var uiPointerPageZoom: Double {
-        guard let page else { return webView.pageZoom * webView.magnification }
-        return page.showsChromium
+        page.showsChromium
             ? Double(DesignSettings.shared.uiScale) * page.additionalZoom
             : page.webKitView.pageZoom * page.webKitView.magnification
     }

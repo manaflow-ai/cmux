@@ -264,6 +264,13 @@ public final class CmuxSidebarView: NSView {
         controller.setQuery("")
     }
 
+    /// Puts `query` in the search field and filters the list by it, as typing it would (a page
+    /// built again shows the search the person left).
+    public func setSearch(_ query: String) {
+        controller.searchField.stringValue = query
+        controller.setQuery(query)
+    }
+
     /// The neutral selection's fill (a translucent theme tint); nil keeps the unemphasized grey.
     public var neutralSelectionFill: NSColor? {
         get { controller.neutralFill }

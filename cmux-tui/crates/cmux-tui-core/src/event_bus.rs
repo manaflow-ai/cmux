@@ -7,6 +7,7 @@ use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use crate::event_cause::EventCause;
 use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
@@ -96,9 +97,9 @@ struct MuxEventMailbox {
 #[derive(Default)]
 struct MuxEventMailboxState {
     next_sequence: u128,
-    events: VecDeque<(u128, MuxEvent)>,
+    events: VecDeque<(u128, MuxEvent, EventCause)>,
     coalesced_sequences: HashMap<CoalescedEventKey, u128>,
-    coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent)>,
+    coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent, EventCause)>,
     closed: bool,
     overflowed: bool,
 }
@@ -177,7 +178,7 @@ impl MuxEventBroadcaster {
                 scope.workspace = workspace;
                 scope.screen = screen;
                 scope.pane = pane;
-                return mailbox.push(MuxEvent::TreeChanged);
+                return mailbox.push(MuxEvent::TreeChanged, EventCause::current());
             }
             true
         });
@@ -207,11 +208,17 @@ impl MuxEventBroadcaster {
         subscribers.iter().filter(|subscriber| subscriber.mailbox.strong_count() > 0).count()
     }
 
+    /// Deliver `event` with the cause of this thread's scope
+    /// ([`EventCause::current`]).
     pub fn emit(&self, event: MuxEvent) {
+        self.emit_caused(event, EventCause::current());
+    }
+
+    pub(crate) fn emit_caused(&self, event: MuxEvent, cause: EventCause) {
         let mut subscribers = self.subscribers.lock().recover_poison();
         subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
-            !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
+            !subscriber.filter.accepts(&event) || mailbox.push(event.clone(), cause)
         });
     }
 }
@@ -343,7 +350,7 @@ impl Drop for MuxEventBroadcaster {
 }
 
 impl MuxEventMailbox {
-    fn push(&self, event: MuxEvent) -> bool {
+    fn push(&self, event: MuxEvent, cause: EventCause) -> bool {
         let mut state = self.state.lock().recover_poison();
         if state.closed {
             return false;
@@ -352,31 +359,38 @@ impl MuxEventMailbox {
         state.next_sequence = state.next_sequence.saturating_add(1);
         let accepted = match event {
             event @ MuxEvent::AgentChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event)
+                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event, cause)
             }
             event @ MuxEvent::TitleChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
+                state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event, cause)
             }
-            event @ MuxEvent::ProgramStatusChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::ProgramStatus(surface), event)
-            }
-            event @ MuxEvent::SurfaceOutput(surface) => {
-                state.push_coalesced(sequence, CoalescedEventKey::SurfaceOutput(surface), event)
-            }
+            event @ MuxEvent::ProgramStatusChanged { surface, .. } => state.push_coalesced(
+                sequence,
+                CoalescedEventKey::ProgramStatus(surface),
+                event,
+                cause,
+            ),
+            event @ MuxEvent::SurfaceOutput(surface) => state.push_coalesced(
+                sequence,
+                CoalescedEventKey::SurfaceOutput(surface),
+                event,
+                cause,
+            ),
             event @ MuxEvent::ScrollChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
+                state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event, cause)
             }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
                 CoalescedEventKey::ConfigReload,
                 MuxEvent::ConfigReloadRequested,
+                cause,
             ),
             event @ MuxEvent::SurfaceExited(surface, _) => {
                 state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {
                     false
                 } else {
-                    state.events.push_back((sequence, event));
+                    state.events.push_back((sequence, event, cause));
                     true
                 }
             }
@@ -384,7 +398,7 @@ impl MuxEventMailbox {
                 let mut terminal_events = state
                     .events
                     .iter()
-                    .filter(|(_, event)| {
+                    .filter(|(_, event, _)| {
                         matches!(event, MuxEvent::SurfaceExited(..))
                             || matches!(
                                 event,
@@ -402,14 +416,14 @@ impl MuxEventMailbox {
                 state.coalesced_sequences.clear();
                 state.coalesced.clear();
                 state.events.extend(terminal_events);
-                state.events.push_back((sequence, MuxEvent::Empty));
+                state.events.push_back((sequence, MuxEvent::Empty, cause));
                 true
             }
             event => {
                 if !state.reserve_pending_slot() {
                     false
                 } else {
-                    state.events.push_back((sequence, event));
+                    state.events.push_back((sequence, event, cause));
                     true
                 }
             }
@@ -429,14 +443,26 @@ impl MuxEventMailbox {
 }
 
 impl MuxEventMailboxState {
-    fn push_coalesced(&mut self, sequence: u128, key: CoalescedEventKey, event: MuxEvent) -> bool {
+    /// Replaces the pending event of `key`, if any. The kept event takes
+    /// the higher of the two causes: a person's change folded into a later
+    /// program one is still the person's.
+    fn push_coalesced(
+        &mut self,
+        sequence: u128,
+        key: CoalescedEventKey,
+        event: MuxEvent,
+        cause: EventCause,
+    ) -> bool {
+        let mut cause = cause;
         if let Some(previous) = self.coalesced_sequences.get(&key).copied() {
-            self.coalesced.remove(&previous);
+            if let Some((_, _, previous_cause)) = self.coalesced.remove(&previous) {
+                cause = cause.merge(previous_cause);
+            }
         } else if !self.reserve_pending_slot() {
             return false;
         }
         self.coalesced_sequences.insert(key, sequence);
-        self.coalesced.insert(sequence, (key, event));
+        self.coalesced.insert(sequence, (key, event, cause));
         true
     }
 
@@ -465,15 +491,19 @@ impl MuxEventMailboxState {
     }
 
     fn pop(&mut self) -> Option<MuxEvent> {
-        let event_sequence = self.events.front().map(|(sequence, _)| *sequence);
+        self.pop_caused().map(|(event, _)| event)
+    }
+
+    fn pop_caused(&mut self) -> Option<(MuxEvent, EventCause)> {
+        let event_sequence = self.events.front().map(|(sequence, ..)| *sequence);
         let coalesced_sequence = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
         let next_sequence = [event_sequence, coalesced_sequence].into_iter().flatten().min()?;
         if event_sequence == Some(next_sequence) {
-            self.events.pop_front().map(|(_, event)| event)
+            self.events.pop_front().map(|(_, event, cause)| (event, cause))
         } else {
-            let (_, (key, event)) = self.coalesced.pop_first()?;
+            let (_, (key, event, cause)) = self.coalesced.pop_first()?;
             self.coalesced_sequences.remove(&key);
-            Some(event)
+            Some((event, cause))
         }
     }
 }
@@ -486,7 +516,7 @@ impl MuxEventReceiver {
     /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
     /// consumers use it for state changes that no broadcast event carries.
     pub(crate) fn wake(&self) {
-        self.mailbox.push(MuxEvent::TreeChanged);
+        self.mailbox.push(MuxEvent::TreeChanged, EventCause::Program);
     }
 
     pub fn overflowed(&self) -> bool {
@@ -523,9 +553,17 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_caused_until_interrupted(interrupt).map(|(event, _)| event)
+    }
+
+    /// [`Self::recv_until_interrupted`] with the event's cause.
+    pub(crate) fn recv_caused_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<(MuxEvent, EventCause), RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
-            if let Some(event) = state.pop() {
+            if let Some(event) = state.pop_caused() {
                 return Ok(event);
             }
             if state.closed {
@@ -539,8 +577,13 @@ impl MuxEventReceiver {
     }
 
     pub fn try_recv(&self) -> Result<MuxEvent, TryRecvError> {
+        self.try_recv_caused().map(|(event, _)| event)
+    }
+
+    /// [`Self::try_recv`] with the event's cause.
+    pub(crate) fn try_recv_caused(&self) -> Result<(MuxEvent, EventCause), TryRecvError> {
         let mut state = self.mailbox.state.lock().recover_poison();
-        if let Some(event) = state.pop() {
+        if let Some(event) = state.pop_caused() {
             Ok(event)
         } else if state.closed {
             Err(TryRecvError::Disconnected)
@@ -554,11 +597,19 @@ impl MuxEventReceiver {
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_caused_timeout(timeout).map(|(event, _)| event)
+    }
+
+    /// [`Self::recv_timeout`] with the event's cause.
+    pub(crate) fn recv_caused_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(MuxEvent, EventCause), RecvTimeoutError> {
         let started = Instant::now();
         let mut remaining = timeout;
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
-            if let Some(event) = state.pop() {
+            if let Some(event) = state.pop_caused() {
                 return Ok(event);
             }
             if state.closed {
@@ -568,7 +619,7 @@ impl MuxEventReceiver {
                 self.mailbox.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if waited.timed_out() {
-                if let Some(event) = state.pop() {
+                if let Some(event) = state.pop_caused() {
                     return Ok(event);
                 }
                 if state.closed {

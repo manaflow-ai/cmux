@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9. */
+/* cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,59 @@ export type ActivitySnapshot = {
 
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
+};
+
+export type AgentCLIIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "root_key": string;
+  "session": string;
+};
+
+export type AgentCLIJobPath = {
+  "kind": "terminal";
+  "pane_id": string;
+  "screen_id": string;
+  "tab_id": string;
+  "terminal_id": string;
+  "workspace_id": string;
+};
+
+export type AgentCLIJobReceipt = {
+  "cli": string;
+  "machine": string;
+  "path": AgentCLIJobPath;
+  "replayed": boolean;
+  "revision": string;
+  "session": string;
+};
+
+export type AgentCLIJobResolution = ({ "state": "created" } & {
+  "receipt": AgentCLIJobReceipt;
+  "state": "created";
+}) | ({ "state": "failed" } & {
+  "code": string;
+  "state": "failed";
+}) | ({ "state": "indeterminate" } & {
+  "state": "indeterminate";
+}) | ({ "state": "not_found" } & {
+  "state": "not_found";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+}) | ({ "state": "prepared" } & {
+  "state": "prepared";
+});
+
+export type AgentCLIStoredIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "receipt": (AgentCLIJobReceipt) | null;
+  "root_key": string;
+  "session": string;
 };
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
@@ -37,6 +90,19 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
+/** Opaque JSON: The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape. */
+export type AgentSessionAcpmuxReply = JsonValue;
+
+export type AgentSessionAnsweredBy = {
+  /** The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "device": string;
+  /** The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "feed_item": string;
+};
+
+/** Opaque JSON: acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape. */
+export type AgentSessionPage = JsonValue;
+
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
@@ -48,9 +114,71 @@ export type AgentSessionSource = {
   "session"?: (string) | null;
 };
 
+/** Opaque JSON: One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape. */
+export type AgentSessionSummary = JsonValue;
+
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type AppGrant = {
+  "granted": boolean;
+  "scope": string;
+};
+
+export type AppHiddenAccess = {
+  "automations": boolean;
+  "cli": boolean;
+  "mcp": boolean;
+};
+
+export type AppLogLine = {
+  "level": string;
+  "message": string;
+  "ts_ms": bigint;
+};
+
+export type AppOrigin = "user" | "cli" | "mcp" | "script" | "remote";
+
+export type AppPaletteCommand = {
+  "op": string;
+  "title": (JsonValue) | null;
+  "when"?: (JsonValue) | null;
+};
+
+export type AppRecord = {
+  "available": boolean;
+  "bundle_dir": (string) | null;
+  "commands": Array<AppPaletteCommand>;
+  "enabled": boolean;
+  "grants": Array<string>;
+  "hidden": boolean;
+  "hidden_access": AppHiddenAccess;
+  "hide_only": boolean;
+  "id": string;
+  "installed": boolean;
+  "manifest": (JsonValue) | null;
+  "revision"?: bigint;
+  "sandboxed": boolean;
+  "scope_classes": Record<string, AppScopeClass>;
+  "source": AppSource;
+  "tier": AppTier;
+  "version": string;
+};
+
+export type AppScopeClass = "standard" | "sensitive" | "restricted" | "elevated" | "unknown";
+
+export type AppSource = "default" | "user" | "bundled" | "local";
+
+export type AppTerminalLink = {
+  "app": string;
+  "channel": string;
+  "id": string;
+  "socket": (string) | null;
+  "target": string;
+};
+
+export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppliedPane = {
   "pane": Id;
@@ -60,6 +188,37 @@ export type AppliedPane = {
 export type ApplyLayoutResult = {
   "panes": Array<AppliedPane>;
   "screen": Id;
+};
+
+export type AppsInventoryDemand = {
+  "enabled": boolean;
+  "sequence": bigint;
+};
+
+export type AppsLinkChangedResult = {
+  "servers": bigint;
+};
+
+export type AppsListResult = {
+  "apps": Array<AppRecord>;
+  "revision": bigint;
+};
+
+export type AppsLogsResult = {
+  "lines": Array<AppLogLine>;
+};
+
+export type AppsProviderRegisterResult = {
+  "families": Array<string>;
+  "inventory_demand"?: AppsInventoryDemand;
+};
+
+export type AppsRunResult = {
+  "value": (JsonValue) | null;
+};
+
+export type AppsTerminalLinksResult = {
+  "links": Array<AppTerminalLink>;
 };
 
 export type AttachedViewOutcomeResult = {
@@ -420,6 +579,8 @@ export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "su
 
 export type EmptyResult = {
 };
+
+export type EventCause = "frontend" | "automation";
 
 export type ExportLayoutResult = {
   "layout": Layout;
@@ -1054,6 +1215,20 @@ export type ServerStatsLockStall = {
   "waiter": string;
 };
 
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1081,6 +1256,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;

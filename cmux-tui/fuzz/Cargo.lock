@@ -771,6 +771,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pane-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "cmux-local-auth",
+ "futures-util",
+ "getrandom 0.3.4",
+ "jsonschema",
+ "libc",
+ "regex",
+ "ring",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
@@ -948,12 +971,18 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "base64",
+ "bytes",
+ "cmux-config",
+ "cmux-holder",
  "cmux-link",
+ "cmux-pane-protocol",
  "cmux-rd-proto",
+ "cmux-remote-protocol",
  "cmux-transport",
  "cmux-tui-core",
  "cmux-wg",
  "flate2",
+ "ghostty-vt",
  "libfuzzer-sys",
  "serde",
  "serde_json",
@@ -1132,8 +1161,6 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 [[package]]
 name = "crossterm"
 version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
 dependencies = [
  "bitflags 2.13.1",
  "crossterm_winapi",
@@ -2604,9 +2631,9 @@ dependencies = [
 
 [[package]]
 name = "num-integer"
-version = "0.1.47"
+version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
+checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
 dependencies = [
  "num-traits",
 ]
@@ -4134,6 +4161,7 @@ dependencies = [
  "futures-util",
  "log",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -5086,3 +5114,7 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "terminput-crossterm"
+version = "0.4.7"

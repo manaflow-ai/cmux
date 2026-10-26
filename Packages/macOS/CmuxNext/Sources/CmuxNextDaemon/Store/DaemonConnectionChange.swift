@@ -10,6 +10,7 @@ enum DaemonConnectionChange {
         // A wait for the old connection's sequence ends now (its batch already advanced past the events before
         // this one): the next connection numbers its events from its own serial.
         store.resumeAppliedWaits()
+        store.resumeConnectionWaits()
         switch self {
         case .connected(let identity, let envelope):
             store.sideEvents.noteControl(envelope)

@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+public import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
 /// every page view (``open(_:)``), ends it (``close(_:)``), and knows every page it opened.
@@ -24,6 +25,13 @@ public final class WebUIHost {
     public let memoryPressure: MemoryPressureEvents
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
+    /// The shared web content processes of the WebKit pages that ask for them
+    /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
+    public let processGroups: WebProcessGroups
+    /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
+    /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
+    /// the composition root sets it.
+    package var lifecycle: PageLifecycle?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -37,14 +45,16 @@ public final class WebUIHost {
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
+    ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups()) {
         self.chromium = chromium
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
+        self.processGroups = processGroups
     }
 
     /// Makes and starts loading the page `request` asks for, in the engine ``PageEnginePolicy``
@@ -55,7 +65,7 @@ public final class WebUIHost {
     ///   the bundle, or a first-party page asked for at another root).
     public func open(_ request: PageOpenRequest) -> PageWebView? {
         guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel,
-                                     registry: registry) else { return nil }
+                                     registry: registry, processGroups: processGroups) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         opened.add(view)
@@ -70,6 +80,18 @@ public final class WebUIHost {
         view.close()
         opened.remove(view)
         registry.remove(view)
+        lifecycle?.forget(view)
+    }
+
+    /// A configuration in the process pool and data store of the grouped WebKit pages
+    /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the
+    /// pool's one-time font listing (R81) then run before the first grouped page opens, and that
+    /// page can use the warm-up's web content process.
+    public func groupedWebKitConfiguration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.processPool = PageProcessPool.forNewView
+        configuration.websiteDataStore = processGroups.dataStore
+        return configuration
     }
 
     /// The pages this host opened and has not closed, oldest first.

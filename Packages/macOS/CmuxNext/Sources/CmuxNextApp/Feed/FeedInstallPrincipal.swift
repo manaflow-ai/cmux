@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 import Observation
 
@@ -58,7 +59,7 @@ final class FeedInstallPrincipal {
         // The install token never goes through the shared, caching session.
         let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { await identity.invalidate() }
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
+        guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
         }
@@ -84,7 +85,7 @@ final class FeedInstallPrincipal {
         var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
         guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let claims = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let install = claims["inst"] as? String, !install.isEmpty else { return nil }
         return install
     }

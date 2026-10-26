@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextPages
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).
@@ -21,8 +22,8 @@ extension TabContentCache {
 
     // MARK: Presentation
 
-    /// `presenter` shows `key` (its view is, or is about to be, in the
-    /// presenter's hierarchy). Takes the surface from any previous presenter.
+    /// `presenter` shows `key` (its view is, or is about to be, in the presenter's hierarchy).
+    /// Takes the surface from any previous presenter.
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
@@ -31,8 +32,7 @@ extension TabContentCache {
         if ledger.isRendering(key) { notePageScreen(key) }
     }
 
-    /// `presenter` stopped showing `key`. Ignored when another presenter
-    /// took it meanwhile (the tab moved there).
+    /// `presenter` stopped showing `key`. Ignored when another presenter took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
@@ -146,7 +146,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) {
+                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true || adoptLifecyclePage(key) { // a page tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -159,12 +159,20 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                hibernation?.release(key, token: token)
+                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                hibernation?.restore(key, token: token)
+                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
             }
         }
+    }
+
+    /// A page tab showing a cmux page under `pageLifecycle` is live once its view exists, so its reveal and
+    /// conceal reach the page lifecycle; its memory is that lifecycle's, never the warm set's.
+    private func adoptLifecyclePage(_ key: String) -> Bool {
+        guard pageLifecycle?.pageOfTab(key) != nil else { return false }
+        ledger.setRetained(key, false)
+        return true
     }
 
     /// Installs the page that replaces a tab's page (`swapPage`). The tab's
@@ -177,6 +185,7 @@ extension TabContentCache {
     }
 
     private func reveal(_ key: String) {
+        pageLifecycle?.tabDidShow(key) // first: a frozen page thaws in this turn, before its view shows
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
@@ -188,7 +197,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        hibernation?.tabDidShow(key)
+        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
         notePageScreen(key)
     }
 
@@ -207,7 +216,8 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        hibernation?.tabDidHide(key)
+        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
+        pageLifecycle?.tabDidHide(key)
     }
 
     func trace(_ key: String, _ event: String) {

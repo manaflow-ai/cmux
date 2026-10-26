@@ -26,16 +26,20 @@ extension DaemonConnection {
 }
 
 extension StateResourceClient {
-    /// The idempotency key for the next state mutation.
-    static func stateKey() -> String {
-        "cmux-next-" + (DaemonCommandScope.current?.nextMutationID() ?? UUID().uuidString.lowercased())
+    /// The idempotency key for the next state mutation. The daemon echoes it as the deltas'
+    /// `mutation_id`, so a caused scope records it on `connection` (``MutationCauseLedger``).
+    static func stateKey(on connection: DaemonConnection) -> String {
+        let scope = DaemonCommandScope.current
+        let key = "cmux-next-" + (scope?.nextMutationID() ?? UUID().uuidString.lowercased())
+        scope?.recordMutation(key, in: connection.mutationCauses)
+        return key
     }
 
     /// Sends one state mutation and returns its `value`.
     @discardableResult
     func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
                                                  as type: R.Type = JSONValue.self) async throws -> R {
-        let key = Self.stateKey()
+        let key = Self.stateKey(on: connection)
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
         }, as: ResourceMutationResult<R>.self).value

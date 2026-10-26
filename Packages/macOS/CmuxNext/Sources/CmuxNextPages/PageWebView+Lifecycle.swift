@@ -13,8 +13,7 @@ extension PageWebView {
         traceOpenEnd(.closedBeforePaint)
     }
 
-    /// Waits for the current document to finish loading or fail, and for a pending claim to be
-    /// acknowledged (or its fallback reload to finish).
+    /// Waits for the current document to finish loading or fail, and for a pending claim to be acknowledged (or its fallback reload to finish).
     public func waitUntilLoaded() async {
         guard !loaded || claimState.pending else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -30,11 +29,13 @@ extension PageWebView {
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        loadState.set(loading: false, page: self)
         resumeLoadWaiters()
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
+        loadState.set(loading: false, page: self)
         resumeLoadWaiters()
     }
 
@@ -50,13 +51,13 @@ extension PageWebView {
         if reloading {
             reloadPage()
         } else {
+            loadState.set(loading: false, page: self) // no load follows
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
         }
         onCrash?(self, reloading)
     }
 
-    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
-    /// notice's Reload button).
+    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash notice's Reload button).
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
         reloadPage()

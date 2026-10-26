@@ -69,6 +69,24 @@ final class SettingsPageProvider: PageProvider {
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     private var spentFullAccessGesture: TimeInterval?
+    /// The forms of one page that hold typed values not saved yet (a custom density being edited, a
+    /// relay's fields), as the page reports them (`cmux.settings.editing`). While any does, the
+    /// page's tab keeps its view (``SettingsWindowService/keepReasons(for:)``): a page built again
+    /// would lose them (Chrome's kUserEdits, chrome/browser/performance_manager/policies/
+    /// cannot_discard_reason.h).
+    @MainActor
+    final class Edits {
+        /// The page's unsaved forms, by the page's own form names.
+        private(set) var forms: Set<String> = []
+        var hasUnsaved: Bool { !forms.isEmpty }
+
+        func set(_ form: String, unsaved: Bool) {
+            if unsaved { forms.insert(form) } else { forms.remove(form) }
+        }
+    }
+
+    /// This page's unsaved forms.
+    var edits = Edits()
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -219,6 +237,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.preview.end":
             settings.endPreview()
             return .object([:])
+        case "cmux.settings.editing":
+            guard let form = params["form"]?.stringValue, let unsaved = params["editing"]?.boolValue else {
+                throw PageError.invalidParams("form and editing are required")
+            }
+            edits.set(form, unsaved: unsaved)
+            return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
             if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
@@ -239,7 +263,7 @@ final class SettingsPageProvider: PageProvider {
             // The daemon's harness events reach the list only while a page shows it.
             agents.beginWatching()
             let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
-            return PageSubscription {
+            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
                 watch.cancel()
                 Task { @MainActor in agents.endWatching() }
             }
@@ -249,7 +273,7 @@ final class SettingsPageProvider: PageProvider {
             devicesWatching?(true)
             let watch = Self.watch(devicesState, onEvent: onEvent)
             let watching = devicesWatching
-            return PageSubscription {
+            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
                 watch.cancel()
                 Task { @MainActor in watching?(false) }
             }
@@ -284,11 +308,13 @@ final class SettingsPageProvider: PageProvider {
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event names only the keys that changed since the last one: a delta. After a drop the
+        // page gets `meta.gap`; SettingsStore then clears every refusal and re-reads every row.
+        return PageSubscription(frozenDelivery: .resync) { task.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
-    /// carries the new value.
+    /// carries the new value, so while the page is held only the newest one matters (`.latest`).
     private static func watch(_ read: @escaping @MainActor () -> JSONValue,
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
@@ -298,7 +324,7 @@ final class SettingsPageProvider: PageProvider {
                 onEvent(value)
             }
         }
-        return PageSubscription { task.cancel() }
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 
     // MARK: Reads

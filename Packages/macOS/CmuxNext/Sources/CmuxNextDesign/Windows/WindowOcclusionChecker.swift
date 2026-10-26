@@ -185,7 +185,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         on(NSWindow.didEndLiveResizeNotification) { [weak self] in self?.movingEnded($0) }
         // A programmatic or tiling resize; a live resize reports its end instead.
         on(NSWindow.didResizeNotification) { [weak self] window in
-            if !window.inLiveResize, window.parentWindow == nil { self?.schedule() }
+            if !window.inLiveResize, window.parent == nil { self?.schedule() }
         }
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeMainNotification,
@@ -268,7 +268,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 
     /// A moving top-level window covers nothing until it stops. A child window moves with its parent.
     private func movingStarted(_ window: NSWindow) {
-        guard window.parentWindow == nil else { return }
+        guard window.parent == nil else { return }
         rule.moving = ObjectIdentifier(window)
         schedule()
     }
@@ -276,13 +276,13 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     /// A programmatic move sends no `willMove`, so every end schedules a pass.
     private func movingEnded(_ window: NSWindow) {
         if rule.moving == ObjectIdentifier(window) { rule.moving = nil }
-        if window.parentWindow == nil { schedule() }
+        if window.parent == nil { schedule() }
     }
 
     /// A closing window may cover others. It is dropped, not reported back on screen.
     private func windowWillClose(_ window: NSWindow) {
         drop(ObjectIdentifier(window))
-        if window.parentWindow == nil { schedule() }
+        if window.parent == nil { schedule() }
     }
 
     private func drop(_ id: ObjectIdentifier) {

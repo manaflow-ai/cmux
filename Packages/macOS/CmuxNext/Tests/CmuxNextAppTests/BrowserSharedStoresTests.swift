@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextDaemon
+import CmuxNextInput
 import Testing
 
 /// Both engines and the App ask one set of incognito profiles (`BrowserSharedStores`): a second
@@ -9,7 +10,7 @@ import Testing
     @Test func anIncognitoProfileBegunOnTheAppsStoresIsOffTheRecordInBothEngines() {
         let stores = BrowserSharedStores.inMemory()
         let cache = TabContentCache(daemon: DaemonService(),
-                                    cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks()),
+                                    cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
                                     fileInput: NoFileInput())
         let profile = stores.offTheRecord.begin()
 

@@ -120,7 +120,7 @@ public final class AgentPaneNowPlaying {
 
     private func send(to view: AgentPaneView) {
         let event = AgentPageEvent.nowPlaying(track)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyNowPlaying?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 
     /// Runs a page's control; false when the App has not wired the player.

@@ -5,13 +5,18 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 8220,
-            "T2": 900
+            "T1": 10200,
+            "T2": 960
           },
           "stories": {
             "T1": [
               "chat-anim",
               "home-idle",
+              "launch-cold",
+              "launch-cold-realistic",
+              "launch-warm-realistic",
+              "memory-hidden",
+              "memory-hidden-webkit",
               "motion",
               "new-surfaces-matrix",
               "omnibar",
@@ -22,6 +27,7 @@
               "tab-switch"
             ],
             "T2": [
+              "launch-after-reboot",
               "new-surfaces-stress"
             ]
           }
@@ -37,30 +43,17 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 8220,
-            "T2": 900
+            "T2": 960
           },
           "stories": {
-            "T1": [
-              "chat-anim",
-              "home-idle",
-              "motion",
-              "new-surfaces-matrix",
-              "omnibar",
-              "pane-stress",
-              "perf-gate",
-              "sidebar",
-              "switch",
-              "tab-switch"
-            ],
             "T2": [
+              "launch-after-reboot",
               "new-surfaces-stress"
             ]
           }
         }
       ],
       "tiers": [
-        "T1",
         "T2"
       ]
     },
@@ -70,7 +63,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 4200
+            "T1": 5100
           },
           "stories": {
             "T0": [
@@ -78,7 +71,11 @@
             ],
             "T1": [
               "chat-anim",
+              "launch-cold",
+              "launch-cold-realistic",
               "motion",
+              "new-surfaces-matrix",
+              "omnibar",
               "pane-stress",
               "switch"
             ]
@@ -88,7 +85,7 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 4020
+            "T1": 5100
           },
           "stories": {
             "T0": [
@@ -96,8 +93,9 @@
             ],
             "T1": [
               "home-idle",
-              "new-surfaces-matrix",
-              "omnibar",
+              "launch-warm-realistic",
+              "memory-hidden",
+              "memory-hidden-webkit",
               "perf-gate",
               "sidebar",
               "tab-switch"

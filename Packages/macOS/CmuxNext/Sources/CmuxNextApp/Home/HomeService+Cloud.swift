@@ -14,10 +14,10 @@ extension HomeService {
     /// no token for a self-hosted server) and reconfigures the cloud source.
     func startCloud() {
         let local = services.machines.local
-        let auth = services.cloud.auth
+        let auth = services.cloudAuth
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String
-        let lease = HomeCloudLease(tokens: auth, apiBaseURL: services.feed.apiBaseURL, clientVersion: version, logger: logger)
+        let lease = HomeCloudLease(tokens: auth, apiBaseURL: FeedService.apiBaseURL(auth: auth), clientVersion: version, logger: logger)
         let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id,
                                    stackProjectID: auth.configuration.stackProjectID)
         cloudLinker = linker

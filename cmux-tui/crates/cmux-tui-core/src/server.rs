@@ -232,6 +232,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -293,8 +294,7 @@ mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
-use capabilities::advertised_capabilities;
-use capabilities::identify_capabilities;
+use capabilities::{advertised_capabilities, identify_capabilities};
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -788,6 +788,13 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Start a trace recording in the daemon, the holder, every terminal host
+    /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
+    TraceStart(trace_control::StartParams),
+    /// Stop it everywhere.
+    TraceStop,
+    /// Every process's trace state, ring paths and bytes.
+    TraceStatus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -2825,7 +2832,8 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    render_state_message, send_browser_attach_update, styled_run_json, write_pending_sequence_json,
+    render_state_message, send_browser_attach_update, styled_run_json, write_output_flow_json,
+    write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};

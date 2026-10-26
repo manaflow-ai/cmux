@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Observation
 
 /// A catalog descriptor joined with its bound handler, if any. The palette
@@ -86,6 +87,11 @@ public final class ActionRegistry {
     /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
     /// each gate (`action.gate`).
     let runTiming: any ActionRunTiming
+    /// Hears the end of every outermost perform turn (``ActionRunObserver``): the oracle recorder in
+    /// the App's DEV and bench builds, nil in Release and in tests that pass none. Set once, at init.
+    public let turnObserver: (any ActionRunObserver)?
+    /// How deep the perform turns heard by ``turnObserver`` nest now; only the outermost is reported.
+    @ObservationIgnored var observedPerformDepth = 0
     /// The end of the gate interval open now (`ActionRegistry+Signposts`), ended before anything
     /// else is timed so a gate never encloses the run it lets through.
     @ObservationIgnored var openGateEnd: (@MainActor () -> Void)?
@@ -137,6 +143,9 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Each handler run's changes take its origin's cause here (``ActionOrigin/observationCause``,
+    /// `MainWorkScheduler.causes`); nil: the cause current where it was performed.
+    @ObservationIgnored public var causes: ObservationCauses?
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
@@ -184,10 +193,25 @@ public final class ActionRegistry {
     ///   - aliases: Old ids folded into canonical ids.
     ///   - runTiming: Times every run that does work. The App passes ``SignpostActionRunTiming``
     ///     at its composition root; tests pass a recorder.
+    public convenience init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:],
+                            runTiming: any ActionRunTiming) {
+        self.init(catalog: catalog, aliases: aliases, runTiming: runTiming, turnObserver: nil)
+    }
+
+    /// A registry seeded with `catalog` whose runs `runTiming` times and whose perform turns
+    /// `turnObserver` hears.
+    ///
+    /// - Parameters:
+    ///   - catalog: The descriptors (``ActionCatalog/all`` in the App).
+    ///   - aliases: Old ids folded into canonical ids.
+    ///   - runTiming: Times every run that does work.
+    ///   - turnObserver: Hears the end of every outermost perform turn; nil (Release) costs one
+    ///     nil check per perform.
     public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:],
-                runTiming: any ActionRunTiming) {
+                runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)?) {
         self.aliases = aliases
         self.runTiming = runTiming
+        self.turnObserver = turnObserver
         seed(catalog)
     }
 

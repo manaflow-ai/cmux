@@ -261,6 +261,10 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let listener = UnixListener::bind(&socket)?;
+    // The black box, so the holder grants TRACE_CONTROL: its rings go into a
+    // holder-lifetime directory beside its socket, in the daemon's private
+    // socket directory. The file opens on a one-shot thread, never the loop.
+    drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);

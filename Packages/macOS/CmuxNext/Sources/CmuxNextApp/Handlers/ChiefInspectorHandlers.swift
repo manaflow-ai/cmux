@@ -236,7 +236,7 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
         let file = muxHome.appendingPathComponent("optchat/inspector.json")
         // concurrency-allow: nonisolated; the action reads it in Task.detached (bind above)
         guard let data = try? Data(contentsOf: file),
-              let endpoint = try? JSONDecoder().decode(ChiefInspectorEndpoint.self, from: data),
+              let endpoint = try? JSONDecoder().blockingDecode(ChiefInspectorEndpoint.self, from: data),
               endpoint.url.host == "127.0.0.1",
               endpoint.pid.map(Self.isRunning) ?? true else {
             throw Missing()
@@ -255,7 +255,7 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
         request.timeoutInterval = 5
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
-        let ticket = try JSONDecoder().decode(Ticket.self, from: data).ticket
+        let ticket = try JSONDecoder().blockingDecode(Ticket.self, from: data).ticket
         return Self.pageURL(base: url, ticket: ticket)
     }
 

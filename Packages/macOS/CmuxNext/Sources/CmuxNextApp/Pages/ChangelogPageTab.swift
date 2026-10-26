@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
@@ -35,6 +36,25 @@ final class ChangelogPageTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         pages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`; What's New is this page)
+
+    /// Ten minutes hidden: read-only notes, so a rebuilt page on the same place shows the same.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The release span or version the page shows now (its own links move it).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it); the next view makes its own.
+    func viewDiscarded(_ key: String) {
+        pages.removeValue(forKey: key)
     }
 
     /// The page's provider, registered once. The app registers it at launch:

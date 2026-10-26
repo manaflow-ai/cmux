@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -184,7 +185,7 @@ public final class ChiefMemoryInspectorModel {
     private func get<T: Decodable>(_ path: String, _ query: [String: String] = [:], as type: T.Type) async throws -> T {
         let data = try await source.call(path, query: query)
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try JSONDecoder().blockingDecode(T.self, from: data)
         } catch {
             throw ChiefMemoryError.malformed
         }

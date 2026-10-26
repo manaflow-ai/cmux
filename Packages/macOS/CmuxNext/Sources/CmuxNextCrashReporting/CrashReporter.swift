@@ -1,3 +1,4 @@
+public import CmuxNextTrace
 public import CmuxSentryReporting
 public import Darwin
 public import Foundation
@@ -220,6 +221,16 @@ public final class CrashReporter: Sendable {
         event.tags = tags
         event.extra = extra
         SentrySDK.capture(event: event)
+    }
+
+    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
+    /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
+    /// The caller passes it through the scrubber like every other attachment.
+    public func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool) -> Attachment? {
+        guard let text = TraceBlackBoxUpload().crashAttachmentText(records, hangReportsOptIn: hangReportsOptIn) else {
+            return nil
+        }
+        return Attachment(data: Data(text.utf8), filename: "blackbox.txt", contentType: "text/plain")
     }
 
     /// Tags the current scope so a crash this process causes on purpose

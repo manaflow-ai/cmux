@@ -4,24 +4,21 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// cx-6bgzj on the host a chat actually opens on. `ChatScrollRestoreTests` covers the shared page
-/// host (``AgentPageProvider``), but `agent.pageHost` is off by default, so an agent pane's page
-/// talks to the pane's own host (``AgentPaneBridge``) instead, and that is the path a reader is on.
-/// The page sends the same two ops either way — `callNative` falls back to the `agentSession`
-/// handler when there is no page client — so this holds that path to the same promise: a chat the
-/// reader left in the middle reopens there.
-///
-/// What the pane's own host was missing is the chat's *durable* place. A tab open at a clean quit
-/// already came back where it was, through its wake state (`AgentPaneWakeState`, which goes
-/// straight to `window.cmuxAcpmuxActions` and so needed neither host); the per-chat store these
-/// ops write is what survives a crash, and what a different tab — or a tab closed and opened
-/// again — reads.
+/// cx-6bgzj on the page host, the one host a chat opens on (p13-webui-073 deleted the pane's own):
+/// a chat the reader left in the middle reopens there, from the per-chat store the two ops write.
+/// That store is what survives a crash, and what a different tab, or a tab closed and opened
+/// again, reads. `ChatScrollRestoreTests` drives the provider's async call; these drive the op's
+/// answer with the page's own params.
 @Suite(.serialized)
 @MainActor
 struct ChatScrollRestoreDefaultPathTests {
-    /// What the pane's own host answers the page, as ``AgentPaneBridge`` routes it.
+    /// What the page host answers the page (`AgentPageProvider.scrollAnchor`): `ok` and the value,
+    /// or `ok: false` for a request it refuses or an op that is not this store's.
     static func call(_ method: String, _ params: [String: Any]) -> [String: Any] {
-        AgentPaneScrollAnchors.reply(to: method, params: params)
+        guard AgentPaneScrollAnchors.handles(method: method), let json = JSONValue(foundation: params) else { return ["ok": false] }
+        guard let value = try? AgentPageProvider.scrollAnchor(method, params: json, op: AgentPageOps.namespace + method)
+        else { return ["ok": false] }
+        return ["ok": true, "value": value.foundationObject]
     }
 
     static func value(_ reply: [String: Any]) -> Any? {
@@ -29,8 +26,8 @@ struct ChatScrollRestoreDefaultPathTests {
         return reply["value"]
     }
 
-    @Test func aChatReopensWhereItRestedWithThePageHostOff() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-bridge-\(UUID().uuidString)")
+    @Test func aChatReopensWhereItRested() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-page-host-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
             AgentPaneScrollAnchors.shared = nil
@@ -54,10 +51,9 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
     }
 
-    /// Both hosts read and write the one store, so a chat opened on either reopens where the other
-    /// left it — a pane with `agent.pageHost` on beside one without, or the setting changed between
-    /// two runs.
-    @Test func thePageHostAndThePanesOwnHostShareTheOneStore() async throws {
+    /// Two pages of the one host share the one store: written through the provider's call, read
+    /// through the op's answer, and the other way.
+    @Test func everyPageSharesTheOneStore() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-shared-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
@@ -66,7 +62,6 @@ struct ChatScrollRestoreDefaultPathTests {
         }
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
 
-        // Written on the pane's own host, read on the page host.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-3", "rowId": "user-7", "offset": 8]))
         let provider = AgentPageProvider { _ in nil }
         let read = try await provider.call(
@@ -75,7 +70,6 @@ struct ChatScrollRestoreDefaultPathTests {
             context: PageCallContext(page: PageDescriptor.agent.id))
         #expect(read == .object(["rowId": .string("user-7"), "offset": .number(8)]))
 
-        // And the other way: written on the page host, read on the pane's own.
         _ = try await provider.call(
             AgentPageOps.namespace + "chat.scrollAnchor",
             params: .object(["sessionId": .string("s-4"), "rowId": .string("user-9"), "offset": .number(3)]),
@@ -100,78 +94,19 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect(AgentPaneScrollAnchors.shared?.anchor(for: "") == nil)
     }
 
-    /// The routing, not only the answer. ``AgentPaneModel`` has no case for either op, so the pane's
-    /// own host has to send them to this seam; take that out of ``AgentPaneBridge`` and a chat
-    /// stops keeping its place again, which is the bug.
-    ///
-    /// A `WKScriptMessage` cannot be made outside WebKit, so this drives the seam the handler
-    /// calls — `AgentPaneBridge.chatPlaceReply(for:)`, which takes the same `message.body` — and
-    /// not the handler itself. That leaves the one call site uncovered by this test, so
-    /// ``theHandlerStillCallsThatSeam`` reads it out of the source instead.
-    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            AgentPaneScrollAnchors.shared = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
-
-        // What the host does with a page message, body and all: it writes, and it reads back.
-        let wrote = try #require(AgentPaneBridge.chatPlaceReply(
-            for: ["method": "chat.scrollAnchor",
-                  "params": ["sessionId": "s-6", "rowId": "user-3", "offset": 9.0]] as [String: Any]))
-        #expect(wrote["ok"] as? Bool == true)
-        let read = try #require(AgentPaneBridge.chatPlaceReply(
-            for: ["method": "chat.scrollAnchor.get", "params": ["sessionId": "s-6"]] as [String: Any]))
-        #expect((read["value"] as? [String: Any])?["rowId"] as? String == "user-3")
-
-        // Anything else is the model's: the host passes it on rather than answering it here.
-        // `chat.unsentDraft` is a real op `AgentPaneRequest` decodes, so this says what it means to:
-        // an op the model owns passes through, rather than merely that an unknown name does.
-        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.unsentDraft", "params": ["sessionId": "s-6"]] as [String: Any]) == nil)
-        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.scrollAnchor.forget"]) == nil)
-        #expect(AgentPaneBridge.chatPlaceReply(for: "not a message") == nil)
-
-        // And the model really has no route of its own, so the branch above is not dead code.
+    /// ``AgentPaneModel`` has no case for either op, so the page host answers them here
+    /// (``AgentPageProvider``, before it decodes a request for the model).
+    @Test func theModelHasNoRouteOfItsOwnForTheseOps() {
         for method in ["chat.scrollAnchor", "chat.scrollAnchor.get"] {
+            #expect(AgentPaneScrollAnchors.handles(method: method))
             let request = AgentPaneRequest(body: ["method": method, "params": ["sessionId": "s-6"]] as [String: Any])
             guard case .unsupported(let named) = request else {
-                Issue.record("\(method) now decodes to \(request), so the host should stop intercepting it")
+                Issue.record("\(method) now decodes to \(request), so the page host should stop intercepting it")
                 continue
             }
             #expect(named == method)
         }
-    }
-
-    /// The one line the test above cannot reach: `WKScriptMessage` has no public initializer, so
-    /// no test can send the handler a message, and every other test here calls the seam directly.
-    /// Delete the handler's branch and all of them stay green while a chat silently stops keeping
-    /// its place — the bug this suite exists for. So the call site is read out of the source.
-    ///
-    /// Renaming either symbol is fine; this test then names what to rewrite it to.
-    @Test func theHandlerStillCallsThatSeam() throws {
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0 ..< 6 { root.deleteLastPathComponent() }
-        let bridge = root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift")
-        // Read, not guessed: a missing or unreadable file fails rather than passing vacuously.
-        let source = try String(contentsOf: bridge, encoding: .utf8)
-        guard let handler = source.range(of: "func userContentController(") else {
-            Issue.record("AgentPaneBridge no longer has a userContentController handler")
-            return
-        }
-        // Inside the handler, not merely somewhere in the file: the next doc comment ends the slice,
-        // which today is the one on `reply(for:)`. Delete that doc comment and the slice widens to
-        // the rest of the file, so this would stop proving *where* the call is — it would still
-        // fail on the regression it exists for, since `chatPlaceReply` appears nowhere else here.
-        let rest = source[handler.lowerBound...]
-        let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
-        #expect(body.contains("chatPlaceReply"),
-                """
-                AgentPaneBridge.userContentController no longer calls chatPlaceReply, so the page's \
-                chat.scrollAnchor and chat.scrollAnchor.get reach AgentPaneModel, which has no case \
-                for them: a chat stops reopening where the reader left it. Route them again, or \
-                give AgentPaneModel the two ops and update this test.
-                """)
+        #expect(!AgentPaneScrollAnchors.handles(method: "chat.unsentDraft"))
+        #expect(!AgentPaneScrollAnchors.handles(method: "chat.scrollAnchor.forget"))
     }
 }

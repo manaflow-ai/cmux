@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextDesign
 package import CmuxNextRemoteView
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Receives the page view's keyboard and pointer events (the remote tab).
 @MainActor
 public protocol RemoteBrowserEventTarget: AnyObject {

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -75,10 +76,10 @@ final class HibernationSnapshots {
         let type = isOpaque(source) ? UTType.jpeg : UTType.png
         guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, source, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-        guard CGImageDestinationFinalize(destination),
-              let reader = CGImageSourceCreateWithData(data, nil),
-              let decoded = CGImageSourceCreateImageAtIndex(reader, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
-        return Picture(data: data as Data, image: decoded)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        let bytes = data as Data
+        guard let decoded = CheckedImageSource(bytes)?.image(at: 0, options: [kCGImageSourceShouldCache: false]) else { return nil }
+        return Picture(data: bytes, image: decoded)
     }
 
     /// True when `image` has no alpha, or no transparent pixel in a 32 x 32 sample of it (a

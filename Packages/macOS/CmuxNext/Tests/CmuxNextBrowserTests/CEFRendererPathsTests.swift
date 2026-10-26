@@ -1,6 +1,9 @@
 import AppKit
 @testable import CmuxNextBrowser
+@testable import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
+import os
 import Testing
 
 /// Chrome shares a renderer between at most 2 main frames of one site (kProcessPerSiteUpToMainFrameThreshold),
@@ -123,7 +126,7 @@ import Testing
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "spare-\(UUID().uuidString)"), profile: .default), runtime: rig.runtime)
         let blank = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
         host.placeholder = blank
-        host.freezesPlaceholder = true
+        host.quietsPlaceholder = true
         host.add(blank)
         host.ensureCreated(blank)
         let request = try #require(rig.runtime.pendingWindows.keys.first)
@@ -146,6 +149,43 @@ import Testing
         Spy.devToolsCalls = []
         rig.runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
         #expect(!Spy.devToolsCalls.contains("Page.setWebLifecycleState"), "\(Spy.devToolsCalls)")
+    }
+
+    // MARK: Cookies (on this file's spy shim)
+
+    /// `browser.page.cookies.list` on a Chromium tab: the `Network.getAllCookies` reply, a whole jar far above the main
+    /// thread's JSON gate, is parsed on the `.cpu` lane it is given, never on the main thread, and every field comes
+    /// through.
+    @Test func aTabsCookieJarIsParsedOnTheCPULane() async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        // One .cpu slot: the sentinel item below runs after the parse item reported its run.
+        let lanes = OSAllocatedUnfairLock<[BlockingLane]>(initialState: [])
+        let work = BackgroundWork(cpuWidth: 1, label: "test.cef-cookies", onRan: { lane, _, _, _ in lanes.withLock { $0.append(lane) } })
+        let filler = (0..<2_000).map { #"{"name":"n\#($0)","value":"v","domain":"filler.test","path":"/","session":true}"# }
+        let jar = #"{"cookies":[{"name":"sid","value":"abc","domain":".example.com","path":"/app","expires":1893456000,"#
+            + #""session":false,"secure":true,"httpOnly":true},"# + filler.joined(separator: ",") + "]}"
+        try #require(jar.utf8.count > BlockingKind.cpuIntensiveJSONBytes)
+        let table = BlockingViolationTable(mode: .record)
+
+        let listed = BlockingViolationTable.$scoped.withValue(table) { Task { try await tab.cookies(on: work) } }
+        await rig.until { Spy.devToolsCalls == ["Network.getAllCookies"] }
+        let message = try #require(Spy.unanswered.last)
+        rig.runtime.handle(.devToolsResult(browser: 7, messageID: message, success: true, json: jar))
+        let cookies = try await listed.value
+        try await work.run(.userVisible, mayBlock: .cpu) {}
+        await table.flush()
+
+        #expect(lanes.withLock { $0.first } == .cpu, "the jar was not parsed on the .cpu lane")
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "the jar was parsed on the main thread: \(table.sites)")
+        #expect(cookies.count == 2_001)
+        let sid = try #require(cookies.first)
+        #expect(sid == BrowserCookie(name: "sid", value: "abc", domain: ".example.com", path: "/app",
+                                     expires: Date(timeIntervalSince1970: 1_893_456_000), secure: true, httpOnly: true))
+        #expect(cookies.last?.expires == nil, "a session cookie has no expiry")
+        await work.shutdown()
     }
 
     // MARK: Rig

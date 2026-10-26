@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -131,7 +132,7 @@ public final class AgentTurnStateFeed {
                     deleted: Bool = false)
 
         init?(line: Data) {
-            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)

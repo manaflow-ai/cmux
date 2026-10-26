@@ -175,10 +175,9 @@ extension MainPaneGutterSuites {
         }
 
         @Test func theNewTabPageHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let file = try #require(AgentPageAppTestRoot.page)
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -197,10 +196,9 @@ extension MainPaneGutterSuites {
 
         /// A webview pane's edges are any other pane's: a plain view (a terminal's place) gets the same one.
         @Test func aWebviewPaneHasTheEdgesOfAnyOtherPane() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let file = try #require(AgentPageAppTestRoot.page)
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file)))
+                                                    source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()

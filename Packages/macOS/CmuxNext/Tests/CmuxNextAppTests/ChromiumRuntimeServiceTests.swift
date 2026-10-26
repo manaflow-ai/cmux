@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextInput
 import Foundation
 import Testing
 
@@ -76,7 +77,7 @@ import Testing
 
     @Test func downloadStatesReachTheEngineAndTheInstallSwitchesItToChromium() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
-        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         service.apply(.waitingForNetwork)
         #expect(engine.unavailableReason == .downloading(fraction: nil))
         service.apply(.downloading(received: 25, total: 100))

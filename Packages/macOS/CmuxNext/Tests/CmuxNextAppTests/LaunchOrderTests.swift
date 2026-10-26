@@ -40,60 +40,33 @@ import Testing
 /// best-effort fence through the init the app's order delegates to.
 @MainActor
 final class LaunchOrderFixture {
-    let hand: LaunchOrderHandHop
-    let background: BackgroundWork
+    let scheduler: StartupTestScheduler
     let order: LaunchOrder
     /// The launch marks the order recorded, in order.
     let marks: LaunchOrderMarks
-    private let uptime: LaunchOrderUptime
-    private var timestamp = 0.0
+    var hand: StartupTestHop { scheduler.hand }
+    var background: BackgroundWork { scheduler.background }
 
     /// The launch phase is already settled, so the scheduler arms its own failsafe (on a manual clock).
     init() {
-        let hand = LaunchOrderHandHop()
-        let background = BackgroundWork(label: "test.launch-order")
-        let uptime = LaunchOrderUptime()
-        let mainWork = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { uptime.now }), clock: ManualClock(),
-                                                 ledger: WakeupLedger()) { _ in LaunchOrderLink() }
-        let startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop, clock: ManualClock(),
-                                       ledger: WakeupLedger(), log: StartupTaskLog())
+        let scheduler = StartupTestScheduler(background: BackgroundWork(label: "test.launch-order"))
         let marks = LaunchOrderMarks()
-        self.hand = hand
-        self.background = background
-        self.uptime = uptime
-        self.marks = marks
-        order = LaunchOrder(fence: LaunchOrder.BestEffortFence(raisingOn: background), mainWork: mainWork,
-                            startup: startup) { marks.names.append($0) }
+        (self.scheduler, self.marks) = (scheduler, marks)
+        order = LaunchOrder(fence: LaunchOrder.BestEffortFence(raisingOn: scheduler.background), mainWork: scheduler.mainWork,
+                            startup: scheduler.startup) { marks.names.append($0) }
     }
 
     /// One display frame, 17 ms after the last.
-    func fire() {
-        uptime.advance(by: 17_000_000)
-        timestamp += 1
-        order.mainWork.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
-    }
+    func fire() { scheduler.fire() }
 
     /// Releases both implicit refs and runs the posted completion.
-    func complete() {
-        order.startup.finishRegistration()
-        order.startup.firstFrameCommitted()
-        hand.drain()
-    }
+    func complete() { scheduler.complete() }
 }
 
 /// The launch marks, in order.
 @MainActor
 final class LaunchOrderMarks {
     var names: [String] = []
-}
-
-/// The budget's uptime, advanced by the fixture's frames.
-nonisolated final class LaunchOrderUptime: Sendable {
-    private let state = Mutex<UInt64>(1_000_000_000)
-
-    var now: UInt64 { state.withLock { $0 } }
-
-    func advance(by nanos: UInt64) { state.withLock { $0 += nanos } }
 }
 
 /// Set once from a lane thread, read on main.
@@ -103,30 +76,4 @@ nonisolated final class LaunchOrderFlag: Sendable {
     var isSet: Bool { state.withLock { $0 } }
 
     func set() { state.withLock { $0 = true } }
-}
-
-/// A main hop the test runs by hand.
-nonisolated final class LaunchOrderHandHop: Sendable {
-    private let queued = Mutex<[@MainActor @Sendable () -> Void]>([])
-
-    var hop: StartupMainHop {
-        StartupMainHop { [self] work in queued.withLock { $0.append(work) } }
-    }
-
-    /// Runs every queued hop, and the hops they queue.
-    @MainActor func drain() {
-        while true {
-            let batch = queued.withLock { queued -> [@MainActor @Sendable () -> Void] in
-                defer { queued = [] }
-                return queued
-            }
-            if batch.isEmpty { return }
-            for work in batch { work() }
-        }
-    }
-}
-
-private final class LaunchOrderLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }

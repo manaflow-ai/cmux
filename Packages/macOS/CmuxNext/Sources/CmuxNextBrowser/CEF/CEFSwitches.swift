@@ -22,6 +22,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// Switches a bench run sets (`CMUX_NEXT_BENCH_CEF_SWITCHES`, development and bench bundles of a
+    /// Debug or bench build only): only the names in ``benchSwitchNames``.
+    var benchSwitches: [String] = []
+
+    /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
+    /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
+    /// server, `--ignore-certificate-errors-spki-list` trusts only its certificate). Any other switch
+    /// would make a bench build measure an engine Release never runs, so it is dropped.
+    static let benchSwitchNames: Set<String> = ["host-resolver-rules", "ignore-certificate-errors-spki-list"]
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -95,6 +104,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        result.append(contentsOf: benchSwitches)
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -150,6 +160,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `CMUX_NEXT_CEF_EXTRA_SWITCHES` is a colon-separated list of switches
     /// (leading dashes optional). Debug builds of development bundles only;
     /// see plans/cmux-next/browser.md ("Chromium diagnostics").
+    /// `CMUX_NEXT_BENCH_CEF_SWITCHES` is a newline-separated list of `name=value`
+    /// switches (``benchSwitches(_:)``); Debug and bench builds of development
+    /// bundles read it.
     static func current(
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
@@ -159,7 +172,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         keepsUnpackedEnabled: Bool = false
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
-        let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
+        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -169,6 +183,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #else
         let extra: [String] = []
         #endif
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let bench = developmentBundle ? Self.benchSwitches(environment["CMUX_NEXT_BENCH_CEF_SWITCHES"]) : []
+        #else
+        let bench: [String] = []
+        #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
@@ -176,7 +195,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            benchSwitches: bench
         )
     }
 
@@ -185,5 +205,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map { String($0.drop { $0 == "-" }) }
             .filter { !$0.isEmpty }
+    }
+
+    /// The allowed switches of `value`: one `name=value` per line (leading dashes optional, a
+    /// value may hold colons and commas, as `MAP *:443 127.0.0.1:8081,EXCLUDE localhost` does).
+    /// A line whose name is not in ``benchSwitchNames`` or that has no value is dropped.
+    static func benchSwitches(_ value: String?) -> [String] {
+        (value ?? "")
+            .split(whereSeparator: \.isNewline)
+            .map { String($0.drop { $0 == "-" }) }
+            .filter { line in
+                guard let equals = line.firstIndex(of: "="), line.index(after: equals) < line.endIndex else { return false }
+                return benchSwitchNames.contains(String(line[..<equals]))
+            }
     }
 }

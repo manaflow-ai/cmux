@@ -7,7 +7,8 @@ import Testing
 /// The control channel to the Chromium host: the same golden frame as
 /// ChromiumHost/tests/chromium_host_control_test.cpp
 /// (scripts/cmux-next/tests/chromium-host-wire.test.sh), the malformed-frame
-/// rules, the outbox's coalescing, and channels on a real socket pair.
+/// rules, the outbox's coalescing, channels on a real socket pair, and
+/// payloads over 64 KiB in shared memory (task 020).
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct ChromiumHostControlChannelTests {
     typealias Message = ChromiumHostControlMessage
@@ -71,6 +72,8 @@ import Testing
         private let continuation: AsyncStream<Event>.Continuation
         var messages: [Message] = []
         var batches = 0
+        /// The most payload bytes one drain delivered.
+        var largestBatchBytes = 0
         var end: ChromiumHostControlEnd?
 
         init() {
@@ -98,6 +101,7 @@ import Testing
                 switch event {
                 case .messages(let batch):
                     batches += 1
+                    largestBatchBytes = max(largestBatchBytes, batch.reduce(0) { $0 + $1.payloadByteCount })
                     messages += batch
                 case .end(let reason):
                     end = reason
@@ -175,7 +179,8 @@ import Testing
         #expect(!replaced, "a partly written state op is never replaced")
         #expect(outbox.messages == 2)
         #expect(outbox.count(key: page1) == 1, "the partly written one is in flight, not waiting")
-        #expect(outbox.push([UInt8](repeating: 4, count: 16), fds: [], key: page1), "a newer one replaces the waiting one")
+        let replacedWaiting = outbox.push([UInt8](repeating: 4, count: 16), fds: [], key: page1)
+        #expect(replacedWaiting, "a newer one replaces the waiting one")
         #expect(outbox.count(key: page1) == 1 && outbox.messages == 2, "one in flight and one waiting per page")
         outbox.removeAll()
     }
@@ -427,6 +432,198 @@ import Testing
         #expect(b.messages.map { $0[2] } == Self.codes(0..<5_000))
         sender.close()
         receiver.close()
+    }
+
+    // MARK: Large payloads (task 020)
+
+    static func pattern(_ count: Int, seed: Int) -> [UInt8] {
+        (0..<count).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ seed) }
+    }
+
+    /// A page resource body of 10 MB, with a 70 KB PNG and a 200 KB string beside it.
+    static let largeResource = Message(
+        op: 0x0301,
+        fields: [.init(tag: 1, value: .i32(42)), .init(tag: 2, value: .str("text/html; charset=utf-8")),
+                 .init(tag: 3, value: .bytes(pattern(10 * 1024 * 1024, seed: 7))),
+                 .init(tag: 4, value: .bytes(pattern(70_000, seed: 3))),
+                 .init(tag: 5, value: .str(String(repeating: "a", count: 200_000)))])
+
+    @Test func fieldsTooLargeForAFrameAreChosenForSharedMemory() {
+        #expect(Self.largeResource.sharedFieldIndices() == [2, 3, 4], "every field over 65,535 bytes")
+        let fitting = Message(op: 1, fields: [.init(tag: 1, value: .bytes(Array(repeating: 1, count: 40_000))),
+                                              .init(tag: 2, value: .bytes(Array(repeating: 2, count: 30_000))),
+                                              .init(tag: 3, value: .bytes(Array(repeating: 3, count: 20_000)))])
+        #expect(fitting.sharedFieldIndices() == [0], "then the largest until the body fits 64 KiB")
+        #expect(Self.goldenMessage.sharedFieldIndices().isEmpty, "a frame that fits shares nothing")
+        var tooMany = Self.largeResource
+        tooMany.fields += [.init(tag: 6, value: .bytes(Array(repeating: 6, count: 70_000))),
+                           .init(tag: 7, value: .bytes(Array(repeating: 7, count: 70_000)))]
+        #expect(tooMany.encoded(sharing: tooMany.sharedFieldIndices()) == nil, "more regions than descriptors is never sent")
+    }
+
+    @Test func aTenMegabyteResourceRoundTrips() async throws {
+        let (aFD, bFD) = try Self.socketPair()
+        let a = Recorder(), b = Recorder()
+        let sender = a.channel(fd: aFD)
+        let receiver = b.channel(fd: bFD)
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0)
+        var resource = Self.largeResource
+        resource.fds = [pipeFDs[1]]
+        #expect(sender.send(resource))
+        close(pipeFDs[1])
+        #expect(sender.send(Self.key(1, 1)))
+        await b.wait { b.messages.count == 2 }
+        #expect(b.messages[0].fields == Self.largeResource.fields, "the 10 MB resource arrives byte for byte")
+        #expect(b.messages[0].fds.count == 1, "the caller's descriptor arrives; the regions are read and closed")
+        for received in b.messages[0].fds { close(received) }
+        #expect(b.messages[1].op == 5, "the key after it follows it")
+        close(pipeFDs[0])
+        sender.close()
+        receiver.close()
+    }
+
+    @Test func noSocketMessageIsOver64KiB() throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        #expect(channel.send(Self.largeResource))
+        var chunk = [UInt8](repeating: 0, count: 1 << 20)
+        var control = [UInt8](repeating: 0, count: ChromiumHostControlSocket.receiveControlSize)
+        var fds: [Int32] = []
+        var raw: [UInt8] = []
+        let socket = ChromiumHostControlSocket(fd: peer)
+        // send wrote the frame before it returned (the outbox was empty): read all the socket holds.
+        try #require(fcntl(peer, F_SETFL, O_NONBLOCK) == 0)
+        while case .read(let count) = socket.receive(into: &chunk, control: &control, fds: &fds) {
+            raw += chunk[0..<count]
+        }
+        #expect(raw.count <= Message.headerSize + Message.maxBody, "the socket carries no message over 64 KiB")
+        #expect(fds.count == 3, "one region per large field")
+        for region in fds {
+            var probe: UInt8 = 0
+            let written = write(region, &probe, 1)
+            #expect(written < 0, "the receiver cannot write a region")
+            #expect(fcntl(region, F_GETFL) & O_ACCMODE == O_RDONLY, "a region is read-only")
+        }
+        let decoded = Message.decode(raw[...], fds: &fds)
+        #expect(decoded == .frame(Self.largeResource, consumed: raw.count), "the frame decodes with its regions read")
+        #expect(fds.isEmpty, "and the regions are taken")
+        channel.close()
+        close(peer)
+    }
+
+    @Test func aSharedFieldWithABadRegionIsMalformed() throws {
+        let message = Message(op: 7, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x72, count: 70_000)))])
+        let frame = try #require(message.encoded(sharing: [0]))
+        func decode(with fd: Int32) -> Message.Decoded {
+            var fds = [fd]
+            return Message.decode(frame[...], fds: &fds)
+        }
+        // decode closes every region it takes (chromium_host_control_test.cpp checks the numbers; tests
+        // here run in parallel, so a closed number may be reused at once).
+        let good = try #require(ChromiumHostSharedRegion(holding: message.payload(at: 0)))
+        #expect(decode(with: good.fd) == .frame(message, consumed: frame.count), "a read-only region of the right size")
+        let short = try #require(ChromiumHostSharedRegion(holding: [1, 2, 3]))
+        #expect(decode(with: short.fd) == .malformed, "a region shorter than its count")
+
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0 && fcntl(pipeFDs[0], F_SETFL, O_NONBLOCK) == 0)
+        #expect(decode(with: pipeFDs[1]) == .malformed, "a writable descriptor its sender could change")
+        var byte: UInt8 = 0
+        let readCount = read(pipeFDs[0], &byte, 1)
+        #expect(readCount == 0, "is closed: the pipe has no writer left")
+        close(pipeFDs[0])
+
+        var zero = frame
+        zero.replaceSubrange((Message.headerSize + Message.fieldHeaderSize)..<(Message.headerSize + Message.fieldHeaderSize + 8),
+                             with: [UInt8](repeating: 0, count: 8))
+        let one = try #require(ChromiumHostSharedRegion(holding: [1]))
+        var fds = [one.fd]
+        #expect(Message.decode(zero[...], fds: &fds) == .malformed, "a shared field of 0 bytes")
+        for fd in fds { close(fd) }
+    }
+
+    /// A host could send a read-only descriptor of a file it can still
+    /// truncate through another descriptor: the copy would then fault. Only a
+    /// shm object, which xnu sizes once, is mapped.
+    @Test func aReadOnlyRegularFileIsMalformed() throws {
+        let message = Message(op: 7, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x72, count: 70_000)))])
+        let frame = try #require(message.encoded(sharing: [0]))
+        var template = Array("/tmp/cmux-region-test-XXXXXX".utf8CString)
+        let writable = mkstemp(&template)
+        try #require(writable >= 0)
+        let path = String(decoding: template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        defer {
+            unlink(path)
+            close(writable)
+        }
+        let payload = message.payload(at: 0)
+        let written = payload.withUnsafeBytes { write(writable, $0.baseAddress, $0.count) }
+        try #require(written == payload.count)
+        let readOnly = open(path, O_RDONLY)
+        try #require(readOnly >= 0)
+        var fds = [readOnly]
+        #expect(Message.decode(frame[...], fds: &fds) == .malformed, "a read-only regular file of the right size")
+        #expect(fds.isEmpty, "is taken and closed")
+    }
+
+    @Test func sharedCountsOverTheCapTogetherAreMalformed() {
+        // Two shared fields of 100 MiB each: each under 128 MiB, together over it.
+        let count = UInt64(100 * 1024 * 1024)
+        var frame: [UInt8] = []
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { frame += $0 } }
+        put(UInt32(2 * (Message.fieldHeaderSize + Message.sharedFieldSize)))
+        put(UInt16(7))
+        put(UInt16(2))  // two descriptors
+        put(UInt32(0))
+        for tag: UInt8 in [1, 2] {
+            frame += [Message.sharedBytesType, tag]
+            put(UInt16(Message.sharedFieldSize))
+            put(count)
+        }
+        var fds: [Int32] = []
+        #expect(Message.decode(frame[...], fds: &fds) == .malformed)
+        let one = Message(op: 7, fields: [.init(tag: 1, value: .bytes([1]))])
+        #expect(one.sharedByteCount([0]) == 1)
+    }
+
+    @Test func theInboxPausesAtItsByteLimit() async throws {
+        let (aFD, bFD) = try Self.socketPair()
+        let a = Recorder(), b = Recorder()
+        let sender = a.channel(fd: aFD)
+        var options = ChromiumHostControlChannel.Options()
+        options.inboxBytesLimit = 100_000
+        let receiver = b.channel(fd: bFD, options: options)
+        let large = Message(op: 9, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x61, count: 70_000)))])
+        for code in 0..<20 {
+            var message = large
+            message.fields.append(.init(tag: 2, value: .i32(Int32(code))))
+            #expect(sender.send(message))
+        }
+        await b.wait { b.messages.count == 20 }
+        #expect(b.messages.map { $0[2] } == Self.codes(0..<20), "every message arrives, in order")
+        #expect(b.largestBatchBytes <= 100_000 + 70_000, "no drain holds more than the limit and one message")
+        sender.close()
+        receiver.close()
+    }
+
+    @Test func sharedPayloadsCountTowardTheQuota() throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        var code: Int32 = 0
+        while channel.stats.pendingMessages == 0, code < 1_000_000 {
+            channel.send(Self.key(1, code))
+            code += 1
+        }
+        let before = channel.stats.pendingBytes
+        let large = Message(op: 8, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x71, count: 1 << 20)))])
+        #expect(channel.send(large))
+        #expect(channel.stats.pendingBytes >= before + (1 << 20), "a waiting region's bytes are counted")
+        #expect(channel.stats.quotaExcess > 0, "and put a peer that never reads over quota")
+        channel.close()
+        close(peer)
     }
 }
 #endif

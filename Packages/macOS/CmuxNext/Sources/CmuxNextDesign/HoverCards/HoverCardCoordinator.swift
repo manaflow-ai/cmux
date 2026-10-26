@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
-import CmuxNextInput
+public import CmuxNextInput
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///
@@ -61,6 +61,8 @@ public final class HoverCardCoordinator {
     static let topWindowLifetime: CFTimeInterval = 1.0 / 120
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
+    /// Told each time the shown card changes (shown, hidden or moved to another target).
+    let changes: OverlayChangeFeed?
 
     /// The real mouse in screen coordinates (tests inject one).
     public var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
@@ -109,10 +111,12 @@ public final class HoverCardCoordinator {
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
-    /// A coordinator whose dismissals listen on `input`, the app's one tap.
-    public init(clock: any Clock<Duration> = ContinuousClock(), input: InputEventTap? = nil) {
+    /// A coordinator whose dismissals listen on `input`, the app's one tap, and that tells `changes` when
+    /// the shown card changes.
+    public init(clock: any Clock<Duration> = ContinuousClock(), input: InputEventTap? = nil, changes: OverlayChangeFeed? = nil) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
         inputTap = input
+        self.changes = changes
     }
 
     /// App and window notifications, installed with the first source (a
@@ -296,6 +300,7 @@ public final class HoverCardCoordinator {
         queue.append(event)
         guard !draining else { return }
         draining = true
+        let shown = machine.shownTarget
         while !queue.isEmpty {
             let next = queue.removeFirst()
             eventCount += 1
@@ -309,6 +314,7 @@ public final class HoverCardCoordinator {
         updateActivation()
         updateSubscriptions()
         pruneOwners()
+        if machine.shownTarget != shown { changes?.signal() }
     }
 
     private var queue: [HoverCardEvent] = []

@@ -26,6 +26,8 @@ final class HistoryPageTab: BrowserTab {
     /// The React page (Debug Settings `history.surface = web`; react-pages.md H1b), else nil.
     @ObservationIgnored let webPage: PageWebView?
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
+    /// The scroll position a hibernation saved, for the rebuilt page's first show.
+    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any HistoryPageSource,
          webPage: PageWebView? = nil) {
@@ -68,9 +70,17 @@ final class HistoryPageTab: BrowserTab {
         contentView.isHidden = !visible
         // The React page stays current from the owner's change events; the native one re-reads.
         if visible, webPage == nil { model.reload() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
+        // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
+        if let webPage {
+            guard let image = await webPage.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                throw BrowserTabError.snapshotUnavailable
+            }
+            return image
+        }
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
@@ -90,7 +100,38 @@ final class HistoryPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() { webPage?.close() }
+    func close() {
+        scrollRestore.cancel()
+        webPage?.close()
+    }
+}
+
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the native page's search, selection
+/// and the scroll of its list go with the tab. The React page keeps its search in its document,
+/// which no request reads, so it does not hibernate.
+extension HistoryPageTab: BrowserAppPage {
+    var pageAddress: URL { state.url ?? HistoryPageAddress.url }
+    var supportsHibernation: Bool { webPage == nil }
+    var drawsInFirstFrame: Bool { webPage == nil }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView), search: model.text,
+                            selection: model.selection)
+    }
+
+    func restoreViewState(_ saved: BrowserAppPageState) {
+        if let search = saved.search { model.text = search }
+        model.selection = saved.selection
+        scrollRestore.restore(saved.scroll)
+    }
+
+    /// The page's one list: its entries.
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.listScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it; the entries load after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [model] in !model.groups.isEmpty })
+    }
 }
 
 enum HistoryPageStrings {

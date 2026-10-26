@@ -1,0 +1,5 @@
+# Read by scripts/cmux-next/rust-fuzz.sh. The self-test runs this target with
+# --timeout 600, so only this override makes its `t` input a timeout finding
+# in a second: it proves the [libfuzzer] section overrides the defaults.
+[libfuzzer]
+timeout = 1

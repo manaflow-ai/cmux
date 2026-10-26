@@ -279,6 +279,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .replay(let replay): replayEvent(replay)
         case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
+        case .inputEcho(let flow): .inputEcho(flow: flow)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))

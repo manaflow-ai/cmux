@@ -27,11 +27,7 @@ import Testing
     }
 
     @Test func aNewTabPageStaysInTheWindowWhileABrowserShows() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "stays-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body>New Tab</body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageAppTestRoot.page)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -44,7 +40,7 @@ import Testing
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file)))
+                                              source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)

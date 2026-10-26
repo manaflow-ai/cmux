@@ -7,6 +7,7 @@ import CmuxNextIcons
 /// page id `app:<app id>`, one tab per window, the app's scene mounted per
 /// tab through the app supervisor (`apps-mount`). First-party apps open this
 /// way from their sidebar label item (CodeRouter: below the App Store).
+// discard: default an app's scene keeps its state in its mount; the apps protocol saves and restores no scene yet
 @MainActor
 final class AppPanePage: InternalPageProvider {
     let appID: String

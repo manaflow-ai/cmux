@@ -34,9 +34,10 @@ pub(crate) enum HolderTrace {
     NotLinked,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "trace.status, p09-observability-015"))]
 impl HolderTrace {
-    /// The `trace.status` word.
+    /// The `trace.status` word (the holder's `reason` in
+    /// `server/trace_control.rs`, whose tests hold the two equal).
+    #[cfg_attr(not(test), expect(dead_code, reason = "the reply words; tests compare them"))]
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
             HolderTrace::Traced => "holder_traced",
@@ -63,19 +64,16 @@ impl HolderService {
     /// while it runs. Only a holder that granted TRACE_CONTROL gets the
     /// frame; its refusal comes back later ([`Self::trace_state`]). Never
     /// connects or starts a holder.
-    #[cfg_attr(not(test), expect(dead_code, reason = "trace.start, p09-observability-015"))]
     pub(crate) fn trace_start(&self, categories: u64, budget_bytes: u64) -> HolderTrace {
         self.change_recording(Some(TraceStart { categories, budget_bytes }))
     }
 
     /// Stop the holder's trace recording. Never connects.
-    #[cfg_attr(not(test), expect(dead_code, reason = "trace.stop, p09-observability-015"))]
     pub(crate) fn trace_stop(&self) -> HolderTrace {
         self.change_recording(None)
     }
 
     /// What the holder does for the recording now (`trace.status`).
-    #[cfg_attr(not(test), expect(dead_code, reason = "trace.status, p09-observability-015"))]
     pub(crate) fn trace_state(&self) -> HolderTrace {
         HolderTrace::of(self.open_link().as_deref())
     }
@@ -113,7 +111,6 @@ impl HolderService {
     /// echo before it handles the mark. False when nothing was sent (no
     /// flow, no open link, or a holder without the capability). Never
     /// connects.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the exact echo flow, p09-observability-018"))]
     pub(crate) fn mark_input_flow(&self, chan: u32, flow: u64) -> bool {
         if flow == 0 {
             return false;

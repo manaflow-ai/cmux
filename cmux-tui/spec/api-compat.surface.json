@@ -41,6 +41,13 @@
         "ty": "string",
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -152,6 +159,13 @@
         "required": true,
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -190,6 +204,13 @@
       }
     },
     "event:bell": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -210,6 +231,13 @@
       "/browser_profile_id": {
         "ty": "string",
         "required": true
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -287,6 +315,13 @@
       }
     },
     "event:chief-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/change": {
         "ty": "enum",
         "required": true,
@@ -309,6 +344,13 @@
       }
     },
     "event:client-attached": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -340,6 +382,13 @@
       }
     },
     "event:client-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -363,6 +412,13 @@
       }
     },
     "event:client-detached": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -376,6 +432,13 @@
       }
     },
     "event:client-list-invalidated": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -387,6 +450,13 @@
     "event:cloud-conversation-changed": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/change": {
         "ty": "json",
@@ -421,6 +491,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -441,6 +518,13 @@
     "event:cloud-conversation-resynced": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/conversation": {
         "ty": "string",
@@ -476,6 +560,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -504,6 +595,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -525,6 +623,13 @@
       }
     },
     "event:cloud-host-replica-needed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -544,6 +649,13 @@
     "event:cloud-inbox-changed": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/entries": {
         "ty": "json",
@@ -570,6 +682,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -585,6 +704,13 @@
     "event:cloud-mux-resynced": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -607,6 +733,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -625,6 +758,13 @@
       }
     },
     "event:cloud-session-needed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -644,6 +784,13 @@
     "event:cloud-subscription-state": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/conversation": {
         "ty": "string",
@@ -743,6 +890,13 @@
       }
     },
     "event:config-reload-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -752,6 +906,13 @@
       }
     },
     "event:conversation-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/change": {
         "ty": "json",
         "required": true,
@@ -779,6 +940,13 @@
       }
     },
     "event:conversation-draft": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -800,6 +968,13 @@
       }
     },
     "event:conversation-inbox-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -828,6 +1003,13 @@
       }
     },
     "event:conversation-live": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -846,6 +1028,13 @@
       }
     },
     "event:conversation-run-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -871,6 +1060,13 @@
       }
     },
     "event:conversation-typing": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -944,6 +1140,13 @@
       }
     },
     "event:empty": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -982,6 +1185,13 @@
       }
     },
     "event:frontend-projection-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1017,6 +1227,13 @@
     "event:graphics-status": {
       "/attempts": {
         "ty": "uint16"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/cell_height": {
         "ty": "uint16"
@@ -1054,6 +1271,13 @@
       }
     },
     "event:history-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1074,6 +1298,13 @@
       }
     },
     "event:keybindings-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1102,6 +1333,13 @@
     "event:layout-changed": {
       "/active_pane": {
         "ty": "uint64"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -1184,6 +1422,13 @@
       }
     },
     "event:machine-usage-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1222,6 +1467,13 @@
       "/body": {
         "ty": "string",
         "required": true
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/desktop": {
         "ty": "boolean"
@@ -1372,6 +1624,13 @@
       }
     },
     "event:pairing-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/code": {
         "ty": "string",
         "required": true
@@ -1397,6 +1656,13 @@
       }
     },
     "event:pairing-resolved": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1809,6 +2075,13 @@
         "required": true,
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1822,6 +2095,13 @@
       }
     },
     "event:personal-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1835,6 +2115,13 @@
       }
     },
     "event:program-status-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3666,6 +3953,13 @@
         "ty": "boolean",
         "required": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3683,6 +3977,13 @@
       }
     },
     "event:settings-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3716,6 +4017,13 @@
       }
     },
     "event:size-state": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3876,6 +4184,13 @@
       }
     },
     "event:status": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3889,6 +4204,13 @@
       }
     },
     "event:surface-exited": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3902,6 +4224,13 @@
       }
     },
     "event:surface-output": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3915,6 +4244,13 @@
       }
     },
     "event:surface-resize-failed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/cols": {
         "ty": "uint16",
         "required": true
@@ -3950,6 +4286,13 @@
       }
     },
     "event:surface-resized": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/cols": {
         "ty": "uint16",
         "required": true
@@ -4728,6 +5071,13 @@
       }
     },
     "event:terminal-reaped": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4750,6 +5100,13 @@
       }
     },
     "event:terminal-registry-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4778,6 +5135,13 @@
       }
     },
     "event:title-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4794,6 +5158,13 @@
       }
     },
     "event:tree-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4966,6 +5337,13 @@
       }
     },
     "event:window-title-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -6679,6 +7057,379 @@
         "nullable": true
       }
     },
+    "request:agent-cli-intents-attach": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-list": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-record": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*": {
+        "ty": "object"
+      },
+      "/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-settle": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/keys": {
+        "ty": "array",
+        "required": true
+      },
+      "/keys/*": {
+        "ty": "string"
+      }
+    },
+    "request:agent-cli-update-job": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-update-job-resolve": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-session-attach": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-cancel": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-children": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-detach": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-events": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-media": {
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-observe": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-permission": {
+      "/answered_by": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/answered_by/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/answered_by/feed_item": {
+        "ty": "string",
+        "required": true
+      },
+      "/decision_nonce": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/option_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/permission_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/person_decision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-prompt": {
+      "/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/text": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-session-start": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/person_instance": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/require_person_key": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-trust": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/level": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "trusted",
+          "unknown",
+          "untrusted"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:apply-layout": {
       "/cols": {
         "ty": "uint16",
@@ -6754,6 +7505,301 @@
       "/workspace": {
         "ty": "uint64",
         "nullable": true
+      }
+    },
+    "request:apps-agent-inventory-changed": {
+      "/demand_sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-dispatch": {
+      "/event": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/node": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/payload": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:apps-link-changed": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-list": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-logs": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/follow": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-mount": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/context": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/interface": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-register": {
+      "/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/families/*": {
+        "ty": "string"
+      },
+      "/inventory_watch": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-result": {
+      "/body": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/ok": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/request_id": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-run": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/gesture": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-set": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/enabled": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/grant": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/grant/granted": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/grant/scope": {
+        "ty": "string",
+        "required": true
+      },
+      "/hidden": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/hidden_access": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/installed": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/sandboxed": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:apps-store": {
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-terminal-links": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-unmount": {
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
       }
     },
     "request:attach-surface": {
@@ -7050,6 +8096,13 @@
       "/y_px": {
         "ty": "float64",
         "required": true
+      }
+    },
+    "request:cancel-request": {
+      "/target": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:chief-inspect": {
@@ -11735,6 +12788,20 @@
         "nullable": true
       }
     },
+    "request:trace-start": {
+      "/categories": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/categories/*": {
+        "ty": "string"
+      },
+      "/keys": {
+        "ty": "boolean"
+      }
+    },
+    "request:trace-status": {},
+    "request:trace-stop": {},
     "request:undo-layout": {
       "/confirm_close": {
         "ty": "boolean"
@@ -12141,6 +13208,633 @@
         "nullable": true
       }
     },
+    "response:agent-cli-intents-attach": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intent/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intent/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intent/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intent/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-list": {
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-record": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-settle": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job": {
+      "/data/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job-resolve": {
+      "/data": {
+        "ty": "tagged_union",
+        "required": true,
+        "values": [
+          "created",
+          "failed",
+          "indeterminate",
+          "not_found",
+          "pending",
+          "prepared"
+        ]
+      },
+      "/data/code": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/state": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"created\"",
+          "\"failed\"",
+          "\"indeterminate\"",
+          "\"not_found\"",
+          "\"pending\"",
+          "\"prepared\""
+        ]
+      }
+    },
+    "response:agent-session-attach": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-cancel": {},
+    "response:agent-session-children": {
+      "/data/sessions": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*": {
+        "ty": "json"
+      }
+    },
+    "response:agent-session-detach": {},
+    "response:agent-session-events": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-media": {
+      "/data/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/mimeType": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-observe": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-permission": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-prompt": {
+      "/data/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queued": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/turn_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-start": {
+      "/data/conversation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/conversation/agent_session": {
+        "ty": "object"
+      },
+      "/data/conversation/agent_session/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/conversation/agent_session/host_name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/session": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/conversation": {
+        "ty": "string"
+      },
+      "/data/conversation/owner": {
+        "ty": "string"
+      },
+      "/data/conversation/page": {
+        "ty": "string"
+      },
+      "/data/conversation/route": {
+        "ty": "string"
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-session-trust": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:apply-layout": {
       "/data/panes": {
         "ty": "array",
@@ -12162,6 +13856,358 @@
         "required": true
       }
     },
+    "response:apps-agent-inventory-changed": {},
+    "response:apps-dispatch": {},
+    "response:apps-link-changed": {
+      "/data/servers": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-list": {
+      "/data/apps": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/commands/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/apps/*/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/grants/*": {
+        "ty": "string"
+      },
+      "/data/apps/*/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/revision": {
+        "ty": "uint64"
+      },
+      "/data/apps/*/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/apps/*/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/apps/*/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/apps/*/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/apps/*/version": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-logs": {
+      "/data/lines": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/lines/*": {
+        "ty": "object"
+      },
+      "/data/lines/*/level": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/message": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/ts_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-mount": {},
+    "response:apps-provider-register": {
+      "/data/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/families/*": {
+        "ty": "string"
+      },
+      "/data/inventory_demand": {
+        "ty": "object"
+      },
+      "/data/inventory_demand/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/inventory_demand/sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-provider-result": {},
+    "response:apps-run": {
+      "/data/value": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:apps-set": {
+      "/data/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/*": {
+        "ty": "object"
+      },
+      "/data/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/grants/*": {
+        "ty": "string"
+      },
+      "/data/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/revision": {
+        "ty": "uint64"
+      },
+      "/data/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/version": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-store": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:apps-terminal-links": {
+      "/data/links": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/links/*": {
+        "ty": "object"
+      },
+      "/data/links/*/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/channel": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/socket": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/links/*/target": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-unmount": {},
     "response:attach-surface": {},
     "response:bind-conversation-tab-session": {
       "/data/conversation": {
@@ -12239,6 +14285,7 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-request": {},
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",
@@ -19526,6 +21573,43 @@
       "/data/request_path_io/lock_hold_over_1ms": {
         "ty": "uint64"
       },
+      "/data/request_path_io/lock_waits": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/dropped": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/long_waits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/recent/*/holder": {
+        "ty": "string"
+      },
+      "/data/request_path_io/lock_waits/recent/*/lock": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waiter": {
+        "ty": "string",
+        "required": true
+      },
       "/data/request_path_io/network": {
         "ty": "uint64",
         "required": true
@@ -20703,6 +22787,24 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-start": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-stop": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

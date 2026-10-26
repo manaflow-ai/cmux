@@ -850,6 +850,9 @@ export type SettingsOps = {
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
+  /** Native: the form `form` holds typed values not saved yet (`editing`), or no longer does; the
+   * host keeps the page while any form does. */
+  "cmux.settings.editing": [{ form: string; editing: boolean }, unknown];
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
@@ -887,9 +890,18 @@ export type SettingsStreamName = keyof SettingsStreams;
  * rejects with an error that has `code`, `message` and optional `details` (the protocol's
  * ProtocolError). Any object with this shape works, so the page does not import the adapter.
  */
+/** An event's envelope fields beyond its data (the page client's `PageEventMeta`). */
+export type SettingsEventMeta = {
+  /** Decision 31: the opid of the call that caused the event. */
+  opid?: string;
+  /** Decision 32: the host dropped events of this stream before this one while the page was
+   * hidden or frozen; the page reads its state again instead of applying the event. */
+  gap?: true;
+};
+
 export interface SettingsClient {
   call<R>(op: string, params: unknown, opts?: { signal?: AbortSignal }): Promise<R>;
-  subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void>;
+  subscribe<E>(stream: string, onEvent: (data: E, seq: number, meta?: SettingsEventMeta) => void): Promise<() => void>;
 }
 
 export type WireError = { code: string; message: string; details?: Record<string, unknown> };

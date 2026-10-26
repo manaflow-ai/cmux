@@ -60,7 +60,8 @@ final class SidebarBridge {
         self.services = services
         self.state = state
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
-        rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) })
+        rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
+                                 observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
@@ -76,6 +77,7 @@ final class SidebarBridge {
         SidebarWorkspacePins.wire(self)
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
+        container.sidebarView.inputTap = services.inputTap
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
         // mirror when a card opens.

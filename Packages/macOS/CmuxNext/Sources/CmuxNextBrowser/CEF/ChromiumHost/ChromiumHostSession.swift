@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 import CmuxNextWakeups
@@ -6,7 +6,7 @@ import Darwin
 import Observation
 
 /// One Chromium page whose browser process runs in a host app of its own
-/// (prototype behind `browserHost.helperPrototype`;
+/// (prototype behind `browserHost.helper`;
 /// plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Owns the host process and the wire to it, and keeps what a restart needs:

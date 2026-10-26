@@ -20,8 +20,18 @@
 `power_assertions` reads `pmset -g assertions` for a pid set and `thermal_state` the Mac's thermal state
 (idle-budget.py records both per window).
 
+Readers that run outside the measured processes (no wakeup of theirs): nettop (bytes and connections per
+process: `nettop_command`, `parse_nettop`), `log show` (unified-log lines per process: `read_log`, `parse_log`)
+and top's IDLEW of another user's process (`top_idlew`: WindowServer without root).
+
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
+
+`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): the task's
+base priority (`proc_pidinfo(PROC_PIDTASKINFO)` pti_priority) and the kernel's darwinbg bit and nice
+(`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit `taskinfo` prints, and pbi_nice). Neither read wakes the
+process. `ps -o pri` is not used: it prints the highest priority of the process's threads (adv_cmds ps, ki->curpri),
+which follows thread QoS and boosts, not the task's role.
 
 GPU time per process is the IORegistry's `accumulatedGPUTime` of each GPU user client (what Activity
 Monitor's GPU Time column reads): `gpu_ms_per_s`, None when the registry cannot be read.
@@ -35,14 +45,18 @@ An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
 cmux daemons and terminal hosts, which outlive their parents), and every
 process macOS counts the main pid responsible for (Safari's and cmux's
-WebKit XPC processes).
+WebKit XPC processes), and the Computer Use helper started with `--owner-pid <main pid>`.
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
-`coalition_from_words`, `coalition_rates`, `window_totals`) import and test on any OS.
+`coalition_from_words`, `coalition_rates`, `window_totals`, `priorities` with its reads passed) import and test on any OS.
 """
 from __future__ import annotations
 
+import csv
 import ctypes
+import datetime
+import json
+import math
 import os
 import plistlib
 import re
@@ -308,6 +322,70 @@ def overhead(pid: int):
             (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
 
 
+class _BSDInfo(ctypes.Structure):
+    """`struct proc_bsdinfo` (sys/proc_info.h), read with PROC_PIDTBSDINFO: same user, no root."""
+    _fields_ = [("pbi_flags", ctypes.c_uint32), ("pbi_status", ctypes.c_uint32), ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32), ("pbi_ppid", ctypes.c_uint32), ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32), ("pbi_ruid", ctypes.c_uint32), ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32), ("pbi_svgid", ctypes.c_uint32), ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16), ("pbi_name", ctypes.c_char * 32), ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32), ("pbi_pjobc", ctypes.c_uint32), ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32), ("pbi_nice", ctypes.c_int32), ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64)]
+
+
+_PROC_PIDTBSDINFO = 3
+# sys/proc_info.h: the task runs darwin background now (PRIO_DARWIN_BG, a darwinbg role or a background QoS
+# ceiling: what `taskinfo` prints as darwinbg), and the part another process set on it.
+PROC_FLAG_DARWINBG = 0x8000
+PROC_FLAG_EXT_DARWINBG = 0x10000
+
+
+def bsd_state(pid: int):
+    """(darwinbg, nice) of `pid` now: whether the kernel runs it darwin background (pbi_flags) and its nice value
+    (pbi_nice); None when it cannot be read (gone, not macOS)."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _BSDInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG)), info.pbi_nice
+
+
+def task_priority(pid: int) -> int | None:
+    """The task's base priority (proc_pidinfo PROC_PIDTASKINFO pti_priority, bsd/kern/proc_info.c fill_taskprocinfo:
+    task->priority), the priority task_policy gives the task as a whole, not its busiest thread's; None when it
+    cannot be read."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return info.priority
+
+
+def priorities(pids, task_priority_of=task_priority, bsd_state_of=bsd_state) -> dict[int, dict]:
+    """{pid: {base, nice, darwinbg}} of `pids` now: the task's base priority (task_priority) and its darwinbg bit
+    and nice (bsd_state). A pid with neither read (gone) is left out; one unread value is None. Tests pass the
+    reads."""
+    found = {}
+    for pid in pids:
+        base = task_priority_of(pid)
+        bsd = bsd_state_of(pid)
+        if base is None and bsd is None:
+            continue
+        found[pid] = {"base": base, "darwinbg": bsd[0] if bsd else None, "nice": bsd[1] if bsd else None}
+    return found
+
+
 def _delta32(last: int, first: int) -> int:
     return (last - first) & 0xFFFFFFFF
 
@@ -335,6 +413,39 @@ def main_pid(bundle: str) -> int | None:
     return min(pids) if pids else None
 
 
+# The Computer Use helper app (CuaHelperIdentity.appName), in a cmux bundle's Contents/Library or on its own.
+CUA_HELPER_APP = "/cmux Computer Use.app/Contents/MacOS/"
+# The crash watcher (CrashWatcher.swift): `zsh -f -c <script> cmux-crash-watcher <pid> <sample file> <seconds>`.
+CRASH_WATCHER = re.compile(r"^/bin/zsh -f -c .* cmux-crash-watcher \d+ ", re.S)
+# The standalone terminal holder's argv[0] (cmux-tui-platform host_exe.rs HOLDER_NAME); the built-in one runs as
+# `<host executable> __holder`.
+HOLDER_NAME = "cmux-holder"
+
+
+def is_holder(cmd: str) -> bool:
+    """Whether `cmd` is a terminal holder: the built-in (`__holder`) or the standalone `cmux-holder`."""
+    return "__holder" in cmd or os.path.basename(cmd.split(" --", 1)[0].strip()) == HOLDER_NAME
+
+
+class ProcessTree:
+    """The parents and commands of one `ps` table ([(pid, ppid, command)], process_table): what a process's
+    ancestry tells that its command line cannot (a terminal's job, an agent's harness)."""
+
+    def __init__(self, table):
+        self.parent = {pid: ppid for pid, ppid, _cmd in table}
+        self.command = {pid: cmd for pid, _ppid, cmd in table}
+
+    def ancestors(self, pid: int) -> list[tuple[int, str]]:
+        """[(pid, command)] of `pid`'s parents, nearest first, up to launchd; a parent not in the table ends it."""
+        out, seen = [], {pid}
+        parent = self.parent.get(pid)
+        while parent and parent not in seen and parent in self.command:
+            out.append((parent, self.command[parent]))
+            seen.add(parent)
+            parent = self.parent.get(parent)
+        return out
+
+
 def kind_of(cmd: str) -> str:
     """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
     chromium = process_type_kind(cmd)
@@ -353,6 +464,10 @@ def kind_of(cmd: str) -> str:
         return "cmux-tui"
     if "/bin/acpmux" in cmd:
         return "acpmux"
+    if CUA_HELPER_APP in cmd.split(" --", 1)[0]:
+        return "cua-helper"
+    if CRASH_WATCHER.search(cmd):
+        return "crash-watcher"
     exe = cmd.split(" --", 1)[0].split(" -")[0]
     if " Helper" in exe:
         return "helper"
@@ -401,8 +516,9 @@ class Instance:
         self.roots = _roots(bundle)
         self.seen: set[int] = set()
 
-    def pids(self) -> dict[int, str]:
-        table = process_table()
+    def pids(self, table: list[tuple[int, int, str]] | None = None) -> dict[int, str]:
+        """{pid: command} of the instance in `table` (process_table rows; read now when None)."""
+        table = process_table() if table is None else table
         children: dict[int, list[int]] = {}
         commands = {}
         for pid, ppid, cmd in table:
@@ -421,10 +537,14 @@ class Instance:
                 found.add(pid)
             elif responsible is not None and pid != self.pid and responsible(pid) == self.pid:
                 found.add(pid)
-        # Terminal hosts name their daemon (`--owner ...@<pid>`) and run from outside the bundle.
+        # Terminal hosts and holders name their daemon (`--owner ...@<pid>`) and run from outside the bundle; the
+        # Computer Use helper names the app (`--owner-pid <pid>`), disclaims its responsibility and may run from
+        # another cmux.
         for pid, cmd in commands.items():
-            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+            owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd or is_holder(cmd) else None
             if owner and int(owner.group(1)) in found:
+                found.add(pid)
+            if CUA_HELPER_APP in cmd and re.search(rf"--owner-pid {self.pid}(\s|$)", cmd):
                 found.add(pid)
         self.seen |= found
         return {pid: commands[pid] for pid in found}
@@ -587,3 +707,226 @@ def thermal_state() -> str | None:
         return None
     state = send_integer(info, objc.sel_registerName(b"thermalState"))
     return THERMAL_STATES[state] if 0 <= state < len(THERMAL_STATES) else None
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Network, unified log and top's IDLEW (D15 of plans/cmux-next/chrome-parity/p14-energy.md). Each reader asks
+# the kernel or logd, never the measured processes, so a reading wakes none of them. Each has a pure parser
+# that scripts/cmux-next/tests/test_idle_budget.py covers with fixtures on any host.
+
+NETTOP = "/usr/bin/nettop"
+LOG = "/usr/bin/log"
+TOP = "/usr/bin/top"
+
+
+def nettop_command(seconds: float) -> list[str]:
+    """nettop for a window of `seconds`: CSV (-L) of one sample a second (-s 1), byte deltas (-d), raw numbers
+    (-x), no name lookups (-n). Sample 0 has the totals so far and is not counted; samples 1..N are the window.
+    No -P: each process row is followed by its flows, so one run gives the bytes and the connections."""
+    return [NETTOP, "-x", "-n", "-d", "-L", str(max(1, math.ceil(seconds)) + 1), "-s", "1"]
+
+
+_FLOW = re.compile(r"((?:tcp|udp|quic)\d?) (.+)<->(.+)")
+_PROCESS = re.compile(r"(.+)\.(\d+)")
+
+
+def _nettop_samples(text: str) -> list[list[dict]]:
+    """nettop's CSV as samples (each starts at a `time,...` header) of rows {column: value, "name": ...}."""
+    samples: list[list[dict]] = []
+    header: list[str] | None = None
+    for line in csv.reader(text.splitlines()):
+        if not line:
+            continue
+        if line[0] == "time":
+            header = line
+            samples.append([])
+            continue
+        if header is None or len(line) < 2:
+            continue
+        row = {column: line[index] for index, column in enumerate(header) if column and index < len(line)}
+        row["name"] = line[1]
+        samples[-1].append(row)
+    return samples
+
+
+def _bytes(row: dict) -> int:
+    values = (row.get(column, "").strip() for column in ("bytes_in", "bytes_out"))
+    return sum(int(value) for value in values if value.isdigit())
+
+
+# A window sample may land up to this long before the window's end (nettop's 1 s interval and its jitter).
+NETTOP_SLACK_S = 1.5
+
+
+def _nettop_stamp(sample: list[dict], near: float) -> float | None:
+    """The epoch of a sample's `time` column (local HH:MM:SS.ffffff, no date): the day nearest to `near`."""
+    if not sample:
+        return None
+    try:
+        clock = datetime.datetime.strptime(sample[0].get("time", ""), "%H:%M:%S.%f").time()
+    except ValueError:
+        return None
+    day = datetime.datetime.fromtimestamp(near).date()
+    stamps = [datetime.datetime.combine(day + datetime.timedelta(days=shift), clock).timestamp() for shift in (-1, 0, 1)]
+    return min(stamps, key=lambda stamp: abs(stamp - near))
+
+
+def _window_samples(samples: list[list[dict]], start: float | None, end: float | None) -> list[list[dict]] | None:
+    """The delta samples that count: without a window samples 1..N; with one, those stamped inside start..end, and
+    None unless they cover it (a sample at or before `start` precedes them, the last lands within NETTOP_SLACK_S of
+    `end`). Sample 0 holds the totals so far and never counts."""
+    samples = [sample for sample in samples if sample]
+    if len(samples) < 2:
+        return None
+    if start is None or end is None:
+        return samples[1:]
+    stamps = [_nettop_stamp(sample, start) for sample in samples]
+    if any(stamp is None for stamp in stamps):
+        return None
+    inside = [index for index in range(1, len(samples)) if start <= stamps[index] <= end]
+    if not inside or stamps[inside[0] - 1] > start or stamps[inside[-1]] < end - NETTOP_SLACK_S:
+        return None
+    return [samples[index] for index in inside]
+
+
+def _host(end: str) -> str:
+    """The host of a nettop -n end: `17.253.4.125:443` and IPv6 `fe80::1%en0.443` (port after a dot)."""
+    if end.count(":") == 1:
+        return end.rsplit(":", 1)[0]
+    head, _, port = end.rpartition(".")
+    return head if head and port.isdigit() and ":" in head else end
+
+
+def remote_matches(allowed: str, end: str) -> bool:
+    """Whether a remote end (`tcp4 17.253.4.125:443`, parse_nettop's) is `allowed`: the same `proto host:port`,
+    `host:port` or `host`, compared whole (never a substring: 1.1.1.1 is not 11.1.1.1)."""
+    address = end.split(" ", 1)[-1]
+    return allowed in (end, address, _host(address))
+
+
+def parse_nettop(text: str, start: float | None = None, end: float | None = None) -> dict[int, dict] | None:
+    """{pid: {bytes, loopback_bytes, connections, remotes, remote_bytes}} from `nettop_command` output, or None when
+    the output does not measure the window (fewer than two samples, or with start..end (epoch seconds) samples that
+    do not cover it): not measured is never 0 bytes.
+
+    Only the samples stamped inside start..end count (`_window_samples`), so reads made around the window are not
+    counted. bytes: in + out of the process rows; loopback_bytes: the part of its lo0 flows; connections: flows of
+    the last counted sample with a remote end that are not listening; remote_bytes: {remote end: bytes} of the flows
+    that moved bytes; remotes: those ends, then the ends only open at the end (the owner of an over)."""
+    samples = _window_samples(_nettop_samples(text), start, end)
+    if samples is None:
+        return None
+    out: dict[int, dict] = {}
+    opened: dict[int, list[str]] = {}
+    for index, sample in enumerate(samples):
+        last = index == len(samples) - 1
+        got = None
+        for row in sample:
+            flow = _FLOW.fullmatch(row["name"])
+            if flow is None:
+                process = _PROCESS.fullmatch(row["name"])
+                pid = None if process is None else int(process.group(2))
+                got = None if pid is None else out.setdefault(
+                    pid, {"bytes": 0, "loopback_bytes": 0, "connections": 0, "remotes": [], "remote_bytes": {}})
+                if got is not None:
+                    got["bytes"] += _bytes(row)
+                continue
+            if got is None:
+                continue
+            moved = _bytes(row)
+            if row.get("interface") == "lo0":
+                got["loopback_bytes"] += moved
+            remote = flow.group(3).strip()
+            end_name = f"{flow.group(1)} {remote}"
+            if moved:
+                got["remote_bytes"][end_name] = got["remote_bytes"].get(end_name, 0) + moved
+            if last and row.get("state") != "Listen" and not remote.startswith("*"):
+                got["connections"] += 1
+                opened.setdefault(pid, []).append(end_name)
+    for pid, got in out.items():
+        got["remotes"] = list(dict.fromkeys([*got["remote_bytes"], *opened.get(pid, [])]))
+    return out
+
+
+def _log_time(epoch: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch))
+
+
+def log_command(pids, start: float, end: float) -> list[str]:
+    """`log show` of every line (info and debug too) the pids wrote around start..end (epoch seconds), one JSON
+    object a line. The query is whole seconds; parse_log keeps only the lines inside start..end."""
+    predicate = " OR ".join(f"processID == {pid}" for pid in sorted(pids)) or "processID == -1"
+    return [LOG, "show", "--style", "ndjson", "--info", "--debug", "--start", _log_time(math.floor(start)),
+            "--end", _log_time(math.ceil(end)), "--predicate", predicate]
+
+
+def _event_epoch(stamp) -> float | None:
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_log(text: str, pids=None, start: float | None = None, end: float | None = None) -> dict[int, dict]:
+    """{pid: {lines, owners: {"subsystem:category": lines}}} from `log show --style ndjson`, counting only events
+    of `pids` stamped inside start..end (a line that is not an event is skipped). An event with no subsystem is
+    owned by its sender image."""
+    out: dict[int, dict] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        pid = event.get("processID")
+        if not isinstance(pid, int) or (pids is not None and pid not in pids):
+            continue
+        if start is not None or end is not None:
+            at = _event_epoch(event.get("timestamp"))
+            if at is None or (start is not None and at < start) or (end is not None and at > end):
+                continue
+        owner = f"{event.get('subsystem') or '-'}:{event.get('category') or '-'}"
+        if owner == "-:-":
+            owner = os.path.basename(event.get("senderImagePath") or "") or "-"
+        got = out.setdefault(pid, {"lines": 0, "owners": {}})
+        got["lines"] += 1
+        got["owners"][owner] = got["owners"].get(owner, 0) + 1
+    return out
+
+
+def read_log(pids, start: float, end: float) -> dict[int, dict] | None:
+    """parse_log of `log show` for the pids over start..end, or None when the log cannot be read."""
+    try:
+        done = subprocess.run(log_command(pids, start, end), capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    return parse_log(done.stdout, set(pids), start, end)
+
+
+def parse_top_idlew(text: str, pid: int) -> int | None:
+    """The cumulative IDLEW (package idle wakeups) of `pid` in `top -l 1 -pid PID -stats pid,idlew` output;
+    top marks a value that changed with a trailing + or -."""
+    found = None
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == str(pid):
+            value = parts[1].rstrip("+-")
+            if value.isdigit():
+                found = int(value)
+    return found
+
+
+def top_idlew(pid: int) -> int | None:
+    """The cumulative IDLEW of `pid` from `top`, for another user's process when proc_pid_rusage cannot read it
+    (WindowServer without root): package idle wakeups only, so a rate compares it with a top reading, never with an
+    rusage one."""
+    try:
+        text = subprocess.run([TOP, "-l", "1", "-pid", str(pid), "-stats", "pid,idlew"], capture_output=True,
+                              text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_top_idlew(text, pid)

@@ -192,6 +192,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return result
     }
 
+    /// The tabs the strip leaves out: a dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`).
+    var stripHidden: Set<String> { dockBound.union(OutboundTab.hidden(in: self)) }
+
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
@@ -202,8 +205,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
-        let hidden = dockBound.union(OutboundTab.hidden(in: self))
+        let hidden = stripHidden
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -265,7 +267,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         item.isDormant = services.cache.dormantTabs.contains(tab.id)
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
-            (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
+            (item.machineBadge, item.machineName) = RemoteTerminalService.badge(for: tab, machines: services.machines)
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
@@ -273,7 +275,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+            let badge = tab.url.flatMap(URL.init(string:)).flatMap { services.machines.mayHaveLocalhostBadge($0, daemon: daemon) ? services.remoteLocalhost.badge(for: tab, url: $0, engine: engine) : nil }
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
@@ -435,7 +437,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
-            view.clearLaunchImage()
+            view.clearLaunchImage(.noVisiblePane)
         }
         if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
         DebugTabSwitch.mark(self, "withdraw")
@@ -520,7 +522,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
         if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
-        if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let placeholder = services.madeRemoteTerminals?.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }

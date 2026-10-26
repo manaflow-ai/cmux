@@ -1,11 +1,11 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 import CmuxNextCompat
 import QuartzCore
 
 /// A page of a Chromium host app in a cmux pane (prototype behind
-/// `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Pixels: the host's Core Animation context, shown with the same
 /// `CALayerHost` an in-process hosted page uses

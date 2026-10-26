@@ -9,17 +9,9 @@ extension DaemonStore {
         unreadTotals.badge(homeUnread: homeUnread)
     }
 
-    /// The workspace list changed: each workspace reports to this store, which sums them again.
-    func adoptUnread() {
-        for workspace in workspaces where workspace.unreadStore !== self { workspace.unreadStore = self }
-        recountUnread()
-    }
-
-    /// Sums the workspaces' counts (integer adds over the list, no tab read) and assigns
-    /// ``unreadTotals`` when the sum changed.
-    func recountUnread() {
-        var totals = UnreadTotals()
-        for workspace in workspaces { totals.add(workspace.unreadContribution) }
+    /// The ledger's sum changed (``UnreadLedger``): assigned only when it differs, so the badge's
+    /// observers wake only for a new count.
+    func publish(unread totals: UnreadTotals) {
         if totals != unreadTotals { unreadTotals = totals }
     }
 

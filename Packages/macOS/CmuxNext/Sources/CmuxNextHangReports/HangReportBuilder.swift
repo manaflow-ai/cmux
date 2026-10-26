@@ -1,4 +1,5 @@
 public import CmuxNextInputCore
+public import CmuxNextTrace
 public import Foundation
 
 /// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
@@ -90,6 +91,12 @@ public nonisolated struct HangReportBuilder: Sendable {
         return launches.isEmpty ? nil : launches
     }
 
+    /// The events a report's `blackbox[]` may carry: the merged rings' records through the upload decoder, so
+    /// no key-timing, per-key PTY or flow record leaves the Mac (``TraceBlackBoxUpload``, p09-observability-128).
+    public func blackbox(_ records: [TraceBlackBoxUpload.Record]) -> [TraceBlackBoxUpload.Record] {
+        TraceBlackBoxUpload().events(records)
+    }
+
     /// Frames of a watchdog sample (return addresses, innermost first).
     public func frames(addresses: [UInt]) -> [HangReportFrame] {
         addresses.prefix(HangSample.maxFrames).map { address in
@@ -133,7 +140,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         for signpost in signposts where HangReportSignposts.allows(category: signpost.category, name: signpost.name) {
             let key = signpost.category + " " + signpost.name
             if var existing = merged[key] {
-                existing.count += max(0, signpost.count)
+                existing.count = existing.count.saturatingAdding(max(0, signpost.count))
                 existing.buckets = HistogramBucket.normalized(existing.buckets + signpost.buckets)
                 existing.hitchMsPerS = signpost.hitchMsPerS.flatMap(safeRatio) ?? existing.hitchMsPerS
                 merged[key] = existing

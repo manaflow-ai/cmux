@@ -90,8 +90,11 @@ public final class OverlayHandle {
     var frameObserver: (any NSObjectProtocol)?
     /// The content's own `postsFrameChangedNotifications`, set back on dismiss.
     var contentPostedFrameChanges = false
-    var options: OverlayOptions
+    public internal(set) var options: OverlayOptions
     let content: NSView
+    /// What automation calls this overlay (a toast's id, a dialog's spec id), set by its presenter; nil for
+    /// one with no such name.
+    public var name: String?
 
     init(id: Int, content: NSView, options: OverlayOptions, host: WindowOverlayHost) {
         self.id = id
@@ -128,6 +131,7 @@ public final class OverlayHandle {
         options.passesThroughClicks = true
         host?.cachedRegions = nil
         host?.updateMouseRouting()
+        host?.changes?.signal()
     }
 
     public func dismiss() {

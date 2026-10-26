@@ -47,7 +47,8 @@ final class LayoutViewContext {
     var userMotionStepped: () -> Void = {}
     /// A user gesture ended with nothing left to spring: the motion it started ends.
     var userMotionEnded: () -> Void = {}
-    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
+    /// A pane's clip changed (the strip container's range, an area mask, a zooming pane over it):
+    /// Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
     var gridHoldScreens: Set<ScreenID> = [] {

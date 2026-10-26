@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Network
 
@@ -93,7 +94,7 @@ public nonisolated struct LocalRouterClient: Sendable {
                 buffer += chunk
                 guard let newline = buffer.firstIndex(of: 0x0A) else { continue }
                 checked = true
-                let status = (try? JSONSerialization.jsonObject(with: buffer[buffer.startIndex..<newline])) as? [String: Any]
+                let status = (try? JSONSerialization.blockingJSONObject(with: buffer[buffer.startIndex..<newline])) as? [String: Any]
                 let now = (status?["pid"] as? NSNumber)?.intValue
                 if let pid, let now, now != pid { return true }
             }
@@ -120,7 +121,7 @@ public nonisolated struct LocalRouterClient: Sendable {
                 guard let chunk = try await AcpmuxStatusClient.receive(on: connection) else { throw Failure.closed }
                 buffer += chunk
                 if let newline = buffer.firstIndex(of: 0x0A) {
-                    let object = (try? JSONSerialization.jsonObject(with: buffer[buffer.startIndex..<newline])) as? [String: Any] ?? [:]
+                    let object = (try? JSONSerialization.blockingJSONObject(with: buffer[buffer.startIndex..<newline])) as? [String: Any] ?? [:]
                     if let error = object["error"] as? String { throw Failure.refused(error) }
                     return ResultBox(object)
                 }
