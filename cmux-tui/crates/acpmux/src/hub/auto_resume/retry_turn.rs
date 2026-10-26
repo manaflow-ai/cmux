@@ -214,7 +214,11 @@ impl Hub {
 
     /// The caller's rules, checked before the retry claims the chat, so a refused caller leaves
     /// a retry that waits as it was, and again at dispatch (`check_dispatch`).
-    async fn retry_allowed(self: &Arc<Self>, session: &Arc<Session>, by: &RetryBy) -> Result<(), RpcError> {
+    async fn retry_allowed(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: &RetryBy,
+    ) -> Result<(), RpcError> {
         {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let device = by.full_access_device.as_deref();

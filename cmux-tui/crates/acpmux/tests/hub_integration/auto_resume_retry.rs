@@ -166,7 +166,8 @@ async fn a_waiting_retry_fires_now() {
     assert_eq!(messages[1]["promptId"], "p-cap~resume-1");
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
     assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
-    let skipped = hub.events(&id, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "auto_resume_skipped");
+    let skipped =
+        hub.events(&id, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "auto_resume_skipped");
     assert_eq!(skipped.map(|e| e.msg["skipped"].clone()), Some(json!("superseded")));
 }
 
@@ -233,18 +234,28 @@ async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-digest").await;
-    c.send(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]})).await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
     let mut agents = connect(&hub).await;
-    for (pid, agent, text) in [("p-a", "lane-a", "from a"), ("p-b", "lane-b", "[fail-digest-once] from b")] {
+    for (pid, agent, text) in
+        [("p-a", "lane-a", "from a"), ("p-b", "lane-b", "[fail-digest-once] from b")]
+    {
         agents.send(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": pid, "fromAgent": agent}}})).await;
-        agents.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid && p["queued"] == true).await;
+        agents
+            .wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid && p["queued"] == true)
+            .await;
     }
     c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
     // The cancelled turn, then the failed turn of both messages.
     until(&hub, &id, |k| turn_results(k) == 2).await;
     for _ in 0..200 {
-        if row(&hub, &id)["lastTurn"]["status"] == "failed" && hub.resolve(&id).unwrap().turn().is_none() {
+        if row(&hub, &id)["lastTurn"]["status"] == "failed"
+            && hub.resolve(&id).unwrap().turn().is_none()
+        {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -255,9 +266,21 @@ async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
     until(&hub, &id, |k| turn_results(k) == 4).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let messages = user_messages(&hub, &id);
-    let sent = |s: &str| messages.iter().filter(|m| m["text"].as_str().unwrap_or_default().contains(s)).count();
-    assert_eq!(sent("from b"), 2, "the failed turn and its message again, never a third: {messages:?}");
-    assert!(messages.iter().any(|m| m["text"].as_str().unwrap_or_default().starts_with("Your previous turn was cut off")), "{messages:?}");
+    let sent = |s: &str| {
+        messages.iter().filter(|m| m["text"].as_str().unwrap_or_default().contains(s)).count()
+    };
+    assert_eq!(
+        sent("from b"),
+        2,
+        "the failed turn and its message again, never a third: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|m| m["text"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Your previous turn was cut off")),
+        "{messages:?}"
+    );
 }
 
 /// A prompt's hidden context is not recorded (`prompt_context.rs`): a failed turn that had one
