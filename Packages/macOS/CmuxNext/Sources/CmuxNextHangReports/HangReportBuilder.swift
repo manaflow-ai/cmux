@@ -140,7 +140,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         for signpost in signposts where HangReportSignposts.allows(category: signpost.category, name: signpost.name) {
             let key = signpost.category + " " + signpost.name
             if var existing = merged[key] {
-                existing.count += max(0, signpost.count)
+                existing.count = existing.count.saturatingAdding(max(0, signpost.count))
                 existing.buckets = HistogramBucket.normalized(existing.buckets + signpost.buckets)
                 existing.hitchMsPerS = signpost.hitchMsPerS.flatMap(safeRatio) ?? existing.hitchMsPerS
                 merged[key] = existing
