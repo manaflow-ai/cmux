@@ -58,12 +58,9 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
-        // The features that are Chromium base::Features (process `chromium`, for example `cefTimerSlack`).
-        let chromiumFeatures = features.registry.features
-            .filter { $0.process == .chromium && features.isEnabled($0) }
-            .compactMap(\.chromiumFeature)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput] stores, deadlines, source in
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput,
+                                           chromiumFeatures = features.enabledChromiumFeatures] stores, deadlines, source in
                                       CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                 contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                 pumpInput: pumpInput, pointerFrames: pointerFrames, chromiumFeatures: chromiumFeatures)
