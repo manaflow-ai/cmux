@@ -524,7 +524,7 @@ impl Hub {
             .await
         {
             Ok(session) => {
-                let (_, stored) = self.append_at(
+                let (_, appended) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
@@ -532,6 +532,11 @@ impl Hub {
                     None,
                     None,
                 );
+                let stored = appended
+                    && self.store.flush_session(&session.id).map(|()| true).unwrap_or_else(|error| {
+                        tracing::warn!(session = %session.id, "sync transferred_in receipt: {error:#}");
+                        false
+                    });
                 if !stored {
                     if source_store_backup.is_none() {
                         self.recover_staged_replacements();
