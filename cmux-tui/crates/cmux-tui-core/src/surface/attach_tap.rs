@@ -9,17 +9,58 @@
 //! sends one READY snapshot taken under the terminal lock before live bytes.
 //!
 //! Output fans out without a copy per viewer: each viewer queues a handle to
-//! the one shared chunk, and a slow viewer's adjacent chunks merge into an
-//! [`OutputRope`] that is joined on the viewer's own thread.
+//! the one shared chunk, cut from the PTY's [`OutputArena`], and a slow
+//! viewer's adjacent chunks merge into an [`OutputRope`] that is joined on the
+//! viewer's own thread.
 
 use super::snapshot_attach::LocalReadySnapshot;
 use super::*;
 use bytes::Bytes;
+use std::ops::DerefMut;
 
+mod output_arena;
 mod output_rope;
+#[cfg(test)]
+pub(super) use output_arena::OUTPUT_ARENA_BLOCK_BYTES;
+pub(super) use output_arena::OutputArena;
 #[cfg(test)]
 pub(super) use output_rope::OUTPUT_ROPE_COPY_MAX_BYTES;
 pub(super) use output_rope::OutputRope;
+
+/// A PTY's attach viewers and the arena their output is cut from, both under
+/// the `pty.taps` lock the reader already holds to fan out.
+#[derive(Default)]
+pub(super) struct AttachTaps {
+    taps: Vec<AttachTap>,
+    output: OutputArena,
+}
+
+impl AttachTaps {
+    /// `bytes` as one chunk every viewer shares. The arena block is dropped
+    /// once no viewer is left.
+    pub(super) fn output_chunk(&mut self, bytes: &[u8]) -> Option<Bytes> {
+        if self.taps.is_empty() {
+            self.output.release();
+            return None;
+        }
+        Some(self.output.chunk(bytes))
+    }
+}
+
+impl Deref for AttachTaps {
+    type Target = Vec<AttachTap>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.taps
+    }
+}
+
+impl DerefMut for AttachTaps {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.taps
+    }
+}
+
 pub struct AttachFrameReceiver {
     state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
@@ -153,6 +194,16 @@ impl AttachFrame {
     /// Output bytes as one frame, echoing `flow` when it is not 0.
     pub(crate) fn with_flow(output: Bytes, flow: u64) -> Self {
         if flow == 0 { Self::Output(output) } else { Self::FlowOutput { output, flow } }
+    }
+
+    /// Output that changed colors. The bytes keep no spare capacity, so the
+    /// backlog's count of their length is the memory they hold.
+    pub(crate) fn output_with_colors(
+        output: Vec<u8>,
+        colors: Box<TerminalColors>,
+        flow: u64,
+    ) -> Self {
+        Self::OutputWithColors { output: output.into_boxed_slice().into(), colors, flow }
     }
 
     /// The key press this frame's output echoes (0: none).

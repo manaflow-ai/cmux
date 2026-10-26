@@ -64,9 +64,10 @@ fn output_frames(receiver: &AttachFrameReceiver) -> Vec<AttachFrame> {
 }
 
 /// p05-ipc-089: fan-out shares one buffer per PTY read. Three viewers of
-/// 10k chunks cost one payload allocation per chunk (the old fan-out copied
-/// once per viewer), every viewer gets the same bytes in the same buffer,
-/// and each viewer's backlog counts the chunk as before.
+/// 10k chunks cost at most one allocation per chunk (the old fan-out made
+/// four: the read's copy and one copy per viewer), every viewer gets the same
+/// bytes in the same buffer, and each viewer's backlog counts the chunk as
+/// before.
 #[test]
 fn attach_tap_fan_out_allocates_each_chunk_once_for_every_viewer() {
     const VIEWERS: usize = 3;
@@ -113,10 +114,86 @@ fn attach_tap_fan_out_allocates_each_chunk_once_for_every_viewer() {
             assert_eq!(output.as_ptr(), buffer, "chunk {index}: a viewer got its own copy");
         }
     }
-    assert_eq!(total.large, CHUNKS, "payload allocations for {CHUNKS} chunks to {VIEWERS} viewers");
-    // The buffer plus at most its shared refcount block, whatever the viewer
-    // count (the old fan-out made one buffer per viewer).
-    assert!(total.count <= 2 * CHUNKS, "{total:?} allocations for {CHUNKS} chunks");
+    assert!(
+        total.count <= CHUNKS,
+        "{total:?} allocations for {CHUNKS} chunks to {VIEWERS} viewers"
+    );
+    // Viewers that keep up release each block before the arena wraps, so the
+    // arena reuses it in place instead of allocating.
+    assert_eq!(total, allocation_counter::Allocations::default(), "a reused block allocated");
+}
+
+/// Chunks a viewer still holds keep their block, so the arena starts a new
+/// one: a fresh block costs its buffer and its shared count, once per block
+/// and not once per chunk or per viewer.
+#[test]
+fn attach_output_arena_allocates_once_per_block_while_viewers_hold_chunks() {
+    const VIEWERS: usize = 3;
+    const CHUNKS: usize = 10_000;
+    const CHUNK_BYTES: usize = 1_000;
+    let mut arena = OutputArena::default();
+    let mut held = Vec::with_capacity(CHUNKS * VIEWERS);
+    let ((), allocations) = allocation_counter::count_allocations(|| {
+        for index in 0..CHUNKS {
+            let chunk = arena.chunk(&output_chunk(index, CHUNK_BYTES));
+            held.extend(std::iter::repeat_n(chunk, VIEWERS));
+        }
+    });
+    let blocks = CHUNKS.div_ceil(OUTPUT_ARENA_BLOCK_BYTES / CHUNK_BYTES);
+    // `output_chunk` builds each test read in a Vec of its own.
+    assert_eq!(allocations.count - CHUNKS, 2 * blocks, "{allocations:?}");
+    assert_eq!(allocations.large - CHUNKS, blocks, "{allocations:?}");
+    for (index, chunks) in held.chunks(VIEWERS).enumerate() {
+        for chunk in chunks {
+            assert_eq!(&chunk[..], &output_chunk(index, CHUNK_BYTES)[..]);
+            assert_eq!(chunk.as_ptr(), chunks[0].as_ptr());
+        }
+    }
+}
+
+/// A block every chunk of has been dropped is reused in place; a read longer
+/// than a block gets a block of its own; an empty read allocates nothing.
+#[test]
+fn attach_output_arena_reuses_a_released_block_in_place() {
+    let mut arena = OutputArena::default();
+    let read = vec![7; OUTPUT_ARENA_BLOCK_BYTES / 2];
+    let first = arena.chunk(&read).as_ptr();
+    drop(arena.chunk(&read));
+    let (reused, allocations) = allocation_counter::count_allocations(|| arena.chunk(&read));
+    assert_eq!(allocations, allocation_counter::Allocations::default());
+    assert_eq!(reused.as_ptr(), first, "the released block was not reused");
+    assert_eq!(&reused[..], &read[..]);
+
+    let long = vec![9; OUTPUT_ARENA_BLOCK_BYTES * 3];
+    let (chunk, allocations) = allocation_counter::count_allocations(|| arena.chunk(&long));
+    assert_eq!(&chunk[..], &long[..]);
+    assert_eq!(allocations.large, 1, "a long read is copied once");
+    drop(reused);
+
+    let (empty, allocations) = allocation_counter::count_allocations(|| arena.chunk(&[]));
+    assert!(empty.is_empty());
+    assert_eq!(allocations, allocation_counter::Allocations::default());
+}
+
+/// An output-with-colors frame built from a buffer with spare capacity holds
+/// only its bytes, so the viewer's backlog counts what the frame keeps alive.
+#[test]
+fn attach_tap_output_with_colors_backlog_counts_all_it_retains() {
+    let mut output = Vec::with_capacity(4_096);
+    output.extend_from_slice(b"colored output");
+    let len = output.len();
+    let (tap, receiver) = AttachTap::pair(AttachLifecycle::default(), 4, usize::MAX);
+    assert!(tap.try_send(AttachFrame::output_with_colors(output, Box::default(), 0)));
+    assert_eq!(
+        receiver.backlog_bytes(),
+        size_of::<AttachFrame>() + len + size_of::<TerminalColors>()
+    );
+    let Ok(AttachFrame::OutputWithColors { output, .. }) = receiver.try_recv() else {
+        panic!("no output-with-colors frame")
+    };
+    assert_eq!(&output[..], b"colored output");
+    let retained = output.try_into_mut().expect("the viewer holds the only handle").capacity();
+    assert_eq!(retained, len, "the frame keeps spare capacity its backlog does not count");
 }
 
 /// p09-observability-018: a slow viewer's merged output keeps the key

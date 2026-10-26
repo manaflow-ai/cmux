@@ -84,11 +84,11 @@ impl HostedReader {
             // see the Output or ColorsChanged callback.
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
-                pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
-                    output: output.into(),
-                    colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                pty.broadcast_attach_frame(AttachFrame::output_with_colors(
+                    output,
+                    Box::new(pty.terminal_colors_locked(&term, defaults)),
                     flow,
-                });
+                ));
                 journal_output
             } else {
                 pty.broadcast_attach_output_flow(&output, flow);

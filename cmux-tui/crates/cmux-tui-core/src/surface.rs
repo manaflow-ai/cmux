@@ -342,10 +342,12 @@ const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TR
 mod attach_tap;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
-use attach_tap::AttachTap;
 pub(crate) use attach_tap::ViewerEvent;
 #[cfg(test)]
-use attach_tap::{AttachFrameMerge, OUTPUT_ROPE_COPY_MAX_BYTES, OutputRope};
+use attach_tap::{
+    AttachFrameMerge, OUTPUT_ARENA_BLOCK_BYTES, OUTPUT_ROPE_COPY_MAX_BYTES, OutputArena, OutputRope,
+};
+use attach_tap::{AttachTap, AttachTaps};
 pub(crate) mod snapshot_attach;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -843,7 +845,7 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux: mux.clone(),
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
