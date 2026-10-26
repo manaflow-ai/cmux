@@ -4,6 +4,7 @@
 // commit form would be lost, and then it says the files changed.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { FakeLifecycleDocument, FakePollClock } from "./support/pagePollFakes";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -43,6 +44,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-viewer/freshness");
+const { PageLifecycle } = await import("../src/pages/shared/pageLifecycle");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -119,4 +121,60 @@ test("with a draft or the commit form open it says the files changed instead", a
   await settle();
   expect(refreshed).toBe(0);
   expect(shown()).toBe("stale");
+});
+
+// p13-webui-069 (MQ4b): the compare is a page poll. A hidden, frozen or parked viewer arms no timer
+// and asks the host nothing; its show is the one check of coming back.
+function PolledViewer({
+  read,
+  refresh,
+  seams,
+}: {
+  read: () => Promise<string | undefined>;
+  refresh: () => void;
+  seams: { lifecycle: InstanceType<typeof PageLifecycle>; timers: FakePollClock };
+}) {
+  const stale = useDiffFreshness(read, 0, () => true, refresh, seams);
+  return <output>{stale ? "stale" : "fresh"}</output>;
+}
+
+test("a hidden viewer makes 0 host reads in 60 s and arms no timer; its show checks once", async () => {
+  onDisk = "a";
+  const doc = new FakeLifecycleDocument();
+  const seams = { lifecycle: new PageLifecycle(doc), timers: new FakePollClock(settle) };
+  let refreshed = 0;
+  const read = diffFingerprintReader(page as never, OPS, { kind: "unstaged", repoRoot: "/r" })!;
+  await act(async () => root.render(<PolledViewer read={read} refresh={() => (refreshed += 1)} seams={seams} />));
+  await settle();
+  const loaded = calls.length;
+  await seams.timers.advance(8000);
+  expect(calls.length).toBe(loaded + 2); // one read a period while shown
+
+  await act(async () => doc.hide());
+  expect(seams.timers.armed).toBe(0);
+  onDisk = "b";
+  const hidden = calls.length;
+  await seams.timers.advance(60_000);
+  expect(calls.length).toBe(hidden);
+
+  await act(async () => doc.show());
+  await settle();
+  expect(calls.length).toBe(hidden + 1);
+  expect(refreshed).toBe(1);
+  expect(seams.timers.armed).toBe(1);
+});
+
+test("a viewer parked in the pool reads nothing until the host claims it", async () => {
+  onDisk = "a";
+  const seams = { lifecycle: new PageLifecycle(new FakeLifecycleDocument(), true), timers: new FakePollClock(settle) };
+  const read = diffFingerprintReader(page as never, OPS, { kind: "unstaged", repoRoot: "/r" })!;
+  const before = calls.length;
+  await act(async () => root.render(<PolledViewer read={read} refresh={() => {}} seams={seams} />));
+  await seams.timers.advance(60_000);
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await settle();
+  expect(calls.length).toBe(before);
+  await act(async () => seams.lifecycle.claimed());
+  await settle();
+  expect(calls.length).toBe(before + 1);
 });

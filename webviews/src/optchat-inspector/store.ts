@@ -1,14 +1,18 @@
 // A small read cache over the inspector API for useSyncExternalStore: one entry per URL, fetched
 // on first read, optionally refreshed on an interval while something is subscribed. No effects:
-// the subscription itself starts and stops the refresh timer.
+// the subscription itself starts and stops the refresh timer. The refresh is a page poll
+// (pages/shared/pagePoll.ts, p13-webui-069): a hidden inspector arms no timer and reads nothing,
+// and reads once when it shows again.
+
+import { type PagePollSeams, startPagePoll } from "../pages/shared/pagePoll";
 
 export type Entry<T> = { data?: T; error?: string; loading: boolean };
 
 type Slot = {
   entry: Entry<unknown>;
   listeners: Set<() => void>;
-  timer?: ReturnType<typeof setInterval>;
-  every?: number;
+  /** Stops the refresh poll; set while a subscriber asked for one. */
+  stopRefresh?: () => void;
   /** When the last listener left (0 while subscribed): idle slots are evicted oldest first. */
   idleSince: number;
 };
@@ -57,7 +61,10 @@ export const defaultFetcher: Fetcher = httpFetcher;
 
 export class ApiStore {
   private slots = new Map<string, Slot>();
-  constructor(private fetcher: Fetcher = defaultFetcher) {}
+  constructor(
+    private fetcher: Fetcher = defaultFetcher,
+    private seams: PagePollSeams = {},
+  ) {}
 
   private slot(url: string): Slot {
     let s = this.slots.get(url);
@@ -93,17 +100,14 @@ export class ApiStore {
     const s = this.slot(url);
     s.listeners.add(listener);
     s.idleSince = 0;
-    if (every && !s.timer) {
-      s.every = every;
-      s.timer = setInterval(() => {
-        if (typeof document === "undefined" || document.visibilityState !== "hidden") void this.load(url);
-      }, every);
-    }
+    // The slot read when it was made: the poll waits one period first.
+    if (every && !s.stopRefresh)
+      s.stopRefresh = startPagePoll(() => this.load(url), every, { ...this.seams, immediate: false });
     return () => {
       s.listeners.delete(listener);
       if (s.listeners.size === 0) {
-        if (s.timer) clearInterval(s.timer);
-        s.timer = undefined;
+        s.stopRefresh?.();
+        s.stopRefresh = undefined;
         s.idleSince = Date.now();
         this.evict();
       }
