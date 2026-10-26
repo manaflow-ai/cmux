@@ -68,7 +68,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux).
     private(set) lazy var sidebarSources = NowPlayingSources(
-        player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled(),
+        player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled(deadlines: services?.mainDeadlines),
         otherApps: { [weak self] in self?.services?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
     let nowPlayingCard = NowPlayingCardDismissal()

@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import Foundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// What ``SystemNowPlaying`` asks the app that plays to do.
 public nonisolated enum SystemNowPlayingCommand: Equatable, Sendable {
@@ -35,8 +35,9 @@ public protocol SystemNowPlayingAdapter: AnyObject {
 /// macOS Now Playing through ungive/mediaremote-adapter (BSD-3-Clause). Since
 /// macOS 15.4 only Apple-signed processes may read MediaRemote, so
 /// `/usr/bin/perl` loads the adapter framework bundled with cmux and prints
-/// each change as a JSON line. One `stream` process runs while the card
-/// shows; its pipe wakes the app only when Now Playing changes, and its lines
+/// each change as a JSON line. One `stream` process runs from the first time
+/// a Now Playing surface needs it until a minute after the last one stops
+/// (``SystemNowPlaying``); its pipe wakes the app only when Now Playing changes, and its lines
 /// are decoded on the pipe's queue. A stream that exits is started again after
 /// a growing wait, and given up after a few quick exits in a row (an adapter
 /// macOS no longer allows). Controls run one short `send` or `seek` process
@@ -48,7 +49,7 @@ public protocol SystemNowPlayingAdapter: AnyObject {
 /// needs no quit hook of its own.
 public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     /// Spawns and stops the adapter's children off the main thread, in call order (a fork can take hundreds of ms).
-    private let launcher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)
+    private let launcher: ProcessLauncher
     public let script: URL
     public let framework: URL
     private static let perl = URL(fileURLWithPath: "/usr/bin/perl")
@@ -85,10 +86,17 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         exit "$status"
         """
 
-    public init(script: URL, framework: URL) {
+    /// - Parameter launcher: spawns and stops the children; a test passes one with a fake `spawn`.
+    ///   Making the adapter spawns nothing: the first stream starts at ``start(onUpdate:)``.
+    public init(script: URL, framework: URL,
+                launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)) {
         self.script = script
         self.framework = framework
+        self.launcher = launcher
     }
+
+    /// Whether a stream process runs or is being spawned; false while a restart waits.
+    var isStreaming: Bool { process != nil }
 
     /// The adapter cmux bundles: the script in Resources/MediaRemoteAdapter and
     /// the framework in Frameworks; nil when either is missing (a build without it).

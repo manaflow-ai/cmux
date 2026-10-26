@@ -4,66 +4,102 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 import CmuxNextBrowser
+public import CmuxNextWakeups
 public import CmuxNextSidebar
 public import Foundation
 public import Observation
 
 /// The Now Playing card's source for other apps (Spotify, Music, a browser):
 /// what macOS Now Playing reports, through ``SystemNowPlayingAdapter``, while
-/// `run(_:)` keeps it running (the card shows). cmux's own entries (its
-/// player and browser tabs, which have their own sources) are left out. The
-/// artwork is drawn into a small PNG once per image; the controls go back to
-/// the app that plays.
+/// `run(_:)` says a surface needs it (the card or the New Tab player shows it).
+/// cmux's own entries (its player and browser tabs, which have their own
+/// sources) are left out. The artwork is drawn into a small PNG once per
+/// image; the controls go back to the app that plays.
+///
+/// The adapter (a `perl` process) starts on the first need, never at launch,
+/// and stops ``idleStop`` after the last need ends, so a surface that comes
+/// back within that time shows what plays at once and spawns nothing. This is
+/// Chromium's idle timeout for a service process it starts on demand
+/// (`mojo::Remote::reset_on_idle_timeout`, used by
+/// services/data_decoder/public/cpp/data_decoder.cc): the process ends only
+/// after it went unused for a while, never on each release.
 @Observable
 public final class SystemNowPlaying: NowPlayingSource {
     private var feed = SystemNowPlayingFeed()
     /// The shown report's artwork as the adapter sent it, and as a small PNG.
     private var artwork: (base64: String, data: Data?)?
+    /// Whether a surface needs Now Playing now; observed, so a need that comes back shows the report
+    /// the still-running stream kept.
+    private(set) var needed = false
     @ObservationIgnored private let adapter: (any SystemNowPlayingAdapter)?
     @ObservationIgnored private let ignored: Set<String>
     @ObservationIgnored private let labels: SidebarNowPlaying.Labels
-    @ObservationIgnored private(set) var running = false
+    /// Whether the adapter streams: from the first need until ``idleStop`` after the last.
+    @ObservationIgnored private(set) var streaming = false
+    /// The one-shot deadline that stops the adapter once no surface has needed it for ``idleStop``; nil
+    /// stops it as soon as the last need ends.
+    @ObservationIgnored private let idle: MainDeadline?
+    nonisolated static let idleStop: Duration = .seconds(60)
     nonisolated static let artworkSide = 320
     /// Decodes the shown artwork off the main actor.
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
-    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>) {
+    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, idle: MainDeadline?) {
         self.init(adapter: adapter, ignoring: ignored,
                   labels: SidebarNowPlaying.Labels(play: BrowserMediaStrings.play, pause: BrowserMediaStrings.pause,
-                                                   previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next))
+                                                   previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next),
+                  idle: idle)
     }
 
-    public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels) {
+    /// - Parameter idle: the deadline that stops the adapter ``idleStop`` after the last need (nobody
+    ///   sees that stop: its class is `background`); nil stops it when the last need ends.
+    public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels,
+                idle: MainDeadline?) {
         self.adapter = adapter
         self.ignored = ignored
         self.labels = labels
+        self.idle = idle
     }
 
-    /// Streams Now Playing while `on` (the card follows it, `followNowPlaying`); off stops the
-    /// adapter and forgets what played.
+    /// Reads Now Playing while `on` (a surface shows it, `followNowPlaying`): the first need starts the
+    /// adapter. Off hides what plays at once and stops the adapter ``idleStop`` later, unless a need
+    /// comes back first.
     public func run(_ on: Bool) {
-        guard on != running, let adapter else { return }
-        running = on
-        if on {
-            adapter.start { [weak self] update in self?.receive(update) }
-        } else {
-            adapter.stop()
-            artworkTask?.cancel()
-            feed = SystemNowPlayingFeed()
-            artwork = nil
+        guard on != needed, let adapter else { return }
+        needed = on
+        guard on else {
+            guard let idle else { return stopIdle() }
+            idle.schedule(after: Self.idleStop) { [weak self] in self?.stopIdle() }
+            return
         }
+        idle?.cancel()
+        guard !streaming else { return }
+        streaming = true
+        adapter.start { [weak self] update in self?.receive(update) }
     }
 
-    /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries.
-    public static func bundled() -> SystemNowPlaying {
-        SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }))
+    /// The idle deadline: stops the adapter and forgets what played, unless a surface needs it again.
+    private func stopIdle() {
+        guard !needed, streaming, let adapter else { return }
+        streaming = false
+        adapter.stop()
+        artworkTask?.cancel()
+        feed = SystemNowPlayingFeed()
+        artwork = nil
     }
 
-    /// What another app plays, nil while nothing does or cmux itself plays.
+    /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries, stopped
+    /// ``idleStop`` after the last need by a deadline on `deadlines` (the app's one placer).
+    public static func bundled(deadlines: MainDeadlineScheduler?) -> SystemNowPlaying {
+        SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
+                         idle: deadlines.map { MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: $0) })
+    }
+
+    /// What another app plays, nil while nothing does, cmux itself plays or no surface needs it.
     public var report: SystemNowPlayingReport? {
-        guard let report = feed.report, !report.isFrom(ignored) else { return nil }
+        guard needed, let report = feed.report, !report.isFrom(ignored) else { return nil }
         return report
     }
 
@@ -112,7 +148,7 @@ public final class SystemNowPlaying: NowPlayingSource {
     /// Takes one update of the adapter's stream (decoded off the main actor). New artwork is
     /// decoded and drawn small off the main actor too; the card shows it once ready.
     func receive(_ update: SystemNowPlayingFeed.Update) {
-        guard running else { return }
+        guard streaming else { return }
         var next = feed
         next.apply(update)
         guard next != feed else { return }
