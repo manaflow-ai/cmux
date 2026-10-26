@@ -50,7 +50,10 @@ Move the nightly date in its own commit, after one green run on the new date.
   Linux ASan also checks leaks in the same process, as Chromium's ASan bots do;
   the same leak gets the same signature from `address` and `leak`. All three
   print frames as `#N PC in FUNCTION FILE:LINE:COL`, without the binary's path
-  and BuildId, which change per build. `llvm-symbolizer` is used when found
+  and BuildId, which change per build. Inlined frames fold into their caller
+  (`symbolize_inline_frames=0`): their DWARF names are bare (`alloc`), so std's
+  inlined helpers would be a signature's top frames; a frame's FILE:LINE is
+  then the innermost inlined line. `llvm-symbolizer` is used when found
   (`LLVM_SYMBOLIZER`, `PATH`, `/usr/lib/llvm-*`), else addr2line on Linux and
   atos on macOS.
 - Miri: `cargo miri nextest run -p CRATE`, one process per test, so one test's

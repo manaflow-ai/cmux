@@ -179,8 +179,10 @@ if [[ -z "$symbolizer" ]]; then
 fi
 # One frame shape for the three runtimes: `#N PC in FUNCTION FILE:LINE:COL`.
 # The defaults add the binary's path and BuildId, which differ per build and
-# would split one bug's signature.
-symbolizer_opts="symbolize=1:stack_trace_format='    #%n %p %F %S'"
+# would split one bug's signature. Inlined frames are folded into the function
+# they were inlined into: their DWARF names are bare (`alloc`, `allocate`), so
+# std's inlined allocator helpers would otherwise be the signature's top frames.
+symbolizer_opts="symbolize=1:symbolize_inline_frames=0:stack_trace_format='    #%n %p %F %S'"
 if [[ -n "$symbolizer" ]]; then
   symbolizer_opts+=":external_symbolizer_path=$symbolizer"
 elif [[ $os == linux ]]; then
