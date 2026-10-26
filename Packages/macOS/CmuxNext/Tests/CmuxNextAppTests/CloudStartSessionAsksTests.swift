@@ -455,4 +455,36 @@ struct CloudStartSessionAsksTests {
         #expect(creates.value == 2)
         #expect(one === session && two === session)
     }
+
+    /// A creation that ignores cancellation and finishes after a sign-out or team switch hands its
+    /// machine to nobody: its asker and anyone who joined get `CancellationError`.
+    @Test func aCreationThatEndsAfterForgetAllHandsOutNothing() async throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-forgot-\(UUID().uuidString.prefix(8))")
+        let runs = CloudStartSessionRuns()
+        let (events, event) = AsyncStream<CreationEvent>.makeStream()
+        runs.joinedCreation = { event.yield(.joined($0)) }
+        defer { event.finish() }
+        // Resumed only by the test, never by cancellation.
+        let resume = Box<CheckedContinuation<Void, Never>?>(nil)
+        let create: @MainActor () async throws -> CloudMachineSession = {
+            await withCheckedContinuation { continuation in
+                resume.value = continuation
+                event.yield(.entered(1))
+            }
+            return session
+        }
+        func next() async -> CreationEvent? {
+            for await value in events { return value }
+            return nil
+        }
+        let first = Task { @MainActor in try await runs.creating("dev", account: Self.account, create) }
+        #expect(await next() == .entered(1))
+        let joined = Task { @MainActor in try await runs.creating("dev", account: Self.account, create) }
+        #expect(await next() == .joined("dev"))
+        runs.forgetAll()
+        resume.value?.resume()
+        await #expect(throws: CancellationError.self) { _ = try await first.value }
+        await #expect(throws: CancellationError.self) { _ = try await joined.value }
+    }
 }

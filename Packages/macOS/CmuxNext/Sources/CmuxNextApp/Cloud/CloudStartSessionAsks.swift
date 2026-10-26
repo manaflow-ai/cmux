@@ -196,6 +196,8 @@ final class CloudStartSessionRuns {
     /// Creations of a machine by name and account, each with its own token: two asks for one new
     /// name create one machine.
     private var creations: [Creation: (token: UUID, task: Task<CloudMachineSession, any Error>)] = [:]
+    /// Counts ``forgetAll()`` calls: a creation that ends after one is never handed out.
+    private var forgets = 0
     /// Called when an ask joins a creation already going on (tests wait on it).
     var joinedCreation: @MainActor (String) -> Void = { _ in }
     var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
@@ -206,19 +208,25 @@ final class CloudStartSessionRuns {
     }
 
     /// The machine `create` makes for `name` in `account`, or the one a creation already going on
-    /// for both makes.
+    /// for both makes. A creation the runs were forgotten during (``forgetAll()``) throws
+    /// `CancellationError` even if it finished: cancellation is cooperative.
     func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> CloudMachineSession) async throws -> CloudMachineSession {
         let key = Creation(name: name, account: account)
+        let asked = forgets
+        let unforgotten = { [self] (machine: CloudMachineSession) throws -> CloudMachineSession in
+            guard forgets == asked else { throw CancellationError() }
+            return machine
+        }
         if let running = creations[key] {
             joinedCreation(name)
-            return try await running.task.value
+            return try unforgotten(await running.task.value)
         }
         let token = UUID()
         // task-owner: one creation per name and account; removed when it ends or by forgetAll().
         let task = Task<CloudMachineSession, any Error> { @MainActor in try await create() }
         creations[key] = (token, task)
         defer { if creations[key]?.token == token { creations[key] = nil } }
-        return try await task.value
+        return try unforgotten(await task.value)
     }
 
     /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
@@ -260,6 +268,7 @@ final class CloudStartSessionRuns {
     /// The account the runs were asked in ended: each waiting caller gets its `forgotten`
     /// failure now, every run and creation is cancelled, and none is kept or joined after.
     func forgetAll() {
+        forgets += 1
         for run in runs.values {
             run.forgotten = true
             for waiter in run.waiters.values { waiter.end.yield(.failure(waiter.forgotten)) }
