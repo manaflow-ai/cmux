@@ -155,6 +155,7 @@ static const char main_thread[] = "main", probe_thread[] = "probe";
 static char window_mark[128];
 static size_t window_mark_length;
 static int window_fd = -1;
+static int window_fd_ours;  // the probe opened window_fd: without the probe the app would make no call on it
 enum { WINDOW_OPEN = 0, WINDOW_COPYING = 1, WINDOW_CLOSED = 2 };
 static int window_state = WINDOW_OPEN;
 static uint64_t window_ms;  // the probe's uptime when the mark arrived
@@ -311,12 +312,17 @@ static ssize_t p_read_nc(int fd, void *b, size_t n) {
 static ssize_t p_pread(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread(fd, b, n, o)); }
 static ssize_t p_pread_nc(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread_nocancel(fd, b, n, o)); }
 static void window_check(int fd, const void *b, size_t n);
+// The probe's own mark descriptor: its writes and fcntls happen only because the probe set
+// CMUX_NEXT_LAUNCH_MARKS_FD (a normal launch has no LaunchMarkSink), so they are never recorded.
+static inline int probe_own_fd(int fd) { return window_fd_ours && fd == window_fd; }
 static ssize_t p_write(int fd, const void *b, size_t n) {
     window_check(fd, b, n);
+    if (probe_own_fd(fd)) return write(fd, b, n);
     TIMED("io:write", 0, write(fd, b, n));
 }
 static ssize_t p_write_nc(int fd, const void *b, size_t n) {
     window_check(fd, b, n);
+    if (probe_own_fd(fd)) return write_nocancel(fd, b, n);
     TIMED("io:write", 0, write_nocancel(fd, b, n));
 }
 static ssize_t p_pwrite(int fd, const void *b, size_t n, off_t o) { TIMED("file-io:pwrite", 0, pwrite(fd, b, n, o)); }
@@ -342,10 +348,12 @@ static int p_mkdirat(int fd, const char *p, mode_t m) { TIMED("file-io:mkdirat",
 // it on gives fcntl the same slot, which it reads back as an int or a pointer for its command.
 static int p_fcntl(int fd, int cmd, ...) {
     va_list ap; va_start(ap, cmd); void *arg = va_arg(ap, void *); va_end(ap);
+    if (probe_own_fd(fd)) return fcntl(fd, cmd, arg);
     TIMED("file-io:fcntl", 0, fcntl(fd, cmd, arg));
 }
 static int p_fcntl_nc(int fd, int cmd, ...) {
     va_list ap; va_start(ap, cmd); void *arg = va_arg(ap, void *); va_end(ap);
+    if (probe_own_fd(fd)) return fcntl_nocancel(fd, cmd, arg);
     TIMED("file-io:fcntl", 0, fcntl_nocancel(fd, cmd, arg));
 }
 static int p_flock(int fd, int op) { TIMED("file-io:flock", 0, flock(fd, op)); }
@@ -756,6 +764,7 @@ static void open_window(const char *mark) {
         fprintf(stderr, "blocking-probe: CMUX_BLOCKING_PROBE_UNTIL_MARK is too long: %s\n", mark);
         return;
     }
+    int ours = 0;
     const char *given = getenv("CMUX_NEXT_LAUNCH_MARKS_FD");
     char *end = NULL;
     long fd = given != NULL ? strtol(given, &end, 10) : -1;
@@ -770,10 +779,12 @@ static void open_window(const char *mark) {
         char text[24];
         snprintf(text, sizeof text, "%ld", fd);
         setenv("CMUX_NEXT_LAUNCH_MARKS_FD", text, 1);
+        ours = 1;
     }
     snprintf(window_mark, sizeof window_mark, "%s", mark);
     window_mark_length = strlen(window_mark);
     window_fd = (int)fd;
+    window_fd_ours = ours;
 }
 
 // dyld calls an image's initializers with the process's argc and argv.

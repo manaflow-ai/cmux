@@ -130,12 +130,13 @@ fi
 # two wanted arguments only, so the probe stays inert there and passes itself on. That spawns "preflight work
 # --probe-owner --probe-session", the session owner's role, with two threads: probe-test-1-host (watched by the
 # pattern probe-test-*-host) stats a file and reads a pipe (an input wait), probe-test-1-wait (not watched) checks
-# access to a file. Each waits for its child. With a launch window, the app then sends its launch mark to
-# CMUX_NEXT_LAUNCH_MARKS_FD (the probe's /dev/null) and checks access to a file, a call after the mark. A timer
-# then exits.
+# access to a file. Each waits for its child. With a launch window, the app then does what LaunchMarkSink does on
+# CMUX_NEXT_LAUNCH_MARKS_FD (the probe's /dev/null): its fcntls, an earlier mark's line, then the launch mark's
+# line, and checks access to a file, a call after the mark. A timer then exits.
 cat >"$out/preflight.c" <<'C'
 #include <CoreFoundation/CoreFoundation.h>
 #include <crt_externs.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -171,6 +172,16 @@ static void *waiter(void *unused) {
     (void)access("/", F_OK);
     return NULL;
 }
+// LaunchMarkSink's calls on the probe's mark descriptor, which the probe never records.
+static int send_marks(int fd) {
+    static const char early[] = "preflight_early 0.5\n", line[] = "preflight_mark 1.0\n";
+    if (fcntl(fd, F_GETFD) == -1 || fcntl(fd, F_SETFD, FD_CLOEXEC) == -1
+        || fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == -1) {
+        return 1;
+    }
+    if (write(fd, early, sizeof early - 1) != (ssize_t)(sizeof early - 1)) return 1;
+    return write(fd, line, sizeof line - 1) == (ssize_t)(sizeof line - 1) ? 0 : 1;
+}
 static int join(void *(*body)(void *)) {
     pthread_t thread;
     return pthread_create(&thread, NULL, body, NULL) == 0 && pthread_join(thread, NULL) == 0 ? 0 : 1;
@@ -187,8 +198,7 @@ int main(int argc, char **argv) {
         if (run(next) != 0) return 1;
         const char *marks = getenv("CMUX_NEXT_LAUNCH_MARKS_FD");
         if (marks != NULL) {
-            static const char line[] = "preflight_mark 1.0\n";
-            if (write(atoi(marks), line, sizeof line - 1) != (ssize_t)(sizeof line - 1)) return 1;
+            if (send_marks(atoi(marks)) != 0) return 1;
             (void)access("/", F_OK);
         }
     }
@@ -211,7 +221,7 @@ fi
 # The report script checks the dumps (tests/test_blocking_probe_report.py checks its rules): the app's main-thread
 # self-test at exit, none from the inert hop, the owner's self-test, its watched thread's stat and input wait,
 # nothing from its unwatched thread; with a launch window, the app's window: its spawn, not its access after the
-# mark (a missing window file fails the check).
+# mark, no write or fcntl on the probe's mark descriptor (a missing window file fails the check).
 preflight_dumps=("$out"/preflight-dumps/probe-*.tsv)
 for window in "$out"/preflight-dumps/probe-*.tsv.window; do
   if [[ -e "$window" ]]; then preflight_dumps+=("$window"); fi

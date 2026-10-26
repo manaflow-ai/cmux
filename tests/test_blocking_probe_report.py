@@ -309,6 +309,15 @@ class Preflight(unittest.TestCase):
         late = PREFLIGHT_WINDOW + "file-io:access\tmain\t1\t500\t500\tlibc|0x5|access;\n"
         self.assertIn("calls made after the mark", self.check_window(late).stderr)
 
+    def test_a_launch_window_with_calls_on_the_probes_mark_descriptor_fails(self):
+        # The preflight app makes LaunchMarkSink's fcntls and writes an earlier mark before the launch mark: on the
+        # descriptor the probe opened, so they must not reach the window as if the app blocked on them.
+        for row in ("io:write\tmain\t1\t400\t400\tlibsystem_kernel.dylib|0x8|write;preflight|0x40|send_marks;",
+                    "file-io:fcntl\tmain\t3\t300\t100\tlibsystem_kernel.dylib|0x9|fcntl;preflight|0x40|send_marks;"):
+            with self.subTest(row=row.split("\t")[0]):
+                self.assertIn("calls on its own mark descriptor",
+                              self.check_window(PREFLIGHT_WINDOW + row + "\n").stderr)
+
     def test_a_launch_window_without_the_spawn_fails(self):
         empty = window_dump("preflight_mark", 5, [])
         self.assertIn("lacks the app's spawn", self.check_window(empty).stderr)

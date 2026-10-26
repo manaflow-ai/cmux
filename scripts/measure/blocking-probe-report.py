@@ -134,8 +134,10 @@ def rows_of(path):
 
 
 def preflight_window(apps, windows, until_mark):
-    """The launch window's problems: the preflight app spawns its chain, sends the mark, then checks access("/");
-    its one window holds the spawn and neither the access nor the self-test (queued for the main run loop)."""
+    """The launch window's problems: the preflight app spawns its chain, makes LaunchMarkSink's fcntls and writes on
+    the probe's mark descriptor, sends the mark, then checks access("/"); its one window holds the spawn and neither
+    the access nor the self-test (queued for the main run loop), nor a write or fcntl: the probe made that
+    descriptor, so calls on it are not the app's."""
     if len(windows) != 1:
         return [f"{len(windows)} launch window dumps, want 1: the probe did not see the app's {until_mark} mark on "
                 "CMUX_NEXT_LAUNCH_MARKS_FD"]
@@ -147,6 +149,9 @@ def preflight_window(apps, windows, until_mark):
         problems.append("the launch window lacks the app's spawn, made before the mark")
     if any(kind in ("file-io:access", "selftest") for kind, _ in rows):
         problems.append("the launch window holds calls made after the mark (access or the self-test)")
+    if any(kind in ("io:write", "file-io:fcntl") for kind, _ in rows):
+        problems.append("the launch window holds a write or fcntl: the probe recorded calls on its own mark "
+                        "descriptor")
     if apps and ("file-io:access", "main") not in rows_of(apps[0]):
         problems.append("the app's dump lacks its access after the mark: the dump left out calls after the window")
     return problems
