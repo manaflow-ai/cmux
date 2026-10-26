@@ -147,6 +147,21 @@ jobs:
       owner_run_id: ${{ steps.inspect.outputs.owner_run_id }}
       stale: ${{ steps.stale.outputs.stale }}
     steps:
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: preflight-read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -169,7 +184,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.preflight-read-token.outputs.token || github.token }}
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
@@ -231,7 +246,8 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
+          GIT_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.preflight-read-token.outputs.token || github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # The pool a feat-cmux-next push's daemon tests take now
           # (cmux-next-daemon-tests): a publisher whose test job waits on
@@ -252,7 +268,7 @@ jobs:
           # after the local key is known; a newer commit is not enough to drop
           # this run because its tree may still be required by a PR merge ref.
           if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
-            authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            authorization="$(printf 'x-access-token:%s' "${GIT_TOKEN:-$GH_TOKEN}" | base64 | tr -d '\n')"
             remote_sha="$(timeout 15 git -c "http.extraHeader=Authorization: Basic $authorization" \
               ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
             if [[ -z "$remote_sha" ]]; then
@@ -549,6 +565,21 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: wait-read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       # Only the claim script, from this run's commit, for a takeover through
       # the tree-claim authority.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -575,7 +606,7 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.wait-read-token.outputs.token || github.token }}
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # The pool a feat-cmux-next push's daemon tests take now
@@ -810,7 +841,7 @@ jobs:
           OWNER_RUN_ID: ${{ steps.wait.outputs.owner }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.wait-read-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           takeover=false
