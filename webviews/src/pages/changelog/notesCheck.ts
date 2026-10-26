@@ -8,7 +8,7 @@
 // On the page and card a row may not repeat its title as its description either. Only this
 // build's defects count: the 10-nightly page is compared with the same page without this build,
 // so a defect an older nightly already published never blocks the notes after it.
-import { localized, mergedView, readableUpdateItems, type ReleaseView } from "./model";
+import { localized, mergedView, readableUpdateItems, releaseTitle, type ReleaseView } from "./model";
 import { readableChange } from "./readableChange";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlightItem } from "./updateHighlights";
@@ -82,8 +82,10 @@ function noteRows(notes: ReleaseNotes, language: string): Row[][] {
 }
 
 /** The page's rows: the hero and New / Improved / Fixed / Security; All Changes only for bead ids. */
-function pageDefects(where: NotesDefect["where"], view: ReleaseView): NotesDefect[] {
-  const rows = [view.hero, ...view.groups.flatMap((g) => g.items)].filter((i) => i !== undefined);
+function pageDefects(where: NotesDefect["where"], view: ReleaseView, heading = ""): NotesDefect[] {
+  const rows = [heading ? { title: heading, summary: "" } : undefined, view.hero, ...view.groups.flatMap((g) => g.items)].filter(
+    (i) => i !== undefined,
+  );
   const changes = view.changes.filter((c) => BEAD.test(c.title));
   return [...rowDefects(where, rows, true), ...changes.map((c) => ({ kind: "bead" as const, where, text: c.title }))];
 }
@@ -130,11 +132,15 @@ function same(a: NotesDefect, b: NotesDefect): boolean {
     published before it, newest first (the first RANGE - 1 are read). */
 export function checkNightlyNotes(notes: ReleaseNotes, previous: ReleaseNotes[], language = "en"): NotesDefect[] {
   const before = previous.filter((n) => n.build !== notes.build).slice(0, RANGE - 1);
-  const older = pageDefects("page (10 nightlies)", mergedView(before, language));
+  const older = pageDefects("page (10 nightlies)", mergedView(before, language), releaseTitle(before, language));
   const defects = [
     ...noteRows(notes, language).flatMap((rows) => rowDefects("notes", rows, false)),
-    ...pageDefects("page (1 nightly)", mergedView([notes], language)),
-    ...pageDefects("page (10 nightlies)", mergedView([notes, ...before], language)).filter(
+    ...pageDefects("page (1 nightly)", mergedView([notes], language), releaseTitle([notes], language)),
+    ...pageDefects(
+      "page (10 nightlies)",
+      mergedView([notes, ...before], language),
+      releaseTitle([notes, ...before], language),
+    ).filter(
       (d) => !older.some((o) => same(o, d)),
     ),
     ...rowDefects(
