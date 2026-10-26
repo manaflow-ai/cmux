@@ -10,6 +10,15 @@ import Testing
 @MainActor
 @Suite(.paletteRanker)
 struct PaletteQueryResultsTests {
+    /// Yields to the main actor until `done`, at most 10,000 times (false then, instead of hanging).
+    private static func yield(until done: () -> Bool) async -> Bool {
+        for _ in 0..<10_000 {
+            if done() { return true }
+            await Task.yield()
+        }
+        return done()
+    }
+
     private static func row(_ id: String, _ title: String) -> PaletteItem {
         PaletteItem(id: id, title: title, primary: PaletteCommand(id: "show", title: "Show", symbol: "return", effect: .perform {}))
     }
@@ -96,11 +105,11 @@ struct PaletteQueryResultsTests {
         await palette.model.settle()
         #expect(palette.model.rows.map(\.item.id) == ["prompt"])
         palette.model.send(.setQuery("zqx"))
-        while palette.model.rows.map(\.item.id) != ["title"] { await Task.yield() }
+        #expect(await Self.yield(until: { palette.model.rows.map(\.item.id) == ["title"] }))
         // The first answer is on screen while the page still reads.
         #expect(palette.model.isLoading)
         feed.continuation?.yield([Self.row("title", "zqx in a title"), Self.row("terminal", "echo zqx")])
-        while palette.model.rows.count < 2 { await Task.yield() }
+        #expect(await Self.yield(until: { palette.model.rows.count >= 2 }))
         #expect(palette.model.rows.map(\.item.id) == ["title", "terminal"])
         #expect(palette.model.isLoading)
         feed.continuation?.finish()

@@ -9,6 +9,15 @@ import Testing
 /// the titles at once and again as each read lands; "No matches" waits for the last read.
 @MainActor
 struct GlobalSearchPartialReadTests {
+    /// Yields to the main actor until `done`, at most 10,000 times (false then, instead of hanging).
+    private static func yield(until done: () -> Bool) async -> Bool {
+        for _ in 0..<10_000 {
+            if done() { return true }
+            await Task.yield()
+        }
+        return done()
+    }
+
     private static func source(_ id: String, _ title: String) -> GlobalSearchCorpus.Source {
         GlobalSearchCorpus.Source(tabID: id, title: title, terminal: nil, agent: nil)
     }
@@ -35,7 +44,7 @@ struct GlobalSearchPartialReadTests {
         // The first terminal's text lands; the second never answers.
         feed.yield(GlobalSearchCorpus.Read(
             index: 0, texts: [GlobalSearchCorpus.Content(origin: .terminal, lines: ["$ echo zqxmarker", "zqxmarker"])], unreadable: false))
-        while reader.state.value.documents[0].texts.isEmpty { await Task.yield() }
+        #expect(await Self.yield(until: { !reader.state.value.documents[0].texts.isEmpty }))
         let state = reader.state
         #expect(!state.complete)
         let found = await state.value.hits(["zqxmarker"])
@@ -60,5 +69,23 @@ struct GlobalSearchPartialReadTests {
         let rows = await Self.answer("zqx", reader) { items in items.contains { $0.id == "globalSearch.notice.none" } }
         #expect(Self.ids(rows) == ["globalSearch.notice.none", "globalSearch.notice.unreadable"])
         #expect(reader.state.complete)
+    }
+
+    /// A query that matches no title gets no empty answer while terminals are read: the rows of
+    /// the older query stay, so a Return pressed now waits for the first hit (as before the
+    /// change) instead of running no row.
+    @Test func noEmptyAnswerWhileReading() async {
+        let (reads, feed) = AsyncStream.makeStream(of: GlobalSearchCorpus.Read.self, bufferingPolicy: .bufferingOldest(1))
+        let reader = GlobalSearchReader([Self.source("t", "build")], reads: reads)
+        defer { reader.release() }
+        var answers = GlobalSearchPage.answers("zqx", corpus: reader, byTab: [:], reveal: { _, _ in }).makeAsyncIterator()
+        feed.yield(GlobalSearchCorpus.Read(
+            index: 0, texts: [GlobalSearchCorpus.Content(origin: .terminal, lines: ["zqx"])], unreadable: false))
+        // byTab is empty, so a hit shows no row; what matters is that the first answer comes
+        // only after the read that holds the hit, never as an empty answer before it.
+        let first = await answers.next()
+        #expect(first != nil)
+        #expect(!(first ?? []).contains { $0.id == "globalSearch.notice.none" })
+        feed.finish()
     }
 }

@@ -186,10 +186,12 @@ extension PaletteModel {
         let query = state.query
         searchTask?.cancel()
         // The search field's spinner while the page looks (Search All Windows reads every terminal first).
-        state.answersQuery = true
+        state.answeringSearch = searchID
         if state === current { isLoading = true }
         let answers = results(query)
         searchTask = Task { [weak self, weak state] in
+            // However this search ends, it no longer answers the page (a newer one may).
+            defer { if state?.answeringSearch == searchID { state?.answeringSearch = nil } }
             let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
             var last: [PaletteResultSection]?
             for await items in answers {
@@ -200,7 +202,7 @@ extension PaletteModel {
             }
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
-            state.answersQuery = false
+            state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
             self.deliver(last ?? [], to: state, generation: generation)
             if self.pendingClose {

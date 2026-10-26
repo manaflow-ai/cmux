@@ -30,6 +30,8 @@ package final class PaletteLiveRead<Value: Sendable> {
             for await update in updates {
                 guard let self, !Task.isCancelled else { return }
                 var value = state.value
+                // Drop the stored copy first, so `apply` mutates the only one (no copy per read).
+                state = State(value: empty, complete: false)
                 apply(&value, update)
                 publish(State(value: value, complete: false))
             }

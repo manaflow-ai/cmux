@@ -60,6 +60,9 @@ enum GlobalSearchPage {
             for await state in corpus.states() {
                 let found = await state.value.hits(words)
                 guard !Task.isCancelled else { break }
+                // Nothing yet while reading: the rows on screen stay the older query's, so a
+                // Return pressed now waits for the first hit instead of running no row.
+                if found.hits.isEmpty, !state.complete { continue }
                 // The palette keeps a closed page until its next open: a chosen row lets the text go.
                 continuation.yield(items(found.hits, limited: found.limited, unreadable: state.value.unreadable, words: words,
                                          byTab: byTab, reading: !state.complete, reveal: reveal, done: { corpus.release() }))
