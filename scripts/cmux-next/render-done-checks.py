@@ -353,6 +353,7 @@ PANE_AUTOLAYOUT_KEPT = (
     "CmuxNextTabs/Demo/DemoContentView.swift",  # the tab strip demo's stand-in content, never in a cmux pane
     "CmuxNextBrowser/UI/SidePanelHeaderView.swift",  # Chromium's side panel header, beside the page, not in its chrome
     "CmuxNextBrowser/UI/BrowserCookieImportCard.swift",  # a one-time offer card over the page
+    "CmuxNextBrowser/UI/BrowserMediaRowView.swift",  # a card in the media hub menu, laid out once per open, never in a pane
 )
 
 REDRAW_POLICY = CommCheck("MQ-redraw-policy", "queue", q(r"override (public |open )?func updateLayer", files=True),

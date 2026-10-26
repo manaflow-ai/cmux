@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// p03-rendering-073: the omnibar's machine, profile and focus-mode badges lay out by frames
+/// p03-rendering-073: the omnibar's machine, profile and focus-mode badges and its bookmark star lay out by frames
 /// (``ChipLayout``), not Auto Layout. Each holds no constraint of its own and reports its size
 /// through its intrinsic size, which the omnibar's badge row reads.
 @MainActor @Suite struct OmnibarBadgeFrameLayoutTests {
@@ -78,6 +78,28 @@ import Testing
         let rect = Self.alignment(label)
         #expect(abs(rect.midX - 8) <= 0.5)
         #expect(abs(rect.midY - 8) <= 0.5)
+    }
+
+    @Test func theBookmarkStarCentersItsGlyphInItsSquare() throws {
+        _ = NSApplication.shared
+        let star = BookmarkStarButton(frame: .zero)
+        star.state = .off
+        #expect(Self.usesFrames(star))
+        let side = ProfileBadgeView.size + 4
+        #expect(star.intrinsicContentSize == CGSize(width: side, height: side))
+        #expect(star.fittingSize == star.intrinsicContentSize)
+        star.frame = CGRect(origin: .zero, size: star.intrinsicContentSize)
+        star.layoutSubtreeIfNeeded()
+        let glyph = try #require(star.subviews.compactMap { $0 as? NSImageView }.first)
+        let rect = Self.alignment(glyph)
+        #expect(rect.size == glyph.intrinsicContentSize)
+        #expect(abs(rect.midX - side / 2) <= 0.5)
+        #expect(abs(rect.midY - side / 2) <= 0.5)
+
+        star.state = .on
+        star.frame = CGRect(origin: .zero, size: CGSize(width: side + 10, height: side))
+        star.layoutSubtreeIfNeeded()
+        #expect(abs(Self.alignment(glyph).midX - (side + 10) / 2) <= 0.5, "a wider frame centers the glyph again")
     }
 
     @Test func centeringIsOnWholePointsAndNeverNegative() {

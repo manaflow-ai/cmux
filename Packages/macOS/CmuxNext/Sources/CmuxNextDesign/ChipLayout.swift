@@ -83,6 +83,17 @@ public nonisolated struct ChipLayout: Equatable, Sendable {
         }
     }
 
+    /// Each item's frame with the chip placed in `bounds` at its natural width (no wider than
+    /// `maxWidth` or `bounds`, its flexible item giving up the rest) and on the full height: at the
+    /// leading edge, or `centered`. A row inside a surface that resizes every frame (the drop
+    /// overlay's card) frames its items with this.
+    public func frames(placedIn bounds: CGRect, centered: Bool = false, rightToLeft: Bool = false) -> [CGRect] {
+        let width = max(0, min(naturalWidth, maxWidth, bounds.width))
+        let x = centered ? ((bounds.width - width) / 2).rounded() : (rightToLeft ? bounds.width - width : 0)
+        return frames(in: CGSize(width: width, height: bounds.height), rightToLeft: rightToLeft)
+            .map { $0.offsetBy(dx: bounds.minX + x, dy: bounds.minY) }
+    }
+
     private var naturalWidth: CGFloat {
         insets.leading + insets.trailing + items.map(\.size.width).reduce(0, +) + spacing * CGFloat(max(0, items.count - 1))
     }
