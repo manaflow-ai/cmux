@@ -154,7 +154,7 @@ final class AppServices {
     /// Release builds have none, and their registry has no observer.
     let oracleTurns = OracleActionTurns()
     #endif
-    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
+    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` and the hang report sink (``BlockingReportSink``).
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
     let wireStats: DaemonWireStats?
