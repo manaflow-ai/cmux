@@ -79,6 +79,8 @@ final class NewTabSparePool {
     private(set) var openings: [Opening] = []
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
+    /// The spare page while one waits (`debug.memory` spares).
+    var spareView: AgentPaneView? { slot.peek }
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?

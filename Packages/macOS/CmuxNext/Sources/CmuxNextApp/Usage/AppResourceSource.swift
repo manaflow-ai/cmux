@@ -1,7 +1,11 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -168,13 +172,9 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.daemons[index].terminals.append(TerminalQuery(tabID: tab.id, surface: tab.surface))
             case .browser:
                 let page = services.cache.existingBrowser(tab.id)?.tab
-                let kind: TabResourceKind = switch page?.engineKind {
-                case .cef: .chromium
-                case .webkit: .webkit
-                case nil: tab.browserEngine == "cef" || tab.browserEngine == "chromium" ? .chromium : .webkit
-                }
+                let kind: TabResourceKind = Self.drawsInChromium(tab, page: page) ? .chromium : .webkit
                 var sources = TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: kind, processes: [])
-                switch (page as? any BrowserProcessReporting)?.contentProcesses ?? .none {
+                switch Self.contentProcesses(of: page) {
                 case .pids(let pids): sources.processes = pids.map { ProcessKey(pid: $0) }
                 case .chromiumRendererClients(let clients): resolved.rendererClients[tab.id] = clients
                 case .none: break
@@ -182,8 +182,7 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.tabs.append(sources)
             case .conversation where tab.agentSession != nil:
                 // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
-                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
-                let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+                let pid = agentChatProcess(tab)
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
                                                         processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
             case .remoteTerminal, .conversation, .other:
@@ -193,6 +192,153 @@ final class AppResourceSource: ResourceSampleSource {
             }
         }
         return resolved
+    }
+
+    /// Whether browser tab `tab` draws in Chromium: its page's engine, else the daemon's engine name.
+    private static func drawsInChromium(_ tab: TabModel, page: (any BrowserTab)?) -> Bool {
+        switch page?.engineKind {
+        case .cef: true
+        case .webkit: false
+        case nil: tab.browserEngine == "cef" || tab.browserEngine == "chromium"
+        }
+    }
+
+    /// What identifies the processes of a browser tab's page now; `.none` without a page.
+    private static func contentProcesses(of page: (any BrowserTab)?) -> BrowserContentProcesses {
+        (page as? any BrowserProcessReporting)?.contentProcesses ?? .none
+    }
+
+    /// The WebContent process of agent chat `tab`'s page; nil while it hibernates or before it loads.
+    private func agentChatProcess(_ tab: TabModel) -> Int32? {
+        let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+        return view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+    }
+
+    // MARK: `debug.memory` (main actor: one walk of the tabs, IDs and counts only)
+
+    /// The app's memory state for `debug.memory`: the coordinator's report, every tab's content
+    /// phase and processes, each workspace's mount state, the terminal surfaces and the spares.
+    /// O(tabs + consumers), no disk, no wait; no title, URL or path is read.
+    ///
+    /// - Parameter history: The pressure changes to include.
+    /// - Returns: The snapshot the off-main sampler and the report read.
+    func memorySnapshot(history: [MemoryPressureHistory.Change]) -> MemoryDiagnosticsSnapshot {
+        let coordinator = services.memoryCoordinator
+        let cache = services.cache
+        var shown = Set<String>()
+        var parked = Set<String>()
+        for controller in services.windows.controllers {
+            if let content = controller.content { shown.insert(content.workspace.id) }
+            parked.formUnion(controller.parked.keys)
+        }
+        var tabs: [MemoryDiagnosticsSnapshot.Tab] = []
+        var workspaces: [MemoryDiagnosticsSnapshot.Workspace] = []
+        var seen = Set<String>()
+        for workspace in services.machines.daemons.flatMap(\.store.workspaces) {
+            let panes = workspace.screens.flatMap(\.panes)
+            var row = MemoryDiagnosticsSnapshot.Workspace(
+                id: workspace.id, mounted: shown.contains(workspace.id) || parked.contains(workspace.id),
+                parked: parked.contains(workspace.id), panes: panes.count)
+            for tab in panes.flatMap(\.tabs) where seen.insert(tab.id).inserted {
+                let item = memoryTab(tab)
+                if cache.existingTerminal(tab.id) != nil {
+                    row.terminalSurfaces += 1
+                    if cache.ledger.isRendering(tab.id) { row.gpuResidentSurfaces += 1 }
+                }
+                row.appBytes += item.appBytes ?? 0
+                tabs.append(item)
+            }
+            workspaces.append(row)
+        }
+        return MemoryDiagnosticsSnapshot(
+            report: coordinator.report(budget: services.memoryBudget), kernelLevel: coordinator.kernelLevel,
+            override: coordinator.pressureOverride, history: history, tabs: tabs, workspaces: workspaces,
+            terminal: memoryTerminal(), spares: memorySpares())
+    }
+
+    private func memoryTab(_ tab: TabModel) -> MemoryDiagnosticsSnapshot.Tab {
+        let cache = services.cache
+        let phase = cache.lifecycle.phase(tab.id)
+        let state: MemoryDiagnosticsSnapshot.Tab.State = switch phase {
+        case .unmounted: .unmounted
+        case .mountedVisible, .mountedHidden: .live
+        case .hibernated: .discarded
+        case .restoring: .restoring
+        case .crashed: .crashed
+        }
+        var item = MemoryDiagnosticsSnapshot.Tab(id: tab.id, kind: .other, state: state, visible: phase == .mountedVisible)
+        switch tab.kind {
+        case .pty:
+            item.kind = .terminal
+            item.appBytes = cache.existingTerminal(tab.id).map { Int(clamping: $0.session.surfaceView.memoryEstimateBytes) }
+        case .browser:
+            let page = cache.existingBrowser(tab.id)?.tab
+            item.kind = .browser
+            item.engine = Self.drawsInChromium(tab, page: page) ? .cef : .webkit
+            switch Self.contentProcesses(of: page) {
+            case .pids(let pids): item.processes = pids.map { .webContent($0) }
+            case .chromiumRendererClients(let clients): item.processes = clients.map { .chromiumRendererClient($0) }
+            case .none: break
+            }
+        case .conversation where tab.agentSession != nil:
+            item.kind = .agent
+            item.engine = .webkit
+            item.processes = agentChatProcess(tab).map { [.webContent($0)] } ?? []
+        case .remoteTerminal, .conversation, .other:
+            break
+        }
+        return item
+    }
+
+    private func memoryTerminal() -> MemoryDiagnosticsSnapshot.Terminal {
+        let cache = services.cache
+        var rendering = 0
+        var hiddenBytes = 0
+        for (key, entry) in cache.terminals {
+            if cache.ledger.isRendering(key) {
+                rendering += 1
+            } else {
+                hiddenBytes += Int(clamping: entry.session.surfaceView.memoryEstimateBytes)
+            }
+        }
+        return MemoryDiagnosticsSnapshot.Terminal(
+            warmCapacity: cache.warmBudget.terminalCapacity, surfaces: cache.terminals.count, gpuResidentCount: rendering,
+            hiddenNonvolatileIOSurfaceBytes: hiddenBytes, lastFrames: cache.lastFrames.count)
+    }
+
+    private func memorySpares() -> [MemoryDiagnosticsSnapshot.Spare] {
+        var spares: [MemoryDiagnosticsSnapshot.Spare] = []
+        if let view = services.newTabSpares.spareView {
+            spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: view.webView)))
+        }
+        if let host = services.pageHostPool.spareHost {
+            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: host.webKitView)))
+        }
+        return spares
+    }
+
+    /// The app process, its Chromium helpers and the WebContent processes in `snapshot`, each with
+    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
+    @concurrent
+    nonisolated static func memoryProcesses(_ snapshot: MemoryDiagnosticsSnapshot) async -> MemoryDiagnosticsProcesses {
+        func row(_ kind: MemoryDiagnosticsProcesses.Kind, _ pid: Int32) -> MemoryDiagnosticsProcesses.Row {
+            .init(kind: kind, pid: pid, physFootprintBytes: ProcessUsage.sample(pid).map { Int(clamping: $0.physFootprint) })
+        }
+        var rows = [row(.app, getpid())]
+        var rendererPIDs: [Int32: Int32] = [:]
+        for helper in ChromiumHelperProcess.list() {
+            switch helper.kind {
+            case .renderer(let client):
+                rendererPIDs[client] = helper.pid
+                rows.append(row(.chromiumRenderer, helper.pid))
+            case .extensionRenderer: rows.append(row(.chromiumRenderer, helper.pid))
+            case .gpu: rows.append(row(.chromiumGPU, helper.pid))
+            case .network, .utility: rows.append(row(.chromiumUtility, helper.pid))
+            case .other: rows.append(row(.other, helper.pid))
+            }
+        }
+        rows += snapshot.webContentPIDs.map { row(.webkitWebContent, $0) }
+        return MemoryDiagnosticsProcesses(rows: rows, rendererPIDs: rendererPIDs)
     }
 
     // MARK: Off the main actor
