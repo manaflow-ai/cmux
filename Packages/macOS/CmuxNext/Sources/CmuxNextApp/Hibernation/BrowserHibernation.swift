@@ -51,7 +51,7 @@ final class BrowserHibernation {
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
     /// When an agent last called each page (`noteAgentUse`).
-    private var agentUsedAt: [String: ContinuousClock.Instant] = [:]
+    private(set) var agentUsedAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds after an agent's call during which its hidden page stays awake
     /// whatever the memory pressure, so a page does not close under a script
     /// or between two calls of one task.
@@ -152,6 +152,8 @@ final class BrowserHibernation {
     /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
+    /// Hidden pages' title and icon changes (`DiscardRule.backgroundActivity`); the App turns it on.
+    let activity = PageActivityWatch()
 
     /// - Parameter lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false)) {
@@ -185,6 +187,7 @@ final class BrowserHibernation {
         deadline.cancel()
         freezeDeadline.cancel()
         hoverDwell.cancel()
+        activity.stop()
     }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
@@ -247,12 +250,6 @@ final class BrowserHibernation {
         }
     }
 
-    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
-    func host(of key: String) -> String? {
-        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
-        return host
-    }
-
     /// An agent took (`held`) or let go of tab `key`'s browser lease. A leased page never
     /// freezes or hibernates; it thaws at once so the agent's next call runs.
     func noteLease(_ key: String, held: Bool) {
@@ -271,8 +268,9 @@ final class BrowserHibernation {
     // MARK: Lifecycle notifications (from TabContentCache effects)
 
     func tabDidHide(_ key: String) {
-        guard cache?.browsers[key] != nil else { return }
+        guard let tab = cache?.browsers[key]?.tab else { return }
         hiddenAt[key] = .now
+        watchActivity(key, tab)
         replan()
     }
 
@@ -287,6 +285,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
+        activity.forget(key)
         noteFocus(key, at: .now)
     }
 
@@ -339,6 +338,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
+        activity.forget(key)
     }
 
     // MARK: Neighbors
@@ -512,13 +512,10 @@ final class BrowserHibernation {
         }
     }
 
-    /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
-    /// neighbor or hovered tab.
+    /// No agent drives the hidden page (`isAgentDriven`), it showed no background activity (its
+    /// updates stay live), and it is no neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
-        // An agent holds its lease: its next call would wait on a thaw.
-        if leased.contains(key) { return false }
-        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
@@ -646,6 +643,7 @@ final class BrowserHibernation {
         cache.dormantTabs.set(key, true)
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
         hiddenAt[key] = nil
+        activity.forget(key)
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
