@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextTrace
 import CmuxNextWakeups
 import os
 
@@ -95,6 +96,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Parameter snapshotVersion: the view's GHOSTSNP version. When the
     ///   host has ``snapshotCapability`` the attach asks for snapshots; the
     ///   host still answers with a byte replay when its version differs.
+    /// - Parameter hangs: watches the reader's handling of each output line
+    ///   (``LineTransport``'s `daemon.line` scope); nil watches nothing.
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -104,14 +107,15 @@ public actor TerminalAttachment: TerminalByteChannel {
         localHistory: Bool = false,
         images: Bool = false,
         clientName: String = "cmux-next-terminal",
-        device: TerminalSizingDevice? = nil
+        device: TerminalSizingDevice? = nil,
+        hangs: (any HangWatchScoping)? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
-                                          stats: endpoint.wireStats)
+                                          stats: endpoint.wireStats, hangs: hangs)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
