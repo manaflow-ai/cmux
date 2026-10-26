@@ -909,6 +909,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh

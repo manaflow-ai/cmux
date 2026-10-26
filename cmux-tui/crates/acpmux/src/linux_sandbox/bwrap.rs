@@ -3,7 +3,9 @@
 //! proxy must also be installed before a remote command may run.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
+use std::collections::BTreeSet;
 use std::fmt;
+use std::fs;
 use std::io::{self, Read};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -34,82 +36,22 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
     ".claude/.credentials.json",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Mask {
-    Directory(PathBuf),
-    /// A read-only /dev/null bind. Bubblewrap's nodev mounts can make
-    /// reads fail with EACCES instead of returning EOF; either hides the file.
-    File(PathBuf),
-}
-
-/// Select existing absolute read-denied paths plus the Linux HOME additions.
-/// Resolve symlinks so both the symlink and its canonical target are masked.
-/// Only ENOENT is omitted; other metadata failures retain a file mask so
-/// bwrap either conceals the path or refuses setup. Iteration ends after
-/// the supplied denies and the fixed Linux additions have been visited.
-/// `read_denies` stays an explicit caller-supplied list: the spawn wiring
-/// joins it with `rules::read_denies(...)` before calling this pure helper.
-pub(crate) fn masks(home: &Path, read_denies: &[PathBuf]) -> Vec<Mask> {
-    read_denies
-        .iter()
-        .cloned()
-        .chain(LINUX_READ_DENIES.iter().map(|p| home.join(p)))
-        .filter_map(|path| {
-            let path = std::fs::canonicalize(&path).unwrap_or(path);
-            match std::fs::metadata(&path) {
-                Ok(meta) if meta.is_dir() => Some(Mask::Directory(path)),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-                _ => Some(Mask::File(path)),
-            }
-        })
-        .collect()
-}
-
 /// Pure argv construction, including the command prefix after `--`.
-/// The loops end after four writable roots and the supplied masks.
-pub(crate) fn bwrap_args(
+/// The loop ends after four writable roots. HOME is rebuilt first.
+fn bwrap_args(
     paths: &Paths,
-    masks: &[Mask],
+    home_view: &[String],
     cmd_prefix: &[String],
 ) -> Result<Vec<String>, String> {
-    let mut out: Vec<String> = [
-        "--new-session",
-        "--die-with-parent",
-        "--unshare-user",
-        "--unshare-pid",
-        "--unshare-ipc",
-        "--unshare-net",
-        "--unshare-uts",
-        "--unshare-cgroup-try",
-        "--disable-userns",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
+    let mut out: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc"
+        .split_whitespace().map(str::to_owned).collect();
+    out.extend_from_slice(home_view);
     for path in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
         let path = path_arg(path)?;
         out.extend(["--bind".into(), path.clone(), path]);
     }
     let memory = path_arg(&paths.claude_project.join("memory"))?;
     out.extend(["--ro-bind".into(), memory.clone(), memory]);
-    for mask in masks {
-        match mask {
-            Mask::Directory(path) => {
-                let path = path_arg(path)?;
-                out.extend(["--tmpfs".into(), path.clone(), "--remount-ro".into(), path]);
-            }
-            Mask::File(path) => {
-                out.extend(["--ro-bind".into(), "/dev/null".into(), path_arg(path)?]);
-            }
-        }
-    }
     out.extend([
         "--chdir".into(),
         path_arg(&paths.cwd)?,
@@ -133,24 +75,191 @@ fn path_arg(path: &Path) -> Result<String, String> {
     path.to_str().map(str::to_owned).ok_or_else(|| "sandbox paths must be UTF-8".to_owned())
 }
 
-/// Red-first stub: snapshot HOME's allowed children before writable binds.
-fn home_view(_home: &Path, _read_denies: &[PathBuf]) -> Result<Vec<String>, String> {
-    Ok(Vec::new())
+/// Resolve existing symlinks even when a final component is absent. The
+/// loop stops at the first existing ancestor (at worst /); errors refuse.
+fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
+    let mut ancestor = path.to_owned();
+    loop {
+        match fs::canonicalize(&ancestor) {
+            Ok(root) => {
+                return Ok(root.join(path.strip_prefix(&ancestor).map_err(|e| e.to_string())?));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                if !ancestor.pop() {
+                    return Err(format!("cannot resolve {}: {e}", path.display()));
+                }
+            }
+            Err(e) => return Err(format!("cannot resolve {}: {e}", path.display())),
+        }
+    }
 }
 
-/// Red-first stub: identify alternate mount views of protected paths.
-pub(crate) fn mount_aliases(_protected: &[PathBuf], _mountinfo: &str) -> Vec<String> {
-    Vec::new()
+/// Both lexical and canonical names stay denied. Iteration ends after the
+/// explicit HOME-relative profile paths (resolved by rules) and Linux extras.
+fn denied_paths(home: &Path, read_denies: &[PathBuf]) -> Result<BTreeSet<PathBuf>, String> {
+    let mut denied = BTreeSet::new();
+    for path in read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))) {
+        path_arg(&path)?;
+        for name in [path.clone(), resolve_missing(&path)?] {
+            if name == home || !name.starts_with(home) {
+                return Err(format!(
+                    "denied path {} resolves outside HOME: {}",
+                    path.display(),
+                    name.display()
+                ));
+            }
+            denied.insert(name);
+        }
+    }
+    Ok(denied)
 }
 
-/// The caller supplies a fresh /proc/self/mountinfo snapshot at spawn time.
+/// Rebuild only ancestors of denied leaves; never mount the leaves. New
+/// host entries in rebuilt directories remain invisible for the session
+/// (stricter than Seatbelt). Symlinks are recreated, never bind-followed.
+/// All traversals stop after the finite deny/ancestor/child snapshots.
+fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, String> {
+    let minimal: Vec<_> =
+        denied.iter().filter(|p| !denied.iter().any(|q| q != *p && p.starts_with(q))).collect();
+    let mut dirs = BTreeSet::from([home.to_owned()]);
+    for path in minimal {
+        for parent in path.ancestors().skip(1).take_while(|p| p.starts_with(home)) {
+            let parent = resolve_missing(parent)?;
+            if !parent.starts_with(home) {
+                return Err(format!("ancestor outside HOME: {}", parent.display()));
+            }
+            if !denied.iter().any(|d| parent.starts_with(d)) {
+                dirs.insert(parent);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for dir in &dirs {
+        out.extend(["--tmpfs".into(), path_arg(dir)?]);
+        let children = match fs::read_dir(dir) {
+            Ok(entries) => {
+                entries.map(|e| e.map(|e| e.path())).collect::<io::Result<BTreeSet<_>>>()
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
+            Err(e) => Err(e),
+        }
+        .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
+        for child in children {
+            if denied.iter().any(|d| child.starts_with(d)) || dirs.contains(&child) {
+                continue;
+            }
+            let meta = fs::symlink_metadata(&child).map_err(|e| e.to_string())?;
+            if meta.is_symlink() {
+                let target = fs::read_link(&child).map_err(|e| e.to_string())?;
+                let target = target.to_str().ok_or("symlink target must be UTF-8")?;
+                out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
+            } else {
+                out.extend(["--ro-bind".into(), path_arg(&child)?, path_arg(&child)?]);
+            }
+        }
+    }
+    // Seal only after every descendant mountpoint and symlink exists.
+    for dir in dirs.iter().rev() {
+        out.extend(["--remount-ro".into(), path_arg(dir)?]);
+    }
+    Ok(out)
+}
+
+/// Pure mountinfo comparison: input paths are already inspected/canonicalized
+/// by plan. Same-device overlapping filesystem roots conservatively refuse.
+/// Malformed tables also refuse. Loops end at the supplied paths/entries.
+pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<String> {
+    let decode = |s: &str| {
+        PathBuf::from(
+            s.replace("\\040", " ")
+                .replace("\\011", "\t")
+                .replace("\\012", "\n")
+                .replace("\\134", "\\"),
+        )
+    };
+    let mut mounts = Vec::new();
+    for line in mountinfo.lines() {
+        let Some((fields, _)) = line.split_once(" - ") else {
+            return vec!["invalid mountinfo".into()];
+        };
+        let fields: Vec<_> = fields.split_whitespace().collect();
+        let [_, _, device, root, point, _, ..] = fields.as_slice() else {
+            return vec!["invalid mountinfo".into()];
+        };
+        let (root, point) = (decode(root), decode(point));
+        if path_arg(&root).is_err() || path_arg(&point).is_err() {
+            return vec!["invalid mountinfo path".into()];
+        }
+        mounts.push((*device, root, point));
+    }
+    let mut aliases = BTreeSet::new();
+    for path in protected {
+        let Some((index, (device, root, point))) = mounts
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| path.starts_with(&m.2))
+            .max_by_key(|(_, m)| m.2.components().count())
+        else {
+            return vec![format!("no containing mount for {}", path.display())];
+        };
+        let Ok(rest) = path.strip_prefix(point) else {
+            return vec!["invalid containing mount".into()];
+        };
+        let relative = root.join(rest);
+        for (other, (dev, root, point)) in mounts.iter().enumerate() {
+            if other != index
+                && dev == device
+                && (root.starts_with(&relative) || relative.starts_with(root))
+            {
+                aliases.insert(format!(
+                    "{} is also visible at {}",
+                    path.display(),
+                    point.display()
+                ));
+            }
+        }
+    }
+    aliases.into_iter().collect()
+}
+
+/// Caller supplies fresh /proc/self/mountinfo and explicit HOME-denied paths
+/// from rules::read_denies; Linux additions are included here. No spawn is
+/// wired yet. Loops end after the fixed roots and collected protected names.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
-    _mountinfo: &str,
+    mountinfo: &str,
     cmd_prefix: &[String],
 ) -> Result<Vec<String>, String> {
-    bwrap_args(paths, &masks(&paths.home, read_denies), cmd_prefix)
+    let memory = paths.claude_project.join("memory");
+    let writable = [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project];
+    for path in [&paths.home, &memory].into_iter().chain(writable) {
+        path_arg(path)?;
+        if fs::canonicalize(path).map_err(|e| e.to_string())? != *path {
+            return Err(format!("noncanonical sandbox path: {}", path.display()));
+        }
+    }
+    let denied = denied_paths(&paths.home, read_denies)?;
+    // A later writable bind must never reintroduce a denied subtree.
+    for root in writable {
+        if denied.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
+            return Err(format!("writable root overlaps read denial: {}", root.display()));
+        }
+    }
+    let mut protected = vec![memory];
+    for path in &denied {
+        match fs::metadata(path) {
+            Ok(_) => (),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+        }
+        protected.push(path.clone()); // Include absent names: ancestor aliases can expose later files.
+    }
+    let aliases = mount_aliases(&protected, mountinfo);
+    if !aliases.is_empty() {
+        return Err(aliases.join("; "));
+    }
+    bwrap_args(paths, &home_view(&paths.home, &denied)?, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,15 +314,7 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
 /// inherited stderr writer cannot hold the probe open after its child exits.
 pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
     let mut child = Command::new(bwrap)
-        .args([
-            "--unshare-user",
-            "--unshare-net",
-            "--disable-userns",
-            "--ro-bind",
-            "/",
-            "/",
-            "true",
-        ])
+        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / true".split_whitespace())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .current_dir("/")
@@ -302,8 +403,22 @@ mod tests {
     }
 
     fn optional_skip(reason: &Unavailable, required: bool) -> bool {
-        let _ = reason;
-        !required // Red-first: mirrors the current overly broad skip policy.
+        !required
+            && matches!(reason, Unavailable::NotInstalled | Unavailable::UserNamespacesRestricted)
+    }
+
+    fn real_probe() -> bool {
+        match probe(Path::new("/usr/bin/bwrap")) {
+            Ok(()) => true,
+            Err(reason) => {
+                assert!(
+                    optional_skip(&reason, std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_some()),
+                    "{reason}"
+                );
+                eprintln!("skipped: {reason}");
+                false
+            }
+        }
     }
 
     /// Stops after the fixed classification table has been checked.
@@ -369,7 +484,8 @@ mod tests {
         symlink(".ssh/aws", p.home.join(".aws")).unwrap();
         symlink("absent-target", p.home.join("ordinary-link")).unwrap();
         fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
-        let view = home_view(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        let denied = denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        let view = home_view(&p.home, &denied).unwrap();
         let home = p.home.to_str().unwrap();
         let claude = p.home.join(".claude").to_str().unwrap().to_owned();
         assert!(view.windows(2).any(|w| w == ["--tmpfs", home]));
@@ -382,14 +498,8 @@ mod tests {
             view.windows(3).any(|w| w
                 == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()])
         );
-        assert_eq!(
-            view.iter().filter(|a| a.as_str() == "--tmpfs").count(),
-            view.windows(2)
-                .filter(|w| w[0] == "--tmpfs")
-                .map(|w| &w[1])
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-        );
+        let mounts: Vec<_> = view.windows(2).filter(|w| w[0] == "--tmpfs").map(|w| &w[1]).collect();
+        assert_eq!(mounts.len(), mounts.iter().collect::<BTreeSet<_>>().len());
         let args = plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
         let writable = args.iter().position(|s| s == "--bind").unwrap();
@@ -402,7 +512,7 @@ mod tests {
         let p = f.create_paths();
         fs::write(f.0.join("secret"), "credential").unwrap();
         std::os::unix::fs::symlink(f.0.join("secret"), p.home.join(".netrc")).unwrap();
-        let error = home_view(&p.home, &[p.home.join(".netrc")]).unwrap_err();
+        let error = denied_paths(&p.home, &[p.home.join(".netrc")]).unwrap_err();
         assert!(error.contains("outside HOME"), "{error}");
     }
 
@@ -416,135 +526,20 @@ mod tests {
             claude_tmp_project: "/tmp/claude-1000/session".into(),
             claude_project: "/home/person/.claude/projects/session".into(),
         };
-        let selected = [Mask::Directory(p.home.join(".ssh")), Mask::File(p.home.join(".netrc"))];
+        let view = strings(&["--tmpfs", "/home/person", "--remount-ro", "/home/person"]);
         let command = strings(&["/usr/bin/acpmux", "__remote-sandbox-init", "--", "a b", "--bind"]);
-        let args = bwrap_args(&p, &selected, &command).unwrap();
-        let mut expected = strings(&[
-            "--new-session",
-            "--die-with-parent",
-            "--unshare-user",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-net",
-            "--unshare-uts",
-            "--unshare-cgroup-try",
-            "--disable-userns",
-            "--ro-bind",
-            "/",
-            "/",
-            "--dev",
-            "/dev",
-            "--proc",
-            "/proc",
-            "--bind",
-            "/home/person/session with spaces",
-            "/home/person/session with spaces",
-            "--bind",
-            "/tmp/acpmux-spawn",
-            "/tmp/acpmux-spawn",
-            "--bind",
-            "/tmp/claude-1000/session",
-            "/tmp/claude-1000/session",
-            "--bind",
-            "/home/person/.claude/projects/session",
-            "/home/person/.claude/projects/session",
-            "--ro-bind",
-            "/home/person/.claude/projects/session/memory",
-            "/home/person/.claude/projects/session/memory",
-            "--tmpfs",
-            "/home/person/.ssh",
-            "--remount-ro",
-            "/home/person/.ssh",
-            "--ro-bind",
-            "/dev/null",
-            "/home/person/.netrc",
-            "--chdir",
-            "/home/person/session with spaces",
-            "--cap-drop",
-            "ALL",
-            "--",
-        ]);
-        let options = args.iter().take_while(|s| s.as_str() != "--").collect::<Vec<_>>();
-        assert_eq!(options.iter().filter(|s| s.as_str() == "--bind").count(), 4);
+        let args = bwrap_args(&p, &view, &command).unwrap();
+        let mut expected: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc".split_whitespace().map(str::to_owned).collect();
+        expected.extend("--tmpfs|/home/person|--remount-ro|/home/person|--bind|/home/person/session with spaces|/home/person/session with spaces|--bind|/tmp/acpmux-spawn|/tmp/acpmux-spawn|--bind|/tmp/claude-1000/session|/tmp/claude-1000/session|--bind|/home/person/.claude/projects/session|/home/person/.claude/projects/session|--ro-bind|/home/person/.claude/projects/session/memory|/home/person/.claude/projects/session/memory|--chdir|/home/person/session with spaces|--cap-drop|ALL|--".split('|').map(str::to_owned));
         expected.extend(command);
         assert_eq!(args, expected);
-    }
-
-    #[test]
-    fn masks_only_existing_paths_and_preserves_file_directory_kind() {
-        let fixture = Fixture::new();
-        let home = fixture.0.join("home");
-        fs::create_dir_all(home.join(".ssh")).unwrap();
-        fs::write(home.join(".netrc"), "synthetic credential").unwrap();
-        let denied = [home.join(".ssh"), home.join(".netrc"), home.join("absent")];
-        assert_eq!(
-            masks(&home, &denied),
-            vec![Mask::Directory(home.join(".ssh")), Mask::File(home.join(".netrc"))],
-        );
-        assert!(masks(&fixture.0.join("missing-home"), &[]).is_empty());
-    }
-
-    #[test]
-    fn masks_resolve_symlinks_and_do_not_omit_inspection_errors() {
-        use std::os::unix::fs::symlink;
-        let fixture = Fixture::new();
-        let home = fixture.0.join("home");
-        fs::create_dir(&home).unwrap();
-        let directory = fixture.0.join("secret-directory");
-        let file = fixture.0.join("secret-file");
-        fs::create_dir(&directory).unwrap();
-        fs::write(&file, "synthetic credential").unwrap();
-        symlink(&directory, home.join(".ssh")).unwrap();
-        symlink(&file, home.join(".netrc")).unwrap();
-        symlink("loop", home.join("loop")).unwrap();
-        symlink("absent", home.join("dangling")).unwrap();
-        assert_eq!(
-            masks(
-                &home,
-                &[home.join(".ssh"), home.join(".netrc"), home.join("loop"), home.join("dangling"),]
-            ),
-            vec![Mask::Directory(directory), Mask::File(file), Mask::File(home.join("loop"))],
-        );
-    }
-
-    #[test]
-    fn argv_refuses_lossy_path_conversion() {
         use std::os::unix::ffi::OsStringExt;
-        let fixture = Fixture::new();
-        let mut p = fixture.paths();
+        let mut p = p;
         p.cwd = std::ffi::OsString::from_vec(b"/invalid-\xff".to_vec()).into();
         assert_eq!(
             bwrap_args(&p, &[], &strings(&["true"])),
             Err("sandbox paths must be UTF-8".to_owned())
         );
-    }
-
-    /// Stops after the fixed Linux additions have each been created.
-    #[test]
-    fn linux_secret_masks_are_home_relative_and_added_to_shared_denies() {
-        let fixture = Fixture::new();
-        let home = fixture.0.join("home");
-        let directories = [
-            ".local/share/keyrings",
-            ".password-store",
-            ".mozilla",
-            ".config/google-chrome",
-            ".config/chromium",
-            ".config/BraveSoftware",
-            ".pki",
-        ];
-        let mut expected = Vec::new();
-        for dir in directories {
-            fs::create_dir_all(home.join(dir)).unwrap();
-            expected.push(Mask::Directory(home.join(dir)));
-        }
-        fs::create_dir(home.join(".claude")).unwrap();
-        fs::write(home.join(".claude/.credentials.json"), "synthetic login").unwrap();
-        expected.push(Mask::File(home.join(".claude/.credentials.json")));
-        let mut names = directories.to_vec();
-        names.push(".claude/.credentials.json");
-        assert_eq!(LINUX_READ_DENIES, names);
-        assert_eq!(masks(&home, &[]), expected);
     }
 
     /// The canned-case loop stops at the end of this fixed table.
@@ -559,41 +554,38 @@ mod tests {
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::UserNamespacesRestricted));
         }
-        assert_eq!(
-            classify(Some(1), "bwrap: Unknown option --disable-userns"),
-            Err(Unavailable::TooOld),
-        );
-        assert_eq!(
-            classify(Some(1), "bwrap: unrecognized option '--disable-userns'"),
-            Err(Unavailable::TooOld),
-        );
-        assert_eq!(
-            classify(Some(1), "bwrap: Unknown option --unrelated"),
-            Err(Unavailable::Other("bwrap: Unknown option --unrelated".into())),
-        );
-        assert_eq!(
-            classify(Some(1), "bwrap: Can't mount /: Permission denied\n"),
-            Err(Unavailable::Other("bwrap: Can't mount /: Permission denied".into())),
-        );
+        for stderr in [
+            "bwrap: Unknown option --disable-userns",
+            "bwrap: unrecognized option '--disable-userns'",
+        ] {
+            assert_eq!(classify(Some(1), stderr), Err(Unavailable::TooOld));
+        }
+        for stderr in
+            ["bwrap: Unknown option --unrelated", "bwrap: Can't mount /: Permission denied\n"]
+        {
+            assert_eq!(classify(Some(1), stderr), Err(Unavailable::Other(stderr.trim().into())));
+        }
         assert!(matches!(classify(Some(1), ""), Err(Unavailable::Other(_))));
         assert!(matches!(classify(None, ""), Err(Unavailable::Other(_))));
     }
 
+    /// Stops after the fixed refusal-message table.
     #[test]
     fn refusal_messages_name_the_remedy() {
-        assert_eq!(
-            Unavailable::NotInstalled.to_string(),
-            "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)"
-        );
-        assert_eq!(
-            Unavailable::TooOld.to_string(),
-            "bwrap older than 0.8 (missing --disable-userns)"
-        );
-        assert_eq!(
-            Unavailable::UserNamespacesRestricted.to_string(),
-            "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict"
-        );
-        assert_eq!(Unavailable::Other("diagnostic".into()).to_string(), "diagnostic");
+        for (reason, text) in [
+            (
+                Unavailable::NotInstalled,
+                "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
+            ),
+            (Unavailable::TooOld, "bwrap older than 0.8 (missing --disable-userns)"),
+            (
+                Unavailable::UserNamespacesRestricted,
+                "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
+            ),
+            (Unavailable::Other("diagnostic".into()), "diagnostic"),
+        ] {
+            assert_eq!(reason.to_string(), text);
+        }
     }
 
     #[test]
@@ -607,22 +599,24 @@ mod tests {
     #[tokio::test]
     async fn regression_real_bwrap_hides_credentials_created_during_session() {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        if let Err(reason) = probe(Path::new("/usr/bin/bwrap")) {
-            assert!(
-                optional_skip(&reason, std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_some()),
-                "{reason}"
-            );
-            eprintln!("skipped: {reason}");
+        if !real_probe() {
             return;
         }
         let f = Fixture::new();
         let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        std::os::unix::fs::symlink(".ssh/aws", p.home.join(".aws")).unwrap();
         let credential = p.home.join(".claude/.credentials.json");
         let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
         let command =
             strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
-        let args =
-            plan(&p, &[], &fs::read_to_string("/proc/self/mountinfo").unwrap(), &command).unwrap();
+        let args = plan(
+            &p,
+            &[p.home.join(".ssh"), p.home.join(".aws")],
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut child = tokio::process::Command::new("/usr/bin/bwrap")
             .args(args)
             .stdin(Stdio::piped())
@@ -658,12 +652,7 @@ mod tests {
     #[tokio::test]
     async fn real_bwrap_isolates_mounts_processes_and_network() {
         let bwrap = Path::new("/usr/bin/bwrap");
-        if let Err(reason) = probe(bwrap) {
-            assert!(
-                optional_skip(&reason, std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_some()),
-                "real bwrap required but probe failed: {reason}"
-            );
-            eprintln!("skipped: {reason}");
+        if !real_probe() {
             return;
         }
         eprintln!("running: real bwrap isolation test ({})", bwrap.display());
@@ -775,7 +764,13 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let args = bwrap_args(&p, &masks(&p.home, &[secrets, secret]), &command).unwrap();
+        let args = plan(
+            &p,
+            &[secrets, secret],
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         child
             .args(args)
