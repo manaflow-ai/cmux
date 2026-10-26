@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
@@ -148,6 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
+        let rateClasses = services.features.isEnabled(.frameRateClasses)
+        FrameScheduler.appDisplays.followsClientRates = rateClasses
+        DesignSettings.shared.loopsFollowFrameRate = rateClasses
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.

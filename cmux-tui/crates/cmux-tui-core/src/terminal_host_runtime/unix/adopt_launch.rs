@@ -321,6 +321,7 @@ fn spawn_adopting_host(
         Some(binary) => {
             let mut command = Command::new(binary);
             configure(&mut command);
+            crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
             command.spawn()
         }
         None => crate::host_exe::spawn_host(configure),

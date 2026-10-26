@@ -41,7 +41,7 @@ tab's next neighbor is the first tab.
   A pane off screen (parked workspace, away layout) reports no shown tab.
   `teardown` removes the pane.
 - `TabStripView.onHoverTab` reports hover changes.
-- `LowPowerMode.system` (CmuxNextDesign) and the memory pressure source.
+- The app's `LowPowerMode` (CmuxNextEnergy, from AppServices' `energyMonitor`) and the memory pressure source.
 
 `NeighborTabs` is the pure part: per-pane order and selection to the awake set.
 

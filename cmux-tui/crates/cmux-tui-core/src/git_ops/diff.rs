@@ -86,6 +86,8 @@ pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // The operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;

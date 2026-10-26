@@ -52,6 +52,9 @@ public final class FrameClient {
     /// The client's priority class: ``MainWorkClass/frame`` (every frame, unbudgeted) unless the
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
+    /// How often it needs frames: its display's link runs at the highest rate of the active clients
+    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another.
+    public let rate: FrameRate
     private let onFrame: @MainActor (FrameTick) -> Bool
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
@@ -63,12 +66,14 @@ public final class FrameClient {
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
-    /// scheduler `resolve` returns when it activates.
-    public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
+    /// scheduler `resolve` returns when it activates, at `rate` or faster.
+    public init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion,
+                scheduler resolve: @escaping @MainActor () -> FrameScheduler,
                 onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
         self.workClass = .frame
+        self.rate = rate
         self.resolve = resolve
         self.onFrame = onFrame
         startup = nil
@@ -89,6 +94,7 @@ public final class FrameClient {
         self.owner = owner
         self.isAnimation = false
         self.workClass = workClass.workClass
+        self.rate = .motion
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }
         self.onFrame = { tick in onFrame(tick, budget) }
@@ -101,21 +107,25 @@ public final class FrameClient {
         self.owner = owner
         self.isAnimation = false
         self.workClass = .input
+        self.rate = .motion
         self.resolve = { [weak scheduler] in scheduler ?? .app }
         self.onFrame = onFrame
         startup = nil
     }
 
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).
-    public convenience init(owner: String, view: NSView, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }, onFrame: onFrame)
+    public convenience init(owner: String, rate: FrameRate = .motion, view: NSView,
+                            onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.init(owner: owner, rate: rate, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
+                  onFrame: onFrame)
     }
 
     /// A client of a fixed scheduler (``FrameScheduler/app`` once that scheduler is gone,
     /// as for a view client without a window).
-    public convenience init(owner: String, isAnimation: Bool = true, on scheduler: FrameScheduler,
+    public convenience init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion, on scheduler: FrameScheduler,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
+        self.init(owner: owner, isAnimation: isAnimation, rate: rate, scheduler: { [weak scheduler] in scheduler ?? .app },
+                  onFrame: onFrame)
     }
 
     /// Starts ticking (no effect while active); a budgeted client whose class the launch holds

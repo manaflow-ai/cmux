@@ -281,7 +281,7 @@ impl Inner {
         let _ = idle_exit;
         eprintln!("cmux-tui: browser host {pid} stopped after {} ms; restarting", ran.as_millis());
         // A bounded restart delay on the watcher thread, not a synchronization.
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
         let Some(inner) = this.upgrade() else { return };
         if let Err(error) = Self::credentials(&inner) {
             eprintln!("cmux-tui: browser host restart failed: {error}");
@@ -383,6 +383,7 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     };
     // SAFETY: only async-signal-safe calls between fork and exec.
     unsafe { command.pre_exec(move || inherited_fds_only(&fds, max_fd)) };
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser host: {error}"))?;
     drop(secret_read);

@@ -56,7 +56,7 @@ struct DebugHibernationPressureTests {
         let kernel = ManualMemoryPressureSource()
         let pressure = MemoryPressureEvents(source: kernel)
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: HeldSlices())
-        let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator, lowPower: LowPowerMode(enabled: false))
+        let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator)
         hibernation.start()
 
         _ = DebugHibernationControl.applyOverride(.critical, coordinator: coordinator, hibernation: hibernation)
@@ -96,8 +96,7 @@ struct DebugHibernationPressureTests {
     static func app() -> App {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let hibernation = BrowserHibernation(cache: services.cache, memory: services.memoryCoordinator,
-                                             lowPower: LowPowerMode(enabled: false))
+        let hibernation = BrowserHibernation(cache: services.cache, memory: services.memoryCoordinator)
         services.cache.hibernation = hibernation
         hibernation.start()
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",

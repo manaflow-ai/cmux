@@ -13,6 +13,7 @@ use std::sync::PoisonError;
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn settle_unpublished_creation(
         &self,
         recovery: &ResourceCreationRecovery,
@@ -73,6 +74,7 @@ impl Mux {
     /// durable row, remove its runtime and views from memory, then signal
     /// its host. The creation fence is already held by the caller, so this
     /// does not go through `close_terminal_guarded` (which takes it).
+    #[track_caller]
     fn close_unpublished_terminal(&self, terminal_id: &str) -> anyhow::Result<()> {
         {
             let mut registry =

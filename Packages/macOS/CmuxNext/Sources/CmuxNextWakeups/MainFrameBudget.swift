@@ -108,6 +108,11 @@ public final class MainFrameBudget {
     /// Set by the ``MainWorkScheduler``: asks its display link for a tick, so an open input
     /// response gets the tick render that closes it even while no budgeted client is active.
     var requestTick: (@MainActor () -> Void)?
+    /// Told when a response opens or closes, or a discrete dispatch begins or ends (the
+    /// ``InputResponsePass`` sets itself here).
+    weak var inputResponsePass: InputResponsePass?
+    /// Discrete inputs whose dispatch is in progress (``noteDiscreteDispatch(began:)``).
+    private var discreteDispatches = 0
 
     /// - Parameters:
     ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
@@ -218,6 +223,7 @@ public final class MainFrameBudget {
     public func noteDiscreteInput(expectsFrame: Bool) {
         record(response.noteInput(expectsFrame: expectsFrame, at: uptimeNanos()))
         if expectsFrame { requestTick?() }
+        inputResponsePass?.inputResponseChanged()
     }
 
     /// The render pass of a display-link tick of the budget's scheduler ended. It closes the input
@@ -227,6 +233,18 @@ public final class MainFrameBudget {
     public func noteTickRenderEnded() {
         record(response.noteTickRenderEnded(at: uptimeNanos()))
     }
+
+    /// A discrete input's dispatch began or ended (the App's `InputDispatchContext`: before it
+    /// dispatches, and after it reported ``noteDiscreteInput(expectsFrame:)``). While one is in
+    /// progress, the ``InputResponsePass`` accepts the person's items and is on the run loop, so
+    /// a run loop nested in the dispatch runs it at its first wait.
+    public func noteDiscreteDispatch(began: Bool) {
+        discreteDispatches = began ? discreteDispatches + 1 : max(0, discreteDispatches - 1)
+        inputResponsePass?.inputResponseChanged()
+    }
+
+    /// Whether a discrete input's dispatch is in progress (``noteDiscreteDispatch(began:)``).
+    public var isDiscreteDispatchOpen: Bool { discreteDispatches > 0 }
 
     /// A user-blocking task committed the input's result: the input response closes.
     public func noteUserBlockingCommit() {
@@ -240,6 +258,7 @@ public final class MainFrameBudget {
         guard let closed else { return }
         if closed.capped { stats.inputResponseCapHits += 1 }
         stats.maxInputResponseNanos = max(stats.maxInputResponseNanos, closed.nanos)
+        inputResponsePass?.inputResponseChanged()
     }
 
     /// The scheduled work this window may hold in all: ``Budgets/total``, less what the last render
