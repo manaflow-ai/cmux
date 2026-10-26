@@ -1313,6 +1313,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextTraceTests",
+            // Compat: the black-box tests read the main-thread blocking detector's table.
             dependencies: ["CmuxNextCompat", "CmuxNextTrace"],
             // The ring v1 golden file, shared with cmux-trace's Rust tests; read by path, not bundled.
             exclude: ["Fixtures"],
@@ -1344,7 +1345,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Trace: the black-box file steps' tests read the ring.
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
