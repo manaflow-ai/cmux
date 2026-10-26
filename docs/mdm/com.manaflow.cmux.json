@@ -4604,13 +4604,13 @@
       "type" : "number"
     },
     "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: a found update waits, and one click downloads and installs it.",
-      "title" : "Download Updates Automatically",
+      "default" : false,
+      "description" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+      "title" : "Download and Install Updates Automatically",
       "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
-      "default" : 900,
+      "default" : 600,
       "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
       "maximum" : 7200,
       "minimum" : 60,

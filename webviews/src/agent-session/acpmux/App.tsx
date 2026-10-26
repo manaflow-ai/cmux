@@ -86,6 +86,7 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
@@ -1686,7 +1687,10 @@ const RowFrame = React.memo(function RowFrame({
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
-      style={{ transform: `translateY(${top}px)` }}
+      // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
+      // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
+      // from the thread's padding edge, not where an unset one sat, so it adds the padding.
+      style={{ top: top + THREAD_TOP }}
       onFocus={() => onFocus(row.id)}
     >
       {copyable && (
@@ -1738,8 +1742,8 @@ const currentRegistry = (): NativeRegistry => ({
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
 
-/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
-/// so the transcript ends this far past their total height.
+/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
+/// (each row's `top` adds it), so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
 /// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
 /// resting zone so every token does not write a new fractional scroll offset (and make the thumb
@@ -3921,6 +3925,19 @@ export function VirtualTranscript({
             change={rowsChange.current}
           />
         )}
+        {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
+        <ChatMinimap
+          // Another chat is another minimap: no canvas, placeholder or scale carried over.
+          key={sessionId}
+          rows={rows}
+          layout={layout}
+          scroller={ref}
+          viewportHeight={height - room}
+          foot={height - dockSpace}
+          width={width}
+          scrolls={layout.totalHeight - height > 0.5}
+          change={rowsChange.current}
+        />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div
@@ -3930,7 +3947,7 @@ export function VirtualTranscript({
             <div
               ref={thread}
               className="acpmux-thread"
-              style={lift ? { transform: `translateY(${lift}px)` } : undefined}
+              style={lift ? { top: lift } : undefined}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >

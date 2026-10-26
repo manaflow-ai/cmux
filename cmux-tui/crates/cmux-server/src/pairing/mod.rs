@@ -1,6 +1,7 @@
 //! General server enrollment through the existing human-approved Cloud flow.
 //! This records identity; it never installs, starts roles or grants execution.
 
+mod confirmation;
 mod credentials;
 mod identity;
 pub(crate) mod info;
@@ -36,6 +37,16 @@ pub trait Transport {
     /// None means HTTP 404 only. Other refusals and operational failures stay distinct.
     fn native_post(&self, _origin: &str, _path: &str, _body: &Value) -> Result<Option<Value>> {
         Err(Error::unreachable("server.pair.network_unavailable"))
+    }
+    /// The selected backend only; bearer credentials never reach Native.
+    fn backend_post(
+        &self,
+        _api: &str,
+        _path: &str,
+        _body: &Value,
+        _bearer: Option<&str>,
+    ) -> Result<Value> {
+        Err(Error::unreachable("server.pair.backend_unavailable"))
     }
 }
 

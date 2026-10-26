@@ -9329,10 +9329,17 @@ single ACP text content block and answers once acpmux recorded it:
 ### agent-session-permission
 
 `{id, cmd:"agent-session-permission", surface, permission_id, option_id,
-decision_nonce?, person_decision?, answered_by?}`
+answers?, annotations?, decision_nonce?, person_decision?, answered_by?}`
 answers a permission request acpmux announced on this attachment (pending at
 attach or sent as `agent-session-permission`), once (a failed answer can be
 sent again). The daemon never answers a request by itself.
+
+`answers` is a question's answers, a JSON object of at most 64 KiB, passed to
+acpmux unchanged as `answers`; acpmux checks them against the question, and a
+decision proof for that answer covers them (`acpmux-person-decision-answers-v1`).
+Any other value is a bad request. `annotations` (Claude Code's chosen preview
+and notes, by question) goes the same way, only beside `answers`, and the proof
+covers it too.
 
 `decision_nonce` and `person_decision` (64 lowercase hex characters each) are
 the person's decision proof for this answer, which the app makes with the

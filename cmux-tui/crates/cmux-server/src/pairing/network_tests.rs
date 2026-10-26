@@ -68,6 +68,7 @@ fn http(status: u16, body: String, extra: String) -> (String, JoinHandle<Vec<u8>
 fn loopback_http() -> Network {
     let _ = rustls::crypto::ring::default_provider().install_default();
     Network {
+        client_version: "1.2.3".into(),
         http: reqwest::blocking::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -75,6 +76,54 @@ fn loopback_http() -> Network {
             .build()
             .unwrap(),
     }
+}
+
+#[test]
+fn server_pairing_backend_http_sends_the_install_token_only_to_the_selected_api() {
+    let (api, worker) = http(200, r#"{"ok":true}"#.into(), String::new());
+    let network = loopback_http();
+    network
+        .backend_post(
+            &api,
+            "/v1/ops",
+            &serde_json::json!({"op":"server.network.confirm"}),
+            Some("fixture-daemon-access"),
+        )
+        .unwrap();
+    let request = String::from_utf8(worker.join().unwrap()).unwrap();
+    assert!(request.starts_with("POST /v1/ops HTTP/1.1\r\n"));
+    let headers = request.to_ascii_lowercase();
+    assert!(headers.contains("authorization: bearer fixture-daemon-access\r\n"));
+    assert!(headers.contains("x-cmux-client-version: 1.2.3\r\n"));
+    let (native, worker) = http(200, "{}".into(), String::new());
+    network
+        .native_post(&native, "/v1/overlay-servers/device/signed/policy", &serde_json::json!({}))
+        .unwrap();
+    let request = String::from_utf8(worker.join().unwrap()).unwrap();
+    assert!(!request.to_ascii_lowercase().contains("authorization:"));
+    assert!(!request.to_ascii_lowercase().contains("x-cmux-client-version:"));
+}
+
+#[test]
+fn server_pairing_backend_http_refuses_redirects_and_cleartext_before_sending_credentials() {
+    let trap = TcpListener::bind("127.0.0.1:0").unwrap();
+    trap.set_nonblocking(true).unwrap();
+    let target = format!("http://{}", trap.local_addr().unwrap());
+    let (api, worker) = http(302, "{}".into(), format!("Location: {target}/v1/ops\r\n"));
+    assert!(
+        loopback_http()
+            .backend_post(&api, "/v1/ops", &serde_json::json!({}), Some("fixture-daemon-access"))
+            .is_err()
+    );
+    worker.join().unwrap();
+    assert_eq!(trap.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert!(
+        Network::new()
+            .unwrap()
+            .backend_post(&target, "/v1/ops", &serde_json::json!({}), Some("fixture-daemon-access"))
+            .is_err()
+    );
+    assert_eq!(trap.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 }
 
 #[test]
