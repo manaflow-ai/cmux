@@ -89,17 +89,31 @@ async fn a_503_no_accounts_turn_is_retried_in_the_same_session_and_the_row_shows
     assert_eq!(hub.sessions().len(), 1, "no new session");
 }
 
-/// Stop clears the waiting retry at once, and its timer ends then, not when its wait would.
+/// Stop clears the waiting retry at once, and its timer ends then, not when its wait would. A
+/// watcher hears the row's `retry` come and go.
 #[tokio::test]
 async fn stop_clears_a_waiting_retry_at_once() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     let id = new_session(&mut c, "cap-stop").await;
     cap_fail(&mut c, &id, "p-stop").await;
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let changed = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_scheduled"
+        })
+        .await;
+    assert_eq!(changed["session"]["retry"]["reason"], "capacity", "{changed}");
     assert_eq!(row(&hub, &id)["retry"]["reason"], "capacity", "{}", row(&hub, &id));
     c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
+    let changed = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_skipped"
+        })
+        .await;
+    assert_eq!(changed["session"]["retry"], Value::Null, "{changed}");
     // A minute's wait, skipped within seconds.
     let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_skipped")).await;
     let skipped = records(&hub, &id, "auto_resume_skipped");

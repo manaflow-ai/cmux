@@ -1,6 +1,23 @@
 //! What a failed turn's error says about its cause: the account (`is_limit_error`, solved by
-//! the fallback profile, `turns.rs`), or the connection or the agent's death (`resume_cause`,
-//! solved by an automatic continuation, `auto_resume.rs`).
+//! the fallback profile, `turns.rs`), or a moment's trouble upstream, the provider's or the
+//! gateway's capacity, the connection, or the agent's death (`resume_cause`, solved by an
+//! automatic continuation in the same session, `auto_resume.rs`).
+//!
+//! A capacity error (`is_capacity_error`) is not a limit: the SR2 gateway's 503 "no
+//! non-exhausted ... accounts" comes from the pool the fallback profile would move the session
+//! onto, and a 529 overloaded is the provider's, whichever account asks. The session waits and
+//! goes on where it is (subsession-card, 2026-10-26).
+
+/// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s".
+fn has_status(m: &str, code: &str) -> bool {
+    let bytes = m.as_bytes();
+    m.match_indices(code).any(|(at, _)| {
+        let before = at.checked_sub(1).map(|i| bytes[i]);
+        let after = bytes.get(at + code.len()).copied();
+        !before.is_some_and(|b| b.is_ascii_alphanumeric())
+            && !after.is_some_and(|b| b.is_ascii_alphanumeric())
+    })
+}
 
 /// Does an agent error mean the account cannot serve, not that the prompt
 /// was wrong? Usage and rate limits, and missing or rejected credentials:
@@ -12,7 +29,7 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("unauthorized")
         || m.contains("authentication")
         || m.contains("invalid api key")
-        || m.contains("401")
+        || has_status(&m, "401")
         || (m.contains("reached your") && m.contains("limit"))
         // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
         || m.contains("hit your limit")
@@ -24,8 +41,20 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("out of credits")
         || m.contains("insufficient credits")
         || m.contains("quota")
+        || has_status(&m, "429")
+}
+
+/// Does an agent error mean the provider or the gateway had no capacity for the request a
+/// moment ago: HTTP 503 or 529, `overloaded_error`, the SR2 gateway's "no non-exhausted ...
+/// accounts", Codex's "Selected model is at capacity"? Usage limits and sign-in failures are
+/// not (`transient_cause` checks those first).
+pub fn is_capacity_error(message: &str) -> bool {
+    let m = message.to_lowercase();
+    has_status(&m, "503")
+        || has_status(&m, "529")
         || m.contains("overloaded")
-        || m.contains("429")
+        || m.contains("at capacity")
+        || (m.contains("no non-exhausted") && m.contains("account"))
 }
 
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
@@ -61,10 +90,30 @@ pub fn is_transport_error(message: &str) -> bool {
         "internal server error",
         "premature close",
         "other side closed",
+        // The gateway's connection ended mid-answer.
+        "unexpected eof",
+        "unexpected end of file",
+        "early eof",
     ];
     PHRASES.iter().any(|p| m.contains(p))
         || (m.contains("websocket")
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
+}
+
+/// Why an agent's error is worth trying again in a moment, if it is: `capacity`
+/// ([`is_capacity_error`]) or `transport` ([`is_transport_error`]). A usage limit, a sign-in
+/// failure, a bad request, a refused permission and anything else are not: None.
+pub fn transient_cause(error: &str) -> Option<&'static str> {
+    if is_limit_error(error) || crate::claude_auth::is_sign_in_failure(error) {
+        return None;
+    }
+    if is_capacity_error(error) {
+        Some("capacity")
+    } else if is_transport_error(error) {
+        Some("transport")
+    } else {
+        None
+    }
 }
 
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
@@ -75,8 +124,9 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
     }
 }
 
-/// Why a failed turn is continued by itself, if it is: `transport` (the connection dropped) or
-/// `agent_exited` (its agent process died mid-turn: "agent process closed"). `raw` is the
+/// Why a failed turn is continued by itself, if it is: `capacity` or `transport`
+/// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
+/// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
 /// line, or the sign-in explanation). A limit or sign-in failure in either is never continued:
 /// the fallback profile, or the reconciler that reads `lastTurn`, moves that session.
@@ -88,7 +138,7 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if raw.starts_with("agent process closed") {
         return Some("agent_exited");
     }
-    is_transport_error(raw).then_some("transport")
+    transient_cause(raw)
 }
 
 #[cfg(test)]
@@ -172,8 +222,16 @@ mod tests {
     fn capacity_errors_are_continued_in_place() {
         for m in CAPACITY {
             assert!(!is_limit_error(m), "{m}");
+            assert!(is_capacity_error(m), "{m}");
+            assert_eq!(transient_cause(m), Some("capacity"), "{m}");
             assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
         }
+        // A status code is a number of its own, not digits inside another one.
+        assert!(!is_capacity_error("retry after 2503s"));
+        assert!(!is_limit_error("next account frees up in 4290s"));
+        assert!(!is_limit_error("session 7f401ab"));
+        assert!(is_limit_error("HTTP 401 Unauthorized"));
+        assert!(is_limit_error("API Error: 429 Too Many Requests"));
     }
 
     #[test]
@@ -184,6 +242,7 @@ mod tests {
             "API Error: unexpected EOF while reading the response from the gateway",
             "stream error: unexpected end of file",
         ] {
+            assert_eq!(transient_cause(m), Some("transport"), "{m}");
             assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
         }
     }
@@ -202,6 +261,7 @@ mod tests {
             "Permission denied: the person refused this command",
             "simulated internal error",
         ] {
+            assert_eq!(transient_cause(m), None, "{m}");
             assert_eq!(resume_cause(m, m), None, "{m}");
         }
         // A limit or a sign-in failure wins over a capacity word in the same text.

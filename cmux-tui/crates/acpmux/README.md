@@ -181,12 +181,15 @@ Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSIO
 session and siblings. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
-connection error cut off ("stream disconnected", a refused or reset connection, a 502/503/504)
-goes on by itself: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
+connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or
+that the provider or the gateway had no capacity for (HTTP 503 or 529, `overloaded_error`, "no
+non-exhausted ... accounts", "at capacity"), goes on by itself in the same session: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
 off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
-prompts the cut turn held (`hub/auto_resume.rs`). A
+prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
+`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
