@@ -129,7 +129,9 @@ impl Hub {
             .waiting
             .remove(&prompt_id);
         // In the turn now: a turn on lane reports does more than take them in (`lane_reports.rs`).
-        if answer.is_ok() {
+        // Only a steer that found no turn stayed out of it; one the turn took and that ended in
+        // an error was still part of it.
+        if !matches!(&answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)) {
             self.lane_turn_steered(session, opts.provenance.as_ref());
         }
         let mut r = match answer {

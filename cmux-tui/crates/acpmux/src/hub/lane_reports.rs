@@ -95,21 +95,24 @@ struct Link {
     sent: Vec<u64>,
     /// The turn a report is being sent for and its prompt id, for every try of it.
     pending: Option<(u64, String)>,
+    /// A report its parent did not take: it goes with a later turn that sends none of its own.
+    unsent: Option<Report>,
 }
 
 /// The links by lane id.
 #[derive(Default)]
 pub(crate) struct LaneReports {
     links: StdMutex<BTreeMap<String, Link>>,
-    /// Lanes with a check or report on its way, and whether another check came meanwhile.
-    inflight: StdMutex<HashMap<String, bool>>,
+    /// Lanes with a check or report on its way, and the newest turn whose end was checked
+    /// meanwhile (`Some` once another check came).
+    inflight: StdMutex<HashMap<String, Option<u64>>>,
     /// The last turn of each session that ran on lane reports only. A later turn leaves it, so a
     /// report of that turn still sees it once the next has started.
     report_turns: StdMutex<HashMap<String, u64>>,
 }
 
 /// One report, before it is written out.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Report {
     /// What makes two reports the same: the state, the reply and every pull request it names.
     content: String,
@@ -222,28 +225,28 @@ impl Hub {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    fn lane_inflight(&self) -> std::sync::MutexGuard<'_, HashMap<String, bool>> {
+    fn lane_inflight(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<u64>>> {
         self.lane_reports.inflight.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Takes `lane`'s one check; when another has it, that one checks again once done.
-    fn lane_claim(&self, lane: &str) -> bool {
+    fn lane_claim(&self, lane: &str, ended: Option<u64>) -> bool {
         let mut inflight = self.lane_inflight();
         match inflight.get_mut(lane) {
             Some(again) => {
-                *again = true;
+                *again = Some(again.unwrap_or(0).max(ended.unwrap_or(0)));
                 false
             }
             None => {
-                inflight.insert(lane.to_owned(), false);
+                inflight.insert(lane.to_owned(), None);
                 true
             }
         }
     }
 
-    /// Gives `lane`'s check back: whether another came meanwhile.
-    fn lane_release(&self, lane: &str) -> bool {
-        self.lane_inflight().remove(lane).unwrap_or(false)
+    /// Gives `lane`'s check back: the newest turn end checked meanwhile, if another came.
+    fn lane_release(&self, lane: &str) -> Option<u64> {
+        self.lane_inflight().remove(lane).flatten()
     }
 
     /// The summary of session `id` (exact).
@@ -316,21 +319,23 @@ impl Hub {
 
     /// A local session's turn ended, or failed before its agent started (`turns.rs`).
     pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
-        self.lane_check(&session.id, true);
+        let turn = session.meta().turn_count;
+        self.lane_check(&session.id, Some(turn));
     }
 
-    /// Sends `lane`'s report when a turn of it ended since the last one. `ended`: its turn just
-    /// ended here, so a prompt that already started behind it does not hold the report back.
-    fn lane_check(self: &Arc<Self>, lane: &str, ended: bool) {
+    /// Sends `lane`'s report when a turn of it ended since the last one. `ended`: the turn whose
+    /// end this is, so a running turn is reported up to it and no further: the turn it shows
+    /// may be that one, still marked running, or a later one that started since.
+    fn lane_check(self: &Arc<Self>, lane: &str, ended: Option<u64>) {
         // One check at a time, so two never read the same link and send the same turn twice; a
         // turn end meanwhile is checked once it is done.
-        if !self.lane_links(|links| links.contains_key(lane)) || !self.lane_claim(lane) {
+        if !self.lane_links(|links| links.contains_key(lane)) || !self.lane_claim(lane, ended) {
             return;
         }
         let due = self.lane_due(lane, ended);
         let Some((link, summary, turns, on_reports)) = due else {
-            if self.lane_release(lane) {
-                self.lane_check(lane, true);
+            if let Some(again) = self.lane_release(lane) {
+                self.lane_check(lane, Some(again));
             }
             return;
         };
@@ -339,7 +344,7 @@ impl Hub {
             let done = hub.lane_report(&lane, &link, &summary, turns, on_reports).await;
             let again = hub.lane_release(&lane);
             // Turns that ended while it was on its way: reported now, or the same report.
-            if done || again {
+            if done || again.is_some() {
                 hub.lane_check(&lane, again);
             }
         });
@@ -347,15 +352,13 @@ impl Hub {
 
     /// `lane`'s link, summary and turn count when a turn of it is due a report, and whether that
     /// turn ran on lane reports only, read now: a turn that starts later changes neither.
-    fn lane_due(&self, lane: &str, ended: bool) -> Option<(Link, Value, u64, bool)> {
+    fn lane_due(&self, lane: &str, ended: Option<u64>) -> Option<(Link, Value, u64, bool)> {
         let link = self.lane_links(|links| links.get(lane).cloned())?;
         let summary = self.lane_summary(lane)?;
-        let turns = summary.get("turnCount").and_then(Value::as_u64).unwrap_or(0);
+        let now = summary.get("turnCount").and_then(Value::as_u64).unwrap_or(0);
         let running = summary.get("turn").is_some_and(|t| !t.is_null())
             || summary.get("status").and_then(Value::as_str) == Some("running");
-        if turns <= link.reported || (!ended && running) {
-            return None;
-        }
+        let turns = due_turn(now, running, ended, link.reported)?;
         let on_reports = self.lane_report_turns().get(lane) == Some(&turns);
         Some((link, summary, turns, on_reports))
     }
@@ -382,13 +385,17 @@ impl Hub {
             Some(self.lane_build(lane, link, summary, turns).await)
         };
         let report = report.filter(|r| link.last.as_deref() != Some(r.content.as_str()));
+        // A turn that sends none of its own (on reports only, or past the cap) still sends one
+        // its parent did not take before: that turn ended for real.
+        let report = report.or_else(|| link.unsent.clone());
+        let report_turn = report.as_ref().map_or(turns, |r| r.turn);
         let prompt_id = self.lane_links(|links| {
             let l = links.get_mut(lane)?;
             let id = match &l.pending {
-                Some((turn, id)) if *turn == turns => id.clone(),
+                Some((turn, id)) if *turn == report_turn => id.clone(),
                 _ => format!("{PROMPT_PREFIX}{}", uuid::Uuid::new_v4()),
             };
-            l.pending = Some((turns, id.clone()));
+            l.pending = Some((report_turn, id.clone()));
             Some(id)
         });
         let Some(prompt_id) = prompt_id else { return true };
@@ -396,6 +403,11 @@ impl Hub {
             && let Err(e) = self.lane_deliver(&link.parent, lane, report, prompt_id).await
         {
             tracing::warn!(lane, parent = %link.parent, "lane report not delivered: {}", e.message);
+            self.lane_links(|links| {
+                if let Some(l) = links.get_mut(lane).filter(|l| l.parent == link.parent) {
+                    l.unsent = Some(report.clone());
+                }
+            });
             return false;
         }
         self.lane_links(|links| {
@@ -404,6 +416,7 @@ impl Hub {
             l.pending = None;
             l.sent = recent(&l.sent);
             if let Some(report) = &report {
+                l.unsent = None;
                 l.last = Some(report.content.clone());
                 l.prs.extend(report.prs.iter().cloned());
                 l.sent.push(now);
@@ -508,8 +521,34 @@ impl Hub {
     }
 }
 
+/// The turn a check reports: the lane's turn count `now` when no turn runs; while one runs,
+/// the turn whose end this check is (`ended`) and none past it, since the one running may have
+/// started after that end and has not ended. None when that turn was reported already.
+fn due_turn(now: u64, running: bool, ended: Option<u64>, reported: u64) -> Option<u64> {
+    let turns = match (running, ended) {
+        (false, _) => now,
+        (true, Some(ended)) => ended.min(now),
+        (true, None) => return None,
+    };
+    (turns > reported).then_some(turns)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_check_never_reports_a_turn_still_running() {
+        // Turn 1 ended; by the retry turn 2 has started: the report is of turn 1.
+        assert_eq!(due_turn(2, true, Some(1), 0), Some(1));
+        // A retry with no turn end behind it waits while a turn runs.
+        assert_eq!(due_turn(2, true, None, 1), None);
+        // Turn 1 reported, turn 2 still running: nothing yet.
+        assert_eq!(due_turn(2, true, Some(1), 1), None);
+        // Turn 2 has ended and nothing runs: turn 2.
+        assert_eq!(due_turn(2, false, None, 1), Some(2));
+        // The ending turn still shows as running when its end is checked.
+        assert_eq!(due_turn(3, true, Some(3), 2), Some(3));
+    }
+
     use super::*;
 
     #[test]
