@@ -8,8 +8,9 @@
 # and a .so elsewhere. With CMUX_REAL_SHIM=<libcmux_cef_shim.dylib>, also compares its
 # cmux_shim_ symbols with the real shim's (nm -gU).
 #
-# Until task 014b adds client/remote_shim_local.mm, the `local` exports with a function-pointer
-# argument are the only ones allowed to be missing; the test names them.
+# The `local` exports with a function-pointer argument that no client file defines yet (each
+# waits for its task's hand-written client code) are the only ones allowed to be missing; the
+# test names them.
 #
 # Not a CI test (p01-process section 4, rule 4): agents that change the client, the header or
 # the ops run it themselves.
@@ -73,16 +74,19 @@ print("\n".join(sorted(set(names))))
 PY
 expected="$(wc -l < "$work/header" | tr -d ' ')"
 (( expected > 0 )) || fail "no exports parsed from $header"
-# The optional exports (fork API 29, not in the header yet) may be present; 014b's may be absent.
-python3 -I - "$ops" "$host/client/remote_shim_local.mm" > "$work/allowed" <<'PY'
-import json, os, sys
+# The optional exports (fork API 29, not in the header yet) may be present; a local
+# function-pointer export no client file defines may be absent.
+python3 -I - "$ops" "$host"/client/*.mm > "$work/allowed" <<'PY'
+import json, re, sys
 ops = json.load(open(sys.argv[1]))
+defined = set()
+for path in sys.argv[2:]:
+    defined.update(re.findall(r"CMUX_SHIM_EXPORT[^;{]*?\b(cmux_shim_\w+)\s*\(", open(path).read()))
 for e in ops.get("optional_exports", []):
     print("extra", e["name"])
-if not os.path.exists(sys.argv[2]):
-    for e in ops["exports"]:
-        if e["class"] == "local" and any(a.get("function_pointer") for a in e["args"]):
-            print("missing", e["name"])
+for e in ops["exports"]:
+    if e["class"] == "local" and any(a.get("function_pointer") for a in e["args"]) and e["name"] not in defined:
+        print("missing", e["name"])
 PY
 missing="$(comm -23 "$work/header" "$work/remote")"
 extra="$(comm -13 "$work/header" "$work/remote")"
@@ -100,7 +104,7 @@ have="$(comm -12 "$work/header" "$work/remote" | wc -l | tr -d ' ')"
 optional="$(comm -13 "$work/header" "$work/remote" | wc -l | tr -d ' ')"
 echo "remote-shim-abi: $have of the header's $expected cmux_shim_ exports, plus $optional optional_exports"
 if (( ${#pending[@]} )); then
-  echo "remote-shim-abi: ${#pending[@]} local exports wait for client/remote_shim_local.mm (task 014b): ${pending[*]}"
+  echo "remote-shim-abi: ${#pending[@]} local exports wait for their hand-written client code: ${pending[*]}"
 fi
 
 if [[ -n "${CMUX_REAL_SHIM:-}" ]]; then
