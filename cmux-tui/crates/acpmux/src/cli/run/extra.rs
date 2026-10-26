@@ -391,7 +391,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Shutdown { end_agents, .. } => {
             crate::cli::shutdown::run(end_agents, json_out).await
         }
-        Command::Config => {
+        Command::Config { show_token } => {
             let path = Config::path();
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
@@ -405,17 +405,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             println!("# {}", path.display());
             match std::fs::read_to_string(&path) {
-                Ok(s) => println!("{s}"),
+                Ok(s) if show_token => println!("{s}"),
+                Ok(s) => println!("{}", config_text_without_tokens(&s)),
                 Err(_) => {
                     let cfg = Config::load()?;
                     println!("# (not written yet; effective defaults below)");
-                    println!("{}", serde_json::to_string_pretty(&cfg)?);
+                    let s = serde_json::to_string_pretty(&cfg)?;
+                    println!("{}", if show_token { s } else { config_text_without_tokens(&s) });
                 }
             }
             println!("# home: {}", home().display());
             Ok(())
         }
-        Command::Web { no_open, rotate_token } => {
+        Command::Web { no_open, show_token, rotate_token } => {
             let client = connect(true).await?;
             let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
             let v = client.request(m, json!({})).await?;
@@ -429,7 +431,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&json!({"url": url}));
                 return Ok(());
             }
-            println!("{url}");
+            println!("{}", web_line(Some(&url), show_token));
+            // The browser gets the whole link: without its token the page cannot connect.
             if !no_open {
                 let _ = std::process::Command::new(if cfg!(target_os = "macos") {
                     "open"
@@ -663,9 +666,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
     }
 }
 
-/// The `web:` line of `daemon status` and `daemon start`: the Web UI link
-/// without its bearer token unless `show_token` (ergo-walk2, 2026-10-25: a
-/// terminal, a screen share or a pasted log is no place for it).
+/// The `web:` line of `daemon status` and `daemon start`, and what `acpmux web`
+/// prints: the Web UI link without its bearer token unless `show_token`
+/// (ergo-walk2, 2026-10-25: a terminal, a screen share or a pasted log is no
+/// place for it; ergo-walk4, 2026-10-26, for `web --no-open`).
 fn web_line(url: Option<&str>, show_token: bool) -> String {
     let Some(url) = url else { return "-".into() };
     if show_token {
@@ -675,4 +679,57 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
         Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
         None => url.to_owned(),
     }
+}
+
+/// What a hidden token reads as in `daemon config`.
+const HIDDEN_TOKEN: &str = "(token hidden: add --show-token)";
+
+/// config.json as `daemon config` prints it: the file as written, with the
+/// bearer tokens in it (`websocket.token`, a peer's `token` and `peerToken`)
+/// replaced by [`HIDDEN_TOKEN`] (ergo-walk4, 2026-10-26: "`acpmux daemon config`
+/// human output prints websocket.token in full"). The file's own layout stays
+/// unless the text with the tokens replaced does not read back as the redacted
+/// config (a token spelled with other escapes than serde_json writes): then the
+/// redacted config is printed anew. A file that is not JSON is named, not
+/// printed: it may hold a token all the same.
+fn config_text_without_tokens(text: &str) -> String {
+    let mut value = match serde_json::from_str::<Value>(text) {
+        Ok(value) => value,
+        Err(e) => {
+            return format!(
+                "# (not valid JSON: {e}; it may hold tokens: add --show-token to print it)"
+            );
+        }
+    };
+    let mut secrets = Vec::new();
+    let mut take = |slot: Option<&mut Value>| {
+        if let Some(slot) = slot
+            && let Some(secret) = slot.as_str().filter(|s| !s.is_empty())
+        {
+            secrets.push(secret.to_owned());
+            *slot = Value::String(HIDDEN_TOKEN.into());
+        }
+    };
+    take(value.pointer_mut("/websocket/token"));
+    if let Some(peers) = value.get_mut("peers").and_then(Value::as_object_mut) {
+        for peer in peers.values_mut() {
+            take(peer.get_mut("token"));
+            take(peer.get_mut("peerToken"));
+        }
+    }
+    if secrets.is_empty() {
+        return text.to_owned();
+    }
+    let hidden = serde_json::to_string(HIDDEN_TOKEN).unwrap_or_default();
+    let mut out = text.to_owned();
+    for secret in &secrets {
+        if let Ok(quoted) = serde_json::to_string(secret) {
+            out = out.replace(&quoted, &hidden);
+        }
+    }
+    // Kept only when it reads back as the redacted config: no spelling of a token is left.
+    if serde_json::from_str::<Value>(&out).ok().as_ref() == Some(&value) {
+        return out;
+    }
+    serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
 }

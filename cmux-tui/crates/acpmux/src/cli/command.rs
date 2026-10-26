@@ -315,6 +315,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Print the URL with its bearer token (`--json` always has it in `url`;
+        /// the browser this command opens always gets it).
+        #[arg(long)]
+        show_token: bool,
         /// Replace the dashboard token now: the old link, `ws://` peers that
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
@@ -488,7 +492,10 @@ pub enum Command {
         end_agents: bool,
     },
     #[command(hide = true)]
-    Config,
+    Config {
+        #[arg(long)]
+        show_token: bool,
+    },
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -879,8 +886,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         end_agents: bool,
     },
-    /// Print the config path and contents.
-    Config,
+    /// Print the config path and contents (without its tokens).
+    Config {
+        /// Print the bearer tokens too (`--json` always has them).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
@@ -1054,7 +1065,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
-            DaemonCmd::Config => Command::Config,
+            DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Schema => Command::Schema,
