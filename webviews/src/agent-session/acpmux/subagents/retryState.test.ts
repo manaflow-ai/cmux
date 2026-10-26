@@ -248,6 +248,30 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(busy.calls).toHaveLength(2);
   });
 
+  test("acpmux's capabilities gate the call: named and missing asks the parent, never probes", async () => {
+    const d = { ...deps(), capabilities: new Set(["turn-retry-v1"]) };
+    const CHAT = "caps";
+    await runRetry(failed, CHAT, d, translate);
+    await runRetry({ ...failed, id: "child", child: "s3" }, CHAT, d, translate);
+    expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send", RETRY_METHOD]);
+    const both = { ...deps(), capabilities: new Set(["turn-retry-v1", "subagent-retry-v1"]) };
+    await runRetry({ ...failed, id: "sub" }, CHAT, both, translate);
+    expect(both.calls).toEqual([[RETRY_METHOD, { sessionId: CHAT, subagentId: "sub" }]]);
+  });
+
+  test("a refusal's why reads in words; subagent_unsupported asks the parent", async () => {
+    const why = (w: string) => ({ code: -32000, reason: "retry.nothing_failed", data: { why: w } });
+    expect(await runRetry({ ...failed, id: "w1" }, "why", deps(why("running")), translate)).toBe("retry.running");
+    expect(await runRetry({ ...failed, id: "w2" }, "why", deps(why("closed")), translate)).toBe("retry.gone");
+    expect(await runRetry({ ...failed, id: "w3" }, "why", deps(why("not_retryable")), translate)).toBe(
+      "retry.nothingFailed",
+    );
+    expect(await runRetry({ ...failed, id: "w4" }, "why", deps({ code: "retry.stopped" }), translate)).toBe("retry.gone");
+    const old = deps({ code: "retry.subagent_unsupported" });
+    expect(await runRetry({ ...failed, id: "w5" }, "why", old, translate)).toBeUndefined();
+    expect((old.calls[1] as unknown[])[0]).toBe("send");
+  });
+
   test("Ask parent to retry asks at once; a row with no Retry does nothing", async () => {
     const CHAT = "c5";
     const d = deps();
@@ -265,6 +289,8 @@ describe("Retry reaches acpmux, else the parent", () => {
       "retry.busy",
       "retry.nothingFailed",
       "retry.failed",
+      "retry.running",
+      "retry.gone",
     ] as const)
       expect(translate(key)).not.toBe(key);
     expect(translate("retry.retriedOut", { of: 4 })).toBe("gave up after 4 tries");

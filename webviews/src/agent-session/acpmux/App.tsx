@@ -5468,7 +5468,7 @@ function AcpmuxPane() {
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
               ? callNative("chat.send", { text })
               : Promise.resolve();
-          return runRetry(agent, owner, { request, send }, translate, how);
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities }, translate, how);
         })(restartChat),
       }),
       ...(connected &&

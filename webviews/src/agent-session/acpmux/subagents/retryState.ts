@@ -105,30 +105,46 @@ export function askPrompt(agent: Pick<Subagent, "name" | "task" | "child">, t: T
 }
 
 /// The short note a Retry acpmux refused leaves on its row.
-export type RetryNote = "retry.nothingFailed" | "retry.busy" | "retry.failed";
+export type RetryNote = "retry.nothingFailed" | "retry.busy" | "retry.failed" | "retry.running" | "retry.gone";
 
-/// What a row's Retry reaches: acpmux's request and the composer's send.
+/// acpmux's capabilities for `_acpmux/retry` (capabilities.rs): `turn-retry-v1` retries a chat's
+/// (a sub-session's) failed turn, `subagent-retry-v1` one of its subagents.
+export const TURN_RETRY = "turn-retry-v1";
+export const SUBAGENT_RETRY = "subagent-retry-v1";
+
+/// What a row's Retry reaches: acpmux's request, the composer's send, and the capabilities acpmux
+/// said it serves (undefined from a daemon that names none: Retry then asks and falls back on an
+/// unknown method).
 export type RetryDeps = {
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
+  capabilities?: ReadonlySet<string>;
 };
 
-const refusal = (error: unknown) => {
-  const value = (error ?? {}) as { code?: unknown; reason?: unknown };
-  return [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
-};
+/// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
+/// good (the chat closed, the subagent resumed, replaced, ended or forgotten), else nothing failed.
+function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
+  const value = (error ?? {}) as { code?: unknown; reason?: unknown; data?: { why?: unknown } };
+  const codes = [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
+  const has = (code: string) => codes.includes(code);
+  if (has("retry.busy")) return "retry.busy";
+  if (has("retry.nothing_failed")) {
+    const why = value.data?.why;
+    if (why === "running") return "retry.running";
+    if (typeof why === "string" && ["closed", "resumed", "replaced", "ended", "forgotten"].includes(why))
+      return "retry.gone";
+    return "retry.nothingFailed";
+  }
+  if (has("retry.stopped") || has("retry.unknown_subagent")) return "retry.gone";
+  // An older acpmux that cannot retry a subagent: the chat's agent can.
+  if (has("retry.subagent_unsupported")) return "ask";
+  if (has("-32601")) return "unknown-method";
+  return "retry.failed";
+}
 
 /// Runs a row's Retry for `agent` of chat `chat`: acpmux's retry when it serves one, else the ask
 /// (`how` "ask", the menu's Ask parent to retry, asks at once). Settles with the note to show, or
 /// undefined when it went.
-/// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent), with when
-/// each went: a sub-session's line and its card both offer Retry, and a second click on either
-/// before acpmux's next word must not retry it twice. An entry lapses after RETRY_HOLD_MS; no timer.
-const sent = new Map<string, number>();
-export const RETRY_HOLD_MS = 15_000;
-
-export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
-
 export async function runRetry(
   agent: RetryTarget,
   chat: string,
@@ -138,7 +154,28 @@ export async function runRetry(
 ): Promise<RetryNote | undefined> {
   const offered = retryActionOf(agent);
   if (!offered) return undefined;
-  const action = how ?? offered;
+  // acpmux named its capabilities and not this one: ask, never probe.
+  const capability = agent.child ? TURN_RETRY : SUBAGENT_RETRY;
+  const served = !deps.capabilities || deps.capabilities.has(capability);
+  const action = how ?? (served ? offered : "ask");
+  return send(agent, chat, deps, t, action);
+}
+
+/// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent), with when
+/// each went: a sub-session's line and its card both offer Retry, and a second click on either
+/// before acpmux's next word must not retry it twice. An entry lapses after RETRY_HOLD_MS; no timer.
+const sent = new Map<string, number>();
+export const RETRY_HOLD_MS = 15_000;
+
+export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
+
+async function send(
+  agent: RetryTarget,
+  chat: string,
+  deps: RetryDeps,
+  t: Translate,
+  action: RetryAction,
+): Promise<RetryNote | undefined> {
   const key = `${chat}\u0000${agent.child ?? agent.id}`;
   const at = Date.now();
   if (at - (sent.get(key) ?? -Infinity) < RETRY_HOLD_MS) return undefined;
@@ -155,11 +192,10 @@ export async function runRetry(
       await deps.request(RETRY_METHOD, params);
       return undefined;
     } catch (error) {
-      const codes = refusal(error);
-      if (codes.includes("retry.nothing_failed")) return fail("retry.nothingFailed");
-      if (codes.includes("retry.busy")) return fail("retry.busy");
-      // Only a daemon without the method falls back; any other failure says so.
-      if (!codes.includes("-32601")) return fail("retry.failed");
+      // Only a daemon without the method, or one that cannot retry a subagent, falls back to
+      // asking; any other refusal says why.
+      const note = refusalNote(error);
+      if (note !== "ask" && note !== "unknown-method") return fail(note);
     }
   }
   try {

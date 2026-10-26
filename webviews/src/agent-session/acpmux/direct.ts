@@ -1524,6 +1524,8 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const capabilities = initialized?._meta?.acpmux?.capabilities;
+      this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -2248,6 +2250,10 @@ export class AcpmuxDirectClient {
   retry(method: string, params: Record<string, unknown>): Promise<unknown> {
     return this.request(method, params, 15_000);
   }
+
+  /// The capability ids acpmux's `initialize` named (`_meta.acpmux.capabilities`), or undefined
+  /// from one that names none.
+  capabilities: ReadonlySet<string> | undefined;
 
   /// Reads the selected session's durable composer draft from acpmux.
   readDraft(sessionId: string): Promise<unknown> {
