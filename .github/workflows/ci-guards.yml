@@ -1153,6 +1153,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 ios/tests/test_cloud_vpn_distribution.py
 
+      - name: Validate App Store privacy manifest and public metadata
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_appstore_review_package.py
+
       - name: Validate the cmux.app upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
