@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CryptoKit
 public import Foundation
 import os
+import CmuxNextWakeups
 
 /// Per-installation SSH link state: the cmux-tui client identity and
 /// known-daemon records (owner-only), the download cache, and short link
@@ -144,8 +145,8 @@ public actor SSHMachineLink {
             child.terminateProcessOnly()
             // task-owner: one bounded fallback; terminate() is a no-op once the child exited
             Task.detached {
-                // wakeup-allow: one-shot deadline for a stopped link client
-                try? await Task.sleep(for: Self.closeDeadline)
+                // wakeup-allow: deadline for a stopped link client to close its session
+                try? await Task.sleep(for: Self.closeDeadline, tolerance: WakeLeeway.window(delay: Self.closeDeadline).tolerance)
                 child.terminate()
             }
         }

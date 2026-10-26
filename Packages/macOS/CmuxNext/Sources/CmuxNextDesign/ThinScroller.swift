@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The one thin scroller of cmux NEXT's native scroll views: the sidebar's list and pinned bands,
 /// the Priority view, every scrollable card (hover cards, the update card's popover) and the
@@ -224,8 +225,8 @@ public final class ThinScroller: NSScroller {
         // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
         // the last scroll step); the next scroll cancels it. Its clock is injected.
         restTask = Task { [weak self] in
-            // wakeup-allow: one-shot injected fade deadline; the next scroll cancels it.
-            do { try await clock.sleep(for: Self.restDelay) } catch { return }
+            // wakeup-allow: deadline of the knob's rest after the last scroll step, injected clock; the next scroll cancels it
+            do { try await clock.sleep(for: Self.restDelay, tolerance: WakeLeeway.window(delay: Self.restDelay).tolerance) } catch { return }
             self?.update { $0.rested() }
         }
     }

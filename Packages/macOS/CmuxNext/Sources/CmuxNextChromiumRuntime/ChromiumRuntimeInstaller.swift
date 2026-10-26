@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Darwin
+import CmuxNextWakeups
 
 /// Downloads, verifies and installs the Chromium runtime pack an app build is
 /// pinned to (plans/cmux-next/bundle-size-DESIGN.md section 6.3).
@@ -137,7 +138,7 @@ public actor ChromiumRuntimeInstaller {
     public func run(_ priority: Priority) async -> ChromiumRuntimeInstallState {
         jobPriority = max(jobPriority ?? priority, priority)
         var failures = 0
-        // wakeup-allow: a retry loop, not a poll: each pass first waits for a usable network (an event),
+        // wakeup-allow: backoff: a retry loop, not a poll: each pass first waits for a usable network (an event),
         // then makes one attempt; it ends on success, cancellation or maxAttempts, and a failure waits retryDelays.
         while !Task.isCancelled {
             if let installed = store.installation(key: pin.key) {
@@ -155,8 +156,8 @@ public actor ChromiumRuntimeInstaller {
                 publish(.failed(error, attempt: failures))
                 if let maxAttempts, failures >= maxAttempts { return state }
                 let delay = retryDelays[min(failures - 1, retryDelays.count - 1)]
-                // wakeup-allow: the backoff after a real failure (5 s to 30 min), on the injected clock; cancellable.
-                do { try await clock.sleep(for: delay) } catch { return state }  // cancelled
+                // wakeup-allow: backoff after a real failure (5 s to 30 min), on the injected clock; cancellable.
+                do { try await clock.sleep(for: delay, tolerance: Backoff.tolerance(for: delay)) } catch { return state }  // cancelled
             } catch {
                 return state  // CancellationError
             }

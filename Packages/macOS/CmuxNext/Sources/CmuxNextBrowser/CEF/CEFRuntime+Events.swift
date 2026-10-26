@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextInput
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -390,8 +391,8 @@ extension CEFRuntime {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
                 shutdownTimeout = Task { @MainActor [weak self] in
-                    // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                    // wakeup-allow: deadline of Chromium's shutdown, cancelled when Chromium reports closed
+                    do { try await Task.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                     self?.resumeShutdownWaiter()
                 }
             }

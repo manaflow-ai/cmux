@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Why one sidecar request produced no reply.
 nonisolated enum DiffSidecarError: Error, Equatable, Sendable {
@@ -167,8 +168,8 @@ private nonisolated final class Invocation: Sendable {
     private func arm(after delay: Duration, _ check: @escaping @Sendable (State) -> DiffSidecarError?) {
         let clock = clock
         let task = Task { [weak self] in
-            // wakeup-allow: one-shot deadline (sidecar startup or reply)
-            do { try await clock.sleep(for: delay) } catch { return }
+            // wakeup-allow: deadline of the sidecar's startup or reply, cancelled when it ends first
+            do { try await clock.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance) } catch { return }
             guard let self, let error = self.state.withLock({ check($0) }) else { return }
             self.fail(error)
         }
@@ -252,8 +253,8 @@ private nonisolated final class Invocation: Sendable {
         let clock = clock, grace = grace
         // task-owner: one-shot escalation for a child that ignores SIGTERM; ends after `grace`
         Task { [self] in
-            // wakeup-allow: one-shot deadline (SIGTERM grace)
-            try? await clock.sleep(for: grace)
+            // wakeup-allow: deadline of the SIGTERM grace before SIGKILL
+            try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
             guard state.withLock({ $0.exitStatus == nil }) else { return }
             kill(target, SIGKILL)
         }

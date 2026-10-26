@@ -1,6 +1,7 @@
 public import CmuxNextRemoteView
 public import Foundation
 import Security
+import CmuxNextWakeups
 
 /// A remote browser host this app starts on loopback for one remote tab
 /// (remote-tab-r2.md, local host): `cmux-remote-browser-host --serve --listen
@@ -117,8 +118,8 @@ public final class LocalRemoteBrowserHost {
         let deadline = StartDeadline()
         let deadlineTask = Task {
             do {
-                // wakeup-allow: one-shot bounded start deadline on the injected clock, cancelled when the host listens or exits.
-                try await clock.sleep(for: timeout)
+                // wakeup-allow: deadline of the host's start on the injected clock, cancelled when the host listens or exits
+                try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
             } catch {
                 return
             }

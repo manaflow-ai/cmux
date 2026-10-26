@@ -18,6 +18,9 @@ public nonisolated struct ProcessFixRunner: ServerFixRunner {
 
     public func run(_ executable: URL, _ arguments: [String]) async throws -> FixRunResult {
         let child = FixChild(executable, arguments)
-        return try await ServerHelperDeadline().run(limit: limit, clock: clock, operation: { try await child.start() }, onTimeout: { child.kill() })
+        // WakeLeeway's window for a delay of 1 s or more: min(10%, 1 s), flexible and never early.
+        let tolerance = min(limit / 10, .seconds(1))
+        return try await ServerHelperDeadline().run(limit: limit, tolerance: tolerance, clock: clock,
+                                                    operation: { try await child.start() }, onTimeout: { child.kill() })
     }
 }

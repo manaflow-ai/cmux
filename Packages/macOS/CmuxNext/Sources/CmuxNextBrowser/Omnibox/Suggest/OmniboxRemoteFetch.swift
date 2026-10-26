@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// Gets a remote suggest response. The App uses `URLSessionSuggestFetcher`;
 /// tests inject a fake. A fetch must end with `CancellationError` (or any
@@ -63,16 +64,16 @@ extension OmniboxSuggestionEngine {
         guard let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
         let clock = remote.clock, timeout = remote.timeout, ephemeral = remote.isPrivate
         do {
-            // wakeup-allow: one-shot debounce on the injected clock; a newer keystroke cancels it.
-            try await clock.sleep(for: remote.debounce)
+            // wakeup-allow: deadline of the typing pause on the injected clock; a newer keystroke cancels it
+            try await clock.sleep(for: remote.debounce, tolerance: WakeLeeway.window(delay: remote.debounce).tolerance)
         } catch {
             return nil
         }
         guard !Task.isCancelled else { return nil }
         let fetch = Task { try await fetcher.fetch(url, ephemeral: ephemeral) }
         let deadline = Task {
-            // wakeup-allow: one-shot request deadline on the injected clock, cancelled when the fetch ends.
-            try await clock.sleep(for: timeout)
+            // wakeup-allow: deadline of one suggest request on the injected clock, cancelled when the fetch ends
+            try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
             fetch.cancel()
         }
         defer { deadline.cancel() }

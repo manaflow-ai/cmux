@@ -2,6 +2,7 @@ import AVFoundation
 public import Foundation
 import os
 import Speech
+import CmuxNextWakeups
 
 /// The fallback on-device engine, built on `SFSpeechRecognizer`, for a
 /// language SpeechAnalyzer has no model for (``OnDeviceDictationTranscriber``).
@@ -271,8 +272,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         let delay = retryDelay
         retryTask = Task { [weak self] in
             do {
-                // wakeup-allow: one-shot 100 ms retry after a recognizer error, live sessions only, capped by consecutiveErrorCycles
-                try await clock.sleep(for: delay)
+                // wakeup-allow: backoff of 100 ms after a recognizer error, live sessions only, capped by consecutiveErrorCycles
+                try await clock.sleep(for: delay, tolerance: Backoff.tolerance(for: delay))
             } catch {
                 return
             }

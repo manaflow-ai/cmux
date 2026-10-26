@@ -241,8 +241,8 @@ public final class ComputerUseHelperV2 {
         controlLog = nil
         child.closeInput()
         let spawner = self.spawner
-        // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
-        try? await clock.sleep(for: exitGrace)
+        // wakeup-allow: deadline of the grace before SIGTERM when the helper is stopped
+        try? await clock.sleep(for: exitGrace, tolerance: WakeLeeway.window(delay: exitGrace).tolerance)
         if kill(child.pid, 0) == 0 { spawner.terminate(child.pid) }
     }
 
@@ -376,8 +376,8 @@ public final class ComputerUseHelperV2 {
                 return nil
             }
             group.addTask {
-                // wakeup-allow: one bounded ready deadline per helper start, cancelled as soon as the helper answers.
-                try? await clock.sleep(for: within)
+                // wakeup-allow: deadline of the helper's ready line per start, cancelled as soon as the helper answers
+                try? await clock.sleep(for: within, tolerance: WakeLeeway.window(delay: within).tolerance)
                 return nil
             }
             let first = await group.next() ?? nil

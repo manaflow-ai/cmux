@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 
 /// Continuations waiting for a reply by key, each with a deadline on the
 /// injected clock (architecture.md 5a): a reply that never comes (a page
@@ -36,8 +37,8 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         try await withCheckedThrowingContinuation { continuation in
             let clock = clock
             let deadline = Task { [weak self] in
-                // wakeup-allow: one-shot DevTools reply deadline (5 s), cancelled when the reply arrives
-                do { try await clock.sleep(for: timeout) } catch { return }
+                // wakeup-allow: deadline of one DevTools reply (5 s), cancelled when the reply arrives
+                do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                 self?.resolve(key, with: .failure(timeoutError()))
             }
             // Keys are unique per request; a reused one fails the older waiter.
