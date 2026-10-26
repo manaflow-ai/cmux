@@ -62,23 +62,28 @@ extension PageWebView {
     }
 
     /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
-    /// page thaws before it shows, whichever path showed it (``thawPage()``).
+    /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
     func setEngineVisible(_ visible: Bool) {
         if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it.
+    /// Loads `url` (a document of this page) in whichever engine shows it; a page waiting to show after a
+    /// crash loads it as it shows (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
+        guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it.
+    /// Reloads the document in whichever engine shows it (after its show, for a page waiting after a crash).
     func reloadPage() {
+        guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }

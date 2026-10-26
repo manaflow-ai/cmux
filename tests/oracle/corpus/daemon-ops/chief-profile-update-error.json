@@ -29,6 +29,25 @@
   ],
   "steps": [
     {
+      "id": "fx-chief",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.profile.create",
+        "params": {
+          "display_name": "oracle"
+        },
+        "idempotencyKey": "chief-profile-update-error.fx-chief"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,20 +57,28 @@
       "args": {
         "method": "chief.profile.update",
         "params": {
-          "chief": "",
-          "display_name": "oracle"
+          "chief": "$step:fx-chief#/value/id",
+          "display_name": "oracle",
+          "expected_rev": 7
         },
         "idempotencyKey": "chief-profile-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "chief.profile.update",
+          "reason": "rev_mismatch",
+          "extra": {
+            "rev": 1
+          }
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "chief breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "expected_rev 7 on a record at rev 1: refused, with the rev the caller should read"
     }
   ],
   "invariants": [
