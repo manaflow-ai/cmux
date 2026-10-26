@@ -979,6 +979,7 @@ class HarnessRelaunchTests(unittest.TestCase):
         sweep = sweep_mod.Sweep.__new__(sweep_mod.Sweep)
         sweep.session = "light"
         sweep.pending = None
+        sweep.entered = []  # no family context entered (oracle/action_fixtures)
         sweep.base = {"settings": {}}
         sweep.settings = lambda: {}
         sweep.restore_settings = lambda: []
