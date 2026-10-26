@@ -840,6 +840,17 @@ async fn dispatch_request(
                 }
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
+            // Debug builds only: `ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS` holds an adopt that
+            // found its conversation held, so a test can end the holder before the
+            // create. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if _admitted.is_none()
+                && let Some(ms) = std::env::var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(ms.min(5_000))).await;
+            }
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {

@@ -45,10 +45,15 @@ fn hub() -> Arc<Hub> {
 
 /// One `session/new` on a connection of its own: its reply.
 async fn new_session(hub: &Arc<Hub>, params: Value) -> Value {
+    request(hub, "session/new", params).await
+}
+
+/// One request `m` on a connection of its own: its reply.
+async fn request(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    in_tx.send(Message::request(1, "session/new", params).to_line()).await.unwrap();
+    in_tx.send(Message::request(1, m, params).to_line()).await.unwrap();
     loop {
         let line =
             tokio::time::timeout(Duration::from_secs(30), out_rx.recv()).await.unwrap().unwrap();
@@ -95,6 +100,7 @@ fn adopt_of(harness: &str, chat: &str) -> Value {
 async fn adopts_at_the_cap() {
     concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session().await;
     an_adopt_of_an_id_another_family_holds_is_admitted_like_a_new_session().await;
+    an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session().await;
 }
 
 async fn concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session() {
@@ -146,6 +152,39 @@ async fn an_adopt_of_an_id_another_family_holds_is_admitted_like_a_new_session()
     let codex =
         hub.sessions().iter().filter(|s| s.meta().family.as_deref() == Some("codex")).count();
     assert_eq!(codex, 0, "no Codex session past the cap: {r}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+async fn an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session() {
+    let root = std::env::temp_dir().join(format!("acpmux-admgone-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let hub = hub();
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    let r = new_session(&hub, adopt_of("fakecodex", &chat)).await;
+    let holder = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    // The disk goes under its floor: no new session may start.
+    let flag = root.join("home/.cache/worktree-reclaim/under-floor");
+    std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
+    std::fs::write(&flag, "").unwrap();
+    // An adopt finds the conversation held (it would attach, admitting nothing),
+    // and is held there while the holder is purged.
+    // SAFETY: one test function in this binary; no session reads it concurrently.
+    unsafe { std::env::set_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS", "1500") };
+    let adopt = tokio::spawn(new_session_owned(hub.clone(), adopt_of("fakecodex", &chat)));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let r = request(&hub, "_acpmux/kill", json!({"sessionId": holder, "purge": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = adopt.await.unwrap();
+    unsafe { std::env::remove_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS") };
+    // Its create is a new session now: refused under the floor, not made.
+    assert_eq!(r["error"]["data"]["reason"], "admission_refused", "{r}");
+    assert_eq!(r["error"]["data"]["why"], "under_floor", "{r}");
+    assert!(hub.sessions().is_empty(), "no session past the floor: {r}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
