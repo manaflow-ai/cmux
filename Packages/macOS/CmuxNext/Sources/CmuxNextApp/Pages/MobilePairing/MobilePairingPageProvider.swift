@@ -71,7 +71,9 @@ final class MobilePairingPageProvider: PageProvider {
                 last = fingerprint
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event is an empty "status changed" signal the page answers with one `status` read:
+        // the newest one says all the dropped ones did.
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 
     /// Everything `status` reads that can change while the page is open.

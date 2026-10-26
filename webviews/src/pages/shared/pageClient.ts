@@ -45,6 +45,12 @@ export interface PageCallOptions {
 export interface PageEventMeta {
   /** Decision 31: the opid of the call that caused the event. */
   opid?: string;
+  /**
+   * Decisions 15 and 32: the host dropped events of this stream before this one (the page was
+   * hidden or frozen and the stream keeps only its newest). The seq does not skip; read the state
+   * again instead of applying this event on top of what the page has.
+   */
+  gap?: true;
 }
 
 export interface PageClient {
@@ -65,7 +71,8 @@ type Envelope =
   | { t: "ok"; id: number; value?: unknown }
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
-  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string }
+  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string; gap?: boolean }
+  | { t: "evs"; events: unknown[] }
   | { t: "unsub"; sub: number }
   | { t: "cancel"; id: number };
 
@@ -287,14 +294,22 @@ export class BridgePageClient implements PageClient {
   /** Host to page. Exposed for tests; the host calls it through `window.__cmuxPageReceive`. */
   receive(message: unknown): void {
     const envelope = message as Partial<Envelope> | null;
+    if (envelope?.t === "evs") {
+      // Decision 32: events the host held while the page was hidden, in send order.
+      const { events } = envelope as { events?: unknown };
+      if (Array.isArray(events)) for (const event of events) this.receive(event);
+      return;
+    }
     if (envelope?.t === "ev") {
-      const { sub, seq, data, opid } = envelope as {
+      const { sub, seq, data, opid, gap } = envelope as {
         sub: number;
         seq: number;
         data: unknown;
         opid?: unknown;
+        gap?: unknown;
       };
       const meta: PageEventMeta = typeof opid === "string" ? { opid } : {};
+      if (gap === true) meta.gap = true;
       const listener = this.listeners.get(sub);
       if (!listener) {
         this.hold(sub, { data, seq, meta });

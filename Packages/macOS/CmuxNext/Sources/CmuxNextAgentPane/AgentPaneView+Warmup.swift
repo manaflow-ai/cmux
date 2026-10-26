@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextPages
+public import CmuxNextPages
 import WebKit
 
 extension AgentPaneView {

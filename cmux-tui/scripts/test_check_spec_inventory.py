@@ -132,6 +132,50 @@ fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
                 CHECKER.module_command_profiles()
             self.assertIn("cancel_request does not refuse non-Unix connections", errors.getvalue())
 
+    def test_literal_only_module_needs_its_guard_and_a_production_literal(self) -> None:
+        guarded = """\
+pub(super) fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd != "agent-session-observe" { return None; }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        unguarded = guarded.replace("    if !mux.control_clients.is_unix(client) { return Some(false); }\n", "")
+        test_only = """\
+pub(super) fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    const CMD: &str = "agent-session-observe";
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            observe = tui / "crates/cmux-tui-core/src/server/agent_session_observe.rs"
+            observe.parent.mkdir(parents=True)
+            observe.write_text(guarded)
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.module_command_profiles(),
+                    {"agent-session-observe": "local-admin"},
+                )
+            for source, message in (
+                (unguarded, "try_handle does not refuse non-Unix connections"),
+                (test_only, "no longer matches 'agent-session-observe'"),
+            ):
+                observe.write_text(source)
+                errors = io.StringIO()
+                with (
+                    patch.object(CHECKER, "TUI", tui),
+                    redirect_stderr(errors),
+                    self.assertRaises(SystemExit),
+                ):
+                    CHECKER.module_command_profiles()
+                self.assertIn(message, errors.getvalue())
+
     def test_sniffed_command_names_come_from_handler_modules_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             tui = Path(temporary) / "cmux-tui"

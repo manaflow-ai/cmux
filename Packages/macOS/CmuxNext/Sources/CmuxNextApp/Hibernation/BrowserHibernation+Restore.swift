@@ -87,11 +87,13 @@ extension BrowserHibernation {
         // Its last frame stays over the new page until the page paints: no blank frame on a wake.
         // The pixels the placeholder shows now are already decoded, so the cover has them in the
         // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
-        // A native cmux page draws in its first frame and needs none; one in a web engine does.
+        // A native cmux page draws in its first frame and needs none; one in a web engine does. A remote
+        // stream connects first: it keeps the picture for a reconnect's cap (`BrowserWakeStandIn.wakeCoverCap`).
         let shown = asleep.shownPicture
         if (page as? any BrowserAppPage)?.drawsInFirstFrame != true, let picture = shown ?? snapshotImage(key) {
-            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
-                                                                         clock: standInClock) ?? false
+            let standIn = page as? any BrowserWakeStandIn
+            let covered = standIn?.showStandIn(picture, decoded: shown != nil, cap: standIn?.wakeCoverCap ?? Self.standInCap,
+                                               clock: standInClock) ?? false
             if !covered { uncoveredWakes += 1 }
         }
         cache.swapPage(key, with: page, asleep: asleep.state)

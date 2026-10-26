@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
@@ -173,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
-        services.palette.bindRegistryActions()
+        services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
@@ -227,19 +227,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one frame); then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens
         // warm; then the system file picker made ahead, so the first click is not cold.
         LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames,
-                               preparePalette: { [weak palette = services.palette] in _ = palette?.prepare(step: $0) },
+                               preparePalette: { [weak services] in _ = services?.palette.prepare(step: $0) },
                                prepareIconPicker: { [weak services] in services?.iconPicker.prepare() },
                                warmOpenPanel: { [weak services] in services?.openPanel.warmWhenIdle() }).post(on: order.startup)
+        services.palettes.postBuild(on: order.startup)
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: order.startup)
-        services.palette.onPresented = { DebugTimings.palettePresented($0) }
-        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
-        services.palette.openingEventTimestamp = { [inputDispatch = services.inputDispatch] in
-            let event = inputDispatch.event
-            return event?.type == .keyDown ? event?.timestamp : nil
-        }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
@@ -309,14 +304,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
-        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+        services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
         services.history.startDaemonSync(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
-        services.paletteShortcutEditor = shortcutEditor
-        services.palette.shortcutRecorder.editor = shortcutEditor
+        services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         settings.writeManagedStatus(
@@ -376,7 +370,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
-        services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
@@ -408,7 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
                 // Socket focus policy: `open` makes the page first responder only with focus: true.
                 let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
@@ -518,7 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         services?.stopCloud()
-        services?.ssh.stop()
+        services?.madeSSH?.stop()
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()

@@ -1,6 +1,6 @@
 public import AppKit
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// History commands a remote tab sends to its host (`rb.history`).
 public nonisolated enum RemoteBrowserHistoryOp: String, Sendable, Hashable {
     case back

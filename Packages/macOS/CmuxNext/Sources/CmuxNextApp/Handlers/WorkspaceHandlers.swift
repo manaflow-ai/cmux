@@ -20,7 +20,7 @@ enum WorkspaceHandlers {
         registry.bind("palette.openWorkspacePullRequests", run: { invocation in try openPullRequestLinks(context, invocation) })
         // Find Work: the palette's current-work page (workspaces needing attention, then the
         // user's GitHub review requests and assignments), from the palette, the CLI and the menu.
-        context.services.palette.sources.actionPages["palette.findWork"] = { [weak services = context.services] in
+        context.services.palettes.sources.actionPages["palette.findWork"] = { [weak services = context.services] in
             services.map { FindWorkPalettePage(services: $0).page() }
         }
         registry.bind("palette.findWork", run: { _ in

@@ -52,20 +52,28 @@ nonisolated enum DiffTurnPatch {
             }
             guard !hunks.isEmpty else { continue }
             out += "--- \(from)\n+++ \(to)\n" + hunks
-            if !hunks.hasSuffix("\n") { out += "\n" }
+            if hunks.utf8.last != UInt8(ascii: "\n") { out += "\n" }
         }
         return out
     }
 
-    /// `patch` cut short at a line end: its last hunk's header counts the lines that came, so
-    /// the page reads the hunks it has.
+    /// `patch` cut short anywhere: its last hunk's header counts the lines that came, so the page
+    /// reads the hunks it has. Lines split at each `\n` byte and a line's side is its first byte:
+    /// a CRLF file's `"\r\n"` and a mark followed by a combining mark are single Characters.
     static func cutHunks(_ patch: String) -> String {
-        var lines = patch.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.last == "" { lines.removeLast() }
+        var lines = patch.utf8.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self) }
+        if lines.last == "" {
+            lines.removeLast()
+        } else if lines.last?.utf8.first == UInt8(ascii: "@") {
+            // A hunk header cut inside its line has no rows yet; the hunks before it stay.
+            lines.removeLast()
+        }
         guard let header = lines.lastIndex(where: { $0.hasPrefix("@@ ") }),
               let starts = hunkStarts(lines[header]) else { return "" }
-        let body = lines[(header + 1)...].filter { !$0.hasPrefix("\\") }
-        let old = body.filter { !$0.hasPrefix("+") }.count, new = body.filter { !$0.hasPrefix("-") }.count
+        let body = lines[(header + 1)...].filter { $0.utf8.first != UInt8(ascii: "\\") }
+        let old = body.filter { $0.utf8.first != UInt8(ascii: "+") }.count
+        let new = body.filter { $0.utf8.first != UInt8(ascii: "-") }.count
         guard old + new > 0 else { return lines[..<header].map { $0 + "\n" }.joined() }
         lines[header] = "@@ -\(starts.old),\(old) +\(starts.new),\(new) @@"
         return lines.map { $0 + "\n" }.joined()

@@ -306,6 +306,41 @@ class BenchGaps(Fixture):
         self.assertEqual(items[1].where, "Packages/macOS/CmuxNext/Sources/App/Debug.swift:2")
         self.assertIn("scripts/cmux-next/a-bench.py", items[1].detail)
 
+    def test_a_debug_only_use_by_design_is_not_a_gap_for_that_script_only(self):
+        self.write("Packages/macOS/CmuxNext/Sources/Browser/CEFSwitches.swift", """
+            #if DEBUG
+            let extra = env["CMUX_NEXT_CEF_EXTRA_SWITCHES"]
+            let other = env["CMUX_NEXT_OTHER_SWITCHES"]
+            #endif
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let bench = env["CMUX_NEXT_BENCH_CEF_SWITCHES"]
+            #endif
+            """)
+        self.write("scripts/cmux-next/bench_memory.py", """
+            env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "a", "CMUX_NEXT_OTHER_SWITCHES": "b", "CMUX_NEXT_BENCH_CEF_SWITCHES": "c"}
+            """)
+        self.assertIn(("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_memory.py"), queues.DEBUG_ONLY_BY_DESIGN)
+        self.assertEqual([item.key for item in queues.bench_gaps(self.root)], ["CMUX_NEXT_OTHER_SWITCHES"])
+        # A script whose measurement needs the name (trace.py's remote-debugging-port) is still a gap.
+        self.write("scripts/cmux-next/trace.py", """
+            env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "remote-debugging-port=9222"}
+            BenchApp(path, env=env)
+            """)
+        items = queues.bench_gaps(self.root)
+        self.assertEqual([item.key for item in items], ["CMUX_NEXT_CEF_EXTRA_SWITCHES", "CMUX_NEXT_OTHER_SWITCHES"])
+        self.assertIn("scripts/cmux-next/trace.py", items[0].detail)
+
+    def test_the_queue_source_is_not_a_bench_script(self):
+        self.write("Packages/macOS/CmuxNext/Sources/Browser/CEFSwitches.swift", """
+            #if DEBUG
+            let extra = env["CMUX_NEXT_CEF_EXTRA_SWITCHES"]
+            #endif
+            """)
+        self.write(queues.QUEUES_SOURCE, """
+            USES = re.compile(r"BenchApp")
+            NAMES = {("CMUX_NEXT_CEF_EXTRA_SWITCHES", "x.py"): "why"}
+            """)
+        self.assertEqual(queues.bench_gaps(self.root), [])
 
 class CommandLine(Fixture):
     def run_main(self, *argv):

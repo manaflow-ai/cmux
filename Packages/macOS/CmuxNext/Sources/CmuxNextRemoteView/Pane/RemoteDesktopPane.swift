@@ -64,6 +64,13 @@ public final class RemoteDesktopPane {
     private let presenter: any RemoteFramePresenter
     private var tasks: [Task<Void, Never>] = []
     private var pipeline: RemoteDecodePipeline?
+    /// The running session's frame gate: closed at `stop()`, so a hidden pane presents nothing.
+    private var delivery: RemoteFrameGate?
+    /// Runs once per started session when the pane shows its own content: the first frame went on
+    /// screen, or the session ended before one did (the card says why). A woken tab's last frame
+    /// then goes (`BrowserWakeCover`).
+    public var onOwnContent: (() -> Void)?
+    private var awaitsOwnContent = false
     /// Armed while no frame was shown in this session; the first decoded
     /// frame consumes it and tells the reducer (`frameShown`).
     private let firstFrame = OneShotSignal()
@@ -90,6 +97,7 @@ public final class RemoteDesktopPane {
         self.presenter.onFrameSize = { [weak self] size in
             self?.view.video.setFramePixels(size)
         }
+        self.presenter.onFrameShown = { [weak self] in self?.frameShown() }
         wireChrome()
         view.render(state: state, settings: settings)
     }
@@ -99,9 +107,11 @@ public final class RemoteDesktopPane {
         guard tasks.isEmpty else { return }
         let presenter = self.presenter
         let firstFrame = self.firstFrame
+        let gate = RemoteFrameGate()
+        delivery = gate
+        awaitsOwnContent = true
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            presenter.present(frame)
-            guard firstFrame.consume() else { return }
+            guard gate.deliver(frame, to: presenter), firstFrame.consume() else { return }
             Task { @MainActor in self?.apply(.frameShown) }
         }
         if let frameSource = source as? any RemoteViewFrameSource {
@@ -128,6 +138,8 @@ public final class RemoteDesktopPane {
     /// (a hidden or closed tab never sends media). The last frame stays.
     public func stop() {
         stopAllUpstreams()
+        delivery?.close()
+        delivery = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
         pipeline = nil
@@ -142,6 +154,22 @@ public final class RemoteDesktopPane {
     /// The size of the last presented frame, in stream pixels (debug surfaces, tests).
     public var framePixels: CGSize { view.video.framePixels }
 
+    /// The frame on screen, kept while the pane is stopped.
+    public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
+
+    /// The pane as drawn with its last frame in the video (a hidden tab's picture); nil before
+    /// the first frame, or while the pane shows a card over it (then `cacheDisplay` draws it all).
+    public func picture() async -> CGImage? {
+        guard let frame = lastFrame, state.overlay == nil, let image = await frame.picture() else { return nil }
+        return view.video.composite(image, in: view)
+    }
+
+    private func frameShown() {
+        guard awaitsOwnContent else { return }
+        awaitsOwnContent = false
+        onOwnContent?()
+    }
+
     /// Frames replaced before display by the latest-frame-wins presenter.
     public var discardedFrames: Int { presenter.discardedFrames }
 
@@ -153,6 +181,8 @@ public final class RemoteDesktopPane {
         guard next != state else { return }
         state = next
         view.render(state: state, settings: settings)
+        // The card says why the session ended: the pane shows its own content.
+        if next.isEnded { frameShown() }
     }
 
     private func wireChrome() {

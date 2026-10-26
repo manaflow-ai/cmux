@@ -173,12 +173,14 @@ def module_commands() -> dict[str, dict]:
 def module_command_sources() -> dict[str, str]:
     """Source of each module in server-module-commands.json that exists, by
     module name. A removed module serves nothing, so its schema commands
-    become stale."""
+    become stale. An inline `mod tests` is left out: a test that spells a
+    removed command does not serve it."""
     sources: dict[str, str] = {}
     for module in module_commands():
         path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
         if path.exists():
-            sources[module] = strip_rust_comments(path.read_text())
+            production = path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0]
+            sources[module] = strip_rust_comments(production)
     return sources
 
 
@@ -188,12 +190,14 @@ def module_command_names() -> dict[str, str]:
     names: dict[str, str] = {}
     specs = module_commands()
     for module, source in module_command_sources().items():
-        enum_name = specs[module]["enum"]
+        enum_name = specs[module].get("enum")
         literals = specs[module].get("literals", {})
-        body = rust_enum_body(source, enum_name)
-        renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
-        if len(renames) != len(rust_enum_variants(source, enum_name)):
-            fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        renames: list[str] = []
+        if enum_name is not None:
+            body = rust_enum_body(source, enum_name)
+            renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+            if len(renames) != len(rust_enum_variants(source, enum_name)):
+                fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
         for literal in literals:
             if f'"{literal}"' not in source:
                 fail(f"server/{module}.rs no longer matches {literal!r}")
@@ -219,7 +223,9 @@ def module_command_profiles() -> dict[str, str]:
             fail(f"server/{module}.rs needs an authority in {MODULE_COMMANDS_PATH.name}")
         literals = spec.get("literals", {})
         if authority == "local-admin":
-            handlers = {spec["enum_handler"], *(literal["handler"] for literal in literals.values())}
+            handlers = {literal["handler"] for literal in literals.values()}
+            if "enum" in spec:
+                handlers.add(spec["enum_handler"])
             for handler in sorted(handlers):
                 if not re.search(
                     r"if\s+!\s*mux\.control_clients\.is_unix\(",
