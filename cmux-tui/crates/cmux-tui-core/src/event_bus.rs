@@ -630,4 +630,21 @@ impl MuxEventReceiver {
             remaining = timeout.saturating_sub(started.elapsed());
         }
     }
+
+    /// The checked wait of a mailbox-owning thread: the next event, waiting
+    /// at most `timeout` (`None`: until one arrives or the bus closes). It is
+    /// checked as a [`cmux_threads::BlockingKind::Recv`] at the caller's line,
+    /// so it is never called on a request or echo thread.
+    #[track_caller]
+    pub(crate) fn wait_event(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        cmux_threads::assert_blocking_allowed(cmux_threads::BlockingKind::Recv);
+        match timeout {
+            // wakeup-allow: deadline the caller's one timeout; an event or the bus closing ends it first
+            Some(timeout) => self.recv_timeout(timeout),
+            None => self.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        }
+    }
 }

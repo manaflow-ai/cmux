@@ -49,6 +49,44 @@
       }
     },
     {
+      "id": "viewport-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right",
+          "viewport_width": 0.5
+        },
+        "idempotencyKey": "column-update-error.viewport-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "read-layout",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,20 +97,35 @@
       "args": {
         "method": "column.update",
         "params": {
-          "column": "oracle",
-          "dock": false
+          "column": "split_0123456789abcdef0123456789abcdef",
+          "dock": true,
+          "edge": "right"
         },
         "idempotencyKey": "column-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "field": "column",
+          "reason": "not a viewport column of this screen"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "column breaks its catalog type (resource id has the wrong type prefix); the daemon's catalog check refuses it"
+      "note": "a well-formed split id that is no column of the screen: column_update refuses it (validation.invalid, field column), nothing docked"
+    },
+    {
+      "id": "none-docked",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/columns/1/dock",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
@@ -81,8 +134,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.column is a fixed placeholder, not a fixture object; layout/_tuning.json tunes it"
   ]
 }

@@ -28,7 +28,9 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 (`suite/case[/step]`) name a case by one path segment. The families of tasks 061-070 tune their operations in
 `<family>/_tuning.json` (oracle.py skips `_` files), which this generator reads, so regeneration keeps the tuning
 and stays byte-stable. A tuning changes params and target, the error code and the error details the error case
-asserts, and adds `before` steps (a mutation or a waitFor settle between the fixture and the call), `requires`
+asserts, and adds `before` steps (a mutation, a readOnly read whose reply a `$step:` reference uses, or a waitFor
+settle between the fixture and the call), `after` steps (waitFor settles after the call that assert the state it
+left, for example the split tree; the error case does not inherit the success case's), `requires`
 capabilities (`chromium` for a daemon-rendered browser, which needs a cmux-browser provider), `untested` reasons
 and a `gap`: why no product can run the success case yet, naming the task that closes it, and a `repo`: the
 generated git repository (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under
@@ -54,6 +56,7 @@ import copy
 import functools
 import hashlib
 import importlib.util
+import itertools
 import json
 import re
 import sys
@@ -133,6 +136,8 @@ ERROR_CODE = "validation.invalid"
 REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # case-v1 capability of a case with fixture.repo: the product's driver builds the repository first.
 REPO_CAPABILITY = "git_repo"
+# case-v1 $defs/stepRef: a value from an earlier step's reply.
+STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 
 
 class GenError(Exception):
@@ -555,6 +560,12 @@ class Request:
     agent: Optional[str] = None
     # The generated repository the case needs (case-v1 fixture.repo, tests/oracle/fixtures/git/<repo>.json).
     repo: Optional[str] = None
+    # Settle steps after the call whose waitFor asserts the state it left (the split tree after a layout change).
+    after: List[Dict[str, Any]] = field(default_factory=list)
+
+    def before_methods(self) -> Dict[str, str]:
+        """The before steps that call an operation: step id to method (what a `$step:` reference reads)."""
+        return {step["id"]: step["method"] for step in self.before if "method" in step}
 
 
 class Synth:
@@ -688,23 +699,32 @@ class Synth:
             return "1", "value must be a signed 32-bit integer"
         raise GenError(f"unknown primitive {name!r}")
 
-    def concrete(self, value: Any) -> Any:
-        """The value with each fixture handle replaced by a well-formed value of its catalog type."""
+    def concrete(self, value: Any, steps: Optional[Mapping[str, str]] = None) -> Any:
+        """The value with each fixture handle, and each `$step:` reference to a tuned before step (`steps`: step
+        id to its method), replaced by a well-formed value of its catalog type."""
         if isinstance(value, Handle):
             step_id, pointer = HANDLES[value.name]
-            step = FIXTURE_BY_ID[step_id]
-            t = self.catalog.type_at(self.catalog.operations[step.operation]["result"], pointer)
-            if t is None:
-                raise GenError(f"{step.id}: {pointer} is not in the result type of {step.operation}")
-            resolved, _ = self.catalog.resolve(t, {})
-            if resolved["kind"] == "resource_id":
-                return resource_id(resolved["resource"])
-            return self.primitive(resolved) if resolved["kind"] == "primitive" else self.structural(Request(step.operation), resolved, "", pointer, {})
+            return self.result_value(step_id, FIXTURE_BY_ID[step_id].operation, pointer)
+        reference = STEP_REF.match(value) if isinstance(value, str) else None
+        if reference and steps and reference.group(1) in steps:
+            return self.result_value(reference.group(1), steps[reference.group(1)], reference.group(2))
         if isinstance(value, dict):
-            return {key: self.concrete(item) for key, item in value.items()}
+            return {key: self.concrete(item, steps) for key, item in value.items()}
         if isinstance(value, list):
-            return [self.concrete(item) for item in value]
+            return [self.concrete(item, steps) for item in value]
         return value
+
+    def result_value(self, step_id: str, operation: str, pointer: str) -> Any:
+        """A well-formed value at `pointer` of the result of `operation` (the reply a `$step:` reference reads)."""
+        t = self.catalog.type_at(self.catalog.operations[operation]["result"], pointer)
+        if t is None:
+            raise GenError(f"{step_id}: {pointer} is not in the result type of {operation}")
+        resolved, _ = self.catalog.resolve(t, {})
+        if resolved["kind"] == "resource_id":
+            return resource_id(resolved["resource"])
+        if resolved["kind"] == "primitive":
+            return self.primitive(resolved)
+        return self.structural(Request(operation), resolved, "", pointer, {})
 
 
 # ------------------------------------------------------------------------------------------------- cases
@@ -885,7 +905,7 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     """One case; `gap` is the untested line that says why its success cannot be checked yet."""
     steps = []
     used = [*handles_in(request.target), *handles_in(request.params), *handles_in(request.before),
-            *handles_in(request.details)]
+            *handles_in(request.details), *handles_in(request.after)]
     if request.details is not None:
         expect = {**expect, "errorDetails": refs(request.details)}
     for step_id in fixture_closure(used):
@@ -893,6 +913,7 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         steps.append(call_step(case_id, fx.id, fx.operation, {s: Handle(h) for s, h in fx.target}, fx.params, OK))
     steps.extend(before_step(case_id, spec, catalog) for spec in request.before)
     steps.append(call_step(case_id, "call", operation, request.target, request.params, expect, ["before", "settled"], note))
+    steps.extend(before_step(case_id, spec, catalog) for spec in request.after)
     requires = ["resource_api", *(cap for cap in request.requires if cap != "resource_api")]
     preconditions = ["hermetic state root", "no other cmux-tui on the state root"]
     if "chromium" in requires:
@@ -930,11 +951,11 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
 
 
 def before_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[str, Any]:
-    """A tuning `before` step: a call (method, target, params) or a settle that waits (waitFor). A read call is a
-    readOnly step that expects ok; a later step names its reply with `$step:<id>#<pointer>`."""
+    """A tuning `before` or `after` step: a call (method, target, params) or a settle that waits (waitFor). A read
+    call is a readOnly step that expects ok, with no idempotency key (reads forbid one); a later step names its
+    reply with `$step:<id>#<pointer>`."""
     if "waitFor" in spec:
-        return {"id": spec["id"], "op": "settle", "waitFor": copy.deepcopy(spec["waitFor"]),
-                "settleMaxMs": spec["waitFor"]["maxMs"]}
+        return {"id": spec["id"], "op": "settle", "waitFor": refs(spec["waitFor"]), "settleMaxMs": spec["waitFor"]["maxMs"]}
     method = spec["method"]
     if catalog.operations[method].get("class") == "read":
         return {"id": spec["id"], "op": "resource.call", "target": {**SCOPE, **refs(dict(spec.get("target") or {}))},
@@ -947,8 +968,8 @@ def before_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict
 
 
 TUNING_KINDS = ("success", "error")
-TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details",
-                         "agent", "repo"})
+TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "after", "requires", "untested", "gap",
+                         "details", "agent", "repo"})
 # case-v1 fixture.agent values a tuning may set: the mock agent (mock_chief.py), or none (the default).
 TUNING_AGENTS = frozenset({"mock", "none"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
@@ -961,6 +982,7 @@ WAIT_MAX_MS = 30000
 # The capabilities a tuning may add (case-v1 capability); resource_api is every case's.
 TUNING_CAPABILITIES = frozenset({"chromium", "restart"})
 BEFORE_CALL_KEYS = frozenset({"id", "method", "target", "params"})
+BEFORE_CLASSES = frozenset({"mutation", "read"})
 BEFORE_WAIT_KEYS = frozenset({"id", "waitFor"})
 STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
@@ -1089,7 +1111,9 @@ def credential_values(value: Any, path: str) -> Iterable[str]:
 
 
 def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> None:
-    """The before, requires, untested and agent keys of one tuning kind."""
+    """The before, after, requires, untested and agent keys of one tuning kind. A before step calls a mutation,
+    or a read whose reply a later `$step:` reference uses (an id the fixture results do not give), or settles on
+    a waitFor; an after step only settles: its waitFor asserts the state the call left."""
     if "agent" in spec and spec["agent"] not in TUNING_AGENTS:
         raise GenError(f"{where}: agent takes only {sorted(TUNING_AGENTS)}")
     requires = spec.get("requires", [])
@@ -1098,27 +1122,30 @@ def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> 
     untested = spec.get("untested", [])
     if not isinstance(untested, list) or not all(isinstance(item, str) and item for item in untested):
         raise GenError(f"{where}: untested is a list of reasons")
-    before = spec.get("before", [])
-    if not isinstance(before, list):
-        raise GenError(f"{where}: before is a list of steps")
     taken = {step.id for step in FIXTURE} | {"call"}
-    for item in before:
-        keys = set(item) if isinstance(item, dict) else set()
-        shape = BEFORE_WAIT_KEYS if "waitFor" in keys else BEFORE_CALL_KEYS
-        if "id" not in keys or not keys <= shape or ("waitFor" not in keys and "method" not in keys):
-            raise GenError(f"{where}: a before step is {{id, method, target, params}} or {{id, waitFor}}, not {item!r}")
-        step_id = item["id"]
-        if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
-            raise GenError(f"{where}: before step id {step_id!r} is not a new step id")
-        taken.add(step_id)
-        if "waitFor" in item:
-            problem = wait_for_problem(item["waitFor"])
-            if problem:
-                raise GenError(f"{where}: before step {step_id} waitFor {problem}")
-        method = item.get("method")
-        if "method" in item and (method not in catalog.operations
-                                 or catalog.operations[method].get("class") not in ("mutation", "read")):
-            raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation or read of the catalog")
+    for key in ("before", "after"):
+        steps = spec.get(key, [])
+        if not isinstance(steps, list):
+            raise GenError(f"{where}: {key} is a list of steps")
+        for item in steps:
+            keys = set(item) if isinstance(item, dict) else set()
+            shape = BEFORE_WAIT_KEYS if "waitFor" in keys or key == "after" else BEFORE_CALL_KEYS
+            if "id" not in keys or not keys <= shape or ("waitFor" not in keys and "method" not in keys):
+                shapes = "an after step is {id, waitFor}" if key == "after" else \
+                    "a before step is {id, method, target, params} or {id, waitFor}"
+                raise GenError(f"{where}: {shapes}, not {item!r}")
+            step_id = item["id"]
+            if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
+                raise GenError(f"{where}: {key} step id {step_id!r} is not a new step id")
+            taken.add(step_id)
+            if "waitFor" in item:
+                problem = wait_for_problem(item["waitFor"])
+                if problem:
+                    raise GenError(f"{where}: {key} step {step_id} waitFor {problem}")
+            method = item.get("method")
+            if "method" in item and (method not in catalog.operations
+                                     or catalog.operations[method].get("class") not in BEFORE_CLASSES):
+                raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation or read of the catalog")
 
 
 def wait_for_problem(wait: Any) -> Optional[str]:
@@ -1211,6 +1238,8 @@ def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
         request.details = tuned_value(spec["details"])
     if "agent" in spec:
         request.agent = None if spec["agent"] == "none" else spec["agent"]
+    if "after" in spec:
+        request.after = [tuned_value(item) for item in spec["after"]]
     for part in ("params", "target"):
         into = request.params if part == "params" else request.target
         for key, value in (spec.get(part) or {}).items():
@@ -1253,11 +1282,14 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
             broken_request, broken = error_request(synth, success)
         else:
             broken_request = copy.deepcopy(success)
+        # The after steps assert what the success left; the error case asserts only what its own tuning says.
+        broken_request.after = []
         apply_tuning(broken_request, error_tuning)
-        problem = synth.check.params(operation, synth.concrete(wire_params(success)))
+        problem = synth.check.params(operation, synth.concrete(wire_params(success), success.before_methods()))
         if problem is not None:
             raise GenError(f"{operation}: the success request fails the catalog check: {problem}")
-        if broken and synth.check.params(operation, synth.concrete(wire_params(broken_request))) is None:
+        if broken and synth.check.params(operation, synth.concrete(wire_params(broken_request),
+                                                                   broken_request.before_methods())) is None:
             raise GenError(f"{operation}: the error request passes the catalog check")
         for request in (success, broken_request):
             problem = next(iter(repo_problems(request)), None)
@@ -1281,7 +1313,8 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         entry: Dict[str, Any] = {
             "family": family,
             "cases": {"success": f"{SUITE}/{ok_id}", "error": f"{SUITE}/{error_id}"},
-            "fixture": [s["id"] for s in files[f"{ok_id}.json"]["steps"][:-1]],
+            "fixture": [s["id"] for s in itertools.takewhile(lambda step: step["id"] != "call",
+                                                             files[f"{ok_id}.json"]["steps"])],
             "error": {"code": code, **(broken or {})},
             "placeholders": sorted(set(success.placeholders)),
         }
@@ -1596,6 +1629,15 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "conversation.events"}]}}}},
              "not a mutation or read of the catalog"),
             ({"operations": {"pane.close": {"success": {"agent": "real"}}}}, "agent takes only"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "browser.attach"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"after": [{"id": "x", "method": "screen.get"}]}}}},
+             "an after step is \\{id, waitFor\\}"),
+            ({"operations": {"pane.close": {"success": {"after": {"id": "x"}}}}}, "after is a list of steps"),
+            ({"operations": {"pane.close": {"success": {
+                "before": [{"id": "x", "method": "screen.get"}],
+                "after": [{"id": "x", "waitFor": {"pointer": "/daemon/session", "predicate": "exists", "maxMs": 1}}]}}}},
+             "after step id 'x' is not a new step id"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "fx-workspace", "method": "pane.split"}]}}}},
              "not a new step id"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "call", "waitFor": {}}]}}}}, "not a new step id"),
@@ -1752,6 +1794,83 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertEqual([s["id"] for s in bad["steps"]], ["call"])
         self.assertEqual(bad["steps"][-1]["args"]["params"], {"id": "itm_home"})
         self.assertEqual(bad["steps"][-1]["expect"], {"outcome": "error", "error": ERROR_CODE})
+
+    def test_after_steps_assert_what_the_call_left_and_a_read_gives_ids(self) -> None:
+        layout = "/daemon/session/screens/0/layout"
+        tuned = {"pane.split_ratio.set": {
+            "success": {"before": [{"id": "read-layout", "method": "screen.get", "target": {"screen": {"$fixture": "screen"}}}],
+                        "params": {"split_id": "$step:read-layout#/layout/root/split_id", "ratio": 0.25},
+                        "after": [{"id": "ratio", "waitFor": {"pointer": f"{layout}/root/ratio", "equals": 0.25, "maxMs": 5}},
+                                  {"id": "kept", "waitFor": {"pointer": f"{layout}/root/second/pane_id",
+                                                             "equals": {"$fixture": "other_pane"}, "maxMs": 5}}]},
+            "error": {"error": "operation.failed", "params": {"split_id": "split_0123456789abcdef0123456789abcdef"},
+                      "after": [{"id": "ratio-kept", "waitFor": {"pointer": f"{layout}/root/ratio", "equals": 0.5,
+                                                                 "maxMs": 5}}]}}}
+        files = generate(self.catalog, tuned)
+        ok, bad = files["pane-split-ratio-set-ok.json"], files["pane-split-ratio-set-error.json"]
+        # A fixture handle in an after step pulls its fixture step in; after steps follow the call.
+        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "fx-split", "read-layout", "call", "ratio", "kept"])
+        # A read is a readOnly step with no idempotency key (reads forbid one) and no receipt.
+        self.assertEqual(ok["steps"][2], {
+            "id": "read-layout", "op": "resource.call",
+            "target": {**SCOPE, "screen": "$step:fx-workspace#/value/screen_id"},
+            "args": {"method": "screen.get", "params": {}}, "readOnly": True, "expect": {"outcome": "ok"}})
+        self.assertEqual(ok["steps"][5], {"id": "kept", "op": "settle", "settleMaxMs": 5, "waitFor": {
+            "pointer": f"{layout}/root/second/pane_id", "equals": "$step:fx-split#/value/pane_id", "maxMs": 5}})
+        # The error case keeps the before steps but asserts only its own after steps.
+        self.assertEqual([s["id"] for s in bad["steps"]], ["fx-workspace", "read-layout", "call", "ratio-kept"])
+        self.assertEqual(files[COVERAGE]["operations"]["pane.split_ratio.set"]["fixture"],
+                         ["fx-workspace", "fx-split", "read-layout"])
+        self.assertNotIn("pane.split_ratio.set", files[COVERAGE]["excluded"])
+
+    def test_a_step_reference_to_a_before_call_is_checked_as_its_result_type(self) -> None:
+        steps = {"read-layout": "screen.get", "make": "pane.split"}
+        self.assertEqual(self.synth.concrete("$step:read-layout#/layout/root/split_id", steps), resource_id("split"))
+        self.assertEqual(self.synth.concrete(["$step:make#/value/screen_id"], steps), [resource_id("screen")])
+        # References to steps that are not before calls (the fixture, the call) stay as they are.
+        self.assertEqual(self.synth.concrete("$step:call#/value/pane_id", steps), "$step:call#/value/pane_id")
+        with self.assertRaisesRegex(GenError, "/layout/nothing is not in the result type of screen.get"):
+            self.synth.concrete("$step:read-layout#/layout/nothing", steps)
+        tuned = {"pane.split_ratio.set": {"success": {"params": {"split_id": "$step:fx-split#/value/pane_id"}}}}
+        with self.assertRaisesRegex(GenError, "fails the catalog check"):
+            generate(self.catalog, tuned)
+
+    def test_the_layout_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/layout/_tuning.json (p15-oracle-066): the 25 pane, column, layout, screen
+        and screen_group mutations. Every case ends with settle steps whose waitFor asserts the split tree (or the
+        screens and groups) the call left: the change on success, the unchanged tree after a refusal. Every error
+        is the daemon's own refusal with its details, not the catalog check's broken field, except the confirmation
+        an undo that closes a pane needs. All 25 are covered."""
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        layout = sorted(op for op in self.catalog.mutations() if family_of(op) == "layout")
+        self.assertEqual(len(layout), 25)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "layout"), layout)
+        for operation in layout:
+            entry = coverage["operations"][operation]
+            self.assertNotIn(operation, coverage["excluded"], operation)
+            self.assertEqual((entry["placeholders"], entry["tuned"]), ([], ["error", "success"]), operation)
+            for kind in ("success", "error"):
+                steps = files[entry["cases"][kind].split("/", 1)[1] + ".json"]["steps"]
+                ids = [step["id"] for step in steps]
+                after = steps[ids.index("call") + 1:]
+                self.assertTrue(after, f"{operation} {kind}: no after step asserts the tree")
+                for step in after:
+                    self.assertEqual(step["op"], "settle", f"{operation} {kind}")
+                    self.assertTrue(step["waitFor"]["pointer"].startswith("/daemon/session/"), f"{operation} {kind}")
+            call = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"]
+            expect = next(step for step in call if step["id"] == "call")["expect"]
+            self.assertNotIn("field", entry["error"], operation)
+            if operation != "screen.layout.undo":
+                self.assertIn("errorDetails", expect, operation)
+        # Ids the fixture results do not give come from a screen.get read before the call.
+        column = files["column-update-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in column], ["fx-workspace", "viewport-split", "read-layout", "call", "docked",
+                                                     "first-free"])
+        self.assertEqual(column[3]["args"]["params"]["column"], "$step:read-layout#/layout/root/columns/1/column_id")
+        self.assertEqual(files["screen-layout-undo-error.json"]["steps"][-2]["expect"],
+                         {"outcome": "error", "error": "confirmation.required"})
 
     def test_the_sidebar_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/sidebar/_tuning.json (p15-oracle-062): each of the 22 sidebar mutations has
