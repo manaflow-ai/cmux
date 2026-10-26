@@ -130,9 +130,9 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     }
     let msg = e.to_string();
     let daemon = e.downcast_ref::<crate::client::DaemonError>();
-    // A typed error (`recovery.rs`) names its kind where it gives no reason.
-    if let Some(data) = daemon.and_then(|d| d.0.data.as_ref())
-        && let Some(reason) = data["reason"].as_str().or(data["errorKind"].as_str())
+    let data = daemon.and_then(|d| d.0.data.as_ref());
+    if let Some(data) = data
+        && let Some(reason) = data["reason"].as_str()
     {
         let code =
             if daemon.is_some_and(|d| d.0.code == -32602) { Code::Usage } else { Code::Runtime };
@@ -141,6 +141,20 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         app.data = Some(data.clone());
         return app;
     }
+    let mut app = classify_message(e, msg);
+    // A typed error (`recovery.rs`) names its kind as the detail and says what to do; its exit
+    // code stays the one its message gives.
+    if let Some(data) = data
+        && let Some(kind) = data["errorKind"].as_str()
+    {
+        app.detail = kind.to_owned();
+        app.data = Some(data.clone());
+    }
+    app
+}
+
+/// The exit code and detail an error's message gives.
+fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
     if lower.contains("connection closed") {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
