@@ -64,6 +64,13 @@ public enum JSONValue: Sendable, Hashable {
 
     /// Bridges a `JSONSerialization` object graph. Nil for unsupported types.
     public init?(foundation object: Any) {
+        // JSONSerialization's dictionaries are read key by key: casting one to `[String: Any]` traps on
+        // two keys that are distinct NSStrings but equal Swift strings (U+00E9 and U+0065 U+0301).
+        if type(of: object) is AnyClass, let dictionary = object as? NSDictionary {
+            guard let members = Self.members(of: dictionary) else { return nil }
+            self = .object(members)
+            return
+        }
         switch object {
         case is NSNull:
             self = .null
@@ -94,6 +101,18 @@ public enum JSONValue: Sendable, Hashable {
         default:
             return nil
         }
+    }
+
+    /// The members of an Objective-C dictionary; keys that are equal as Swift strings become one member, in
+    /// no set order (``JSONC/parse(_:)`` drops all but the document's last before it gets here).
+    private static func members(of dictionary: NSDictionary) -> [String: JSONValue]? {
+        var members: [String: JSONValue] = [:]
+        members.reserveCapacity(dictionary.count)
+        for (key, element) in dictionary {
+            guard let key = key as? String, let item = JSONValue(foundation: element) else { return nil }
+            members[key] = item
+        }
+        return members
     }
 
     /// The `JSONSerialization`-compatible object graph.

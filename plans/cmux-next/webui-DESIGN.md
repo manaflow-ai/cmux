@@ -156,6 +156,33 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; no API
+number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
+`FinishDiscardAndPreserveWebContents`): `AttemptFastKillForDiscard`, then `WebContents::Discard`. The fast kill ends
+the renderer only when `RenderProcessHostImpl::FastShutdownIfPossible` allows it: no other page in the process, and
+no beforeunload, unload, pagehide or visibilitychange listener, keepalive fetch or worker. Most sites have one of
+these. So the result says which: `CMUX_TAB_DISCARD_DONE` (the process ended) or `CMUX_TAB_DISCARD_DONE_RENDERER_KEPT`
+(the frames are gone and the page reloads when shown, but the process still runs). The tab keeps its WebContents, so
+its browser id, its window slot, its NavigationEntry list and its session storage stay. When the page shows again,
+`NavigationControllerImpl::SetActive` reloads the same URL and the document sees `document.wasDiscarded`.
+The fork refuses, and changes nothing, in these cases:
+- The page is not hidden: VISIBLE, or OCCLUDED, which shows as soon as its window is uncovered
+  (`CMUX_TAB_DISCARD_VISIBLE`).
+- The page is hidden but Chromium still paints it for a capture, Picture-in-Picture or XR
+  (`CMUX_TAB_DISCARD_PAINTING`).
+- Only the initial entry is committed, as in a renderer-less placeholder (017) or a first navigation that has not
+  committed. A show would reload nothing (`CMUX_TAB_DISCARD_NOTHING_TO_RELOAD`).
+- A navigation waits to commit (`CMUX_TAB_DISCARD_REFUSED`).
+
+Every other keep reason is native's. `cmux_tab_was_discarded` stays 1 until the reload starts. The fast kill is a
+`TERMINATION_STATUS_NORMAL_TERMINATION`, which CEF never sends to `OnRenderProcessTerminated`, so the crash budget
+never counts a discard. A real crash of a group renderer that still holds a discarded page is reported and counted
+as usual. The fork does not change Chrome's default: `WebContentsDiscard` stays off and `cmux_tab_discard` returns
+`CMUX_TAB_DISCARD_UNAVAILABLE`. The binding (031) adds a default-off feature in `schemas/features/features.d`; when it
+is on, the app passes `--enable-features=WebContentsDiscard` in `OnBeforeCommandLineProcessing`. Test:
+`ceftests --gtest_filter=CmuxDiscardTest.*` (its browser delegate turns the feature on the same way).
+
 ### 3.4 Why cmux freezes WebUI when Chrome does not
 
 Chrome never freezes WebUI: `CannotFreezeReason::kWebUI`
@@ -186,6 +213,22 @@ visibility, 0 wakeups), as spike 090 decides. Chrome's preload is never frozen; 
 the spike must justify. A claim in the key's turn shows the cover in
 that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
 CEF spare windows keep the window with no renderer.
+
+Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `dfdbea5a`, on the cmux.33 line
+`c382c63b`). Nobody has built or run it. A Chrome-style browser created with an empty URL and
+`extra_info[CMUX_EXTRA_INFO_NO_RENDERER] = true` gets a first tab made with
+`WebContents::CreateParams::desired_renderer_state = kNoRendererProcess` and no navigation, as Chrome makes restored
+tabs (`chrome/browser/ui/browser_tabrestore.cc`; it is active, so it is hidden only in a minimized window). No
+`chrome://ignore/` load runs, so the tab takes no spare renderer and starts none. Its CEF browser is made before the
+insertion, so in a tabbed embedder window it owns the window's BrowserView, and tabs added with `cmux_tab_add` are
+plain tabs that load as before. `CefBrowserHostBase::Create` removes the key from extra_info in both runtime styles, so
+no renderer sees it. `cmux_tab_renderer_state(browser_id)` reports whether the main frame's own RenderFrame is live
+(`RenderFrameHost::IsRenderFrameLive`): a placeholder whose frame Chromium put in a shared live process above the
+renderer process limit still reports 0. No API number yet (the train, 086, gives one); the app honors the key only
+when it finds `cmux_tab_renderer_state` with dlsym (019, which also passes the key from the shim's window create).
+On a fork build, `ceftests --gtest_filter=CmuxPlaceholderTest.*` (a regular Chrome window, the key in both styles)
+and `scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared` (the tabbed embedder window the spare
+uses, and the placeholder at `--renderer-process-limit=1`) decide whether it stays.
 
 ### 3.6 Lazy loading, shared chunks and the Home floor
 
