@@ -254,6 +254,7 @@ final class SidebarEnergyIndicator: NSView {
 extension SidebarViewComponents {
     /// Proofs (the `energy-saver` capture scene): opens the leaf's card as a hover would; what shows.
     public func debugShowEnergyCard() -> [String: String] {
+        // sync-layout: proofs: showCard reads the leaf's laid-out visibleRect and frame.
         layoutSubtreeIfNeeded()
         energyIndicator.showCard()
         return debugEnergyCardState()

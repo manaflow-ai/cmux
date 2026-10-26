@@ -138,6 +138,7 @@ public final class TerminalLaunchFrames {
         let laidOut = content.bounds.size != .zero
         if laidOut {
             session.view.frame = content.bounds
+            // sync-layout: the surface size below is compared with the saved frame's.
             session.view.layoutSubtreeIfNeeded()
         }
         let size = session.surfaceView.bounds.size
