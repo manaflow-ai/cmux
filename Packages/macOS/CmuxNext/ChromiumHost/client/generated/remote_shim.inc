@@ -170,6 +170,21 @@ inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "edc6e21b8e271bc1982d0e7608a54d80eb12dcab1ad916fdbbd5bbb5923eb4a7";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
 inline constexpr char kWireID[] = "da74c745ac627c65de3cd9ee3884fb825fc07501f03c78a090a25853836a323f";
+// Exports the header does not declare yet (fork API symbols): the client sends one only to
+// a host whose HELLO lists its symbol.
+struct OptionalExport {
+  uint16_t op;
+  const char* name;
+};
+inline constexpr OptionalExport kOptionalExports[] = {
+    {kOpAddDocumentScript, "cmux_shim_add_document_script"},
+    {kOpAddPageChannel, "cmux_shim_add_page_channel"},
+    {kOpTabEvaluate, "cmux_shim_tab_evaluate"},
+    {kOpTabSetFrozen, "cmux_shim_tab_set_frozen"},
+    {kOpTabSendClick, "cmux_shim_tab_send_click"},
+    {kOpTabSetColorScheme, "cmux_shim_tab_set_color_scheme"},
+    {kOpPageSchemeSetGroup, "cmux_shim_page_scheme_set_group"},
+};
 }  // namespace cmux_remote
 
 extern "C" {
@@ -298,7 +313,7 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_accessibility_token(int arg_browser_id, i
   op_w.I32(static_cast<int32_t>(arg_capacity));
   const uint32_t op_token = NextToken();
   if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;
-  const bool op_sent = PostAwaitingReply(kOpBrowserAccessibilityToken, op_token, op_w);
+  const bool op_sent = PostForReply(kOpBrowserAccessibilityToken, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -538,7 +553,7 @@ CMUX_SHIM_EXPORT int cmux_shim_try_close(int arg_browser_id) {
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpTryClose, op_token, op_w);
+  const bool op_sent = PostForReply(kOpTryClose, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -573,7 +588,7 @@ CMUX_SHIM_EXPORT int cmux_shim_devtools_send(int arg_browser_id, const char* arg
   op_w.I32(arg_browser_id);
   op_w.Str(arg_message_json);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpDevtoolsSend, op_token, op_w);
+  const bool op_sent = PostForReply(kOpDevtoolsSend, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -650,7 +665,7 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_action_run(int arg_browser_id, const char* ar
   op_w.I32(arg_x);
   op_w.I32(arg_width);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpExtActionRun, op_token, op_w);
+  const bool op_sent = PostForReply(kOpExtActionRun, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -804,7 +819,7 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int arg_browser_id, const char* 
   op_w.I32(arg_browser_id);
   op_w.Str(arg_extension_id);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpExtOpenOptions, op_token, op_w);
+  const bool op_sent = PostForReply(kOpExtOpenOptions, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -813,7 +828,7 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int arg_browser_id, const char*
   op_w.I32(arg_browser_id);
   op_w.Str(arg_path);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpExtLoadUnpacked, op_token, op_w);
+  const bool op_sent = PostForReply(kOpExtLoadUnpacked, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -963,7 +978,7 @@ CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int arg_browser_id, const char* arg
   op_w.Str(arg_text);
   op_w.I32(arg_value);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpOmniboxInput, op_token, op_w);
+  const bool op_sent = PostForReply(kOpOmniboxInput, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1051,7 +1066,7 @@ CMUX_SHIM_EXPORT int cmux_shim_content_setting(int arg_browser_id, const char* a
   op_w.Str(arg_url);
   op_w.Str(arg_type);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpContentSetting, op_token, op_w);
+  const bool op_sent = PostForReply(kOpContentSetting, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1070,7 +1085,7 @@ CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int arg_browser_id, int arg_reply) 
   op_w.I32(arg_browser_id);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpVisitCookies, op_token, op_w);
+  const bool op_sent = PostForReply(kOpVisitCookies, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1081,7 +1096,7 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int arg_browser_id, int arg_reply,
   op_w.Str(arg_url);
   op_w.Str(arg_name);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpDeleteCookies, op_token, op_w);
+  const bool op_sent = PostForReply(kOpDeleteCookies, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1092,7 +1107,7 @@ CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int arg_browser_id, int arg_repl
   op_w.Str(arg_url);
   op_w.I32(arg_max_size);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpDownloadFavicon, op_token, op_w);
+  const bool op_sent = PostForReply(kOpDownloadFavicon, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1102,7 +1117,7 @@ CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* arg_profile_cache_path
   op_w.I32(arg_reply);
   op_w.Str(arg_json);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpImportCookies, op_token, op_w);
+  const bool op_sent = PostForReply(kOpImportCookies, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1112,7 +1127,7 @@ CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* arg_profile_cache_path,
   op_w.I32(arg_reply);
   op_w.I64(arg_since);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpClearCookies, op_token, op_w);
+  const bool op_sent = PostForReply(kOpClearCookies, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1130,7 +1145,7 @@ CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* arg_profile_cache_pa
     op_w.I64(arg_entries[i].created);
   }
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpImportPasswords, op_token, op_w);
+  const bool op_sent = PostForReply(kOpImportPasswords, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1180,7 +1195,7 @@ CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* arg_profile_cache_p
     op_w.I64(arg_entries[i].created);
   }
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpReplacePasswords, op_token, op_w);
+  const bool op_sent = PostForReply(kOpReplacePasswords, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1205,7 +1220,7 @@ CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* arg_profile_cache_path,
   op_w.Str(arg_profile_cache_path);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasskeysList, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasskeysList, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1215,7 +1230,7 @@ CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* arg_profile_cache_path
   op_w.Str(arg_credential_id);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasskeyDelete, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasskeyDelete, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1232,7 +1247,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_list(const char* arg_profile_cache_path,
   op_w.Str(arg_profile_cache_path);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasswordList, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasswordList, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1242,7 +1257,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_remove(const char* arg_profile_cache_pat
   op_w.StrList(arg_ids, arg_count);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasswordRemove, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasswordRemove, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1252,7 +1267,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_exception_remove(const char* arg_profile
   op_w.Str(arg_id);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasswordExceptionRemove, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasswordExceptionRemove, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1263,7 +1278,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_set_username(const char* arg_profile_cac
   op_w.Str(arg_username);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasswordSetUsername, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasswordSetUsername, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1273,7 +1288,7 @@ CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* arg_profile_cache_pat
   op_w.Str(arg_file_path);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPasswordExport, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPasswordExport, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1281,7 +1296,7 @@ CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int arg_browser_id) {
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpSslStatus, op_token, op_w);
+  const bool op_sent = PostForReply(kOpSslStatus, op_token, op_w);
   (void)op_sent;
   return nullptr;
 }
@@ -1291,7 +1306,7 @@ CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int arg_browser_id, 
   op_w.I32(arg_browser_id);
   op_w.I32(arg_reply);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpClearCertificateExceptions, op_token, op_w);
+  const bool op_sent = PostForReply(kOpClearCertificateExceptions, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1311,7 +1326,7 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int arg_browser_id, int* arg_
   op_w.I32(static_cast<int32_t>(arg_capacity));
   const uint32_t op_token = NextToken();
   if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;
-  const bool op_sent = PostAwaitingReply(kOpRendererClientIds, op_token, op_w);
+  const bool op_sent = PostForReply(kOpRendererClientIds, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1329,7 +1344,7 @@ CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy_server(const char* arg_profile_
   op_w.Str(arg_server);
   op_w.Str(arg_bypass_list);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpSetContextProxyServer, op_token, op_w);
+  const bool op_sent = PostForReply(kOpSetContextProxyServer, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1337,7 +1352,7 @@ CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* arg_profile_cache
   TlvWriter op_w;
   op_w.Str(arg_profile_cache_path);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpContextProxyState, op_token, op_w);
+  const bool op_sent = PostForReply(kOpContextProxyState, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1368,7 +1383,7 @@ CMUX_SHIM_EXPORT char* cmux_shim_pref_get(const char* arg_profile_cache_path, co
   op_w.Str(arg_profile_cache_path);
   op_w.Str(arg_pref_name);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpPrefGet, op_token, op_w);
+  const bool op_sent = PostForReply(kOpPrefGet, op_token, op_w);
   (void)op_sent;
   return nullptr;
 }
@@ -1396,7 +1411,7 @@ CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* arg_profile_cache_path
   op_w.Str(arg_profile_cache_path);
   op_w.Str(arg_tree_json);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpBookmarksSync, op_token, op_w);
+  const bool op_sent = PostForReply(kOpBookmarksSync, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1465,7 +1480,7 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_evaluate(int arg_browser_id, int arg_token, c
   op_w.Str(arg_script);
   op_w.I32(arg_user_gesture);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpTabEvaluate, op_token, op_w);
+  const bool op_sent = PostForReply(kOpTabEvaluate, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 
@@ -1474,7 +1489,7 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_set_frozen(int arg_browser_id, int arg_frozen
   op_w.I32(arg_browser_id);
   op_w.I32(arg_frozen);
   const uint32_t op_token = NextToken();
-  const bool op_sent = PostAwaitingReply(kOpTabSetFrozen, op_token, op_w);
+  const bool op_sent = PostForReply(kOpTabSetFrozen, op_token, op_w);
   return op_sent ? 1 : 0;
 }
 

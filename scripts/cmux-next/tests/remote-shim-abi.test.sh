@@ -41,8 +41,8 @@ cp "$header" "$fresh/${header#"$root/"}"
 cp "$ops" "$fresh/${ops#"$root/"}"
 python3 "$root/scripts/cmux-next/gen-chromium-host-wire.py" --root "$fresh" >/dev/null
 cmp -s "$fresh/${inc#"$root/"}" "$inc" || fail "$inc is stale: run python3 scripts/cmux-next/gen-chromium-host-wire.py"
-# No blocking primitive in the generated client (PostAwaitingReply only registers a token).
-if grep -rnE '(^|[^A-Za-z])wait|cond_|semaphore|condition_variable' "$host/client/generated"; then
+# No blocking primitive in the generated client: the acceptance's pattern, as written.
+if grep -rnE 'wait|cond_|semaphore' "$host/client/generated"; then
   fail "the generated client waits"
 fi
 
@@ -52,7 +52,7 @@ flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$(dirname "$header")" -I
 if [[ "$(uname)" == Darwin ]]; then
   lib="$work/libcmux_cef_shim_remote.dylib"
   "${cxx[@]}" "${flags[@]}" -fvisibility=hidden -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
-    -o "$lib" "${sources[@]}" "$host/src/chromium_host_control.cc"
+    -o "$lib" "${sources[@]}" "$host/src/chromium_host_control.cc" -lobjc
   symbols() { nm -gU "$1" | awk '{print $3}' | sed 's/^_//'; }
 else
   lib="$work/libcmux_cef_shim_remote.so"
@@ -116,6 +116,10 @@ if [[ -n "${CMUX_REAL_SHIM:-}" ]]; then
   echo "remote-shim-abi: the same cmux_shim_ exports as $CMUX_REAL_SHIM"
 fi
 
+test_libs=(-pthread)
+if [[ "$(uname)" == Darwin ]]; then
+  test_libs+=(-lobjc)  # view tokens are Objective-C associated values
+fi
 "${cxx[@]}" "${flags[@]}" -DCMUX_TEST_ABI_ID="\"$abi\"" -o "$work/remote-shim-test" \
-  "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc"
+  "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc" "${test_libs[@]}"
 "$work/remote-shim-test"

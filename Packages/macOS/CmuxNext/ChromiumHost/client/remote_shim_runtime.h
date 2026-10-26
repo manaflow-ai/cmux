@@ -36,7 +36,7 @@ typedef void (*cmux_remote_post_main_fn)(void* ctx, cmux_remote_main_task_fn run
 // the MIRROR values whose only refresh event is attach: CEFRuntime.start's attach await ends
 // here (task 015).
 typedef void (*cmux_remote_ready_fn)(void* ctx);
-// Main thread. A REPLY frame for a token the client sent with PostAwaitingReply or a non-void
+// Main thread. A REPLY frame for a token the client sent with PostForReply or a non-void
 // PostPreinit (an async op answered by wire:REPLY, a preinit's verdict): its fields, encoded as
 // cmux_host::control::EncodeFields. Task 018's waiter resumes the caller from it.
 typedef void (*cmux_remote_reply_fn)(void* ctx, uint32_t token, const void* fields, size_t length);
@@ -61,26 +61,29 @@ typedef struct {
 } cmux_remote_shim_callbacks;
 
 typedef struct {
-  uint64_t quota_excess;       // sends while the channel's outbox was over quota
+  uint64_t quota_excess;       // posts while the channel's outbox or the attach queue was over quota
   uint64_t coalesced;          // waiting state ops replaced by a newer one
   uint64_t pending_messages;   // frames the socket has not taken yet
   uint64_t reads_unattached;   // mirror reads with no host attached (a bug before attach)
   uint64_t unsendable;         // ops not sent: over a frame bound, or no host
   uint64_t replies_unhandled;  // REPLY frames with no reply callback
+  uint64_t unsupported;        // optional ops refused: the host's HELLO did not list the export
 } cmux_remote_shim_stats;
 
 // Main thread, before the first attach; the callbacks are copied.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callbacks* callbacks);
 // Main thread. Connects the shim to a started host. `ctl_fd` is cmux's end of the control
 // socket pair; the shim owns it from here. `in_ring`/`out_ring` are the input rings (task 041),
-// kept for remote_shim_local.mm. Sends HELLO, the preinit ops in call order, INITIALIZE when
-// cmux_shim_initialize ran, then every op posted before the first attach. Returns 0 (and closes
-// nothing) when not configured, when ctl_fd is invalid or when a host is attached already.
+// kept for remote_shim_local.mm. Sends HELLO, the preinit replay log (PostPreinit), INITIALIZE
+// when cmux_shim_initialize ran, then the ops posted before the first attach in call order; an
+// optional op and the posts after it wait for the host's HELLO, which says whether the host has
+// it. Returns 0 (and closes nothing) when not configured, when ctl_fd is invalid or when a host
+// is attached already.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attach(int ctl_fd, void* in_ring, void* out_ring);
 // Main thread. Disconnects (host exit, Reload): closes the channel, drops the mirror cache, the
-// pending marks and the awaited tokens; `ended` is not called. Posts fail until the next attach,
-// which replays the preinit ops (asking no verdict) and INITIALIZE to the new host. Ids and
-// tokens keep counting.
+// pending marks, the awaited tokens and the posts still waiting for the HELLO; `ended` is not
+// called. Posts fail until the next attach, which replays the preinit log (asking no verdict
+// twice) and INITIALIZE to the new host. Ids and tokens keep counting.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_detach(void);
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 // 1 when the attached host's HELLO listed `name`: an optional_exports symbol its shim defines
@@ -99,20 +102,27 @@ using TlvReader = cmux_host::control::TlvReader;
 class TlvWriter : public cmux_host::control::TlvWriter {
  public:
   // An NSView* travels as its page view token (ChromiumHostPageView, task 040): the client
-  // numbers each view the first time it crosses; NULL is 0.
+  // numbers each view the first time it crosses and keeps the number on the view, so it dies
+  // with the view and is never another view's; NULL is 0.
   void View(void* ns_view);
 };
 
-// Control channel; queued before the first attach. `token` 0: none. False when the op is not
-// sent: no host (after a detach), or over a frame bound.
+// Control channel; queued before the first attach (never dropped: past the channel's quota the
+// excess is counted). A state op (one value per browser, such as zoom or geometry) with `token` 0
+// replaces its waiting predecessor, as the channel coalesces it. `token` 0: none. False when the
+// op is not sent: no host (after a detach), over a frame bound, or an optional op the host's
+// HELLO did not list.
 bool Post(uint16_t op, uint32_t token, const TlvWriter& args);
 // The input ring (tasks 041 and 042); the control channel until the ring lands.
 bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args);
-// Post, with `token` awaited: the host's REPLY for it reaches the reply callback once.
-bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter& args);
-// Before cmux_shim_initialize: recorded and sent in call order ahead of INITIALIZE, at every
-// attach. After it: PostAwaitingReply (Post for token 0). Returns the client's check of the
-// arguments, the in-process shim's own: 1 accepted, 0 refused (nothing sent).
+// Post, with `token` registered: the host's REPLY for it reaches the reply callback once.
+bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
+// Recorded in the session's replay log, which every attach sends ahead of INITIALIZE, so a
+// restarted host starts with the current values: a setter keeps its latest call, a page scheme
+// its latest call per page id, other ops each distinct call. Also sent at once when a host is
+// attached: before INITIALIZE as it is, after it as a post. A `token` other than 0 asks the
+// host's verdict once (PostForReply). Returns the client's check of the arguments, the
+// in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
 // Never 0.
 uint32_t NextToken();

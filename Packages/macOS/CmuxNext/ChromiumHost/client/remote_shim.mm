@@ -1,7 +1,7 @@
 // libcmux_cef_shim_remote.dylib (remote_shim_runtime.h): the runtime the generated exports call,
-// and the local exports that need no function pointer. Plain C++ so that
-// scripts/cmux-next/tests/remote-shim-abi.test.sh builds it on any machine; built for cmux by
-// scripts/cmux-next/build-chromium-host.sh.
+// and the local exports that need no function pointer. Plain C++ (on Apple with the Objective-C
+// runtime's C API, for view tokens) so that scripts/cmux-next/tests/remote-shim-abi.test.sh
+// builds it on any machine; built for cmux by scripts/cmux-next/build-chromium-host.sh.
 //
 // Wire (chromium_host_control.h frames, fields as chromium_host_tlv.h):
 //   cmux -> host  HELLO first; then generated op ids 1..kOpCount with the export's arguments.
@@ -24,6 +24,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -34,7 +35,9 @@
 
 #include <pthread.h>
 #include <unistd.h>
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+#include <objc/runtime.h>
+#else
 #include <sys/syscall.h>
 #endif
 
@@ -57,6 +60,10 @@ bool OnMainThread() {
   return syscall(SYS_gettid) == getpid();
 #endif
 }
+
+#if defined(__APPLE__)
+const char kViewTokenKey = 0;  // its address keys the view token association
+#endif
 
 #define CMUX_REMOTE_ASSERT_MAIN() assert(OnMainThread() && "the remote shim is main-thread only")
 
@@ -119,6 +126,61 @@ bool PreinitAccepted(uint16_t op, const TlvWriter& args) {
   }
 }
 
+// What a preinit call replaces in the replay log: a setter's earlier call, a page scheme's
+// earlier call for the same domain (the in-process shim keeps one handler per domain,
+// shim_page_scheme.mm AddPage), else only an equal call (add_native_messaging_dir appends).
+std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
+  switch (op) {
+    case kOpSetExtensionDeveloperMode:
+    case kOpSetDefaultSearch:
+    case kOpSetChromePolicyId:
+    case kOpSetBackgroundColor:
+    case kOpSetNewTabPageUrl:
+    case kOpSetPopupWindowsEnabled:
+      return std::to_string(op);
+    case kOpPageSchemeAdd:
+    case kOpPageSchemeAddFirstParty:
+    case kOpPageSchemeAddFirstPartyDynamic: {
+      std::string domain;  // PreinitAccepted normalized it already
+      if (!fields.empty()) cmux_shim::NormalizePageId(fields[0].bytes, &domain);
+      return "page " + domain;
+    }
+    default: {
+      std::string bytes;
+      cmux_host::control::EncodeFields(fields, &bytes);
+      return std::to_string(op) + " " + bytes;
+    }
+  }
+}
+
+// The channel's coalescing key for a state op: one value per browser that a newer call
+// replaces, with no order against other ops (geometry, zoom, hosting modes). Focus, the
+// navigation guard and password fill are ordered against later ops, so they are not state.
+std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& fields) {
+  switch (op) {
+    case kOpBrowserSetBackgroundColor:
+    case kOpTabSetTransparentBackground:
+    case kOpBrowserSetLayerHosting:
+    case kOpBrowserSetResizeSync:
+    case kOpBrowserSetDetachedHosting:
+    case kOpSetZoomLevel:
+    case kOpSetAccessibility:
+    case kOpDevtoolsSetPlacement:
+      if (fields.empty()) return std::nullopt;
+      return cmux_host::control::StateKey(op, static_cast<int32_t>(fields[0].integer));
+    default:
+      return std::nullopt;
+  }
+}
+
+// The symbol of an optional op (kOptionalExports), nullptr for a header op.
+const char* OptionalExportName(uint16_t op) {
+  for (const OptionalExport& entry : kOptionalExports) {
+    if (entry.op == op && op != 0) return entry.name;
+  }
+  return nullptr;
+}
+
 // The dylib's state. The C ABI has no context argument, so there is one per process, as in
 // libcmux_cef_shim.dylib.
 class Runtime {
@@ -141,20 +203,20 @@ class Runtime {
         [this, generation](std::vector<Message> batch) { Deliver(generation, std::move(batch)); },
         [this, generation](End end) { Ended(generation, end); });
     link_ = Link::kAttached;
+    hello_ = false;
     in_ring_ = in_ring;
     out_ring_ = out_ring;
     TlvWriter hello;
     hello.Str(kWireID);
     hello.Str(kShimAbiID);
     Send(MakeMessage(kOpHello, 0, hello.Take()));
-    for (Message& message : preinit_) {
-      Send(message);
-      message.token = 0;  // a restarted host applies it again; the verdict was asked once
+    for (Replay& entry : replay_) {
+      Send(entry.message);
+      entry.message.token = 0;  // a restarted host applies it again; the verdict was asked once
     }
+    std::erase_if(replay_, [](const Replay& entry) { return !entry.keep; });
     if (initialize_) Send(*initialize_);
-    std::vector<Message> queued = std::move(queued_);
-    queued_.clear();
-    for (const Message& message : queued) Send(message);
+    Flush();
     return 1;
   }
 
@@ -184,35 +246,28 @@ class Runtime {
   bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     Message message = MakeMessage(op, token, args.fields());
-    switch (link_) {
-      case Link::kNotYet:
-        if (queued_.size() >= cmux_host::control::kQuotaMessages) return Dropped(token);
-        queued_.push_back(std::move(message));
-        return true;
-      case Link::kAttached:
-        return Send(message);
-      case Link::kDetached:
-        return Dropped(token);
-    }
-    return false;
+    const std::optional<uint64_t> key = token == 0 ? StateKeyFor(op, message.fields) : std::nullopt;
+    return Route(std::move(message), key);
   }
 
-  bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter& args) {
+  bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
-    if (link_ == Link::kDetached) return Dropped(token);
-    awaiting_.insert(token);
+    awaiting_.insert(token);  // an op that is not sent drops it again (Dropped, Refused)
     return Post(op, token, args);
   }
 
   int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (!PreinitAccepted(op, args)) return 0;
-    if (initialize_) return (token != 0 ? PostAwaitingReply(op, token, args) : Post(op, 0, args)) ? 1 : 0;
     if (token != 0) awaiting_.insert(token);
-    preinit_.push_back(MakeMessage(op, token, args.fields()));
-    if (link_ == Link::kAttached) {
-      Send(preinit_.back());
-      preinit_.back().token = 0;
+    Replay& entry = Record(MakeMessage(op, token, args.fields()));
+    if (link_ != Link::kAttached) return 1;  // the next attach sends it
+    Message message = entry.message;
+    entry.message.token = 0;
+    if (initialize_) {
+      Route(std::move(message), std::nullopt);  // a post, in order with the others
+    } else {
+      Send(message);
     }
     return 1;
   }
@@ -268,9 +323,23 @@ class Runtime {
   uint64_t ViewToken(void* view) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (view == nullptr) return 0;
+#if defined(__APPLE__)
+    // The token is an associated value of the view, so it goes when the view is freed and a
+    // later view at the same address gets its own. OBJC_ASSOCIATION_ASSIGN stores the integer
+    // as is: the runtime never retains, releases or messages it.
+    static_assert(sizeof(uintptr_t) == sizeof(uint64_t));
+    const id object = reinterpret_cast<id>(view);
+    const uint64_t token = reinterpret_cast<uintptr_t>(objc_getAssociatedObject(object, &kViewTokenKey));
+    if (token != 0) return token;
+    objc_setAssociatedObject(object, &kViewTokenKey, reinterpret_cast<id>(static_cast<uintptr_t>(next_view_token_)),
+                             OBJC_ASSOCIATION_ASSIGN);
+    return next_view_token_++;
+#else
+    // Off Apple there is no NSView: this build only serves the portable test.
     const auto [it, added] = view_tokens_.try_emplace(view, next_view_token_);
     if (added) ++next_view_token_;
     return it->second;
+#endif
   }
 
   void* in_ring() const { return in_ring_; }
@@ -283,18 +352,116 @@ class Runtime {
     kDetached,  // the host is gone: posts fail until the next attach
   };
 
-  bool Send(const Message& message) {
-    return channel_->Send(message) ? true : Dropped(message.token);
+  // A preinit call in the replay log.
+  struct Replay {
+    std::string key;  // ReplayKey
+    Message message;  // token: a verdict still to ask, 0 once asked
+    bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
+  };
+
+  // A post waiting for the first attach or for the host's HELLO.
+  struct Queued {
+    Message message;
+    std::optional<uint64_t> key;  // StateKeyFor
+    bool live = true;             // false: replaced by a newer state op
+  };
+
+  bool Send(const Message& message, std::optional<uint64_t> key = std::nullopt) {
+    return channel_->Send(message, key) ? true : Dropped(message.token);
+  }
+
+  // Sends a post now or keeps its place in the queue: before the first attach, and after an
+  // attach while an optional op waits for the HELLO that says whether the host has it.
+  bool Route(Message message, std::optional<uint64_t> key) {
+    switch (link_) {
+      case Link::kNotYet:
+        Enqueue(std::move(message), key);
+        return true;
+      case Link::kAttached:
+        if (!hello_ && (OptionalExportName(message.op) != nullptr || !queued_.empty())) {
+          Enqueue(std::move(message), key);
+          return true;
+        }
+        return SendOrRefuse(message, key);
+      case Link::kDetached:
+        return Dropped(message.token);
+    }
+    return false;
+  }
+
+  bool SendOrRefuse(const Message& message, std::optional<uint64_t> key) {
+    const char* optional = OptionalExportName(message.op);
+    if (optional != nullptr && host_exports_.count(optional) == 0) return Refused(message.token);
+    return Send(message, key);
+  }
+
+  // Never drops: past the channel's quota the excess is counted, as the channel counts it
+  // (message_quota_checker.cc), and a state op replaces its waiting predecessor.
+  void Enqueue(Message message, std::optional<uint64_t> key) {
+    if (key) {
+      const auto it = queued_keys_.find(*key);
+      if (it != queued_keys_.end()) {
+        it->second->live = false;
+        --queued_live_;
+        ++stats_.coalesced;
+      }
+    }
+    queued_.push_back(Queued{std::move(message), key, true});
+    if (key) queued_keys_[*key] = &queued_.back();  // a deque keeps element addresses on push_back
+    if (++queued_live_ > cmux_host::control::kQuotaMessages) ++stats_.quota_excess;
+  }
+
+  // Sends the queue in order. Before the HELLO it stops at the first optional op.
+  void Flush() {
+    while (!queued_.empty()) {
+      Queued& front = queued_.front();
+      if (front.live && !hello_ && OptionalExportName(front.message.op) != nullptr) return;
+      if (front.key) {
+        const auto it = queued_keys_.find(*front.key);
+        if (it != queued_keys_.end() && it->second == &front) queued_keys_.erase(it);
+      }
+      if (front.live) {
+        --queued_live_;
+        SendOrRefuse(front.message, front.key);
+      }
+      queued_.pop_front();
+    }
+  }
+
+  // Adds a preinit call to the replay log and returns its entry.
+  Replay& Record(Message message) {
+    std::string key = ReplayKey(message.op, message.fields);
+    for (Replay& entry : replay_) {
+      if (!entry.keep || entry.key != key) continue;
+      if (entry.message.token == 0) {
+        entry.message = std::move(message);
+        return entry;
+      }
+      entry.keep = false;
+      break;
+    }
+    replay_.push_back(Replay{std::move(key), std::move(message), true});
+    return replay_.back();
   }
 
   // An op that will not reach the host: its token neither acks nor answers.
   bool Dropped(uint32_t token) {
     ++stats_.unsendable;
-    if (token != 0) {
-      mirror_.Ack(token);
-      awaiting_.erase(token);
-    }
+    Forget(token);
     return false;
+  }
+
+  // An optional op the host's shim does not export: a missing symbol in process.
+  bool Refused(uint32_t token) {
+    ++stats_.unsupported;
+    Forget(token);
+    return false;
+  }
+
+  void Forget(uint32_t token) {
+    if (token == 0) return;
+    mirror_.Ack(token);
+    awaiting_.erase(token);
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
@@ -305,8 +472,13 @@ class Runtime {
     closing_.emplace(generation_, std::move(channel_));
     ++generation_;
     link_ = Link::kDetached;
+    hello_ = false;
     in_ring_ = nullptr;
     out_ring_ = nullptr;
+    stats_.unsendable += queued_live_;  // posts that waited for this host's HELLO
+    queued_.clear();
+    queued_keys_.clear();
+    queued_live_ = 0;
     mirror_.Clear();
     awaiting_.clear();
     host_exports_.clear();
@@ -387,6 +559,8 @@ class Runtime {
         std::vector<std::string> exports = r.StrList();
         if (!r.ok() || !r.AtEnd() || wire != std::optional<std::string>(kWireID)) return false;
         host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
+        hello_ = true;
+        Flush();
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
         return true;
       }
@@ -404,17 +578,25 @@ class Runtime {
   uint64_t generation_ = 0;
   void* in_ring_ = nullptr;
   void* out_ring_ = nullptr;
-  std::vector<Message> queued_;
-  std::vector<Message> preinit_;
+  // The host's HELLO came on this channel: host_exports_ is its list.
+  bool hello_ = false;
+  std::deque<Queued> queued_;
+  // The live queued entry of each state key.
+  std::unordered_map<uint64_t, Queued*> queued_keys_;
+  size_t queued_live_ = 0;
+  // Every preinit call that a new host needs, for the whole session.
+  std::vector<Replay> replay_;
   std::optional<Message> initialize_;
   void* event_ctx_ = nullptr;
   cmux_shim_event_fn event_fn_ = nullptr;
   MirrorCache mirror_;
-  // Tokens sent with PostAwaitingReply and not answered yet.
+  // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
   std::unordered_set<std::string> host_exports_;
   std::unordered_map<uint16_t, void*> policies_;
+#if !defined(__APPLE__)
   std::unordered_map<void*, uint64_t> view_tokens_;
+#endif
   uint64_t next_view_token_ = 1;
   uint32_t token_ = 0;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
@@ -440,8 +622,8 @@ bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
 bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().Post(op, token, args);
 }
-bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter& args) {
-  return R().PostAwaitingReply(op, token, args);
+bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
+  return R().PostForReply(op, token, args);
 }
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostPreinit(op, token, args);

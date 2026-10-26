@@ -105,7 +105,7 @@ common=(
   -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
-  "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc"
+  "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc" -lobjc
 printf '%s' "$key" > "$OUT_DIR/.build-key"
 if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$OUT_DIR" "$FINAL_DIR" 2>/dev/null; then
   complete "$FINAL_DIR" || { echo "error: $FINAL_DIR exists but is incomplete" >&2; exit 1; }

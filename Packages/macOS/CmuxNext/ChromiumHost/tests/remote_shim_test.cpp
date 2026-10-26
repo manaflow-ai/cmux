@@ -1,5 +1,6 @@
 // The remote shim (client/remote_shim.mm) against a fake host on a socket pair: calls return at
-// once, preinit ops go first and in order at every attach, ids are minted from 1 << 20, mirror
+// once, the preinit replay log (latest values) goes first at every attach, the attach queue never
+// drops and coalesces state ops, optional ops need the HELLO, ids are minted from 1 << 20, mirror
 // values pushed before an EVENT are read in that event's callback, a post's pending keys hide
 // the old value until the ack, and a bad frame ends the host. Built and run by
 // scripts/cmux-next/tests/remote-shim-abi.test.sh; needs no CEF. One translation unit with the
@@ -234,8 +235,24 @@ int main() {
                              &OnSchedule, &OnEvent, nullptr) == 1);
   CHECK(cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, nullptr, nullptr, nullptr, nullptr,
                              &OnSchedule, &OnEvent, nullptr) == 0);
-  // After initialize a preinit export is a post, sent after INITIALIZE.
+  // After initialize a preinit export still goes in the replay log, so it leads INITIALIZE.
   cmux_shim_set_new_tab_page_url("cmux-page://new-tab/");
+
+  // The attach queue never drops: past the channel's quota it counts the excess, and a state op
+  // replaces its waiting predecessor.
+  const int first = cmux_remote::kFirstMintedBrowserID;
+  cmux_shim_set_zoom_level(first, 1.0);
+  cmux_shim_set_zoom_level(first, 2.0);
+  constexpr int kQueuedStops = static_cast<int>(cmux_host::control::kQuotaMessages) + 1000;
+  for (int i = 0; i < kQueuedStops; ++i) cmux_shim_stop(first);
+  cmux_shim_set_zoom_level(first, 3.0);
+  cmux_remote_shim_get_stats(&stats);
+  CHECK(stats.coalesced == 2);
+  CHECK(stats.quota_excess > 0);
+  CHECK(stats.unsendable == 0);
+  // An optional op waits for the host's HELLO, and the posts after it keep their place.
+  CHECK(cmux_shim_tab_set_frozen(first, 1) == 1);
+  cmux_shim_reload(first);
 
   CHECK(cmux_remote_shim_attach(3, nullptr, nullptr) == 0);  // not configured
   cmux_remote_shim_callbacks callbacks = {};
@@ -250,15 +267,20 @@ int main() {
   CHECK(cmux_remote_shim_attached() == 1);
   uint32_t scheme_token = 0;
   {
-    // HELLO, preinit in call order, INITIALIZE, then the posts in call order.
-    const std::vector<uint16_t> want = {
-        cmux_host::control::kOpHello, cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd,
-        cmux_remote::kOpInitialize,   cmux_remote::kOpTabAdd,             cmux_remote::kOpTabAdd,
-        cmux_remote::kOpCreateWindow, cmux_remote::kOpDevtoolsCall,       cmux_remote::kOpSetNewTabPageUrl};
+    // HELLO, the replay log in call order, INITIALIZE, then the posts in call order up to the
+    // optional op.
+    std::vector<uint16_t> want = {
+        cmux_host::control::kOpHello,     cmux_remote::kOpSetBackgroundColor, cmux_remote::kOpPageSchemeAdd,
+        cmux_remote::kOpSetNewTabPageUrl, cmux_remote::kOpInitialize,         cmux_remote::kOpTabAdd,
+        cmux_remote::kOpTabAdd,           cmux_remote::kOpCreateWindow,       cmux_remote::kOpDevtoolsCall};
+    want.insert(want.end(), kQueuedStops, cmux_remote::kOpStop);
+    want.push_back(cmux_remote::kOpSetZoomLevel);
     std::vector<Message> got = host.Read(want.size());
     CHECK(got.size() == want.size());
     for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
     if (got.size() == want.size()) {
+      TlvReader zoom(got.back().fields);
+      CHECK(zoom.I32() == first && zoom.F64() == 3.0 && zoom.ok() && zoom.AtEnd());
       TlvReader hello(got[0].fields);
       CHECK(hello.Str() == std::optional<std::string>(cmux_remote::kWireID));
       CHECK(hello.Str() == std::optional<std::string>(cmux_remote::kShimAbiID));
@@ -269,7 +291,9 @@ int main() {
       CHECK(got[0].token == 0);
       scheme_token = got[1].token;  // a non-void preinit asks the host's verdict
       CHECK(scheme_token != 0);
-      TlvReader init(got[2].fields);
+      TlvReader url(got[2].fields);
+      CHECK(url.Str() == std::optional<std::string>("cmux-page://new-tab/"));
+      TlvReader init(got[3].fields);
       CHECK(init.Str() == std::optional<std::string>("/fw"));
       init.Str();
       init.Str();
@@ -280,9 +304,9 @@ int main() {
       CHECK(!init.Str().has_value());
       CHECK(init.StrList() == std::vector<std::string>({"enable-logging", "v=1"}));
       CHECK(init.ok() && init.AtEnd());
-      TlvReader tab(got[3].fields);
+      TlvReader tab(got[4].fields);
       CHECK(tab.I32() == cmux_remote::kFirstMintedBrowserID);  // the minted id goes first
-      TlvReader window(got[5].fields);
+      TlvReader window(got[6].fields);
       CHECK(window.I32() == cmux_remote::kFirstMintedBrowserID + 2);
       CHECK(window.I32() == 5);
     }
@@ -294,6 +318,18 @@ int main() {
   CHECK(PumpUntil([] { return seen.ready == 1; }));
   CHECK(cmux_remote_shim_host_has_export("cmux_shim_tab_evaluate") == 1);
   CHECK(cmux_remote_shim_host_has_export("cmux_shim_tab_set_frozen") == 0);
+  // The HELLO did not list tab_set_frozen: the queued one is refused, and the reload after it
+  // goes; later calls fail at once, as a missing symbol would in process.
+  {
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpReload);
+    cmux_remote_shim_get_stats(&stats);
+    CHECK(stats.unsupported == 1);
+    CHECK(cmux_shim_tab_set_frozen(first, 0) == 0);
+    cmux_remote_shim_get_stats(&stats);
+    CHECK(stats.unsupported == 2);
+    CHECK(stats.unsendable == 0);
+  }
 
   // The verdict on the awaited preinit token reaches the reply callback once.
   {
@@ -332,12 +368,30 @@ int main() {
     }
   }
 
-  // A host that never reads: posts still return at once.
+  // Settings changes after initialize go now, and into the replay log for the next host.
+  cmux_shim_set_new_tab_page_url("cmux-page://latest/");
+  cmux_shim_set_background_color(0xff445566u);
+  CHECK(cmux_shim_page_scheme_add("later", "/tmp", nullptr) == 1);
+  {
+    const std::vector<Message> got = host.Read(3);
+    CHECK(got.size() == 3);
+    if (got.size() == 3) {
+      CHECK(got[0].op == cmux_remote::kOpSetNewTabPageUrl && got[0].token == 0);
+      CHECK(got[1].op == cmux_remote::kOpSetBackgroundColor && got[1].token == 0);
+      CHECK(got[2].op == cmux_remote::kOpPageSchemeAdd && got[2].token != 0);
+    }
+  }
+
+  // A host that never reads: posts still return at once, and the geometry of a page waits
+  // coalesced to one frame.
+  cmux_remote_shim_get_stats(&stats);
+  const uint64_t coalesced = stats.coalesced;
   const auto start = std::chrono::steady_clock::now();
   for (int i = 0; i < 20000; ++i) cmux_shim_set_zoom_level(browser, 1.0);
   CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(2));
   cmux_remote_shim_get_stats(&stats);
-  CHECK(stats.pending_messages > 0);
+  CHECK(stats.coalesced > coalesced);
+  CHECK(stats.pending_messages >= 1 && stats.pending_messages <= 2);  // one waiting, one maybe half written
 
   // A second reply to the same token answers no request: it ends the host.
   Message again;
@@ -356,19 +410,37 @@ int main() {
   ::close(host.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));  // the old channel's end, dropped
 
-  // A restarted host gets HELLO, the preinit ops (no verdict asked again) and INITIALIZE, then
-  // new posts.
+  // With no host, a settings change is kept for the next one, and a new scheme asks its verdict
+  // there.
+  cmux_shim_set_background_color(0xff778899u);
+  CHECK(cmux_shim_page_scheme_add("gone", "/tmp", nullptr) == 1);
+
+  // A restarted host gets HELLO, the replay log with the latest values (each verdict asked
+  // once) and INITIALIZE, then new posts.
   Host second;
   CHECK(AttachNew(&second) == 1);
   cmux_shim_stop(browser);
   {
-    const std::vector<uint16_t> want = {cmux_host::control::kOpHello, cmux_remote::kOpSetBackgroundColor,
-                                        cmux_remote::kOpPageSchemeAdd, cmux_remote::kOpInitialize,
-                                        cmux_remote::kOpStop};
+    const std::vector<uint16_t> want = {cmux_host::control::kOpHello,     cmux_remote::kOpSetBackgroundColor,
+                                        cmux_remote::kOpPageSchemeAdd,    cmux_remote::kOpSetNewTabPageUrl,
+                                        cmux_remote::kOpPageSchemeAdd,    cmux_remote::kOpPageSchemeAdd,
+                                        cmux_remote::kOpInitialize,       cmux_remote::kOpStop};
     const std::vector<Message> got = second.Read(want.size());
     CHECK(got.size() == want.size());
     for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
-    if (got.size() == want.size()) CHECK(got[2].token == 0);
+    if (got.size() == want.size()) {
+      TlvReader color(got[1].fields);
+      CHECK(color.U32() == 0xff778899u);
+      CHECK(got[2].token == 0);
+      TlvReader docs(got[2].fields);
+      CHECK(docs.Str() == std::optional<std::string>("docs"));
+      TlvReader url(got[3].fields);
+      CHECK(url.Str() == std::optional<std::string>("cmux-page://latest/"));
+      TlvReader later(got[4].fields);
+      CHECK(later.Str() == std::optional<std::string>("later") && got[4].token == 0);
+      TlvReader gone(got[5].fields);
+      CHECK(gone.Str() == std::optional<std::string>("gone") && got[5].token != 0);
+    }
   }
   // Its HELLO from another generation of the op table ends it.
   seen.ended = -1;
@@ -388,6 +460,31 @@ int main() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
+
+  // View tokens: NULL is 0; a view keeps its token.
+  {
+    cmux_remote::TlvWriter none;
+    none.View(nullptr);
+    CHECK(none.fields().size() == 1 && none.fields()[0].integer == 0);
+  }
+#if defined(__APPLE__)
+  // The token lives on the view, not in a table by address: once the view's associations go,
+  // which freeing it does, the same address gets a new token.
+  {
+    id view = class_createInstance(objc_lookUpClass("NSObject"), 0);
+    cmux_remote::TlvWriter w;
+    w.View(view);
+    w.View(view);
+    objc_removeAssociatedObjects(view);
+    w.View(view);
+    CHECK(w.fields().size() == 3);
+    if (w.fields().size() == 3) {
+      CHECK(w.fields()[0].integer != 0 && w.fields()[0].integer == w.fields()[1].integer);
+      CHECK(w.fields()[2].integer != 0 && w.fields()[2].integer != w.fields()[0].integer);
+    }
+    object_dispose(view);
+  }
+#endif
 
   if (failures == 0) std::printf("remote shim: ok\n");
   return failures == 0 ? 0 : 1;
