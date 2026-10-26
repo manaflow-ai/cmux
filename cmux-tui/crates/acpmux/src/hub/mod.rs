@@ -1320,6 +1320,9 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            if status == SessionStatus::Closed {
+                Self::retention_wake();
+            }
         }
         true
     }

@@ -501,7 +501,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
             {
                 let hub = hub.clone();
-                tokio::spawn(async move { hub.load_logs_async().await });
+                tokio::spawn(async move {
+                    hub.load_logs_async().await;
+                    // Once every log is read: a pass reads only chats whose log is loaded.
+                    hub.retention_worker();
+                });
             }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
