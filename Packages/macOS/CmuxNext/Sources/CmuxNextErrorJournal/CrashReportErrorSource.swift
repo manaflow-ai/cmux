@@ -24,33 +24,21 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
         let files = FileManager()
-        let since = cursor.flatMap(Self.cursorDate) ?? Date().addingTimeInterval(-firstLookBack)
+        let since = cursor.flatMap(Double.init).map { Date(timeIntervalSince1970: $0 / 1000) }
+            ?? Date().addingTimeInterval(-firstLookBack)
         let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
         var newest = since
         var events: [ErrorEvent] = []
         for name in names where name.hasSuffix(".ips") && prefixes.contains(where: { name.lowercased().hasPrefix($0) }) {
             let url = directory.appendingPathComponent(name)
-            // Regular files only: opening a FIFO named like a report would wait for a writer forever.
-            guard let attributes = try? files.attributesOfItem(atPath: url.path),
-                  attributes[.type] as? FileAttributeType == .typeRegular,
-                  let modified = attributes[.modificationDate] as? Date, modified > since else { continue }
+            guard let modified = (try? files.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  modified > since else { continue }
             newest = max(newest, modified)
             events.append(Self.event(report: url, modified: modified))
         }
         let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
         return ErrorHarvest(events: events, cursor: String(ms))
     }
-
-    /// The date a saved cursor (milliseconds since 1970) names; nil when it is not a number of
-    /// at most ``maxCursorMilliseconds`` either way, so a damaged `cursors.json` starts over
-    /// instead of reaching `Int64(_:)` with NaN or infinity.
-    static func cursorDate(_ cursor: String) -> Date? {
-        guard let ms = Double(cursor), ms.isFinite, abs(ms) <= maxCursorMilliseconds else { return nil }
-        return Date(timeIntervalSince1970: ms / 1000)
-    }
-
-    /// About 31,000 years from 1970: far past any file date, far below `Int64.max`.
-    static let maxCursorMilliseconds = 1e15
 
     static func event(report url: URL, modified: Date) -> ErrorEvent {
         let head = (try? FileHandle(forReadingFrom: url)).flatMap { handle -> Data? in

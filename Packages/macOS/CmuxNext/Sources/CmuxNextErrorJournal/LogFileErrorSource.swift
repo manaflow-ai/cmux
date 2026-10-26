@@ -63,10 +63,9 @@ public struct LogFileErrorSource: ErrorHarvestSource {
         return ErrorHarvest(events: events, cursor: "\(inode):\(start + complete.count)")
     }
 
-    static func parse(_ cursor: String) -> (inode: UInt64, offset: Int)? {
+    private static func parse(_ cursor: String) -> (inode: UInt64, offset: Int)? {
         let parts = cursor.split(separator: ":")
-        // A negative offset (a damaged cursors.json) would trap in `UInt64(_:)` at the seek.
-        guard parts.count == 2, let inode = UInt64(parts[0]), let offset = Int(parts[1]), offset >= 0 else { return nil }
+        guard parts.count == 2, let inode = UInt64(parts[0]), let offset = Int(parts[1]) else { return nil }
         return (inode, offset)
     }
 }
