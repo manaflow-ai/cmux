@@ -7,7 +7,7 @@ package import CmuxNextSettings
 ///
 /// A shown page is ``State/active``. A hidden page freezes once nothing in its keep reasons blocks a
 /// freeze, and is discarded once nothing blocks a discard and it was hidden for
-/// ``Timing/discardAfter(at:)``. The keep reasons are Chrome's `CannotFreezeReason`
+/// ``Timing/discardAfter(at:setting:)``. The keep reasons are Chrome's `CannotFreezeReason`
 /// (components/performance_manager/public/freezing/cannot_freeze_reason.h: kVisible, kRecentlyVisible,
 /// kAudible, kHoldingWebLock, capture, devices, kWebRTC, kLoading, kMostRecentlyUsed) plus the
 /// `CannotDiscardReason`s of chrome/browser/performance_manager/policies/discard_eligibility_policy.cc
@@ -73,6 +73,8 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         /// The most recently hidden page (Chrome's kMostRecentlyUsed): the switch back is warm.
         /// Chrome keeps it from freezing only; a discard still takes it after its timeout.
         case mostRecentlyUsed = "most_recently_used"
+        /// `browser.freezeHiddenTabs` is off: hidden pages keep running, and still discard on time.
+        case freezeOff = "freeze_off"
 
         // Block discard only.
 
@@ -104,7 +106,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             switch self {
             case .visible, .recentlyVisible, .loading, .inspector, .focused, .fileDrop, .popup, .confirmation,
                  .dictation, .capture, .audible, .webRTC, .connectedDevice, .webLock, .turnRunning, .turnsUnknown,
-                 .mostRecentlyUsed:
+                 .mostRecentlyUsed, .freezeOff:
                 true
             case .userEdits, .formInteraction, .beforeUnload, .draft, .pinned, .shellCommandRan, .awaitingPerson,
                  .remoteChat, .preload, .unrestorable, .hibernationOff:
@@ -113,10 +115,13 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         }
 
         /// The reason keeps a hidden page from being discarded.
-        package var blocksDiscard: Bool { self != .mostRecentlyUsed }
+        package var blocksDiscard: Bool { !Self.freezeOnly.contains(self) }
+
+        /// The reasons that block a freeze and let a discard through.
+        package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff]
 
         /// The reasons only the planner sets, from the page's facts and the conditions.
-        package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .hibernationOff]
+        package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff]
 
         /// The reasons time alone ends; an event ends every other one.
         package static let timeBound: Set<KeepReason> = [.recentlyVisible]
@@ -134,7 +139,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package var group: String?
         /// The page draws in a window now.
         package var isShown: Bool
-        /// Seconds since it was last shown; read only while hidden.
+        /// Seconds since it was last shown; read only while hidden, discarded or not.
         package var hiddenFor: Double
         /// What the page and its owner say keeps it (page JS can only add reasons). The planner sets
         /// the ``KeepReason/derived`` reasons itself from the facts, ignoring them here, and drops
@@ -156,8 +161,10 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
 
     /// The app-wide facts every page's plan depends on.
     package nonisolated struct Conditions: Hashable, Sendable {
-        /// `browser.hibernation`: its switch and pinned rule apply to pages; its minutes apply to
-        /// browser tabs only (pages use ``Timing``).
+        /// `browser.hibernation` and its companions. Pages take its switch, its pinned rule, a number
+        /// of minutes as the floor of their discard time (``Timing/discardAfter(at:setting:)``) and
+        /// `browser.freezeHiddenTabs` "off" (``KeepReason/freezeOff``). The named modes' minutes and
+        /// the freeze seconds time browser tabs; pages use ``Timing`` (p13-webui.md section 3.C).
         package var setting: BrowserHibernationSetting
         package var pressure: MemoryPressureLevel
         package var lowPowerMode: Bool
@@ -186,7 +193,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         /// No pressure discards a page hidden less than this, so a chat's last keystrokes reach acpmux.
         package var minimumHidden: Double = 10
         /// Discards per pass and pass interval without pressure: the browser's normal pace.
-        package var normalPace = HibernationPlanner.Pace(perPass: 2, interval: 5, minimumHidden: 0)
+        package var normalPace = HibernationPlanner.normalPace
         /// Under pressure: Chrome's urgent pace, one discard every 5 s (`Pace.chromeUrgent`).
         package var urgentPace = HibernationPlanner.Pace.chromeUrgent
 
@@ -197,13 +204,20 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             lowPowerMode ? lowPowerRecentlyVisible : recentlyVisible
         }
 
-        /// Seconds hidden before a page is discarded at `pressure`, never under ``minimumHidden``.
-        package func discardAfter(at pressure: MemoryPressureLevel) -> Double {
-            switch pressure {
-            case .normal: max(discardAfterNormal, minimumHidden)
-            case .warning: max(discardAfterWarning, minimumHidden)
-            case .critical: max(discardAfterCritical, minimumHidden)
+        /// Seconds hidden before a page is discarded at `pressure`, never under ``minimumHidden``, nor
+        /// under the minutes the person wrote in `browser.hibernation`, at that pressure as for
+        /// browser tabs (``HibernationPlanner/threshold(_:pressure:)``).
+        package func discardAfter(at pressure: MemoryPressureLevel, setting: BrowserHibernationSetting) -> Double {
+            let pageTime = switch pressure {
+            case .normal: discardAfterNormal
+            case .warning: discardAfterWarning
+            case .critical: discardAfterCritical
             }
+            let personTime: Double = switch setting.mode {
+            case .minutes: HibernationPlanner.threshold(setting, pressure: pressure) ?? 0
+            case .off, .moderate, .aggressive: 0
+            }
+            return max(pageTime, personTime, minimumHidden)
         }
 
         /// The discard pace at `pressure`.
@@ -259,6 +273,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             reasons.insert(.recentlyVisible)
         }
         if isMostRecentlyUsed { reasons.insert(.mostRecentlyUsed) }
+        if conditions.setting.freezeSeconds == nil { reasons.insert(.freezeOff) }
         if !conditions.setting.isEnabled { reasons.insert(.hibernationOff) }
         if conditions.setting.includesPinnedTabs { reasons.remove(.pinned) }
         return reasons
@@ -268,10 +283,12 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     /// a discard.
     package func plan(_ pages: [Page], conditions: Conditions) -> Plan {
         let window = timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
-        let discardAfter = timing.discardAfter(at: conditions.pressure)
+        let discardAfter = timing.discardAfter(at: conditions.pressure, setting: conditions.setting)
         let pace = timing.pace(at: conditions.pressure)
         let discardDue = max(discardAfter, pace.minimumHidden)
-        let mostRecent = pages.filter { !$0.isShown && !$0.isDiscarded }
+        // Discarded pages count, as Chrome's discarded tab keeps its PageNode and last-visible time:
+        // discarding the most recently hidden page never hands the role to an older, frozen page.
+        let mostRecent = pages.filter { !$0.isShown }
             .min { ($0.hiddenFor, $0.key) < ($1.hiddenFor, $1.key) }?.key
         var plan = Plan()
         var due: [(page: Page, reasons: Set<KeepReason>)] = []
