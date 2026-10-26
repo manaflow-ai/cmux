@@ -79,12 +79,12 @@ struct SubsystemBudgetTests {
         let pageThumbnails = 16 << 20
         let tabThumbnailCache = 48 << 20
         let hibernationSnapshots = 64 << 20
-        let ghosttyImageStoragePerSurface = 5_000_000
+        let ghosttyImageStorageLimit = 5_000_000
         let webProcessGroupPages = 8
 
         #expect(budget.imageCacheBytes >= previewImageCache + pageThumbnails + tabThumbnailCache)
         #expect(budget.hibernationSnapshotBytes >= hibernationSnapshots)
-        #expect(budget.kittyImageBytesPerSurface >= ghosttyImageStoragePerSurface)
+        #expect(budget.kittyImageBytesPerSurface >= ghosttyImageStorageLimit)
         #expect(budget.webProcessPagesPerGroup == webProcessGroupPages)
     }
 

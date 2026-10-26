@@ -50,7 +50,10 @@ public nonisolated struct SubsystemBudget: Hashable, Sendable {
     public let liveHiddenAgentPages: Int
     /// Hidden internal pages kept live; the least recently shown ones past this are discarded.
     public let liveHiddenInternalPages: Int
-    /// Kitty graphics storage per terminal surface in the app's Ghostty, in bytes.
+    /// The app Ghostty's `image-storage-limit` for each terminal surface, in bytes.
+    ///
+    /// Ghostty applies this limit to each screen, and a surface has a primary and an alternate
+    /// screen, so one surface can hold up to 2x this value. A total over surfaces must multiply by 2.
     public let kittyImageBytesPerSurface: Int
     /// The most WebKit pages that share one WebContent process in a related-view group.
     public let webProcessPagesPerGroup: Int
