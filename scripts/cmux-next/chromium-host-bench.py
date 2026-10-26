@@ -101,6 +101,11 @@ Per mode:
            `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
            page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
            where the relay takes the drops), the row says not_measurable with the reason instead of passing.
+  display  `--modes display` (task 221): a Chromium tab of the app's backend in the Chromium Host follows the cmux
+           window's display: rAF/s against the display's refresh rate and devicePixelRatio against its scale, then,
+           with a second display (cmux20-bench has an external one), frames until both are the new display's after
+           the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
+           1x to 2x move reported as `scale_up`) (chromium_host_display.py).
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -132,6 +137,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 
@@ -642,6 +648,12 @@ def main():
             mouse_probe = os.path.join(opts.out, "mouse.html")
             open(mouse_probe, "w").write(MOUSE_PAGE)
             ok = run_mouse(rpc, pathlib.Path(mouse_probe).as_uri()) and ok
+        if "display" in modes:
+            display_probe = os.path.join(opts.out, "display.html")
+            open(display_probe, "w").write(chromium_host_display.PAGE)
+            RESULT["modes"]["display"], ran = chromium_host_display.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
+            ok = ran and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:

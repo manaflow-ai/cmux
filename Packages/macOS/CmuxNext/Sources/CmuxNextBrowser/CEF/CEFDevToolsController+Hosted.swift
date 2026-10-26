@@ -66,6 +66,11 @@ extension CEFDevToolsController {
         // What the person sees of the DevTools page goes to the host, as the pane's page does
         // (``postPageVisibility(browser:)``): its page window is detached too.
         page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
+        // DevTools' page window takes the view's display, as the pane's page does (task 221).
+        page.onScreenInfo = { [weak self, weak page, weak runtime = tab.runtime] _ in
+            guard let self, let page, let runtime, let browser = devToolsBrowserID else { return false }
+            return runtime.placeHostedPage(page, browser: browser)
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
         #endif
@@ -155,6 +160,7 @@ extension CEFDevToolsController {
         // Before the hosting op: the host applies it when it detaches the DevTools page window.
         postPageVisibility(browser: devTools)
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(devTools, 1) }
+        runtime.placeHostedPage(page, browser: devTools)
         runtime.whenAnswered(sent, label: "DevTools context") { [weak self, weak page, weak runtime] id in
             guard let self, let page, hostedPage === page, devToolsBrowserID == devTools else { return }
             if let id, id != 0, page.show(contextID: id) { return }

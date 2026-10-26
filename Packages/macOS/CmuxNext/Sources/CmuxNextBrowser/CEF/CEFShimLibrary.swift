@@ -84,6 +84,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
     /// shim without the export (task p06-scheduler-212).
     let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
+    /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
+    let browserSetPageDisplay: @convention(c) (Int32, UInt32, Double, Double) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
