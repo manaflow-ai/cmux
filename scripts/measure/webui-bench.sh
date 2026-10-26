@@ -27,12 +27,19 @@ for arg in "$@"; do
   esac
 done
 echo "WEBUI-HOST host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion)"
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
-  | tee "$out/reload.log" | tail -n 40
+build_errors() {
+  grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+}
+if ! CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
+  | tee "$out/reload.log" | tail -n 40; then
+  echo "webui-bench: the tagged reload failed" >&2
+  build_errors
+  exit 1
+fi
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "webui-bench: the tagged reload printed no app path" >&2
-  grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+  build_errors
   exit 1
 fi
 status=0

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """bench-webui.py against a fake app (no app, no macOS): the rows each mode prints from the census and the process
 counters it is handed, the session shapes it refuses, percentiles, and that it reuses the existing benches' process
-counting instead of a copy. Run: python3 -I -m unittest tests/test_bench_webui.py"""
+counting instead of a copy. Run from the repo root: python3 -I tests/test_bench_webui.py (not `python3 -I -m unittest
+tests/test_bench_webui.py`: -I puts no current folder on sys.path, so unittest cannot import `tests`)."""
 import argparse
 import contextlib
 import importlib.util
 import io
 import os
 import re
+import signal
 import subprocess
 import unittest
 
@@ -19,13 +21,16 @@ spec.loader.exec_module(webui)
 
 
 class FakeClock:
-    """A sleep advances the clock, so settles and bounded polls end at once."""
+    """A sleep advances the clock, so settles and bounded polls end at once. `uptime` is the app's clock too."""
 
     def __init__(self):
         self.now = 0.0
         self.slept = 0.0
 
     def monotonic(self):
+        return self.now
+
+    def uptime(self):
         return self.now
 
     def sleep(self, seconds):
@@ -36,18 +41,25 @@ class FakeClock:
 class FakeApp:
     """Enough of the control socket: pages open through their actions and land in the `debug.webui` census; a page
     hidden for 10 s freezes (the most recently hidden one stays hidden), one hidden for 300 s with no keep reason is
-    discarded; `leak` makes publishing reach frozen pages; `census` False is a build without debug.webui."""
+    discarded; `leak` makes publishing reach frozen pages; `census` False is a build without debug.webui. `verbs` is
+    how `publish` and `pressure` answer: ok, error, or ignored (the census back, as a build without the verb).
+    `other_pane` holds the tabs of a second pane; a new chat opens in the first. Cmd-, opens Settings, painted
+    `open_delay` s after the key (`cold_delay` when its renderer is new); Cmd-W closes it."""
 
-    def __init__(self, clock, census=True, windows=1, tabs=(), cef=None, leak=False, fork_api=29, keep=()):
+    def __init__(self, clock, census=True, windows=1, tabs=("terminal",), cef=None, leak=False, fork_api=29, keep=(),
+                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09):
         self.clock, self.has_census, self.leak, self.keep = clock, census, leak, set(keep)
-        self.windows, self.tabs = windows, list(tabs)
+        self.windows, self.tabs, self.other_pane = windows, list(tabs), list(other_pane)
+        self.verbs, self.open_delay, self.cold_delay = verbs, open_delay, cold_delay
         self.cef = cef if cef is not None else {"state": "ready", "fork_api": fork_api}
-        self.pages = {}  # page id -> {"state", "hidden_at", "pid", "deliveries"}
+        self.pages = {}  # page id -> {"state", "hidden_at", "pid", "deliveries", "painted_uptime"?}
         self.order = []
         self.calls = []
         self.next_pid = 500
         self.groups = {}
         self.hides = 0  # the order pages were hidden in: socket calls take no fake time, so several hide at once
+        self.budget, self.shown_tab, self.seeded = [], None, {}
+        self.visible = iter([4.0, 6.0, 7.5, 9.0] * 50)
 
     def page_for(self, action, args):
         for page_id, name, _ in webui.PAGES10:
@@ -74,11 +86,21 @@ class FakeApp:
             elif age >= 10 and page_id != newest:
                 page["state"] = "frozen"
 
+    def tab_kind(self, tab_id):
+        tabs = self.tabs if tab_id.startswith("t") else self.other_pane
+        return tabs[int(tab_id[1:])]
+
+    def record(self, action):
+        sequence = len(self.budget) + 1
+        self.budget.append({"sequence": sequence, "id": action, "commit_ms": 2.0 + sequence % 3,
+                            "start_uptime_ns": self.clock.now * 1e9})
+
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
         self.calls.append((method, params))
         if method == "snapshot.get":
-            panes = [{"id": "p1", "tabs": [{"id": f"t{i}", "kind": kind} for i, kind in enumerate(self.tabs)]}]
+            panes = [{"id": "p1", "tabs": [{"id": f"t{i}", "kind": kind} for i, kind in enumerate(self.tabs)]},
+                     {"id": "p2", "tabs": [{"id": f"u{i}", "kind": kind} for i, kind in enumerate(self.other_pane)]}]
             return {"topology": {"windows": [{"id": f"w{i}"} for i in range(self.windows)],
                                  "workspaces": [{"id": "ws1", "screens": [{"panes": panes}]}]}}
         if method == "action.run":
@@ -90,23 +112,63 @@ class FakeApp:
                 self.show(page_id)
             elif action == "newSurface":
                 self.show(None)
+                self.shown_tab = None
+            elif action.startswith("openBrowser."):
+                self.tabs.append("browser")
+            elif action == "palette.newAgentChat":
+                self.tabs.append("conversation")
+                self.shown_tab = f"t{len(self.tabs) - 1}"
+            elif action == "tab.focus":
+                self.shown_tab = params["target"].split(":", 1)[1]
             return {}
+        if method == "debug.key":
+            if params["key"] == ",":
+                fresh = "privileged" not in self.groups
+                self.pages["cmux.settings"] = {"pid": self.renderer("cmux.settings"), "deliveries": 0,
+                                               "painted_uptime": self.clock.now + (self.cold_delay if fresh else self.open_delay)}
+                self.show("cmux.settings")
+                self.record("openSettings")
+            elif params["key"] == "w":
+                self.pages.pop("cmux.settings", None)
+                self.record("closeTab")
+            return {}
+        if method == "debug.action_budget":
+            return {"recent": self.budget[-params.get("limit", 64):]}
+        if method == "debug.new_tab":
+            if params["action"] == "state":
+                return {"spares": [{"ready": True}]}
+            if params["action"] == "bench_open":
+                return {"key_ms": 1.5, "visible_ms": next(self.visible), "frames": {"first_tick_ms": 8.3},
+                        "opening": {"spare": True}}
+            return {"key_ms": 0.8}
+        if method == "debug.agent_pane":
+            pane = params.get("pane", "p1")
+            if params["action"] == "seed_rows":
+                self.seeded[pane] = params["count"]
+                return {"seeded": params["count"], "pane": pane}
+            chat = self.shown_tab is not None and self.tab_kind(self.shown_tab) == "conversation"
+            return {"pane": pane, "composer_visible": True, "transcript_rows": self.seeded.get(pane, 0) if chat else 0}
         if method == "debug.page":
             page = self.pages.get(params.get("page"))
             if params.get("action") == "list":
                 return {"pages": [{"page": params["page"], "parked": False}] if page and page["state"] != "discarded" else []}
-            return {"painted": bool(page), "controls": 3} if page else {"error": "no live page"}
+            if not page:
+                return {"error": "no live page"}
+            return {"painted": True, "controls": 3, **({"painted_uptime": page["painted_uptime"]} if "painted_uptime" in page else {})}
         if method == "debug.cef":
             return self.cef
         if method == "debug.webui":
             if not self.has_census:
                 return {"error": {"code": "method_not_found"}}
-            if params.get("action") == "publish":
+            verb = params.get("action")
+            if verb in ("publish", "pressure") and self.verbs == "error":
+                return {"error": {"code": "invalid_params", "message": f"unknown action {verb}"}}
+            if verb == "publish" and self.verbs == "ok":
                 for page in self.pages.values():
                     if page["state"] == "frozen" and self.leak:
                         page["deliveries"] += 3
                 return {"publishing": True}
-            if params.get("action") == "pressure":
+            if verb == "pressure" and self.verbs == "ok":
                 for page in self.pages.values():
                     if page["state"] in ("hidden", "frozen"):
                         page["state"] = "discarded"
@@ -131,14 +193,15 @@ class FakeApp:
 
 
 class FakeInstance:
-    """procs.Instance: the counters a mode is handed (kinds as procs.window returns them)."""
+    """procs.Instance: the counters a mode is handed (kinds as procs.window returns them) and its command lines."""
 
-    def __init__(self, clock, kinds=None, mb=200.0):
+    def __init__(self, clock, kinds=None, mb=200.0, commands=()):
         self.clock, self.kinds, self.mb = clock, kinds or {}, mb
+        self.commands = dict(enumerate(commands, start=900))
         self.windows = []
 
     def pids(self):
-        return {}
+        return self.commands
 
     def memory(self, per_pid=False):
         return {"mb": self.mb, "processes": 3, "kinds": {}}
@@ -151,20 +214,38 @@ class FakeInstance:
 
 def options(**overrides):
     values = dict(engine="chromium", session="light", settle=60, measure=60, hide_settle=10, discard_settle=300,
-                  open_timeout=20, priority_wait=1.0, runs=4, chat_turns=0, kills=4)
+                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4)
     values.update(overrides)
     return argparse.Namespace(**values)
 
 
+def type_kind(cmd):
+    """tab_pages.process_type_kind for the fake command lines."""
+    if "--type=renderer" not in cmd:
+        return None
+    return "cef-extension" if "--extension-process" in cmd else "cef-renderer"
+
+
 def bench(app, clock, instance=None, alive=True, kill=None, priorities=None, **overrides):
     return webui.Bench(options(**overrides), app.rpc, instance or FakeInstance(clock), browser_renderers=set,
-                       kind_of=lambda cmd: cmd, react_view=lambda run, page: ("react", ""), alive=lambda: alive,
-                       kill=kill or (lambda pid, sig: None), priorities=priorities or (lambda pids: {}), clock=clock,
-                       log=lambda text: None)
+                       kind_of=lambda cmd: cmd, type_kind=type_kind, react_view=lambda run, page: ("react", ""),
+                       alive=lambda: alive, kill=kill or (lambda pid, sig: None), priorities=priorities or (lambda pids: {}),
+                       clock=clock, log=lambda text: None)
 
 
 def rows(report):
     return {entry["name"]: entry for entry in report["rows"]}
+
+
+def replying(app, method, reply):
+    """`app.rpc` with `method` answering `reply`."""
+    real = app.rpc
+
+    def rpc(name, params=None, timeout=60):
+        return reply if name == method else real(name, params, timeout)
+
+    app.rpc = rpc
+    return app
 
 
 class RowTests(unittest.TestCase):
@@ -173,15 +254,44 @@ class RowTests(unittest.TestCase):
         self.assertEqual(entry["value"]["n"], 4)
         self.assertEqual(entry["value"]["p50"], 25)
         self.assertEqual(entry["value"]["missed"], 1)
-        self.assertEqual(entry["status"], "met")
-        text = webui.line("open", entry)
-        for key in ("p50=25", "p95=", "p99=", "max=40", "missed=1", "status=met"):
+        self.assertEqual(entry["status"], "missed")  # a sample that timed out never prints met
+        self.assertEqual(webui.series("open_ms", [10, 20, 30, 40], ("p95", "<=", 50))["status"], "met")
+        text = webui.line("open", webui.series("open_ms", [10, 20, 30, 40, None], ("p95", "<=", 50), tier="train"))
+        for key in ("p50=25", "p95=", "p99=", "max=40", "missed=1", "tier=train", "status=missed"):
             self.assertIn(key, text)
+
+    def test_nineteen_timeouts_and_one_fast_open_is_missed(self):
+        entry = webui.series("settings.open_ms", [20] + [None] * 19, ("p95", "<=", 50))
+        self.assertEqual(entry["value"]["p95"], 20)
+        self.assertEqual(entry["status"], "missed")
 
     def test_a_missed_target_is_marked_and_no_value_is_unscored(self):
         self.assertEqual(webui.row("renderers", 5, ("<=", 4))["status"], "missed")
         self.assertEqual(webui.row("renderers", None, ("<=", 4), note="no census")["status"], "unscored")
         self.assertEqual(webui.series("x", [None, None])["status"], "unscored")
+        self.assertEqual(webui.series("x", [], ("p95", "<=", 1))["status"], "unscored")
+        timed_out = webui.series("x", [None, None], ("p95", "<=", 1))
+        self.assertEqual(timed_out["status"], "missed")  # every sample timed out
+        self.assertEqual(timed_out["value"]["missed"], 2)
+        self.assertIn("missed=2", webui.line("open", timed_out))
+
+
+class CensusTests(unittest.TestCase):
+    def test_task_001_report_reads_as_rows(self):
+        census = webui.Census.from_report({
+            "pages": [{"page": "cmux.settings", "state": "visible", "keep_reasons": ["visible", "focused"], "spare": None,
+                       "renderer_pids": [41], "webkit_pid": None, "deliveries_while_hidden": 0, "pushes_while_hidden": 0},
+                      {"page": "cmux.history", "state": "hidden", "keep_reasons": [], "spare": None, "renderer_pids": [41],
+                       "deliveries_while_hidden": 2, "pushes_while_hidden": 1},
+                      {"page": "cmux.newtab", "state": "hidden", "spare": "new_tab", "renderer_pids": [], "webkit_pid": 77}],
+            "spares": [{"spare": "cef_window", "state": "live", "renderer_pids": [52]}],
+            "processes": [{"pid": 41, "kind": "renderer"}, {"pid": 60, "kind": "extension_renderer"}]})
+        census = webui.Census(census)
+        self.assertEqual([p["page"] for p in census.pages("active")], ["cmux.settings"])
+        self.assertEqual(census.page("cmux.settings")["keep_reasons"], ["focused"])
+        self.assertEqual(census.renderers(), {41: ["cmux.settings", "cmux.history"]})
+        self.assertEqual([s["spare_kind"] for s in census.spares()], ["preload", "cef_window"])
+        self.assertEqual(len(census.processes("extension")), 1)
 
 
 class ShapeTests(unittest.TestCase):
@@ -238,37 +348,55 @@ class HomeTests(unittest.TestCase):
              "renderer": {"n": 3, "cpu_pct": 1.8, "wakeups_per_s": 12.0},
              "gpu": {"n": 1, "cpu_pct": 0.1, "wakeups_per_s": 1.0},
              "utility:NetworkService": {"n": 1, "cpu_pct": 0.05, "wakeups_per_s": 0.5},
-             "webkit-webcontent": {"n": 1, "cpu_pct": 0.1, "wakeups_per_s": 11.0}}
+             "webkit-webcontent": {"n": 1, "cpu_pct": 0.1, "wakeups_per_s": 11.0},
+             "webkit-networking": {"n": 1, "cpu_pct": 0.1, "wakeups_per_s": 4.0}}
+    COMMANDS = ("Helper (Renderer) --type=renderer", "Helper (Renderer) --type=renderer",
+                "Helper (Renderer) --type=renderer --extension-process", "Helper (GPU) --type=gpu-process")
 
     def test_counts_come_from_the_procs_window_it_is_handed(self):
         clock = FakeClock()
-        instance = FakeInstance(clock, self.KINDS, mb=793.0)
+        instance = FakeInstance(clock, self.KINDS, mb=793.0, commands=self.COMMANDS)
         report = bench(FakeApp(clock, census=False), clock, instance).run("home")
         got = rows(report)
-        self.assertEqual(got["chromium_renderers"]["value"], 3)
+        self.assertEqual(got["chromium_renderers"]["value"], 2)  # the extension renderer is counted apart
         self.assertEqual(got["chromium_renderers"]["status"], "missed")
+        self.assertEqual(got["chromium_renderers"]["tier"], "train")
+        self.assertEqual(got["extension_renderers"]["value"], 1)
+        self.assertEqual(got["extension_renderers"]["status"], "missed")
+        self.assertEqual(got["extension_renderers"]["tier"], "pinned")
         self.assertEqual(got["webcontent_processes"]["value"], 1)
         self.assertEqual(got["cef_processes"]["value"], 5)
-        self.assertEqual(got["web_helper_cpu_pct"]["value"], 2.05)
+        self.assertEqual(got["web_helper_cpu_pct"]["value"], 2.15)
+        self.assertEqual(got["web_helper_cpu_pct"]["tier"], "pinned")
+        self.assertEqual(got["web_helper_cpu_pct_train"]["target"], ["<=", 0.05])
         self.assertEqual(got["footprint_mb"]["value"], 793.0)
-        self.assertEqual(got["extension_renderers"]["status"], "unscored")
+        self.assertEqual(got["preload_frozen"]["status"], "unscored")
         self.assertEqual(instance.windows, [60])
         self.assertGreaterEqual(clock.slept, 60 + 60)  # --settle, then --measure
 
+    def test_webkit_wakeups_row_counts_webcontent_only(self):
+        clock = FakeClock()
+        instance = FakeInstance(clock, self.KINDS)
+        got = rows(bench(FakeApp(clock, cef={"unavailable": "notBundled"}), clock, instance, engine="webkit").run("home"))
+        self.assertEqual(got["webcontent_wakeups_per_s"]["value"], 11.0)
+        self.assertEqual(got["webcontent_wakeups_per_s"]["target"], ["<=", 0.2])
+        self.assertEqual(got["web_helper_wakeups_per_s"]["value"], 28.5)
+        self.assertIsNone(got["web_helper_wakeups_per_s"]["target"])
+
     def test_page_wakeup_owners_are_summed(self):
         clock = FakeClock()
-        app = FakeApp(clock)
-        real = app.rpc
-
-        def rpc(method, params=None, timeout=60):
-            if method == "debug.wakeups":
-                return {"ledger": [{"owner": "page.history", "reason": "timer", "per_second": 1.5},
-                                   {"owner": "newTab.preload", "reason": "raf", "per_second": 0.5},
-                                   {"owner": "terminal", "reason": "blink", "per_second": 2}]}
-            return real(method, params, timeout)
-
-        app.rpc = rpc
+        app = replying(FakeApp(clock), "debug.wakeups", {"ledger": [
+            {"owner": "page.history", "reason": "timer", "per_second": 1.5},
+            {"owner": "newTab.preload", "reason": "raf", "per_second": 0.5},
+            {"owner": "terminal", "reason": "blink", "per_second": 2}]})
         self.assertEqual(rows(bench(app, clock).run("home"))["page_preload_spare_wakeups_per_s"]["value"], 2.0)
+
+    def test_a_failed_wakeups_read_is_unscored_not_zero(self):
+        for reply in ({"error": {"code": "timeout"}}, None, {"owners": []}):
+            clock = FakeClock()
+            entry = rows(bench(replying(FakeApp(clock), "debug.wakeups", reply), clock).run("home"))["page_preload_spare_wakeups_per_s"]
+            self.assertEqual(entry["status"], "unscored", reply)
+            self.assertIn("no ledger", entry["note"])
 
 
 class PagesTests(unittest.TestCase):
@@ -278,6 +406,7 @@ class PagesTests(unittest.TestCase):
         self.assertEqual(got["frozen_pages"]["value"], 8)
         self.assertEqual(got["last_hidden_not_frozen"]["value"], 1)
         self.assertEqual(got["frozen_hidden_traffic"]["value"], 0)
+        self.assertEqual(got["frozen_hidden_traffic"]["status"], "met")
         self.assertEqual(got["page_renderers"]["value"], 6)  # 5 privileged in one, 5 others alone
         self.assertEqual(got["page_renderers"]["status"], "missed")
         self.assertEqual(got["discarded_pages"]["value"], 9)
@@ -288,6 +417,19 @@ class PagesTests(unittest.TestCase):
         got = rows(bench(FakeApp(clock, leak=True), clock).run("delivery"))
         self.assertEqual(got["frozen_hidden_traffic"]["value"], 24)
         self.assertEqual(got["frozen_hidden_traffic"]["status"], "missed")
+
+    def test_a_publish_that_fails_or_is_ignored_is_unscored(self):
+        for verbs in ("error", "ignored"):
+            clock = FakeClock()
+            entry = rows(bench(FakeApp(clock, leak=True, verbs=verbs), clock).run("delivery"))["frozen_hidden_traffic"]
+            self.assertEqual(entry["status"], "unscored", verbs)
+            self.assertIn("publish", entry["note"])
+
+    def test_no_frozen_page_before_the_window_is_unscored(self):
+        clock = FakeClock()
+        entry = rows(bench(FakeApp(clock), clock, hide_settle=0).run("delivery"))["frozen_hidden_traffic"]
+        self.assertEqual(entry["status"], "unscored")
+        self.assertIn("no frozen page", entry["note"])
 
     def test_a_page_with_a_keep_reason_is_not_expected_to_discard(self):
         clock = FakeClock()
@@ -309,6 +451,106 @@ class PagesTests(unittest.TestCase):
         self.assertEqual(got["page_renderers"]["value"], 0)  # procs found no renderer without a browser tab
 
 
+class OpenTests(unittest.TestCase):
+    def run_open(self, app, clock, kill=None, **overrides):
+        return rows(bench(app, clock, kill=kill, **overrides).run("open"))
+
+    @staticmethod
+    def killer(app, dead):
+        """kill -9 drops the renderer (the next Settings open starts a fresh one); signal 0 tests it."""
+
+        def kill(pid, sig):
+            if sig == 0:
+                if pid in dead:
+                    raise ProcessLookupError(pid)
+                return
+            dead.add(pid)
+            app.groups = {group: p for group, p in app.groups.items() if p != pid}
+
+        return kill
+
+    def test_new_tab_cover_frame_is_visible_ms(self):
+        clock = FakeClock()
+        got = self.run_open(FakeApp(clock), clock)
+        cover = got["new_tab.cover_frame_ms"]
+        self.assertEqual(cover["target"], ["p50", "<=", 8.3])
+        self.assertEqual(cover["value"]["n"], 4)
+        self.assertEqual(cover["value"]["max"], 9.0)
+        self.assertEqual(cover["status"], "met")  # p50 6.75
+        self.assertEqual(got["new_tab.cover_frame_p99_ms"]["target"], ["p99", "<=", 16.7])
+        self.assertIsNone(got["new_tab.first_tick_ms"]["target"])
+        self.assertEqual(got["new_tab.first_tick_ms"]["status"], "info")
+        self.assertEqual(got["new_tab.live_ms"]["status"], "unscored")
+        self.assertEqual(got["new_tab.from_spare"]["value"], 4)
+        self.assertEqual(got["new_tab.key_turn_ms"]["value"]["p99"], 1.5)
+        self.assertEqual(got["new_tab.cmd_w_key_turn_ms"]["value"]["n"], 4)
+
+    def test_a_slow_cover_frame_misses(self):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        app.visible = iter([30.0] * 10)
+        self.assertEqual(self.run_open(app, clock)["new_tab.cover_frame_ms"]["status"], "missed")
+
+    def test_settings_open_is_timed_on_the_app_clock(self):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        got = self.run_open(app, clock, kill=self.killer(app, set()))
+        warm = got["settings.open_ms"]
+        self.assertEqual(warm["value"]["n"], 4)
+        self.assertEqual(warm["value"]["max"], 12.0)  # painted_uptime - the key's start_uptime_ns, no poll in it
+        self.assertEqual(warm["status"], "met")
+        cold = got["settings.cold_open_ms"]
+        self.assertEqual(cold["value"]["n"], 3)  # the first open and --cold-runs 2 after the renderer was killed
+        self.assertEqual(cold["value"]["max"], 90.0)
+        self.assertEqual(cold["target"], ["p95", "<=", 150])
+        self.assertEqual(got["settings.key_turn_ms"]["value"]["n"], 7)
+        self.assertEqual(got["settings.cmd_w_key_turn_ms"]["value"]["n"], 7)
+        for name in ("cef.window_built_on_key_turn", "second_page_same_pane_windows", "discarded_page.snapshot_frame_ms",
+                     "discarded_page.live_ms", "settings.cmd_w_engine_close_calls", "settings.cover_frame_ms"):
+            self.assertEqual(got[name]["status"], "unscored", name)
+
+    def test_a_renderer_that_is_not_killed_gives_no_cold_sample(self):
+        clock = FakeClock()
+        got = self.run_open(FakeApp(clock), clock, kill=lambda pid, sig: None)  # signal 0 says it still runs
+        self.assertEqual(got["settings.cold_open_ms"]["value"]["n"], 1)
+
+    def test_a_settings_page_that_never_answers_is_missed(self):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        real = app.rpc
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.page" and params.get("action") != "list":
+                return {"error": "no live page"}
+            return real(method, params, timeout)
+
+        app.rpc = rpc
+        got = self.run_open(app, clock, open_timeout=0.1, cold_runs=0)
+        self.assertEqual(got["settings.open_ms"]["status"], "missed")
+        self.assertEqual(got["settings.open_ms"]["value"]["missed"], 4)
+        self.assertEqual(got["settings.cold_open_ms"]["status"], "missed")
+
+    def test_frozen_chat_measures_the_new_chat_not_the_last_one(self):
+        clock = FakeClock()
+        app = FakeApp(clock, other_pane=("conversation",))
+        b = bench(app, clock, chat_turns=2000)
+        b.frozen_chat()
+        got = rows({"rows": b.rows})
+        self.assertEqual(got["frozen_chat.live_ms"]["value"]["n"], 4)
+        self.assertEqual(got["frozen_chat.live_ms"]["value"]["missed"], 0)
+        self.assertEqual(got["frozen_chat.first_frame_ms"]["status"], "unscored")
+        focused = [p["target"] for m, p in app.calls if m == "action.run" and p["action"] == "tab.focus"]
+        self.assertEqual(set(focused), {"tab:t1"})  # the new chat in p1, not u0 (the last conversation tab)
+        panes = {p.get("pane") for m, p in app.calls if m == "debug.agent_pane"}
+        self.assertEqual(panes, {"p1"})
+        self.assertEqual(app.seeded, {"p1": 2000})
+
+    def test_open_runs_the_chat_with_chat_turns(self):
+        clock = FakeClock()
+        got = self.run_open(FakeApp(clock), clock, chat_turns=50)
+        self.assertEqual(got["frozen_chat.live_ms"]["note"].split(";")[0], "50 seeded turns")
+
+
 class CrashPressurePriorityTests(unittest.TestCase):
     def test_crash_kills_the_shown_renderer_and_checks_the_cap(self):
         clock = FakeClock()
@@ -321,7 +563,10 @@ class CrashPressurePriorityTests(unittest.TestCase):
         self.assertEqual(got["pages_in_killed_renderer"]["value"], 5)
         self.assertEqual(got["reload_past_group_cap"]["value"], 0)
         self.assertEqual(got["shown_page_back_ms"]["value"]["n"], 3)
+        self.assertEqual(got["shown_page_back_ms"]["status"], "met")
         self.assertEqual(got["hidden_pages_reloaded"]["value"], 0)
+        self.assertEqual(got["shown_page_notice"]["status"], "unscored")
+        self.assertEqual(got["shown_page_reloads"]["status"], "unscored")
 
     def test_crash_counts_hidden_pages_that_reload_at_once(self):
         clock = FakeClock()
@@ -329,6 +574,17 @@ class CrashPressurePriorityTests(unittest.TestCase):
         got = rows(bench(app, clock, kills=1, kill=self.crasher(app, [], reload_hidden=True)).run("crash"))
         self.assertEqual(got["hidden_pages_reloaded"]["value"], 4)
         self.assertEqual(got["hidden_pages_reloaded"]["status"], "missed")
+
+    def test_no_renderer_pid_is_not_a_dead_app(self):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        app.renderer = lambda page_id: None
+        got = rows(bench(app, clock).run("crash"))
+        self.assertEqual(got["app_survived"]["value"], 1)
+        self.assertEqual(got["shown_page_renderer"]["status"], "unscored")
+        self.assertIn("no renderer pid", got["shown_page_renderer"]["note"])
+        self.assertEqual(got["shown_page_back_ms"]["status"], "unscored")  # no kill, no sample
+        self.assertEqual(got["hidden_pages_reloaded"]["status"], "unscored")
 
     @staticmethod
     def crasher(app, killed, reload_hidden):
@@ -352,10 +608,22 @@ class CrashPressurePriorityTests(unittest.TestCase):
 
     def test_pressure_reads_the_preload_and_renderers(self):
         clock = FakeClock()
-        got = rows(bench(FakeApp(clock), clock).run("pressure"))
+        app = FakeApp(clock)
+        got = rows(bench(app, clock).run("pressure"))
         self.assertEqual(got["preload_after_pressure"]["value"], 0)
         self.assertEqual(got["pages_left_undiscarded"]["value"], 0)
         self.assertEqual(got["renderers_after_discard"]["value"], 1)
+        self.assertEqual(got["discards_in_importance_order"]["status"], "unscored")
+        self.assertIn("browser", app.tabs)  # the ranked pass has a browser tab and a chat to rank
+        self.assertIn("conversation", app.tabs)
+
+    def test_a_pressure_that_fails_or_is_ignored_is_unscored(self):
+        for verbs in ("error", "ignored"):
+            clock = FakeClock()
+            got = rows(bench(FakeApp(clock, verbs=verbs), clock).run("pressure"))
+            for name in ("preload_after_pressure", "renderers_after_discard", "pages_left_undiscarded"):
+                self.assertEqual(got[name]["status"], "unscored", (verbs, name))
+            self.assertIn("pressure", got["preload_after_pressure"]["note"])
 
     def test_priority_times_each_renderer_backgrounding(self):
         clock = FakeClock()
@@ -373,6 +641,20 @@ class CrashPressurePriorityTests(unittest.TestCase):
         self.assertEqual(got["backgrounded_renderers"]["status"], "met")
         self.assertGreaterEqual(got["background_ms"]["value"]["max"], 300)
 
+    def test_priority_with_no_renderer_is_not_a_pass(self):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        app.renderer = lambda page_id: None
+        got = rows(bench(app, clock, priorities=lambda pids: {}).run("priority"))
+        self.assertEqual(got["page_renderers"]["status"], "missed")
+        self.assertEqual(got["backgrounded_renderers"]["status"], "unscored")
+
+    def test_a_renderer_that_never_backgrounds_misses(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock), clock, priorities=lambda pids: {pid: 31 for pid in pids}).run("priority"))
+        self.assertEqual(got["backgrounded_renderers"]["status"], "missed")
+        self.assertEqual(got["background_ms"]["status"], "missed")
+
     def test_a_dead_app_is_a_row(self):
         clock = FakeClock()
         got = rows(bench(FakeApp(clock), clock, alive=False).run("home"))
@@ -380,12 +662,14 @@ class CrashPressurePriorityTests(unittest.TestCase):
 
 
 class ThinDriverTests(unittest.TestCase):
-    SOURCE = open(SCRIPT).read()
+    with open(SCRIPT) as handle:
+        SOURCE = handle.read()
 
     def test_no_copy_of_process_counting(self):
         for copied in ("proc_pid_rusage", "libproc", "ps\", \"-axo", "pgrep", "def process_table", "def counters"):
             self.assertNotIn(copied, self.SOURCE, copied)
-        for reused in ("procs.py", "bench_launch.py", "bench_renderer_sharing.py", "bench-pages.py", "perf_stats.py"):
+        for reused in ("procs.py", "bench_launch.py", "bench_renderer_sharing.py", "bench-pages.py", "perf_stats.py",
+                       "process_type_kind"):
             self.assertIn(reused, self.SOURCE, reused)
 
     def test_only_settle_and_bounded_polls_sleep(self):
@@ -401,8 +685,16 @@ class ThinDriverTests(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_fleet_entry_prints_build_errors_when_the_reload_fails(self):
+        with open(os.path.join(ROOT, "scripts", "measure", "webui-bench.sh")) as handle:
+            source = handle.read()
+        self.assertRegex(source, r"if ! CMUX_DEV_BACKEND_MODE=local \./scripts/reload\.sh")
+        failed = source.split("if ! CMUX_DEV_BACKEND_MODE", 1)[1].split("fi\n", 1)[0]
+        self.assertIn("build_errors", failed)
+
     def test_bad_options_are_refused(self):
-        for argv in (["home", "--app", "x", "--settle", "-1"], ["warp", "--app", "x"], ["home", "--app", "x", "--runs", "0"]):
+        for argv in (["home", "--app", "x", "--settle", "-1"], ["warp", "--app", "x"], ["home", "--app", "x", "--runs", "0"],
+                     ["open", "--app", "x", "--cold-runs", "-1"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 webui.parse(argv)
 

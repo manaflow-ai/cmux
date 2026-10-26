@@ -15,18 +15,22 @@ launch of its own:
 Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.json):
 
   home      D1/D2. Home (home.show) after --settle s, then a --measure s window: WebKit WebContent and CEF process
-            counts, Chromium renderers, extension renderers, whole-tree footprint, web helper CPU and wakeups/s,
-            `debug.wakeups` owners of pages, the preload and spares.
+            counts, Chromium renderers apart from extension renderers (tab_pages.process_type_kind), whole-tree
+            footprint, web helper CPU and wakeups/s (WebContent alone for D2), `debug.wakeups` owners of pages,
+            the preload and spares. Each row names its section 5 tier (pinned or train).
   pages10   D3. Opens settings, history, cloud, apps, keybindings, files, diff, markdown, editor and chief-usage (the
             last one shown), then: renderers that hold no browser tab, DevTools on page renderers (`unscored` on
             fork < 29: clicks use DevTools there), frozen pages --hide-settle s after hiding, the delivery window
             (below), discarded pages and footprint at --discard-settle s against the one-page footprint.
-  open      D4, light or STRESS. Cmd-T into the preloaded New Tab (`debug.new_tab bench_open`: key turn, visible,
-            first frame) and its Cmd-W; Cmd-, Settings (key to answering page; the key's commit from
-            `debug.action_budget`) and its Cmd-W; a frozen chat of --chat-turns turns shown again.
+  open      D4, light or STRESS. Cmd-T into the preloaded New Tab (`debug.new_tab bench_open`: key turn, cover
+            frame = `visible_ms`) and its Cmd-W; Cmd-, Settings warm (--runs) and cold (the first open and
+            --cold-runs opens after its renderer was killed), timed on the app's uptime clock from the key's
+            `debug.action_budget` start to the page's `debug.page` painted_uptime, and its Cmd-W; a frozen chat of
+            --chat-turns turns shown again --runs times. D4 rows with no app signal yet print `unscored`.
   crash     D5. 5 privileged pages, 1 shown; kill -9 of the shown page's renderer --kills times: cmux survives, the
             shown page paints again (until the group cap, 3 per 600 s), hidden pages do not reload.
-  pressure  D6. `debug.webui pressure critical`: the preload slot right after, renderers once discards settle.
+  pressure  D6. A browser tab and a chat, then pages; `debug.webui pressure critical`: the preload slot right after,
+            renderers once discards settle.
   priority  D12. Page renderers (or WebContent processes) with every page hidden: backgrounded (`ps` priority <= 4,
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
@@ -36,7 +40,9 @@ The page census is `debug.webui` (task 001). A build without it (the base of the
 census rows and still measures the process rows. Keys read, per row of its `rows` list: `row` (page, spare or
 process), `page`, `engine`, `group`, `state` (active, hidden, frozen, discarded, crashed), `keep_reasons`,
 `renderer_pid`, `webkit_pid`, `hidden_deliveries`, `hidden_pushes`, `devtools`, `spare_kind`, `pid`,
-`process_kind` (renderer, extension, utility, gpu). Change them in ``Census`` only.
+`process_kind` (renderer, extension, utility, gpu), `reloads`. Task 001's report (`pages`, `spares`, `processes`)
+is read into the same rows (``Census.from_report``). Change them in ``Census`` only. The `publish` and `pressure`
+verbs count only when their reply confirms them; else their rows are `unscored`, never a pass with no load.
 
 Session shapes (refused, exit 2, never measured as the shape asked): light is one window, no browser tab and no
 chat before the mode starts, every page the mode opens live, one page shown when the mode shows one; STRESS is
@@ -73,6 +79,13 @@ PRIVILEGED5 = PAGES10[:5]  # one capability group (section 3.B): the crash, pres
 WEB_KINDS = ("renderer", "gpu", "helper")  # procs.kind_of names of CEF processes; utility:* and webkit-* by prefix
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
+LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
+
+
+def host_uptime():
+    """Seconds on the clock of the app's `painted_uptime` (ProcessInfo.systemUptime) and `start_uptime_ns`
+    (CLOCK_UPTIME_RAW): both are mach_absolute_time, so app timestamps and this one subtract."""
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW) if hasattr(time, "CLOCK_UPTIME_RAW") else time.monotonic()
 
 
 def load(name, path):
@@ -106,9 +119,10 @@ class ShapeError(RuntimeError):
 OPS = {"<=": lambda a, b: a <= b, "==": lambda a, b: a == b, ">=": lambda a, b: a >= b}
 
 
-def row(name, value, target=None, unit="", note=""):
+def row(name, value, target=None, unit="", note="", tier=""):
     """One result row. `value` is a number, a perf_stats summary, or None (unscored, `note` says why). `target` is
-    (op, bound) for a number or (stat, op, bound) for a summary; it is printed and marked, never an exit status."""
+    (op, bound) for a number or (stat, op, bound) for a summary; it is printed and marked, never an exit status.
+    `tier` is section 5's `pinned` (must pass on the pinned fork) or `train` (needs the fork train dist), or empty."""
     status = "info"
     if value is None:
         status = "unscored"
@@ -116,16 +130,24 @@ def row(name, value, target=None, unit="", note=""):
         stat, op, bound = target if len(target) == 3 else (None, *target)
         measured = value.get(stat) if isinstance(value, dict) else value
         status = "unscored" if measured is None else ("met" if OPS[op](measured, bound) else "missed")
+        if status == "met" and isinstance(value, dict) and value.get("missed"):
+            status = "missed"  # a sample that never finished never prints met
     return {"name": name, "value": value, "target": list(target) if target else None, "unit": unit,
-            "status": status, "note": note}
+            "status": status, "note": note, "tier": tier}
 
 
-def series(name, values, target=None, unit="ms", note=""):
-    """A latency row: the percentiles of `values` (None entries are samples that never finished, counted apart)."""
+def series(name, values, target=None, unit="ms", note="", tier=""):
+    """A latency row: the percentiles of `values`. A None entry is a sample that never finished: it is counted in
+    `missed` and makes a scored row `missed`."""
     timed = [v for v in values if isinstance(v, (int, float))]
     summary = stats.summary(timed)
     summary["missed"] = len(values) - len(timed)
-    return row(name, summary if timed else None, target, unit, note or ("" if timed else "no sample finished"))
+    if not timed:
+        entry = row(name, None, target, unit, note or ("no sample finished" if values else "no sample"), tier)
+        if values and target:
+            entry.update(value=summary, status="missed")  # every sample timed out
+        return entry
+    return row(name, summary, target, unit, note, tier)
 
 
 def line(mode, entry):
@@ -135,8 +157,10 @@ def line(mode, entry):
     else:
         shown = f"value={_fmt(value)}"
     target = "".join(str(part) for part in entry["target"]) if entry["target"] else "-"
+    tier = f" tier={entry['tier']}" if entry.get("tier") else ""
     note = f" note={json.dumps(entry['note'])}" if entry["note"] else ""
-    return f"WEBUI-ROW mode={mode} row={entry['name']} {shown} unit={entry['unit'] or '-'} target={target} status={entry['status']}{note}"
+    return (f"WEBUI-ROW mode={mode} row={entry['name']} {shown} unit={entry['unit'] or '-'} target={target}{tier} "
+            f"status={entry['status']}{note}")
 
 
 def _fmt(value):
@@ -154,9 +178,40 @@ class Census:
     def read(cls, rpc):
         """The census now, or None when the build has no `debug.webui`."""
         reply = rpc("debug.webui")
-        if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get("rows"), list):
+        if not isinstance(reply, dict) or reply.get("error"):
             return None
-        return cls([r for r in reply["rows"] if isinstance(r, dict)])
+        if isinstance(reply.get("rows"), list):
+            return cls([r for r in reply["rows"] if isinstance(r, dict)])
+        if isinstance(reply.get("pages"), list):
+            return cls(cls.from_report(reply))
+        return None
+
+    @staticmethod
+    def from_report(reply):
+        """Task 001's report (`pages`, `spares`, `processes`; keys in CmuxNextPages/WebUI/WebUICensus.swift) as rows:
+        a `visible` page is `active`, its first renderer pid is `renderer_pid`, a parked page is a spare row."""
+        rows = []
+        for page in (p for p in reply.get("pages") or [] if isinstance(p, dict)):
+            pid = next(iter(page.get("renderer_pids") or []), None)
+            if page.get("spare"):
+                rows.append({"row": "spare", "spare_kind": "preload" if page["spare"] == "new_tab" else page["spare"],
+                             "state": page.get("state"), "renderer_pid": pid, "webkit_pid": page.get("webkit_pid")})
+                continue
+            rows.append({"row": "page", "page": page.get("page"), "engine": page.get("engine"), "group": page.get("group"),
+                         "state": "active" if page.get("state") == "visible" else page.get("state"),
+                         "keep_reasons": [r for r in page.get("keep_reasons") or [] if r != "visible"],
+                         "renderer_pid": pid, "webkit_pid": page.get("webkit_pid"),
+                         "hidden_deliveries": page.get("deliveries_while_hidden"),
+                         "hidden_pushes": page.get("pushes_while_hidden")})
+        for spare in (s for s in reply.get("spares") or [] if isinstance(s, dict)):
+            rows.append({"row": "spare", "spare_kind": "preload" if spare.get("spare") == "new_tab" else spare.get("spare"),
+                         "state": spare.get("state"), "renderer_pid": next(iter(spare.get("renderer_pids") or []), None),
+                         "webkit_pid": spare.get("webkit_pid")})
+        for process in (p for p in reply.get("processes") or [] if isinstance(p, dict)):
+            kind = process.get("kind")
+            rows.append({"row": "process", "pid": process.get("pid"),
+                         "process_kind": "extension" if kind == "extension_renderer" else kind})
+        return rows
 
     def pages(self, *states):
         return [r for r in self.rows if r.get("row") == "page" and (not states or r.get("state") in states)]
@@ -233,13 +288,18 @@ def read_priorities(pids):
 class Bench:
     """One mode against a running app. Every seam is injected: `rpc(method, params, timeout)` (a result or
     {"error": ...}), `instance` (procs.Instance: pids, memory, window), `browser_renderers()` (pids that hold a
-    browser tab), `kill(pid, signal)`, `alive()`, `priorities(pids)`, `react_view` (bench-pages.py) and `clock`."""
+    browser tab), `kind_of(cmd)` (procs.kind_of), `type_kind(cmd)` (tab_pages.process_type_kind: cef-renderer apart
+    from cef-extension), `kill(pid, signal)`, `alive()`, `priorities(pids)`, `react_view` (bench-pages.py), `clock`
+    (sleep, monotonic) and `uptime()` (seconds on the app's uptime clock; defaults to `clock.uptime`, else
+    host_uptime)."""
 
     def __init__(self, opts, rpc, instance, browser_renderers, kind_of, react_view, alive, kill=os.kill,
-                 priorities=read_priorities, clock=time, log=None):
+                 priorities=read_priorities, clock=time, log=None, type_kind=None, uptime=None):
         self.opts, self.rpc, self.instance = opts, rpc, instance
         self.browser_renderers, self.kind_of, self.react_view = browser_renderers, kind_of, react_view
         self.alive, self.kill, self.priorities, self.clock = alive, kill, priorities, clock
+        self.type_kind = type_kind or (lambda cmd: None)
+        self.uptime = uptime or getattr(clock, "uptime", None) or host_uptime
         self.log = log or (lambda text: print(text, flush=True))
         self.rows, self.facts = [], {}
         scratch = tempfile.mkdtemp(prefix="bench-webui-")
@@ -342,30 +402,47 @@ class Bench:
         self.check_engine("home")
         window = self.instance.window(self.opts.measure, per_pid=True)
         memory = self.instance.memory()
+        types = [self.type_kind(cmd) for cmd in self.instance.pids().values()]
         kinds = window.get("kinds") or {}
         count = lambda test: sum(int(entry.get("n", 0)) for kind, entry in kinds.items() if test(kind))  # noqa: E731
+        total = lambda key, test: sum(e.get(key) or 0 for k, e in kinds.items() if test(k))  # noqa: E731
         web = lambda kind: kind in WEB_KINDS or kind.startswith(("utility:", "webkit-"))  # noqa: E731
         cef = lambda kind: kind in WEB_KINDS or kind.startswith("utility:")  # noqa: E731
+        webcontent = lambda kind: kind == "webkit-webcontent"  # noqa: E731
         census = self.census()
         chromium = self.opts.engine == "chromium"
-        self.add(row("webcontent_processes", count(lambda k: k == "webkit-webcontent"), ("==", 0) if chromium else ("<=", 1)),
-                 row("cef_processes", count(cef), None if chromium else ("==", 0)),
-                 row("chromium_renderers", count(lambda k: k == "renderer"), ("==", 1) if chromium else ("==", 0)),
-                 row("extension_renderers", None if census is None else len(census.processes("extension")), ("==", 0),
-                     note="" if census else "no debug.webui in this build"),
-                 row("footprint_mb", memory.get("mb"), ("<=", 250) if chromium else ("<=", 150), "MB"),
-                 row("web_helper_cpu_pct", round(sum(e.get("cpu_pct", 0) for k, e in kinds.items() if web(k)), 3),
-                     ("<=", 0.3) if chromium else None, "%"),
-                 row("web_helper_wakeups_per_s", round(sum(e.get("wakeups_per_s", 0) for k, e in kinds.items() if web(k)), 2),
-                     ("<=", 1.0) if chromium else ("<=", 0.2), "/s"))
-        ledger = (self.rpc("debug.wakeups", timeout=30) or {}).get("ledger") or []
-        owners = [e for e in ledger if any(word in str(e.get("owner", "")).lower() for word in ("page", "preload", "spare"))]
-        self.add(row("page_preload_spare_wakeups_per_s", round(sum(e.get("per_second", 0) for e in owners), 2), ("==", 0), "/s",
-                     note=", ".join(f"{e.get('owner')}:{e.get('reason')}" for e in owners[:6])))
-        if census is not None:
-            preload = census.spares("preload")
-            self.add(row("preload_frozen", int(all(s.get("state") == "frozen" for s in preload)) if preload else None, ("==", 1),
-                         note="" if preload else "no preload row"))
+        cpu = round(total("cpu_pct", web), 3)
+        # D1 (Chromium) mixes pinned and train rows; D2 (WebKit) is pinned throughout.
+        d1 = lambda tier: tier if chromium else "pinned"  # noqa: E731
+        self.add(row("webcontent_processes", count(webcontent), ("==", 0) if chromium else ("<=", 1), tier="pinned"),
+                 row("cef_processes", count(cef), None if chromium else ("==", 0), tier="" if chromium else "pinned"),
+                 row("chromium_renderers", types.count("cef-renderer"), ("==", 1) if chromium else ("==", 0), tier=d1("train"),
+                     note="--type=renderer without --extension-process (tab_pages.process_type_kind)"),
+                 row("extension_renderers", types.count("cef-extension"), ("==", 0), tier="pinned"),
+                 row("footprint_mb", memory.get("mb"), ("<=", 250) if chromium else ("<=", 150), "MB", tier=d1("train")),
+                 row("web_helper_cpu_pct", cpu, ("<=", 0.3) if chromium else None, "%", tier="pinned" if chromium else ""))
+        if chromium:
+            self.add(row("web_helper_cpu_pct_train", cpu, ("<=", 0.05), "%", tier="train"),
+                     row("web_helper_wakeups_per_s", round(total("wakeups_per_s", web), 2), ("<=", 1.0), "/s", tier="train"))
+        else:
+            self.add(row("webcontent_wakeups_per_s", round(total("wakeups_per_s", webcontent), 2), ("<=", 0.2), "/s",
+                         tier="pinned", note="WebContent processes only"),
+                     row("web_helper_wakeups_per_s", round(total("wakeups_per_s", web), 2), unit="/s",
+                         note="info: every WebKit and CEF helper"))
+        reply = self.rpc("debug.wakeups", timeout=30)
+        ledger = reply.get("ledger") if isinstance(reply, dict) and not reply.get("error") else None
+        if not isinstance(ledger, list):
+            self.add(row("page_preload_spare_wakeups_per_s", None, ("==", 0), "/s", tier="train",
+                         note=f"debug.wakeups gave no ledger: {json.dumps(reply)[:120]}"))
+        else:
+            owners = [e for e in ledger if isinstance(e, dict)
+                      and any(word in str(e.get("owner", "")).lower() for word in ("page", "preload", "spare"))]
+            self.add(row("page_preload_spare_wakeups_per_s", round(sum(e.get("per_second", 0) for e in owners), 2), ("==", 0), "/s",
+                         tier="train", note=", ".join(f"{e.get('owner')}:{e.get('reason')}" for e in owners[:6])))
+        preload = census.spares("preload") if census is not None else []
+        self.add(row("preload_frozen", int(all(s.get("state") == "frozen" for s in preload)) if preload else None, ("==", 1),
+                     tier="pinned" if chromium else "",
+                     note="" if preload else "no preload row" if census else "no debug.webui in this build"))
         self.facts.update(window=window, memory=memory)
 
     def pages10(self, discard=True):
@@ -377,19 +454,20 @@ class Bench:
         self.check_engine("pages10")
         census = self.census()
         renderers = self.page_renderers(census)
-        self.add(row("page_renderers", len(renderers), ("<=", 4),
+        self.add(row("page_renderers", len(renderers), ("<=", 4), tier="pinned" if self.opts.engine == "webkit" else "train",
                      note="" if census else "renderers holding no browser tab (no debug.webui in this build)"))
         api = self.fork_api()
         self.add(row("devtools_on_page_renderers",
                      None if census is None or api < 29 else sum(1 for p in census.pages() if p.get("devtools")), ("==", 0),
+                     tier="train",
                      note="" if census and api >= 29 else f"fork api {api} < 29: clicks use DevTools" if census else "no debug.webui"))
         hidden_at = self.clock.monotonic()
         self.settle(self.opts.hide_settle, "pages hide and freeze")
         census = self.census()
         last_hidden = PAGES10[-2][0]
-        self.add(row("frozen_pages", None if census is None else len(census.pages("frozen")), ("==", 8)),
+        self.add(row("frozen_pages", None if census is None else len(census.pages("frozen")), ("==", 8), tier="train"),
                  row("last_hidden_not_frozen", None if census is None else
-                     int((census.page(last_hidden) or {}).get("state") == "hidden"), ("==", 1)))
+                     int((census.page(last_hidden) or {}).get("state") == "hidden"), ("==", 1), tier="train"))
         self.delivery_window(census)
         if not discard:
             return
@@ -398,17 +476,34 @@ class Bench:
         keepless = None if census is None else [p for p in census.pages() if p.get("page") != PAGES10[-1][0] and not p.get("keep_reasons")]
         footprint = self.instance.memory().get("mb")
         self.add(row("discarded_pages", None if census is None else sum(1 for p in keepless if p.get("state") == "discarded"),
-                     ("==", len(keepless) if keepless is not None else 9)),
+                     ("==", len(keepless) if keepless is not None else 9), tier="train"),
                  row("one_page_footprint_mb", one_page, unit="MB", note=f"after {first} only"),
-                 row("footprint_at_discard_mb", footprint, ("<=", round((one_page or 0) + 5, 1)), "MB"))
+                 row("footprint_at_discard_mb", footprint, ("<=", round((one_page or 0) + 5, 1)), "MB", tier="train"))
+
+    @staticmethod
+    def acknowledged(reply, keys):
+        """Whether a `debug.webui` verb's reply confirms it ran (one of `keys`), not an error or a census that
+        ignored the verb; else the reason it did not."""
+        if not isinstance(reply, dict) or reply.get("error"):
+            return False, f"refused: {json.dumps(reply)[:120]}"
+        if not any(key in reply for key in keys):
+            return False, f"the reply confirms no {' or '.join(keys)} (a build without the verb)"
+        return True, ""
 
     def delivery_window(self, census):
         """Events and pushes to frozen pages over --measure s of publishing and appearance toggles."""
         if census is None:
-            self.add(row("frozen_hidden_traffic", None, ("==", 0), note="no debug.webui in this build"))
+            self.add(row("frozen_hidden_traffic", None, ("==", 0), tier="train", note="no debug.webui in this build"))
             return
         before = census.hidden_traffic()
-        self.rpc("debug.webui", {"action": "publish", "hz": 10, "seconds": self.opts.measure})
+        if not before:
+            self.add(row("frozen_hidden_traffic", None, ("==", 0), tier="train", note="no frozen page before the window"))
+            return
+        published, why = self.acknowledged(
+            self.rpc("debug.webui", {"action": "publish", "hz": 10, "seconds": self.opts.measure}), ("publishing", "streams"))
+        if not published:
+            self.add(row("frozen_hidden_traffic", None, ("==", 0), tier="train", note=f"debug.webui publish {why}: no load"))
+            return
 
         def toggles(seconds):
             started, modes = self.clock.monotonic(), ("dark", "light")
@@ -422,7 +517,7 @@ class Bench:
         self.instance.window(self.opts.measure, during=toggles)
         after = (self.census() or Census([])).hidden_traffic()
         traffic = {page: count - before[page] for page, count in after.items() if page in before}
-        self.add(row("frozen_hidden_traffic", sum(traffic.values()), ("==", 0),
+        self.add(row("frozen_hidden_traffic", sum(traffic.values()), ("==", 0), tier="train",
                      note=", ".join(f"{p}={n}" for p, n in traffic.items() if n)))
 
     def delivery(self):
@@ -430,80 +525,202 @@ class Bench:
         self.settle(self.opts.hide_settle, "pages hide and freeze")
         self.delivery_window(self.census())
 
+    def budget_runs(self):
+        reply = self.rpc("debug.action_budget", {"limit": 64})
+        recent = reply.get("recent") if isinstance(reply, dict) else None
+        return [r for r in recent or [] if isinstance(r, dict)]
+
     def budget_sequence(self):
-        recent = (self.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
-        return max((int(r.get("sequence", 0)) for r in recent), default=0)
+        return max((int(r.get("sequence", 0)) for r in self.budget_runs()), default=0)
+
+    def budget_run(self, action, after):
+        """The action's first run newer than sequence `after` (`debug.action_budget`: `commit_ms`, the main-thread
+        time to its commit in the key's turn, and `start_uptime_ns`), or None."""
+        runs = sorted((r for r in self.budget_runs() if r.get("id") == action and int(r.get("sequence", 0)) > after),
+                      key=lambda r: int(r.get("sequence", 0)))
+        return runs[0] if runs else None
 
     def commit_ms(self, action, after):
-        """The action's commit time in its key's turn (`debug.action_budget`), newer than sequence `after`."""
-        recent = (self.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
-        runs = sorted((r for r in recent if r.get("id") == action and int(r.get("sequence", 0)) > after),
-                      key=lambda r: int(r.get("sequence", 0)))
-        return runs[0].get("commit_ms") if runs else None
+        return (self.budget_run(action, after) or {}).get("commit_ms")
 
     def key(self, key, *modifiers):
         return self.rpc("debug.key", {"key": key, "modifiers": list(modifiers)})
 
+    def painted_uptime(self, page_id):
+        """The shown page's first painted frame on the uptime clock (`debug.page` `painted_uptime`), or None."""
+        state = self.rpc("debug.page", {"page": page_id})
+        value = state.get("painted_uptime") if isinstance(state, dict) and not state.get("error") else None
+        return value if isinstance(value, (int, float)) else None
+
+    def pid_exists(self, pid):
+        try:
+            self.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     def open(self):
-        key_ms, visible_ms, first_frame, closes, spare = [], [], [], [], 0
+        self.new_tab_rows()
+        self.settings_rows()
+        cef = self.rpc("debug.cef")
+        built = cef.get("window_built_on_key_turn") if isinstance(cef, dict) else None
+        # D4 rows with no app signal yet: printed unscored, so the gap shows in every run.
+        self.add(row("cef.window_built_on_key_turn", built if isinstance(built, (int, float)) else None, ("==", 0),
+                     note="" if isinstance(built, (int, float)) else "debug.cef reports no window_built_on_key_turn"),
+                 row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"),
+                 row("discarded_page.snapshot_frame_ms", None, ("p99", "<=", 16.7), "ms",
+                     note="no snapshot-frame timestamp for a discarded page yet"),
+                 row("discarded_page.live_ms", None, ("p95", "<=", 150), "ms", note="no live-frame timestamp for a discarded page yet"),
+                 row("settings.cmd_w_engine_close_calls", None, ("==", 0),
+                     note="no count of engine close calls in the key's turn yet"))
+        if self.opts.chat_turns > 0:
+            self.frozen_chat()
+
+    def new_tab_rows(self):
+        """Cmd-T into the preloaded New Tab page and its Cmd-W (`debug.new_tab bench_open` / `bench_close`). The
+        cover frame is `visible_ms`: the first display frame on which the pane shows the New Tab page and its strip
+        the tab. `frames.first_tick_ms` is the first display-link tick after the key whatever it shows (info)."""
+        key_ms, visible_ms, first_tick, closes, spare = [], [], [], [], 0
         for _ in range(self.opts.runs):
             self.until(lambda: any(s.get("ready") for s in (self.rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or []),
                        self.opts.open_timeout)
             opened = self.rpc("debug.new_tab", {"action": "bench_open"}, timeout=20) or {}
             key_ms.append(opened.get("key_ms"))
             visible_ms.append(opened.get("visible_ms"))
-            first_frame.append((opened.get("frames") or {}).get("first_tick_ms"))
+            first_tick.append((opened.get("frames") or {}).get("first_tick_ms"))
             spare += int(bool((opened.get("opening") or {}).get("spare")))
             closes.append((self.rpc("debug.new_tab", {"action": "bench_close"}, timeout=20) or {}).get("key_ms"))
         self.add(series("new_tab.key_turn_ms", key_ms, ("p99", "<=", 4)),
-                 series("new_tab.first_frame_ms", first_frame, ("p99", "<=", 16.7)),
-                 series("new_tab.visible_ms", visible_ms, ("p95", "<=", 50)),
+                 series("new_tab.cover_frame_ms", visible_ms, ("p50", "<=", 8.3), note="key to the frame that shows the page"),
+                 series("new_tab.cover_frame_p99_ms", visible_ms, ("p99", "<=", 16.7)),
+                 series("new_tab.first_tick_ms", first_tick, note="info: the first display-link tick after the key"),
+                 row("new_tab.live_ms", None, ("p95", "<=", 50), "ms", note="no live-page frame signal for the New Tab page yet"),
                  row("new_tab.from_spare", spare, ("==", self.opts.runs)),
                  series("new_tab.cmd_w_key_turn_ms", closes, ("p99", "<=", 4)))
-        opens, open_turns, close_turns = [], [], []
+
+    def settings_open(self, view):
+        """One Cmd-, : {"ms": key to the page's first painted frame, or None when it never answered; "preloaded":
+        the page shown had painted before the key; "polled": no app timestamp, the poll's own time; "commit_ms"}.
+        The key's start is its `debug.action_budget` run's start_uptime_ns (else just before `debug.key`) and the
+        frame is `debug.page` painted_uptime, both on the uptime clock, so the poll's resolution is not in the
+        result."""
+        sequence = self.budget_sequence()
+        sent = self.uptime()
+        self.key(",", "cmd")
+        shown = self.until(lambda: self.react_view(view, "cmux.settings") and self.painted("cmux.settings"),
+                           self.opts.open_timeout, step=LATENCY_STEP)
+        polled_ms = round((self.uptime() - sent) * 1000, 1)
+        run = self.budget_run("openSettings", sequence) or {}
+        result = {"ms": None, "preloaded": False, "polled": False, "commit_ms": run.get("commit_ms")}
+        if not shown:
+            return result
+        start = run["start_uptime_ns"] / 1e9 if isinstance(run.get("start_uptime_ns"), (int, float)) else sent
+        painted = self.painted_uptime("cmux.settings")
+        if painted is None:
+            result.update(ms=polled_ms, polled=True)
+        elif painted < start:
+            result.update(preloaded=True)
+        else:
+            result.update(ms=round((painted - start) * 1000, 1))
+        return result
+
+    def settings_close(self):
+        """Cmd-W on the Settings tab: (its commit ms, the renderer pid that held the page)."""
+        sequence = self.budget_sequence()
+        pid = Census.pid((self.census() or Census([])).page("cmux.settings") or {})
+        self.key("w", "cmd")
+        self.until(lambda: not self.live("cmux.settings"), self.opts.open_timeout)
+        return self.commit_ms("closeTab", sequence), pid
+
+    def drop_renderer(self, pid):
+        """Kills the renderer that held the closed Settings page, so the next open starts a fresh one. Refused
+        (False) when the census does not name it or it still runs another page or a spare."""
+        census = self.census()
+        if not pid or census is None or census.renderers().get(pid) or any(Census.pid(s) == pid for s in census.spares()):
+            return False
+        self.kill(pid, signal.SIGKILL)
+        return bool(self.until(lambda: not self.pid_exists(pid), self.opts.open_timeout, step=LATENCY_STEP))
+
+    def settings_rows(self):
+        """Cmd-, Settings: the first open and --cold-runs opens after its renderer was killed (cold), --runs opens
+        with the renderer live (warm), each with its Cmd-W."""
         view = _Envelope(self.rpc)
+        warm, cold, open_turns, close_turns = [], [], [], []
+        preloaded = polled = skipped = 0
+
+        def sample(into):
+            nonlocal preloaded, polled
+            result = self.settings_open(view)
+            open_turns.append(result["commit_ms"])
+            preloaded += int(result["preloaded"])
+            polled += int(result["polled"])
+            if not result["preloaded"]:
+                into.append(result["ms"])
+            turn, pid = self.settings_close()
+            close_turns.append(turn)
+            return pid
+
+        pid = sample(cold)
         for _ in range(self.opts.runs):
-            sequence = self.budget_sequence()
-            started = self.clock.monotonic()
-            self.key(",", "cmd")
-            shown = self.until(lambda: self.react_view(view, "cmux.settings") and self.painted("cmux.settings"), self.opts.open_timeout)
-            opens.append(round((self.clock.monotonic() - started) * 1000, 1) if shown else None)
-            open_turns.append(self.commit_ms("openSettings", sequence))
-            sequence = self.budget_sequence()
-            self.key("w", "cmd")
-            self.until(lambda: not self.live("cmux.settings"), self.opts.open_timeout)
-            close_turns.append(self.commit_ms("closeTab", sequence))
-        self.add(row("settings.cold_open_ms", opens[0] if opens else None, ("<=", 150), "ms", "the first open of the run"),
-                 series("settings.open_ms", opens[1:], ("p95", "<=", 50), note="key to the page answering, socket polls included"),
+            pid = sample(warm)
+        for _ in range(self.opts.cold_runs):
+            if not self.drop_renderer(pid):
+                skipped += 1
+                continue
+            pid = sample(cold)
+        how = "key (debug.action_budget start) to the page's first painted frame (debug.page painted_uptime)"
+        if polled:
+            how += f"; {polled} samples had no painted_uptime and are the socket poll's time"
+        self.add(series("settings.cold_open_ms", cold, ("p95", "<=", 150),
+                        note=f"the first open and opens after the Settings renderer was killed; {skipped} kills refused "
+                             "(the census named no renderer, or it held another page)"),
+                 series("settings.open_ms", warm, ("p95", "<=", 50), note=how),
+                 row("settings.preloaded_opens", preloaded, note="opens that showed a page painted before the key"),
+                 row("settings.cover_frame_ms", None, ("p99", "<=", 16.7), "ms",
+                     note="no frame signal for Settings while preloaded yet"),
                  series("settings.key_turn_ms", open_turns, ("p99", "<=", 4)),
                  series("settings.cmd_w_key_turn_ms", close_turns, ("p99", "<=", 4)))
-        if self.opts.chat_turns > 0:
-            self.frozen_chat()
+
+    def conversation_tabs(self):
+        """{tab id: pane id} of every chat tab."""
+        topology = (self.rpc("snapshot.get") or {}).get("topology") or {}
+        return {t["id"]: p.get("id") for w in topology.get("workspaces") or [] for p in stress_session.Stress.panes(w)
+                for t in p.get("tabs") or [] if t.get("kind") == "conversation" and t.get("id")}
 
     def frozen_chat(self):
+        """A chat of --chat-turns turns, hidden until frozen, then shown again --runs times: the time to its
+        transcript answering (readiness polled every LATENCY_STEP; the page reports no frame timestamp)."""
+        before = self.conversation_tabs()
         self.action("palette.newAgentChat")
-        ready = lambda: (self.rpc("debug.agent_pane", {"action": "readiness"}, timeout=20) or {})  # noqa: E731
+        made = {}
+
+        def opened():
+            made.update({tab: pane for tab, pane in self.conversation_tabs().items() if tab not in before})
+            return made
+
+        if len(self.until(opened, self.opts.open_timeout)) != 1:
+            raise ShapeError(f"palette.newAgentChat opened {len(made)} chat tabs, not 1")
+        chat, pane = next(iter(made.items()))
+        ready = lambda: (self.rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=20) or {})  # noqa: E731
         if not self.until(lambda: ready().get("composer_visible"), self.opts.open_timeout):
             raise ShapeError("the agent chat never showed its composer")
-        self.rpc("debug.agent_pane", {"action": "seed_rows", "count": self.opts.chat_turns}, timeout=60)
-        chat = self.newest_tab("conversation")
+        seeded = self.rpc("debug.agent_pane", {"action": "seed_rows", "count": self.opts.chat_turns, "pane": pane}, timeout=60)
+        if not isinstance(seeded, dict) or seeded.get("error"):
+            raise ShapeError(f"seed_rows was refused: {json.dumps(seeded)[:200]}")
         shows = []
-        for _ in range(max(1, self.opts.runs // 4)):
+        for _ in range(self.opts.runs):
             self.hide_pages()
             self.settle(self.opts.hide_settle, "chat hides and freezes")
-            started = self.clock.monotonic()
+            started = self.uptime()
             self.action("tab.focus", target=f"tab:{chat}")
-            shown = self.until(lambda: ready().get("transcript_rows", 0) > 0, self.opts.open_timeout)
-            shows.append(round((self.clock.monotonic() - started) * 1000, 1) if shown else None)
-        self.add(series("frozen_chat.live_ms", shows, ("p95", "<=", 150), note=f"{self.opts.chat_turns} seeded turns"))
-
-    def newest_tab(self, kind):
-        topology = (self.rpc("snapshot.get") or {}).get("topology") or {}
-        tabs = [t for w in topology.get("workspaces") or [] for p in stress_session.Stress.panes(w)
-                for t in p.get("tabs") or [] if t.get("kind") == kind]
-        if not tabs:
-            raise ShapeError(f"no {kind} tab")
-        return tabs[-1]["id"]
+            shown = self.until(lambda: (ready().get("transcript_rows") or 0) > 0, self.opts.open_timeout, step=LATENCY_STEP)
+            shows.append(round((self.uptime() - started) * 1000, 1) if shown else None)
+        self.add(series("frozen_chat.live_ms", shows, ("p95", "<=", 150),
+                        note=f"{self.opts.chat_turns} seeded turns; tab.focus to transcript rows, polled"),
+                 row("frozen_chat.first_frame_ms", None, ("p99", "<=", 16.7), "ms",
+                     note="the agent pane reports no first-frame timestamp yet"))
 
     def crash(self):
         shown = self.open_pages(PRIVILEGED5)
@@ -513,55 +730,116 @@ class Bench:
             return
         outcomes = []
         for index in range(self.opts.kills):
-            pid = Census.pid(census.page(shown) or {})
+            page = census.page(shown) or {}
+            pid = Census.pid(page)
             if not pid:
-                outcomes.append({"kill": index + 1, "renderer": None})
+                # Past the cap the page stays crashed (no renderer): expected. Before it the census lost the pid.
+                outcomes.append({"kill": index + 1, "renderer": None, "app_alive": bool(self.alive())})
                 break
             sharing = len(census.renderers().get(pid, []))
             hidden_before = {p.get("page"): Census.pid(p) for p in census.pages("hidden", "frozen")}
+            reloads_before = page.get("reloads")
+            killed_at = self.uptime()
             self.kill(pid, signal.SIGKILL)
-            started = self.clock.monotonic()
-            back = self.until(lambda: self.renderer_of(shown) not in (None, pid) and self.painted(shown), self.opts.open_timeout)
+            back = self.until(lambda: self.renderer_of(shown) not in (None, pid) and self.painted(shown),
+                              self.opts.open_timeout, step=LATENCY_STEP)
+            back_ms = None
+            if back:
+                painted = self.painted_uptime(shown)
+                back_ms = round(((painted if painted is not None and painted > killed_at else self.uptime()) - killed_at) * 1000, 1)
             census = self.census() or Census([])
             # A hidden page reloaded when it has a renderer it did not have before the kill.
             reloaded_hidden = sum(1 for p in census.pages("hidden", "frozen")
                                   if Census.pid(p) and Census.pid(p) != hidden_before.get(p.get("page")))
-            outcomes.append({"kill": index + 1, "renderer": pid, "pages_in_renderer": sharing,
-                             "shown_back_ms": round((self.clock.monotonic() - started) * 1000, 1) if back else None,
-                             "hidden_reloaded": reloaded_hidden, "app_alive": bool(self.alive())})
+            reloads_after = (census.page(shown) or {}).get("reloads")
+            state = self.rpc("debug.page", {"page": shown})
+            notice = state.get("crash_notice") if isinstance(state, dict) and not state.get("error") else None
+            outcomes.append({"kill": index + 1, "renderer": pid, "pages_in_renderer": sharing, "shown_back_ms": back_ms,
+                             "hidden_reloaded": reloaded_hidden, "app_alive": bool(self.alive()),
+                             "notice": None if notice is None else bool(notice),
+                             "reloads": reloads_after - reloads_before
+                             if isinstance(reloads_after, int) and isinstance(reloads_before, int) else None})
             if not self.alive():
                 break
         self.facts["kills"] = outcomes
-        capped = [o for o in outcomes if o["kill"] <= GROUP_CAP]
-        self.add(row("app_survived", int(all(o.get("app_alive") for o in outcomes)), ("==", 1)),
-                 row("pages_in_killed_renderer", outcomes[0].get("pages_in_renderer") if outcomes else None, ("==", 5)),
-                 series("shown_page_back_ms", [o.get("shown_back_ms") for o in capped], ("max", "<=", self.opts.open_timeout * 1000)),
-                 row("hidden_pages_reloaded", sum(o.get("hidden_reloaded", 0) for o in outcomes), ("==", 0)))
-        if len(outcomes) > GROUP_CAP:
-            self.add(row("reload_past_group_cap", int(outcomes[GROUP_CAP].get("shown_back_ms") is not None), ("==", 0)))
+        killed = [o for o in outcomes if o["renderer"]]
+        lost = [o for o in outcomes if not o["renderer"] and o["kill"] <= GROUP_CAP + 1]
+        capped = [o for o in killed if o["kill"] <= GROUP_CAP]
+        first = killed[0] if killed else {}
+        self.add(row("app_survived", int(all(o["app_alive"] for o in outcomes)) if outcomes else None, ("==", 1)),
+                 row("pages_in_killed_renderer", first.get("pages_in_renderer"), ("==", 5)),
+                 series("shown_page_back_ms", [o["shown_back_ms"] for o in capped], ("max", "<=", self.opts.open_timeout * 1000),
+                        note="kill to the shown page's next painted frame (debug.page painted_uptime)"),
+                 row("hidden_pages_reloaded", sum(o["hidden_reloaded"] for o in killed) if killed else None, ("==", 0)),
+                 row("shown_page_notice", None if first.get("notice") is None else int(first["notice"]), ("==", 1),
+                     note="" if first.get("notice") is not None else "debug.page reports no crash_notice for pages yet"),
+                 row("shown_page_reloads", first.get("reloads"), ("==", 1),
+                     note="" if first.get("reloads") is not None else "the census reports no reload count yet"))
+        if lost:
+            self.add(row("shown_page_renderer", None, note=f"no renderer pid for {shown} in the census at kill {lost[0]['kill']}"))
+        past_cap = next((o for o in killed if o["kill"] == GROUP_CAP + 1), None)
+        if past_cap is not None:
+            self.add(row("reload_past_group_cap", int(past_cap["shown_back_ms"] is not None), ("==", 0)))
 
     def renderer_of(self, page_id):
         return Census.pid((self.census() or Census([])).page(page_id) or {})
 
+    def selected_tab(self):
+        """The selected tab of the first pane, the tab new tabs open beside."""
+        topology = (self.rpc("snapshot.get") or {}).get("topology") or {}
+        for workspace in topology.get("workspaces") or []:
+            for pane in stress_session.Stress.panes(workspace):
+                tabs = [t for t in pane.get("tabs") or [] if t.get("id")]
+                if tabs:
+                    return next((t for t in tabs if t.get("selected")), tabs[-1])["id"]
+        raise ShapeError("no tab to open a browser tab beside")
+
+    def tab_count(self, kind):
+        topology = (self.rpc("snapshot.get") or {}).get("topology") or {}
+        return sum(1 for w in topology.get("workspaces") or [] for p in stress_session.Stress.panes(w)
+                   for t in p.get("tabs") or [] if t.get("kind") == kind)
+
+    def open_candidates(self):
+        """A browser tab and a chat, so the pressure pass ranks browser tabs, chats and pages (D6)."""
+        for kind, open_it in (("browser", lambda: self.action(f"openBrowser.{self.opts.engine}", {"url": "about:blank"},
+                                                               target=f"tab:{self.selected_tab()}")),
+                              ("conversation", lambda: self.action("palette.newAgentChat"))):
+            count = self.tab_count(kind)
+            open_it()
+            if not self.until(lambda: self.tab_count(kind) > count, self.opts.open_timeout):
+                raise ShapeError(f"no {kind} tab opened for the pressure session")
+
     def pressure(self):
+        self.open_candidates()
         self.open_pages(PRIVILEGED5 + [PAGES10[5], PAGES10[7]])
         self.settle(self.opts.hide_settle, "pages hide and freeze")
         if self.census() is None:
             self.add(row("pressure", None, note="no debug.webui in this build"))
             return
-        reply = self.rpc("debug.webui", {"action": "pressure", "level": "critical"})
+        ran, why = self.acknowledged(self.rpc("debug.webui", {"action": "pressure", "level": "critical"}), ("pressure", "level"))
+        if not ran:
+            note = f"debug.webui pressure {why}"
+            self.add(row("preload_after_pressure", None, ("==", 0), note=note),
+                     row("renderers_after_discard", None, note=note),
+                     row("pages_left_undiscarded", None, ("==", 0), note=note))
+            return
         right_after = self.census() or Census([])
-        self.add(row("preload_after_pressure", len(right_after.spares("preload")), ("==", 0),
-                     note="" if not (reply or {}).get("error") else str(reply.get("error"))[:120]))
+        self.add(row("preload_after_pressure", len(right_after.spares("preload")), ("==", 0)))
         self.until(lambda: not (self.census() or Census([])).pages("hidden", "frozen"), self.opts.open_timeout)
         census = self.census() or Census([])
         shown_groups = {p.get("group") for p in census.pages("active")}
         self.add(row("renderers_after_discard", len(census.renderers()), ("==", len(shown_groups))),
-                 row("pages_left_undiscarded", len(census.pages("hidden", "frozen")), ("==", 0)))
+                 row("pages_left_undiscarded", len(census.pages("hidden", "frozen")), ("==", 0)),
+                 row("discards_in_importance_order", None, ("==", 1),
+                     note="debug.webui reports no discard order over browser tabs, chats and pages yet"))
 
     def priority(self):
         self.open_pages(PRIVILEGED5)
         renderers = self.page_renderers(self.census())
+        if not renderers:
+            self.add(row("page_renderers", 0, (">=", 1), tier="train", note="no page renderer pid in the census or procs"),
+                     row("backgrounded_renderers", None, tier="train", note="no page renderer to watch"))
+            return
         before = self.priorities(list(renderers))
         self.hide_pages()
         started = self.clock.monotonic()
@@ -577,10 +855,10 @@ class Bench:
         after = self.priorities(list(renderers))
         self.facts["priority"] = {str(pid): {"pages": renderers[pid], "shown": before.get(pid), "hidden": after.get(pid),
                                              "background_ms": backgrounded.get(pid)} for pid in renderers}
-        self.add(row("page_renderers", len(renderers)),
-                 row("backgrounded_renderers", len(backgrounded), ("==", len(renderers)),
+        self.add(row("page_renderers", len(renderers), (">=", 1), tier="train"),
+                 row("backgrounded_renderers", len(backgrounded), ("==", len(renderers)), tier="train",
                      note=f"ps priority <= {BACKGROUND_PRI} within {self.opts.priority_wait:g} s"),
-                 series("background_ms", list(backgrounded.values()), ("max", "<=", self.opts.priority_wait * 1000)))
+                 series("background_ms", [backgrounded.get(pid) for pid in renderers],("max", "<=", self.opts.priority_wait * 1000), tier="train"))
 
     def run(self, mode):
         if self.opts.session == "stress":
@@ -621,7 +899,8 @@ def parse(argv):
     parser.add_argument("--discard-settle", type=float, default=300, help="s after hiding, before discards are read")
     parser.add_argument("--open-timeout", type=float, default=20, help="s a page may take to open or come back")
     parser.add_argument("--priority-wait", type=float, default=1.0, help="s a hidden renderer may take to background")
-    parser.add_argument("--runs", type=int, default=20, help="samples per open row")
+    parser.add_argument("--runs", type=int, default=20, help="samples per open row (and frozen chat shows)")
+    parser.add_argument("--cold-runs", type=int, default=20, help="Settings opens after its renderer was killed")
     parser.add_argument("--chat-turns", type=int, default=2000, help="turns of the frozen chat (0: no chat row)")
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
     parser.add_argument("--out")
@@ -629,8 +908,8 @@ def parse(argv):
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
         if getattr(opts, name) < 0:
             parser.error(f"--{name.replace('_', '-')} must be >= 0")
-    if opts.runs < 1 or opts.kills < 1:
-        parser.error("--runs and --kills must be >= 1")
+    if opts.runs < 1 or opts.kills < 1 or opts.cold_runs < 0:
+        parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
     return opts
 
 
@@ -656,7 +935,8 @@ def main(argv=None):
         instance = procs.Instance(app.app, app.process.pid)
         bench = Bench(opts, app.rpc, instance,
                       browser_renderers=lambda: {pid for pid, tabs in (sharing.renderer_map(app.socket).get("owners") or {}).items() if tabs},
-                      kind_of=procs.kind_of, react_view=pages.react_view, alive=lambda: app.process.poll() is None)
+                      kind_of=procs.kind_of, type_kind=procs.process_type_kind, react_view=pages.react_view,
+                      alive=lambda: app.process.poll() is None)
         if opts.mode != "home":
             bench.settle(opts.settle, "launch")
         report = bench.run(opts.mode)
