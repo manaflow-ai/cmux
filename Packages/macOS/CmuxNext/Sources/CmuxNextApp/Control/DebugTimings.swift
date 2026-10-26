@@ -62,7 +62,7 @@ enum DebugTimings {
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
-        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.uptimeNanos(of: LaunchMarks.processStart)) else { return nil }
+        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.processStartUptimeNanos) else { return nil }
         launchMarks.withLock { $0.attach(trace, processStart: LaunchMarks.processStart) }
         return trace
     }

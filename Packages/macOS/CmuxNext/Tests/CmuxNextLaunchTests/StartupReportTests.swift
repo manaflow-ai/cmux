@@ -38,6 +38,21 @@ import Testing
         #expect(object["trace_ring_bytes"] as? Int == 1 << 20)
     }
 
+    @Test func theTemperatureValueMarkFillsTheTemperature() throws {
+        var counters = StartupReport.Counters()
+        counters.record(StartupReport.temperatureValue, value: "cold")
+        counters.record(StartupReport.temperatureValue, value: "warm")
+        let report = StartupReport(milestones: [.init(name: "run_loop_start", ms: 40)], counters: counters, traceRingBytes: 0)
+        #expect(report.temperature == "cold")
+        #expect(try Self.object(report)["temperature"] as? String == "cold")
+    }
+
+    @Test func theValueMarkWinsOverTheInstantMarkWhenBothCame() {
+        let report = StartupReport(milestones: [.init(name: "launch.temperature.warm", ms: 40)],
+                                   counters: .init(temperature: "lukewarm"), traceRingBytes: 0)
+        #expect(report.temperature == "lukewarm")
+    }
+
     @Test func temperatureAndInterruptedComeFromTheirMarks() throws {
         let report = StartupReport(milestones: [.init(name: "run_loop_start", ms: 40), .init(name: "launch.temperature.cold", ms: 40),
                                                 .init(name: StartupReport.interruptedMark, ms: 0)],
@@ -50,10 +65,14 @@ import Testing
     }
 
     @Test func valueMarksFillThePageInsAndMainCPUFields() throws {
-        let report = StartupReport(milestones: [], values: [StartupReport.pageInsRunLoopStart: 3_900,
-                                                            StartupReport.pageInsFirstFrame: 4_200,
-                                                            StartupReport.mainCPUFirstFrame: 52.123_456],
-                                   traceRingBytes: 0)
+        var counters = StartupReport.Counters()
+        counters.record(StartupReport.pageInsRunLoopStart, value: "3900")
+        counters.record(StartupReport.pageInsFirstFrame, value: "4200.0")
+        counters.record(StartupReport.pageInsFirstFrame, value: "9999")
+        counters.record(StartupReport.mainCPUFirstFrame, value: "52.123456")
+        counters.record("launch.unknown", value: "not a number")
+        #expect(counters.values.count == 3)
+        let report = StartupReport(milestones: [], counters: counters, traceRingBytes: 0)
         let object = try Self.object(report)
         #expect(object["pageins_run_loop_start"] as? Double == 3_900)
         #expect(object["pageins_first_frame"] as? Double == 4_200)
@@ -98,17 +117,21 @@ import Testing
         #expect(object["reason"] is NSNull)
     }
 
-    @Test func aReportFromLaunchMarksCarriesTheirMarksAndValues() {
+    @Test func aReportFromLaunchMarksCarriesTheirMarksAndTheCounters() {
         var marks = LaunchMarks()
         let start = Date(timeIntervalSince1970: 1_000)
         _ = marks.record("main_start", at: start.addingTimeInterval(0.004), processStart: start)
-        #expect(marks.recordValue(StartupReport.pageInsFirstFrame, 12))
-        #expect(!marks.recordValue(StartupReport.pageInsFirstFrame, 99))
-        let report = StartupReport(launch: marks)
+        let report = StartupReport(launch: marks, counters: .init(values: [StartupReport.pageInsFirstFrame: 12]))
         #expect(report.milestones.map(\.name) == ["main_start"])
         #expect(abs((report.milestones.first?.ms ?? 0) - 4) < 0.001)
-        #expect(report.values == [StartupReport.pageInsFirstFrame: 12])
+        #expect(report.counters?.values == [StartupReport.pageInsFirstFrame: 12])
         #expect(report.traceRingBytes == 0)
+    }
+
+    @Test func theUptimeProcessStartIsReadOnce() {
+        let first = LaunchMarks.processStartUptimeNanos
+        #expect(first > 0)
+        #expect(LaunchMarks.processStartUptimeNanos == first)
     }
 }
 
@@ -124,11 +147,19 @@ import Testing
     final class MaterialView: NSView {}
     final class PictureView: NSView {}
 
-    @Test func theFirstFrameIsKeptOnceWithTheSubviewTypesBackToFront() throws {
-        let recorder = StartupReportRecorder(launch: { LaunchMarks() }, threads: FixedThreads())
+    static func recorder(processStartNanos: UInt64 = 0,
+                         scheduler: @escaping (UInt64) -> StartupReport.Scheduler? = { _ in nil },
+                         actionCatalogMainWaitMs: @escaping () -> Double? = { nil }) -> StartupReportRecorder {
+        StartupReportRecorder(launch: { LaunchMarks() }, processStartNanos: processStartNanos, counters: { nil },
+                              scheduler: scheduler, actionCatalogMainWaitMs: actionCatalogMainWaitMs, threads: FixedThreads())
+    }
+
+    @Test func theFirstFrameIsKeptOnceWithTheSubviewTypesBackToFront() async throws {
+        let recorder = Self.recorder()
         #expect(recorder.report.firstFrame == nil)
         recorder.firstFrameCommitted(contentSubviews: [MaterialView(), PictureView()], viewsBuilt: 0)
         recorder.firstFrameCommitted(contentSubviews: [NSView()], viewsBuilt: 4)
+        await recorder.threadsRead()
         let object = try StartupReportTests.object(recorder.report)
         #expect(object["first_commit_layer_tree"] as? [String] == ["MaterialView", "PictureView"])
         #expect(object["views_built"] as? Int == 0)
@@ -139,12 +170,39 @@ import Testing
         #expect(threads[1]["priority"] as? Int == 31)
     }
 
+    @Test func aWindowWithNoContentViewHasAnUnknownLayerTreeNotAnEmptyOne() async throws {
+        let recorder = Self.recorder()
+        recorder.firstFrameCommitted(contentSubviews: nil, viewsBuilt: 0)
+        let object = try StartupReportTests.object(recorder.report)
+        #expect(object["first_commit_layer_tree"] is NSNull)
+        #expect(object["views_built"] as? Int == 0)
+    }
+
+    @Test func theThreadListLandsAfterTheFirstFrameTurn() async throws {
+        let recorder = Self.recorder()
+        recorder.firstFrameCommitted(contentSubviews: [], viewsBuilt: 0)
+        // Read off main after this turn: not yet in the report in the committing turn.
+        #expect(recorder.firstFrame?.threads == nil)
+        await recorder.threadsRead()
+        #expect(recorder.firstFrame?.threads?.count == 2)
+    }
+
+    @Test func theSchedulerGetsTheProcessStartGivenAtInit() throws {
+        var seen: [UInt64] = []
+        let recorder = Self.recorder(processStartNanos: 123_456, scheduler: { start in
+            seen.append(start)
+            return .init(tasks: [], completionReason: nil)
+        })
+        _ = recorder.report
+        _ = recorder.report
+        #expect(seen == [123_456, 123_456])
+    }
+
     @Test func theSchedulerAndActionCatalogSourcesAreReadAtEachReport() throws {
-        let recorder = StartupReportRecorder(launch: { LaunchMarks() }, threads: FixedThreads())
         var wait: Double?
-        recorder.actionCatalogMainWaitMs = { wait }
         var reason: String?
-        recorder.scheduler = { _ in .init(tasks: [], completionReason: reason) }
+        let recorder = Self.recorder(scheduler: { _ in .init(tasks: [], completionReason: reason) },
+                                     actionCatalogMainWaitMs: { wait })
         #expect(try StartupReportTests.object(recorder.report)["action_catalog_main_wait_ms"] is NSNull)
         wait = 0
         reason = "refsReleased"

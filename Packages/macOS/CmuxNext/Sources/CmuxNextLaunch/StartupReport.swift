@@ -15,21 +15,47 @@ import Foundation
 /// empty or zero value: `"tasks": null` is "no scheduler", `"tasks": []` is "nothing was posted".
 ///
 /// ```swift
-/// var report = StartupReport(launch: marks)        // a copy of the launch's LaunchMarks
+/// var report = StartupReport(launch: marks, counters: counters) // the launch's LaunchMarks and counter values
 /// report.firstFrame = recorder.firstFrame
 /// let reply = try report.foundationObject()
 /// ```
 public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
+    /// The temperature's value mark, `launch.temperature <name>` (task 007).
+    public static let temperatureValue = "launch.temperature"
     /// The value mark of the page-ins at `run_loop_start` (task 007).
     public static let pageInsRunLoopStart = "launch.pageins_run_loop_start"
     /// The value mark of the page-ins at the first committed frame (task 007).
     public static let pageInsFirstFrame = "launch.pageins_first_frame"
     /// The value mark of the main thread's CPU time at the first committed frame (task 007).
     public static let mainCPUFirstFrame = "launch.main_cpu_ms"
-    /// The temperature's instant mark is this prefix and the temperature's name (task 007).
+    /// The temperature's other form, an instant mark: this prefix and the temperature's name (task 007).
     public static let temperatureMarkPrefix = "launch.temperature."
     /// The mark of a launch something interrupted (task 108).
     public static let interruptedMark = "launch.interrupted"
+
+    /// The launch counters read so far (task 007's value marks): the temperature by name and each numeric value
+    /// by name. Nil in a report means no counter source is wired.
+    public nonisolated struct Counters: Sendable, Equatable {
+        /// `cold`, `warm`, `lukewarm` or `undetermined`; nil before `run_loop_start` read the page-ins.
+        public var temperature: String?
+        /// Each numeric value mark (``pageInsRunLoopStart``, ``pageInsFirstFrame``, ``mainCPUFirstFrame``) by name.
+        public var values: [String: Double]
+
+        public init(temperature: String? = nil, values: [String: Double] = [:]) {
+            self.temperature = temperature
+            self.values = values
+        }
+
+        /// Keeps one value mark as the bench's pipe carries it (`<name> <value>`): ``temperatureValue``'s name,
+        /// or a number. The first value of each name stays; a value that is not a number is dropped.
+        public mutating func record(_ name: String, value: String) {
+            if name == StartupReport.temperatureValue {
+                if temperature == nil { temperature = value }
+            } else if values[name] == nil, let number = Double(value) {
+                values[name] = number
+            }
+        }
+    }
 
     /// A launch mark: its name and milliseconds since process start.
     public nonisolated struct Milestone: Sendable, Equatable {
@@ -132,14 +158,16 @@ public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
 
     /// What the first window's first committed frame held.
     public nonisolated struct FirstFrame: Sendable, Equatable {
-        /// The type names of the window content view's subviews, back to front.
-        public var layerTree: [String]
+        /// The type names of the window content view's subviews, back to front; nil when the window had no
+        /// content view (unknown, not "no subviews").
+        public var layerTree: [String]?
         /// The pane views built when the frame committed.
         public var viewsBuilt: Int
-        /// The process's threads when the frame committed.
-        public var threads: [ThreadRecord]
+        /// The process's threads, read off the main thread right after the frame committed; nil until that
+        /// read lands.
+        public var threads: [ThreadRecord]?
 
-        public init(layerTree: [String], viewsBuilt: Int, threads: [ThreadRecord]) {
+        public init(layerTree: [String]?, viewsBuilt: Int, threads: [ThreadRecord]? = nil) {
             self.layerTree = layerTree
             self.viewsBuilt = viewsBuilt
             self.threads = threads
@@ -148,8 +176,8 @@ public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
 
     /// The launch marks in the order they were recorded.
     public var milestones: [Milestone]
-    /// The launch's value marks (page-ins, CPU) by name.
-    public var values: [String: Double]
+    /// The launch's counters; nil when this build wires no counter source into the report.
+    public var counters: Counters?
     /// Nil when this build wires no StartupScheduler into the report.
     public var scheduler: Scheduler?
     /// Nil until the first frame committed.
@@ -159,19 +187,19 @@ public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
     /// The main thread's wait for the action catalog's launch build; nil until the main thread read it.
     public var actionCatalogMainWaitMs: Double?
 
-    public init(milestones: [Milestone], values: [String: Double] = [:], scheduler: Scheduler? = nil,
+    public init(milestones: [Milestone], counters: Counters? = nil, scheduler: Scheduler? = nil,
                 firstFrame: FirstFrame? = nil, traceRingBytes: Int, actionCatalogMainWaitMs: Double? = nil) {
         self.milestones = milestones
-        self.values = values
+        self.counters = counters
         self.scheduler = scheduler
         self.firstFrame = firstFrame
         self.traceRingBytes = traceRingBytes
         self.actionCatalogMainWaitMs = actionCatalogMainWaitMs
     }
 
-    /// The marks and value marks `launch` recorded so far, and its startup trace's ring size.
-    public init(launch: LaunchMarks) {
-        self.init(milestones: launch.all.map { Milestone(name: $0.name, ms: $0.ms) }, values: launch.values,
+    /// The marks `launch` recorded so far with its startup trace's ring size, and the counters read so far.
+    public init(launch: LaunchMarks, counters: Counters?) {
+        self.init(milestones: launch.all.map { Milestone(name: $0.name, ms: $0.ms) }, counters: counters,
                   traceRingBytes: launch.trace?.ringBytes ?? 0)
     }
 
@@ -180,10 +208,12 @@ public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(self))
     }
 
-    /// The temperature `run_loop_start` decided (`cold`, `warm`, `lukewarm`, `undetermined`), from its
-    /// instant mark; nil before it, or in a build that reads no page-ins.
+    /// The temperature `run_loop_start` decided (`cold`, `warm`, `lukewarm`, `undetermined`): the counters'
+    /// value mark, else the instant mark `launch.temperature.<name>` (bench-startup.py reads both the same way);
+    /// nil before it, or in a build that reads no page-ins.
     public var temperature: String? {
-        milestones.first { $0.name.hasPrefix(Self.temperatureMarkPrefix) }.map { String($0.name.dropFirst(Self.temperatureMarkPrefix.count)) }
+        counters?.temperature ?? milestones.first { $0.name.hasPrefix(Self.temperatureMarkPrefix) }
+            .map { String($0.name.dropFirst(Self.temperatureMarkPrefix.count)) }
     }
 
     /// Whether something interrupted the launch (its numbers are not a launch's).
@@ -222,9 +252,9 @@ public nonisolated struct StartupReport: Sendable, Equatable, Encodable {
         try container.encode(marks, forKey: .milestones)
         try container.encode(interrupted, forKey: .interrupted)
         try container.encode(temperature, forKey: .temperature)
-        try container.encode(values[Self.pageInsRunLoopStart], forKey: .pageInsRunLoopStart)
-        try container.encode(values[Self.pageInsFirstFrame], forKey: .pageInsFirstFrame)
-        try container.encode(values[Self.mainCPUFirstFrame].map(Self.rounded), forKey: .mainCPUFirstFrame)
+        try container.encode(counters?.values[Self.pageInsRunLoopStart], forKey: .pageInsRunLoopStart)
+        try container.encode(counters?.values[Self.pageInsFirstFrame], forKey: .pageInsFirstFrame)
+        try container.encode(counters?.values[Self.mainCPUFirstFrame].map(Self.rounded), forKey: .mainCPUFirstFrame)
         try container.encode(scheduler?.tasks, forKey: .tasks)
         try container.encode(criticalViolations, forKey: .criticalViolations)
         try container.encode(scheduler?.completionReason, forKey: .reason)

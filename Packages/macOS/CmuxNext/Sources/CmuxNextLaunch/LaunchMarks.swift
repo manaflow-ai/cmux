@@ -8,8 +8,6 @@ public import Foundation
 public struct LaunchMarks: Sendable {
     /// Every mark so far, in order.
     public private(set) var all: [(name: String, ms: Double)] = []
-    /// The value marks (page-ins, CPU time; not times) by name, each the first value recorded.
-    public private(set) var values: [String: Double] = [:]
     /// The startup trace the marks go to, if one is attached.
     public private(set) var trace: StartupTrace?
 
@@ -26,6 +24,10 @@ public struct LaunchMarks: Sendable {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
+    /// ``processStart`` on the `CLOCK_UPTIME_RAW` nanosecond clock, read once, at its first use (`main`, by
+    /// `makeStartupTrace`): a later read would move it by any sleep or wall-clock step since launch.
+    public static let processStartUptimeNanos: UInt64 = uptimeNanos(of: processStart)
+
     /// Sends every later first mark to `trace` too, after a `process_start` mark at `processStart`. Call it
     /// before the first mark.
     public mutating func attach(_ trace: StartupTrace, processStart: Date) {
@@ -41,13 +43,6 @@ public struct LaunchMarks: Sendable {
         let ms = date.timeIntervalSince(processStart) * 1_000
         all.append((name, ms))
         return ms
-    }
-
-    /// Records the value mark `name` unless it was recorded before. Returns whether this was the first.
-    public mutating func recordValue(_ name: String, _ value: Double) -> Bool {
-        guard values[name] == nil else { return false }
-        values[name] = value
-        return true
     }
 
     /// Sends a first mark to `trace` (nil: no trace attached).
