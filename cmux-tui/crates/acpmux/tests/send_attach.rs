@@ -430,7 +430,9 @@ async fn a_released_held_message_withdrawn_before_it_runs_keeps_none() {
     }
     assert_eq!(reply["error"]["data"]["held"], true, "{reply}");
     let busy = json!({"sessionId": b, "prompt": [{"type": "text", "text": "until-cancel"}]});
-    c.0.send(Message::request(json!("busy"), method::SESSION_PROMPT, busy).to_line()).await.unwrap();
+    c.0.send(Message::request(json!("busy"), method::SESSION_PROMPT, busy).to_line())
+        .await
+        .unwrap();
     let mut q = client(&hub, Origin::Local);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     while q.user_messages(&b).await.len() < 3 {
@@ -446,8 +448,7 @@ async fn a_released_held_message_withdrawn_before_it_runs_keeps_none() {
         assert!(tokio::time::Instant::now() < deadline, "the release never queued: {page}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let removed =
-        q.call(method::MUX_QUEUE_REMOVE, json!({"sessionId": b, "promptId": "r3"})).await;
+    let removed = q.call(method::MUX_QUEUE_REMOVE, json!({"sessionId": b, "promptId": "r3"})).await;
     assert_eq!(removed["result"]["removed"], true, "{removed}");
     q.call(method::SESSION_CANCEL, json!({"sessionId": b})).await;
     let shots = || saved(&b).into_iter().filter(|p| p.ends_with("shot.png")).count();
