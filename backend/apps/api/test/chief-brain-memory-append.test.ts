@@ -110,7 +110,7 @@ describe("memory import undo", () => {
     const { token, url, rows } = await setup("undo-c")
     await http("PUT", url, token, { mode: "append", dry_run: false, items: [await item("note", "a", "2026-10-20T10:00:00.000Z"), await item("note", "b", "2026-10-20T10:00:01.000Z")] })
     await http("PUT", url, token, { mode: "append", dry_run: false, batch: "run-1", items: [await item("note", "c", "2026-10-21T10:00:00.000Z"), await item("note", "d", "2026-10-21T10:00:01.000Z")] })
-    await rows(`INSERT INTO oc_node (l, i, text, size) VALUES (1, 0, 'sum ab', 6), (1, 1, 'sum cd', 6), (2, 0, 'sum abcd', 8)`)
+    await rows(`INSERT OR REPLACE INTO oc_node (l, i, text, size) VALUES (1, 0, 'sum ab', 6), (1, 1, 'sum cd', 6), (2, 0, 'sum abcd', 8)`)
     const undone = await http("PUT", url, token, { mode: "undo", batch: "run-1" })
     expect(undone.json.value).toMatchObject({ removed: 2, count: 2 })
     expect((await rows(`SELECT l, i FROM oc_node ORDER BY l, i`)).filter((n) => n.l === 1 && n.i === 0)).toHaveLength(1)
