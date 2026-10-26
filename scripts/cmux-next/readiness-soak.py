@@ -25,10 +25,11 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
 --app-config asan|tsan runs a sanitizer build (scripts/reload.sh --config asan|tsan, its runtime in
 Contents/Frameworks) with Chromium off: CEF replaces the default malloc zone with PartitionAlloc, which
 the sanitizer does not see (p10-stability.md risk 8). Browser tabs are WebKit, and a Chromium helper or
-a PartitionAlloc zone (vmmap) makes the run invalid. The sanitizer writes to --out/sanitizer/<mode>.*
-(ASAN_OPTIONS / TSAN_OPTIONS log_path, kept after the run), and each report there or in app.log is a
-crash event, found by its header line as ClusterFuzz's stack analyzer does
-(clusterfuzz/src/clusterfuzz/stacktraces/constants.py SAN_ADDR_REGEX and friends).
+a PartitionAlloc zone (vmmap, read every ZONES_EVERY_S) makes the run invalid. The sanitizer writes to
+--out/sanitizer/<run>/<mode>.* (ASAN_OPTIONS / TSAN_OPTIONS log_path, a new folder each run, kept after it),
+and each report there or in app.log is a crash event, found by its header line as ClusterFuzz's stack
+analyzer does (clusterfuzz/src/clusterfuzz/stacktraces/constants.py SAN_ADDR_REGEX and friends). The app
+quits before the report, so a report written at quit or exit (LeakSanitizer's) counts.
 
 --stress builds the STRESS session (perf-stress-session.py, WebKit for its Chromium pages under
 --app-config) in the app before the soak's own terminals, tabs and agents. Its busy terminals get a
@@ -97,6 +98,9 @@ TICKING_PAGE = ("<!doctype html><title>soak ticking</title><h1 id=t>0</h1>"
 SANITIZER_RUNTIMES = {"asan": "libclang_rt.asan_osx_dynamic.dylib", "tsan": "libclang_rt.tsan_osx_dynamic.dylib"}
 SANITIZER_OPTIONS = {"asan": "ASAN_OPTIONS", "tsan": "TSAN_OPTIONS"}
 TSAN_SUPPRESSIONS = os.path.join(HERE, "tsan-suppressions.txt")  # the reasoned third-party lines (p10-stability-013)
+# With Chromium off, the app's malloc zones are read at least this often while it runs (and when a Chromium helper
+# shows), so a PartitionAlloc zone that registers mid-run is seen while the app is still alive to read.
+ZONES_EVERY_S = 600
 # One report each: ASan and LSan open with "==<pid>==ERROR: <tool>: <what>", TSan with
 # "WARNING: ThreadSanitizer: <what> (pid=<pid>)".
 SANITIZER_HEADERS = (
@@ -248,12 +252,13 @@ def sanitizer_reports(text):
 
 class SanitizerLogs:
     """New sanitizer reports in a log_path folder and in the other files named (app.log), read on from where the
-    last poll stopped. What the files held when this was made is not this run's; a line still being written
-    is read on the next poll; a file that got shorter (truncated) is read again from its start."""
+    last poll stopped. The folder is this run's own (`Soak.begin` makes an empty one), so its files are read from
+    their start; what the other files held when this was made is not this run's. A line still being written is
+    read on the next poll; a file that got shorter (truncated) is read again from its start."""
 
     def __init__(self, folder, others=()):
         self.folder, self.others = folder, list(others)
-        self.offsets = {path: os.path.getsize(path) for path in self.paths()}
+        self.offsets = {path: os.path.getsize(path) for path in self.others if os.path.exists(path)}
 
     def paths(self):
         return sorted(glob.glob(os.path.join(self.folder, "*"))) + [p for p in self.others if os.path.exists(p)]
@@ -282,13 +287,23 @@ def sanitizer_runtimes(app):
     return {mode for mode, name in SANITIZER_RUNTIMES.items() if os.path.exists(os.path.join(frameworks, name))}
 
 
+def sanitizer_path_value(path):
+    """`path` quoted for a sanitizer option. compiler-rt's flag parser (sanitizer_flag_parser.cpp, is_space and
+    parse_flag) ends a bare value at a space, comma, colon, tab or newline, and reads a quoted one to its closing
+    quote; a path holding both quote characters cannot be written, so the soak refuses it."""
+    quote = next((q for q in ("'", '"') if q not in path), None)
+    if quote is None:
+        raise SystemExit(f"readiness-soak: {path!r} has both quote characters; a sanitizer option cannot name it")
+    return f"{quote}{path}{quote}"
+
+
 def sanitizer_env(mode, folder, environ=None):
     """The app's ASAN_OPTIONS or TSAN_OPTIONS: the caller's own options, then the soak's log path (later wins)."""
     key = SANITIZER_OPTIONS[mode]
     own = (os.environ if environ is None else environ).get(key)
-    options = ([own] if own else []) + [f"log_path={os.path.join(folder, mode)}", "log_exe_name=1"]
+    options = ([own] if own else []) + [f"log_path={sanitizer_path_value(os.path.join(folder, mode))}", "log_exe_name=1"]
     if mode == "tsan" and os.path.exists(TSAN_SUPPRESSIONS):
-        options.append(f"suppressions={TSAN_SUPPRESSIONS}")
+        options.append(f"suppressions={sanitizer_path_value(TSAN_SUPPRESSIONS)}")
     return {key: ":".join(options)}
 
 
@@ -330,7 +345,8 @@ def load_stress():
 def soak_stress(module, chromium_off):
     """perf-stress-session's Stress as soak load, not a measured layout: a window the app cannot place (a build
     without debug.window_frame, a small screen) stays where it is and is noted, and with Chromium off each
-    Chromium page is a WebKit one."""
+    Chromium page is a WebKit one. `made` keeps the asked kind, so STRESS's pane mix (2 Chromium, 1 WebKit) still
+    checks; a browser tab is the topology kind of both (perf-stress-session topology_kinds)."""
     class SoakStress(module.Stress):
         window_note = None
 
@@ -342,8 +358,23 @@ def soak_stress(module, chromium_off):
                 return {}
 
         def add_tab(self, workspace_id, pane_id, kind):
-            super().add_tab(workspace_id, pane_id, "webkit" if chromium_off and kind == "chromium" else kind)
+            engine = "webkit" if chromium_off and kind == "chromium" else kind
+            super().add_tab(workspace_id, pane_id, engine)
+            if engine != kind:
+                made = self.made[pane_id]
+                made[-1] = (kind, *made[-1][1:])
     return SoakStress
+
+
+def stress_shape_problems(module, summary, chromium_off):
+    """Why `summary` is not STRESS's shape (perf-stress-session Stress.check), or None. With Chromium off,
+    debug.cef's state is not Chromium's (`chromium_unavailable`); every other part of the shape still holds. The
+    background pages still count: a WebKit page is a non-terminal tab too."""
+    try:
+        module.Stress.check(dict(summary, chromium_unavailable=[]) if chromium_off else summary)
+    except module.StressShapeError as error:
+        return str(error)
+    return None
 
 
 def wait(condition, seconds, step=1.0):
@@ -382,6 +413,7 @@ class Soak:
         self.sanitizer_count = 0
         self.zombies = {}  # pid -> {"hour", "parent", "parent_kind"}: zombies seen on two samples in a row
         self.zombies_last = set()
+        self.zones_checked = float("-inf")  # monotonic time of the last malloc zone read (check_chromium_off)
         self.stress = None
 
     def event(self, kind, detail, **extra):
@@ -462,8 +494,12 @@ class Soak:
     def begin(self):
         self.samples = open(os.path.join(self.out, "samples.jsonl"), "w")
         if self.args.app_config:
-            self.sanitizer_dir = os.path.join(self.out, "sanitizer")
-            os.makedirs(self.sanitizer_dir, exist_ok=True)
+            # An empty folder of this run's own: a sanitizer log opens with O_TRUNC under <mode>.<exe>.<pid>, so an
+            # earlier run's file of the same name would hide the start of this run's report.
+            runs = os.path.join(self.out, "sanitizer")
+            os.makedirs(runs, exist_ok=True)
+            stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            self.sanitizer_dir = tempfile.mkdtemp(prefix=f"{stamp}-", dir=runs)
             self.sanitizer = SanitizerLogs(self.sanitizer_dir, [os.path.join(self.out, "app.log")])
             self.setup["sanitizer_logs"] = self.sanitizer_dir
             self.setup["browser_engine"] = "webkit"
@@ -518,8 +554,8 @@ class Soak:
 
     def start_stress(self):
         """The STRESS session (perf-stress-session.py, `soak_stress`). A session not built fails the run; one built
-        in another shape than STRESS (`Stress.check`, Chromium on only: STRESS has Chromium pages) is a WARN line.
-        A refused agent chat may become the New Tab page."""
+        in another shape than STRESS (`stress_shape_problems`) is a WARN line. A refused agent chat may become the
+        New Tab page."""
         module = load_stress()
         self.stress = soak_stress(module, self.chromium_off)(module.socket_rpc(self.socket), log=say,
                                                               allow_chat_fallback=True)
@@ -531,11 +567,9 @@ class Soak:
         self.setup["stress"] = {key: summary.get(key) for key in
                                 ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")}
         shape = [self.stress.window_note] if self.stress.window_note else []
-        if not self.chromium_off:
-            try:
-                module.Stress.check(summary)
-            except module.StressShapeError as error:
-                shape.append(str(error))
+        problems = stress_shape_problems(module, summary, self.chromium_off)
+        if problems:
+            shape.append(problems)
         if shape:
             self.setup["stress_shape"] = "; ".join(shape)[:600]
 
@@ -709,9 +743,12 @@ class Soak:
                        sanitizer=found)
 
     def check_chromium_off(self, kinds):
-        """With Chromium off, a Chromium helper or a PartitionAlloc malloc zone in the app makes the run invalid."""
+        """With Chromium off, a Chromium helper or a PartitionAlloc malloc zone in the app makes the run invalid.
+        setup's malloc_zones is the last list vmmap read, with its time: a read that fails (the app aborted on a
+        sanitizer report) keeps it."""
         if not self.chromium_off or any(e["kind"] == "chromium-loaded" for e in self.events):
             return
+        self.zones_checked = time.monotonic()
         helpers = sorted(pid for pid, kind in kinds.items() if kind == "chromium-helper")
         zones = None
         if self.app_pid:
@@ -720,7 +757,10 @@ class Soak:
                 zones = malloc_zones(listed.stdout) if listed.returncode == 0 else None
             except subprocess.TimeoutExpired:
                 pass
-        self.setup["malloc_zones"] = zones if zones is not None else "unknown (vmmap failed)"
+        if zones is not None:
+            self.setup["malloc_zones"], self.setup["malloc_zones_at"] = zones, now_iso()
+        else:
+            self.setup["malloc_zones_failed_at"] = now_iso()
         if helpers or "PartitionAlloc" in (zones or []):
             self.event("chromium-loaded", f"Chromium loaded in a {self.args.app_config} run: helpers {helpers}, "
                                           f"malloc zones {zones}")
@@ -794,7 +834,8 @@ class Soak:
                 self.event("crash", f"crash report {os.path.basename(path)}")
             seen_reports = reports
             self.check_sanitizer()
-            if self.chromium_off and any(kind == "chromium-helper" for kind in kinds.values()):
+            if self.chromium_off and (any(kind == "chromium-helper" for kind in kinds.values())
+                                      or time.monotonic() - self.zones_checked >= ZONES_EVERY_S):
                 self.check_chromium_off(kinds)
             zombies = self.check_zombies(kinds, time.time() - self.started)
             ping_ms, snapshot_ms = self.check_control()
@@ -947,7 +988,8 @@ class Soak:
                   f"Zombie children: {zombies['total']} in all, per hour {zombies['per_hour']}, at the end {zombies['at_end']}."]
         if self.args.app_config:
             lines.append(f"App config {self.args.app_config} (Chromium off): {self.sanitizer_count} sanitizer report(s) "
-                         f"in {self.setup.get('sanitizer_logs')}, malloc zones {self.setup.get('malloc_zones')}.")
+                         f"in {self.setup.get('sanitizer_logs')}, malloc zones {self.setup.get('malloc_zones', 'never read')} "
+                         f"(read at {self.setup.get('malloc_zones_at')}).")
         lines += ["",
                   "| Process | Mean CPU % | Max CPU % | Memory mid-run (MB) | Memory end (MB) | Wakeups/s | fds mid-run | fds end | Idle CPU % | Idle wakeups/s |",
                   "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -983,6 +1025,13 @@ class Soak:
             by_parent[str(zombie["parent_kind"])] = by_parent.get(str(zombie["parent_kind"]), 0) + 1
         return {"total": len(self.zombies), "per_hour": per_hour, "by_parent_kind": by_parent,
                 "at_end": samples[-1].get("zombies") if samples else None}
+
+    def finish(self):
+        """Quits the app (`quit`, which waits for its exit) and reads the sanitizer logs once more: an ASan report
+        written during quit (a deinit-order use-after-free) and LeakSanitizer's, which comes only at exit, are this
+        run's too."""
+        self.quit()
+        self.check_sanitizer()
 
     def quit(self):
         try:
@@ -1060,16 +1109,18 @@ def main():
         raise
     finally:
         try:
-            result = soak.report()
-        finally:
             if "identity" in soak.setup:
-                soak.quit()
-            if soak.stress:
-                soak.stress.close()
-            if teardown:
-                teardown.end()
-                soak.forget()
-            shutil.rmtree(soak.work, ignore_errors=True)
+                soak.finish()  # before the report, so the reports written at teardown count
+        finally:
+            try:
+                result = soak.report()
+            finally:
+                if soak.stress:
+                    soak.stress.close()
+                if teardown:
+                    teardown.end()
+                    soak.forget()
+                shutil.rmtree(soak.work, ignore_errors=True)
     sys.exit(0 if result.get("ok") else 1)
 
 
