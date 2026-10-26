@@ -126,6 +126,10 @@ final class SidebarPriorityPanelView: NSView {
             } else {
                 let row = SidebarPriorityRowView(entry: entry)
                 row.onAction = { [weak self] action in self?.onAction?(action) }
+                row.onMove = { [weak self, weak row] direction in
+                    guard let self, let row else { return }
+                    self.move(row.entry.id, direction: direction)
+                }
                 row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
                 document.addSubview(row)
                 rows[entry.id] = row
@@ -277,6 +281,17 @@ final class SidebarPriorityPanelView: NSView {
         guard let offset = row.dragOffset(at: point) else { return false }
         drag(row, offset: offset, ended: false)
         return true
+    }
+
+    func move(_ id: String, direction: SidebarPriorityRowView.MoveDirection) {
+        guard draggingID == nil, let from = panel.entries.firstIndex(where: { $0.id == id }) else { return }
+        let to = direction == .earlier ? from - 1 : from + 1
+        guard panel.entries.indices.contains(to) else { return }
+        var order = panel.entries
+        order.swapAt(from, to)
+        panel.entries = order
+        placeRows(animated: window != nil)
+        onAction?(.place(id, order: order.map(\.id)))
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

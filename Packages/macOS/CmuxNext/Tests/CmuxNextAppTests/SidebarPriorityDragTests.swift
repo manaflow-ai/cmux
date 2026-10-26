@@ -132,4 +132,14 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.draggingID == nil)
     }
 
+
+    @Test func keyboardAndVoiceOverMoveUseThePersistentPlaceAction() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["b"])
+        let actions = try #require(row.accessibilityCustomActions())
+        let later = try #require(actions.first { $0.name == "Move Later" })
+        #expect(later.handler?() == true)
+        #expect(harness.actions == [.place("b", order: ["a", "c", "b"])])
+    }
+
 }

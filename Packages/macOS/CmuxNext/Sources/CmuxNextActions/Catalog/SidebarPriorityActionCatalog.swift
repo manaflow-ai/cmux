@@ -7,6 +7,12 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         let chat: [ActionTargetKind] = [.agentChat]
         return [
+            ActionDescriptor(id: "sidebar.priority.moveEarlier", title: t("action.sidebar.priority.moveEarlier", "Move Priority Chat Earlier"),
+                             keywords: ["sidebar", "priority", "move", "earlier"], defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .option]),
+                             category: .sidebar, symbol: "arrow.up", surfaces: [.palette, .keyboard]),
+            ActionDescriptor(id: "sidebar.priority.moveLater", title: t("action.sidebar.priority.moveLater", "Move Priority Chat Later"),
+                             keywords: ["sidebar", "priority", "move", "later"], defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .option]),
+                             category: .sidebar, symbol: "arrow.down", surfaces: [.palette, .keyboard]),
             // The Priority view's bell (`sidebar.priorityView.shown`), while the view is installed.
             ActionDescriptor(
                 id: "sidebar.priorityView.toggle", title: t("action.sidebar.priorityView.toggle", "Toggle Priority View"),
