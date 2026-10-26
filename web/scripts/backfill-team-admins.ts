@@ -21,6 +21,8 @@
  */
 import { parseArgs } from "node:util";
 import { createHexclaveServerApi } from "../services/auth/hexclave/serverApi";
+import { stackApiBaseURL } from "../services/auth/stackApiBaseURL";
+import { TEAM_ADMIN_PERMISSION } from "../services/teams/permissions";
 import { applyTeamAdminProposals, findTeamsWithoutAdmin } from "../services/teams/adminBackfill";
 
 function boundedInteger(raw: string | undefined, name: string, fallback: number, max: number): number {
@@ -39,10 +41,10 @@ async function main(): Promise<void> {
     },
     strict: true,
   });
-  const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim() || process.env.STACK_PROJECT_ID?.trim();
+  const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
   const secretServerKey = process.env.STACK_SECRET_SERVER_KEY?.trim();
   if (!projectId || !secretServerKey) {
-    throw new Error("NEXT_PUBLIC_STACK_PROJECT_ID (or STACK_PROJECT_ID) and STACK_SECRET_SERVER_KEY are required");
+    throw new Error("NEXT_PUBLIC_STACK_PROJECT_ID and STACK_SECRET_SERVER_KEY are required");
   }
   const source = createHexclaveServerApi({ projectId, secretServerKey, retries: 4 });
   const report = await findTeamsWithoutAdmin({
@@ -57,16 +59,29 @@ async function main(): Promise<void> {
 
   let applied: Awaited<ReturnType<typeof applyTeamAdminProposals>> | null = null;
   if (values.apply) {
-    // Loaded only for --apply: the dry run needs no SDK app.
-    const [{ defaultTeamStackApp }, { grantTeamAdmin }] = await Promise.all([
-      import("../services/teams/stack"),
-      import("../services/teams/admin"),
-    ]);
-    const stack = defaultTeamStackApp();
-    applied = await applyTeamAdminProposals(proposals, {
-      source,
-      grant: (userId, teamId) => grantTeamAdmin(stack, userId, teamId),
-    });
+    // The same project and server key as the scan, so --apply needs nothing
+    // beyond the two variables above (the web app's env is never loaded).
+    const grant = async (userId: string, teamId: string): Promise<void> => {
+      const base = stackApiBaseURL().replace(/\/+$/u, "");
+      const root = /\/api\/v1$/u.test(base) ? base : `${base}/api/v1`;
+      const response = await fetch(
+        `${root}/team-permissions/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}/${TEAM_ADMIN_PERMISSION}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-hexclave-access-type": "server",
+            "x-hexclave-project-id": projectId,
+            "x-hexclave-secret-server-key": secretServerKey,
+          },
+          body: "{}",
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      await response.body?.cancel();
+      if (!response.ok) throw new Error(`team_admin grant failed (${response.status})`);
+    };
+    applied = await applyTeamAdminProposals(proposals, { source, grant });
   }
 
   console.log(JSON.stringify({

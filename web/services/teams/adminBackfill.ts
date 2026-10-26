@@ -11,7 +11,7 @@ export type TeamAdminBackfillSource = Pick<HexclaveSource, "listTeamsPage" | "li
 
 export type OrphanTeam =
   | { readonly teamId: string; readonly memberCount: 1; readonly action: "grant"; readonly proposedAdminUserId: string }
-  | { readonly teamId: string; readonly memberCount: 0 | "2+"; readonly action: "needs_human"; readonly proposedAdminUserId: null };
+  | { readonly teamId: string; readonly memberCount: 0 | 1 | "2+"; readonly action: "needs_human"; readonly proposedAdminUserId: null };
 
 export type TeamAdminBackfillReport = {
   readonly teamsScanned: number;
@@ -47,10 +47,11 @@ export async function findTeamsWithoutAdmin(options: TeamAdminBackfillOptions): 
 export async function classifyOrphan(source: Pick<TeamAdminBackfillSource, "listTeamMembersPage">, teamId: string): Promise<OrphanTeam> {
   const page = await source.listTeamMembersPage(teamId, null, 2);
   const [only] = page.items;
-  if (page.items.length === 1 && !page.nextCursor && only) {
+  // An anonymous sole member is not someone to hand a team to.
+  if (page.items.length === 1 && !page.nextCursor && only && !only.is_anonymous) {
     return { teamId, memberCount: 1, action: "grant", proposedAdminUserId: only.id };
   }
-  return { teamId, memberCount: page.items.length === 0 ? 0 : "2+", action: "needs_human", proposedAdminUserId: null };
+  return { teamId, memberCount: page.items.length === 0 ? 0 : page.items.length === 1 && !page.nextCursor ? 1 : "2+", action: "needs_human", proposedAdminUserId: null };
 }
 
 export type TeamAdminGrantOutcome = { readonly teamId: string; readonly userId: string; readonly result: "granted" | "skipped_changed" | "failed" };
