@@ -134,6 +134,13 @@ extension EnergyReport {
         })
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.energy.simulate` over the app's one ``EnergyMonitor`` (p14-energy-123).
+    static func simulateMethod(services: AppServices) -> ControlMethod {
+        EnergyReport(services: services).simulateMethod { [weak services] in services?.energyMonitor.simulate($0) }
+    }
+    #endif
+
     private static func state(_ services: AppServices) -> State {
         let inputs = services.energyMonitor.inputs
         let driver = services.energy.driver
@@ -143,7 +150,7 @@ extension EnergyReport {
             inputs: Inputs(featureEnabled: driver.isEnabled, lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery,
                            hasBattery: inputs.hasBattery, batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
                            setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
-                           sessionOverride: driver.isOffForSession),
+                           sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
             // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
             cef: CEF(saver: .unsupported, earlyPasses: nil),

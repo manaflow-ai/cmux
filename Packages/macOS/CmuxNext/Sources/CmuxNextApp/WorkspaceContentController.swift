@@ -73,11 +73,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     var visibilityNode: VisibilityNode? { nil }
     /// The latest mapping that came while off screen: applied once, at rest, when it shows.
     private var deferredApply: LayoutMapping.Result?
+    /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
+    /// observation and drives no repair or focus again, so a daemon reply or a repair that lands
+    /// after the teardown leaves nothing behind (p07-memory-034). Chrome's WebContentsImpl stops
+    /// its observers and drops its views at destruction the same way, so no late callback finds a
+    /// half-live tab (content/browser/web_contents/web_contents_impl.cc, ~WebContentsImpl).
+    private(set) var isTornDown = false
+    /// Tab strip offsets a remount's record gave panes not mounted yet (`makeContentView` takes each).
+    private var pendingTabStrips: [LayoutPaneID: CGFloat] = [:]
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace),
     /// and its layout changes wait until it shows (``apply(_:force:_:_:)``).
     func park(serial: UInt64) {
+        guard !isTornDown else { return }
         parkedSerial = serial
         isParked = true
         isOffScreen = true
@@ -90,6 +99,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// animates a change nobody saw); then each pane maps its strip once and shows its selection
     /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
+        guard !isTornDown else { return }
         isParked = false
         comeOnScreen()
         setDrawsNothing(false)
@@ -99,6 +109,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Parked but on screen beside the shown workspace (`sidebar.multiView`): it lays out what changed
     /// while it was off screen, its panes work again, and its attention rings draw, so it follows them.
     func followAttention() {
+        guard !isTornDown else { return }
         comeOnScreen()
         setDrawsNothing(false)
         observeAttention()
@@ -124,12 +135,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
+        guard !isTornDown else { return }
         sendTopology()
         layoutView.syncWithModel()
     }
 
     /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
+    /// `record`: the offsets the workspace showed when its window last unmounted it (`viewRecord()`), in place before
+    /// the first frame commits.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false,
+         restoring record: WorkspaceViewRecord? = nil) {
         self.workspace = workspace
         isParked = parked
         self.daemon = daemon
@@ -174,18 +189,55 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        if let record { restoreScroll(record) }
     }
 
+    // MARK: View record (p07-memory-033)
+
+    /// The offsets this content's views show that nothing else keeps, for a remount after `teardown`:
+    /// where each scroll settles; a pane or screen not mounted yet keeps what its record gave it while
+    /// the layout still has it. The selected tabs and the focused pane stay in the window's memory.
+    func viewRecord() -> WorkspaceViewRecord {
+        var record = WorkspaceViewRecord(screens: layoutView.scrollRecords())
+        if !pendingTabStrips.isEmpty {
+            let live = Set(layoutModel.screens.flatMap(\.layout.panes))
+            for (id, offset) in pendingTabStrips where live.contains(id) { record.tabStrips[id] = offset }
+        }
+        for (id, controller) in panes {
+            if let offset = WorkspaceViewRecord.stripOffset(controller.view.stripView.restorableScrollOffset) { record.tabStrips[id] = offset }
+        }
+        record.screenBar = WorkspaceViewRecord.stripOffset(screenBar.view.restorableScrollOffset)
+        return record
+    }
+
+    /// The scrolls rest where the record says from the first layout at the window's size, which
+    /// runs before the first frame commits; a pane mounted later takes its strip's when it mounts.
+    private func restoreScroll(_ record: WorkspaceViewRecord) {
+        layoutView.restoreScroll(record.screens)
+        for (id, offset) in record.tabStrips {
+            if let controller = panes[id] { controller.view.stripView.restoreScrollOffset(offset) } else { pendingTabStrips[id] = offset }
+        }
+        if let offset = record.screenBar { screenBar.view.restoreScrollOffset(offset) }
+    }
+
+    /// Ends everything this content started, so it and its views, panes and strips free after
+    /// this turn (UnmountedWorkspaceLeavesNoObjectsTests): every observation stops (each holds its
+    /// stream's tracking until cancelled, `ObservationStream`), a topology still queued for it is
+    /// dropped (the coordinator keys it by object identity, which a later content may reuse), and
+    /// every pane controller unregisters from the app's services. Idempotent.
     func teardown() {
-        observation?.cancel()
+        guard !isTornDown else { return }
+        isTornDown = true
+        for task in [observation, connectionObservation, attentionObservation, settlingObservation, canvasObservation] { task?.cancel() }
         changeCauses?.cancel()
-        connectionObservation?.cancel()
-        attentionObservation?.cancel()
-        settlingObservation?.cancel()
-        canvasObservation?.cancel()
+        focus.topologySent(by: self)
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
-        panes.removeAll()
+        if !panes.isEmpty {
+            panes.removeAll()
+            services.paneMounts.changed() // as `releaseContentView`: a pane left, its readers look again
+        }
+        pendingTabStrips.removeAll()
         contentView.removeFromSuperview()
     }
 
@@ -230,6 +282,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
     /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
+        guard !isTornDown else { return }
         let notifications = services.notifications, workspace = workspace
         let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
         let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
@@ -261,6 +314,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// spring (`LayoutModel.apply(screens:cause:)`).
     private func apply(_ result: LayoutMapping.Result, cause: ObservationCause = .program, force: Bool = false,
                        _ file: StaticString = #fileID, _ line: UInt = #line) {
+        guard !isTornDown else { return } // a reply that lands after teardown mounts no pane
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
@@ -353,6 +407,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// A lost terminal gets one replacement, focused when it lands.
     private func repairIfEmpty() {
+        guard !isTornDown else { return }
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
             self.expectFocus(on: surface)
@@ -387,11 +442,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        guard !isTornDown, let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self)
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        if let offset = pendingTabStrips.removeValue(forKey: pane) { controller.view.stripView.restoreScrollOffset(offset) }
         services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()

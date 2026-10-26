@@ -197,6 +197,12 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
+        // Built here, on the thread that opens the session, so the Linux
+        // launcher keeps the process's base nice value (work.rs `Launcher`).
+        let work = cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
+            label: "mux".to_owned(),
+            ..cmux_threads::work::WorkConfig::default()
+        })?;
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -417,6 +423,7 @@ impl Mux {
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
             request_watchdog: crate::server::RequestWatchdog::default(),
+            work,
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,

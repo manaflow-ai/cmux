@@ -23,6 +23,11 @@ public final class DiffPageProvider: PageProvider {
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
     static let eventsStream = "cmux.diff.events"
+    /// The stream sends nothing yet (the stdio sidecar has no events): `.ordered`, which drops
+    /// nothing, until sidecar `DiffEvent`s exist; their author names the policy they need and tests it.
+    static let eventsFrozenDelivery: PageFrozenDelivery = .ordered
+    /// The language pack and the prefs streams send the whole value each time: `.latest`.
+    static let snapshotFrozenDelivery: PageFrozenDelivery = .latest
     static let recentsOp = "cmux.diff.recents"
     static let chooseFolderOp = "cmux.diff.chooseFolder"
     static let openOp = "cmux.diff.open"
@@ -116,15 +121,15 @@ public final class DiffPageProvider: PageProvider {
         case Self.eventsStream:
             let id = UUID()
             events[id] = onEvent
-            return PageSubscription { [weak self] in self?.events[id] = nil }
+            return PageSubscription(frozenDelivery: Self.eventsFrozenDelivery) { [weak self] in self?.events[id] = nil }
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(stream) }
             let stop = languages.listen(onEvent)
-            return PageSubscription { stop() }
+            return PageSubscription(frozenDelivery: Self.snapshotFrozenDelivery) { stop() }
         case Self.prefsStream:
             guard let stores else { throw PageError.unknownOp(stream) }
             let stop = stores.prefs.listen { prefs in onEvent(["prefs": .object(prefs)]) }
-            return PageSubscription { stop() }
+            return PageSubscription(frozenDelivery: Self.snapshotFrozenDelivery) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }

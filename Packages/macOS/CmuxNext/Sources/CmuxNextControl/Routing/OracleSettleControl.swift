@@ -76,8 +76,11 @@ public struct OracleSettleControl: Sendable {
                     throw ControlError(code: "unavailable", message: "facet \(condition.facet.rawValue) gives no change signal to wait on in this build",
                                        data: ["facet": .string(condition.facet.rawValue), "reason": "no_change_signal"])
                 }
+                // `paths`, as `debug.oracle.snapshot` takes it: a wait on a hashed path field compares the same hash.
+                let rewriting = facets.rewriting(try OracleControl.paths(call.params["paths"]))
                 let started = ContinuousClock.now
-                let outcome = try await Self.awaitCondition(condition, facets: facets, snapshots: router.snapshots, deadline: started + condition.limit)
+                let outcome = try await Self.awaitCondition(condition, facets: rewriting, snapshots: router.snapshots,
+                                                            deadline: started + condition.limit)
                 var reply: [String: JSONValue] = [
                     "satisfied": .bool(outcome.satisfied),
                     "value": outcome.value ?? .null,

@@ -1,10 +1,34 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type AccessRequestKind = "file" | "secret";
+
+export type AccessRequestPending = {
+  "age_ms": bigint;
+  "kind": AccessRequestKind;
+  "name": (string) | null;
+  "path": (string) | null;
+  "reason": (string) | null;
+  "request_id": string;
+  "session": (string) | null;
+};
+
+export type AccessRequestStatus = ({ "state": "delivered" } & {
+  "path"?: string;
+  "state": "delivered";
+  "taken"?: true;
+  "value"?: string;
+}) | ({ "state": "denied" } & {
+  "reason": (string) | null;
+  "state": "denied";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+});
 
 export type ActivitySnapshot = {
   "attached_clients": number;
@@ -120,6 +144,20 @@ export type AgentSessionSummary = JsonValue;
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type AgentUpdateHarness = {
+  "id": string;
+  "latest"?: string;
+  "name"?: string;
+  "version"?: string;
+};
+
+export type AgentUpdateOutcome = {
+  "error"?: string;
+  "id": string;
+  "ok": boolean;
+  "version"?: string;
+};
 
 export type AppGrant = {
   "granted": boolean;
@@ -314,6 +352,28 @@ export type BrowserProviderUnregisterResult = {
   "removed": boolean;
 };
 
+export type BrowserRuntimeRow = {
+  "port": number;
+  "runtime": bigint;
+};
+
+export type BrowserRuntimeStartResult = {
+  "installed": string;
+  "port": number;
+  "runtime": bigint;
+  "secret": string;
+};
+
+export type BrowserRuntimeStatusResult = {
+  "installed": (string) | null;
+  "platform": string;
+  "runtimes": Array<BrowserRuntimeRow>;
+};
+
+export type BrowserRuntimeStopResult = {
+  "stopped": true;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -330,6 +390,23 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientHelloPageOperations = {
+  "confirm": Array<string>;
+  "gesture": Array<string>;
+  "read": Array<string>;
+};
+
+export type ClientHelloResult = {
+  "connection_id": string;
+  "install_id"?: string;
+  "nonce"?: string;
+  "page"?: string;
+  "page_events"?: Array<string>;
+  "page_operations"?: ClientHelloPageOperations;
+  "user_origin_allowed": boolean;
+  "verified"?: true;
 };
 
 export type ClientInfo = {
@@ -639,6 +716,70 @@ export type FrontendProjection = {
   "subject_key": string;
 };
 
+export type FsEntry = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mtime": (bigint) | null;
+  "name": string;
+  "revision"?: string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
+export type FsEntryKind = "file" | "dir" | "symlink" | "other";
+
+export type FsEntryResult = {
+  "entry": FsEntry;
+};
+
+export type FsFilter = {
+  "hidden"?: boolean;
+  "kinds"?: (Array<FsEntryKind>) | null;
+  "query"?: (string) | null;
+};
+
+export type FsPage = {
+  "cursor": (string) | null;
+  "entries": Array<FsEntry>;
+  "listing": string;
+  "revision": string;
+  "total": bigint;
+};
+
+export type FsReadResult = ({ "encoding": "base64" } & {
+  "bytes_base64": Base64;
+  "encoding": "base64";
+  "size": bigint;
+  "truncated": boolean;
+}) | ({ "encoding": "utf-8" } & {
+  "encoding": "utf-8";
+  "size": bigint;
+  "text": string;
+  "truncated": boolean;
+});
+
+export type FsSort = {
+  "dir"?: FsSortDirection;
+  "dirs_first"?: boolean;
+  "key"?: FsSortKey;
+};
+
+export type FsSortDirection = "asc" | "desc";
+
+export type FsSortKey = "name" | "modified" | "size" | "kind";
+
+export type FsStatResult = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mode_display": string;
+  "mtime": (bigint) | null;
+  "name": string;
+  "owner_display": string;
+  "revision": string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
 export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
@@ -834,6 +975,64 @@ export type LivePane = {
   "short_id"?: string;
   "tabs": Array<Tab>;
 };
+
+export type LoopbackAuditRecord = {
+  "at_ms": bigint;
+  "bytes_from_target": bigint;
+  "bytes_to_target": bigint;
+  "client": bigint;
+  "duration_ms": bigint;
+  "host": string;
+  "outcome": string;
+  "port": number;
+  "stream": bigint;
+};
+
+export type LoopbackLimits = {
+  "daemon_window": bigint;
+  "frame_bytes": bigint;
+  "per_client": bigint;
+  "total": bigint;
+};
+
+export type LoopbackOpenResult = {
+  "address": string;
+  "stream": bigint;
+  "window": bigint;
+};
+
+export type LoopbackStatusResult = {
+  "audit": Array<LoopbackAuditRecord>;
+  "client_streams": bigint;
+  "enabled": boolean;
+  "limits": LoopbackLimits;
+  "open_streams": bigint;
+  "opened": bigint;
+  "refused": bigint;
+};
+
+export type MachineCatalogEntry = {
+  "capabilities"?: Array<string>;
+  "id": string;
+  "name": string;
+  "origin": MachineCatalogOrigin;
+  "platform"?: (MachineCatalogPlatform) | null;
+  "status": MachineCatalogStatus;
+};
+
+export type MachineCatalogOrigin = "cloud" | "ssh" | "server";
+
+export type MachineCatalogPlatform = {
+  "arch"?: (string) | null;
+  "os"?: (string) | null;
+};
+
+export type MachineCatalogPublishResult = {
+  "replayed": boolean;
+  "sequence": bigint;
+};
+
+export type MachineCatalogStatus = "running" | "connecting" | "unavailable" | "sleeping" | "stopped";
 
 export type MachineListeningTcpResult = {
   "stdout": string;
@@ -1215,6 +1414,20 @@ export type ServerStatsLockStall = {
   "waiter": string;
 };
 
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1242,6 +1455,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;

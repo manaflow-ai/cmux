@@ -146,7 +146,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true || adoptLifecyclePage(key) { // a page tab's view: live
+                if hasContent(for: key) || contentOwners.contentAdopted(key) || adoptLifecyclePage(key) { // a page or conversation tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -159,10 +159,10 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
+                if !contentOwners.releaseContent(key, token: token) { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
+                if !contentOwners.restoreContent(key, token: token) { hibernation?.restore(key, token: token) }
             }
         }
     }
@@ -197,7 +197,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
+        if !contentOwners.contentDidShow(key) { hibernation?.tabDidShow(key) }
         notePageScreen(key)
     }
 
@@ -216,7 +216,7 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
+        if !contentOwners.contentDidHide(key, token: token) { hibernation?.tabDidHide(key) }
         pageLifecycle?.tabDidHide(key)
     }
 

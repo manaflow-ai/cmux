@@ -153,6 +153,9 @@ final class HostView: NSView {
             demo.frame = bounds
             demo.setNeedsLayout()
         }
+        // cmux (p07-memory-030): a released transcript shown again lays its rows out once, here, at the pane's size and
+        // its window's scale (a hidden tab's view is out of the window and keeps the size it was hidden at).
+        if window != nil { demo?.layOutRestoredRows() }
         // cmux: the window view lays out first, so the compose view's bounds
         // (its field, "+" and emoji rects are in them) are this pane's before
         // the glass is placed. Host.swift's window starts at the fixture size;
@@ -213,6 +216,7 @@ final class HostView: NSView {
         controller?.windowChanged()
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
         restoreClipMaskOutsideLiveResize()
+        if window != nil, demo?.restorePending == true { needsLayout = true }  // cmux: `layout` lays the restored rows out
     }
 
     // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)

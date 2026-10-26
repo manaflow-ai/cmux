@@ -221,6 +221,10 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 - Checkpoint digests must be identical across 2 replays.
 - Stories: agent-swarm, dev-loop, browse-heavy, stress-recorded, launch-restore, long-day-soak (T2).
 - No user data. The recorder refuses a non-bench bundle id and refuses when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set. The manifest validator rejects text payloads.
+- Player API (task 115, used by stories that measure around a replay, first `blocking_hangs.py`, task 037): `play.py` exposes `replay(manifest, *, app, out, window=None)` next to its CLI.
+  - After the launch and the layout import, it calls `window(bench)` once with its `BenchApp`, and plays the input track inside the context manager that call returns. The measured window is the input track only.
+  - A failed launch raises `bench_launch.LaunchError`, as `BenchApp.launch` does.
+  - `out` gets the replay's own result-v1 files and the `host-env-full-<pid>.json` of each launch.
 
 ### 3.9 Features, remote overrides, safe mode (base::Feature plus Finch)
 
@@ -489,7 +493,7 @@ Size: S <= 150 changed lines, M <= 400, L is a split candidate. Tests run on the
 | 229 | browser macro benchmarks vs Chrome | M | 001, 208 | |
 | 230 | runtime QoS inversion count | M | 226, 037 | MQ8 |
 | 231 | Rust QoS static count | S | 001 | MQ14 |
-| 232 | daemon hang watcher | M | 001 | MQ8 |
+| 232 | daemon hang watcher (diagnostics: `server-stats` `include: ["hangs"]` answers `data.hangs = {over_250ms: count since launch, never reset; records: [{sequence, span, duration_ms}]}`, read by 037) | M | 001 | MQ8 |
 | 234 | builder capacity and per-commit builds | M | 009 | |
 | 235 | try admission and general-fleet try pool | S | 018 | |
 | 236 | bisect into dependency rolls | M | 016 | |

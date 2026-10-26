@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
+    public static final String IR_SHA256 = "4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -58,6 +58,10 @@ public final class Protocol {
             case "history-changed" -> HistoryChangedEvent.fromWire(value);
             case "keybindings-changed" -> KeybindingsChangedEvent.fromWire(value);
             case "layout-changed" -> LayoutChangedEvent.fromWire(value);
+            case "loopback-closed" -> LoopbackClosedEvent.fromWire(value);
+            case "loopback-credit" -> LoopbackCreditEvent.fromWire(value);
+            case "loopback-data" -> LoopbackDataEvent.fromWire(value);
+            case "loopback-eof" -> LoopbackEofEvent.fromWire(value);
             case "machine-usage-changed" -> MachineUsageChangedEvent.fromWire(value);
             case "notification" -> NotificationEvent.fromWire(value);
             case "output" -> OutputEvent.fromWire(value);
@@ -76,6 +80,7 @@ public final class Protocol {
             case "screen-changed" -> ScreenChangedEvent.fromWire(value);
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
+            case "script-log" -> ScriptLogEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);
             case "settings-changed" -> SettingsChangedEvent.fromWire(value);
             case "size-state" -> SizeStateEvent.fromWire(value);

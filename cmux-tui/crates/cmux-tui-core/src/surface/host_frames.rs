@@ -142,7 +142,7 @@ impl HostFrames {
             Arc::new(Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() });
         let thread_queue = queue.clone();
         let thread_responses = control_responses.clone();
-        std::thread::Builder::new().name(name).spawn(move || {
+        crate::echo_thread::spawn_host_stream_reader(name, stream, move |stream| {
             read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
         })?;
         Ok(Self { queue, control_responses, early, shutdown })
