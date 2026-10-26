@@ -31,8 +31,9 @@ extension CrashReporter {
     }
 }
 
-/// The app process's crash reporting (cx-urd.58): the Sentry reporter and
-/// the helper crash report forwarder. Starts only for the app itself
+/// The app process's crash reporting (cx-urd.58): the Sentry reporter,
+/// the process's invariant sink (p10-stability-099) and the helper crash
+/// report forwarder. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
 ///
 /// With feature `sentryHandlersFirst` (p08-startup-032) Sentry starts with
@@ -55,7 +56,10 @@ struct AppCrashReporting: Sendable {
     /// - Parameter afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
     init(environment: AppEnvironment, afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
+        let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
+            // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
+            InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
             forwarder = nil
             ownerPanics = nil
             acpmuxPanics = nil
@@ -64,6 +68,8 @@ struct AppCrashReporting: Sendable {
         DebugTimings.markLaunch("crash.sentry_start")
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")
+        // After the start, so the invariant sink sends only when Sentry runs (p10-stability-099).
+        InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
