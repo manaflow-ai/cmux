@@ -70,7 +70,7 @@ const noMatches: Play = async (ctx) => {
 const typedPath: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("/tmp/new-project");
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-menu-active"));
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'));
 };
 
 export default componentEntry<Props>({
@@ -118,6 +118,25 @@ export default componentEntry<Props>({
       note: "Pressing the pill opens the chooser; dragging onto a project and releasing picks it and closes.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: pressDragRelease,
+    },
+    "remote-completion": {
+      note: "The shared combobox completes readable project, host and path text; same-path projects stay on the machine selected by the filter.",
+      props: {
+        projects: [
+          { cwd: "/home/you/src/atlas-web", label: "atlas-web", host: "This Mac" },
+          { cwd: "/home/you/src/atlas-web", label: "atlas-web", host: "gpu-box", peer: "gpu-box" },
+        ],
+        icon,
+        onPick: () => undefined,
+      },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.type("gpu");
+        await ctx.press("Tab");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')?.value.includes("/home/you/src/atlas-web"),
+        );
+      },
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",

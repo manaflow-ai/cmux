@@ -46,6 +46,10 @@ export interface ComboboxProps {
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
+  /** A rich row's accessible name; its identity remains the stable suggestion string. */
+  itemLabel?(value: string): string;
+  /** Readable Tab completion for suggestions identified by an opaque key. */
+  completionText?(value: string): string;
   /** The highlighted suggestion changed; undefined when none is. `by` says whether the arrow keys
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
@@ -72,6 +76,8 @@ export function Combobox({
   onCommand,
   rootClassName,
   renderItem,
+  itemLabel,
+  completionText,
   onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
@@ -141,7 +147,8 @@ export function Combobox({
     } else if (event.key === "Tab" && !event.shiftKey && suggestions.length) {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      update(highlightedRef.current ?? suggestions[0]);
+      const next = highlightedRef.current ?? suggestions[0];
+      update(completionText?.(next) ?? next);
     }
   };
   const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
@@ -161,6 +168,7 @@ export function Combobox({
           <Autocomplete.Item
             key={item}
             value={item}
+            aria-label={itemLabel?.(item)}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
             onClick={() => onSubmit(item)}
@@ -176,6 +184,7 @@ export function Combobox({
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
           role="option"
           aria-disabled="true"
+          aria-label={itemLabel?.(item)}
           aria-selected="false"
           data-disabled
           className={cx("ui-combobox-item", itemClassName)}
