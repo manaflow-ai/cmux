@@ -538,6 +538,25 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_send_locked_mouse_move(int browser_id, do
 // refresh rate. display_id 0 follows the parent view's window again.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_display(int browser_id, unsigned int display_id, double screen_x,
                                                         double screen_y);
+// What the app shows of a detached page (cmux_browser_set_page_visibility),
+// as Chrome's WebContentsViewCocoa gives its WebContents its visibility
+// (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm). It applies to
+// browser_id's Chromium window, every tab of it.
+typedef enum {
+  // Shown: the page draws.
+  CMUX_SHIM_PAGE_VISIBLE = 0,
+  // Not shown (its pane or workspace hidden, its view out of a window, its
+  // window minimized, the app hidden): visibilityState "hidden", no frames.
+  CMUX_SHIM_PAGE_HIDDEN = 1,
+  // On screen but covered: Chromium's Visibility::OCCLUDED, one second later
+  // as Chrome coalesces occlusion.
+  CMUX_SHIM_PAGE_OCCLUDED = 2,
+} cmux_shim_page_visibility_t;
+// visibility is a cmux_shim_page_visibility_t. The fork takes it only while
+// the page window is detached and makes the page visible again when it stops
+// being detached. Returns 1, or 0 for a page that is not detached, an unknown
+// value, or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_visibility(int browser_id, int visibility);
 // Page state per history entry: entry `index`'s encoded page state (freed
 // with cmux_shim_free; NULL for an unknown browser or index); a watch that
 // calls fn(context, browser_id, index) when an entry commits or its page state

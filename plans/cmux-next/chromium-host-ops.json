@@ -1096,6 +1096,27 @@
       "reason": "Page-window placement: ChromiumHostPageView sends it when its window moves or changes display; only the display id and screen points cross (task 221)."
     },
     {
+      "name": "cmux_shim_browser_set_page_visibility",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "visibility",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "What cmux shows of a pane's page (ChromiumHostPageView.pageVisibility: window entry and exit, workspace hide, minimize, app hide, occlusion), one-way in call order and coalesced per browser, as Chrome's WebContentsViewCocoa tells its WebContents; the host keeps the last value and applies it again when it detaches the page window (task 220)."
+    },
+    {
       "name": "cmux_shim_tab_entry_page_state",
       "class": "async",
       "args": [

@@ -35,6 +35,8 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        // What the person sees of the page goes to the host (``postPageVisibility(browser:)``).
+        page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
         // The page's accessibility element comes from the host (CEFPaneHost+Accessibility.swift).
         page.accessibilityTokenSource = { [weak self] request, answered in
             guard let self else { return answered(nil) }
@@ -57,12 +59,23 @@ extension CEFPaneHost {
     func showHostedContext(of browser: Int32) {
         guard let page = hostedPageView, runtime.forkAPIVersion >= CEFLayerHosting.forkAPI else { return }
         let shown = window
+        // Before the hosting op: the host applies it when it detaches the page window.
+        postPageVisibility(browser: browser)
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(browser, 1) }
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self, let page, hostedPageView === page, window == shown else { return }
             if let id, id != 0, page.show(contextID: id) { return }
             runtime.logger.error("Chromium Host gave no page context for browser \(browser)")
         }
+    }
+
+    /// Host mode: tells the host what the person sees of this pane's page
+    /// (``ChromiumHostPageView/pageVisibility``), as Chrome's page view tells its WebContents. The
+    /// fork shows, hides or occludes the Chromium window of `browser` (by default a browser of this
+    /// pane's window), every tab of it.
+    func postPageVisibility(browser: Int32? = nil) {
+        guard let page = hostedPageView, let browser = browser ?? anchorBrowser else { return }
+        _ = runtime.shim?.browserSetPageVisibility(browser, page.pageVisibility.rawValue)
     }
 }
 
