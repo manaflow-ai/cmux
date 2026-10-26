@@ -152,6 +152,7 @@ extension MainThreadWatchdog {
     /// `CLOCK_UPTIME_RAW`) to `dispatchedNanos`, the uptime stamp its dispatch took (the turn meter's
     /// input span begins there), so time spent behind an earlier event's handler counts. An event counts
     /// once: one no newer than the newest counted (a held key replayed, a chord re-sent) counts nothing.
+    /// It is also the person's activity for `hang.over250.per_hour` (``MainThreadFieldMetrics``).
     /// Main thread; a timestamp of 0 (no OS time) counts nothing.
     // perf-hot: 1us frame-tick
     public func noteInputDispatch(eventTimestamp: Double, dispatchedNanos: UInt64) {
@@ -159,6 +160,7 @@ extension MainThreadWatchdog {
               event > newestQueuedInputNanos.load(ordering: .relaxed) else { return }
         newestQueuedInputNanos.store(event, ordering: .relaxed)
         inputQueueHistogram.record(nanos: dispatchedNanos > event ? dispatchedNanos - event : 0)
+        fieldMetrics.inputArrived(atNanos: event)
     }
 
     /// `debug.hangs` `turn_histogram`: the bucket edges in microseconds, then `main_turn` and

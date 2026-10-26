@@ -95,7 +95,7 @@ public final class MainThreadWatchdog: Sendable {
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
     let mainTurnSink = Mutex<(@Sendable (UInt64, UInt64) -> Void)?>(nil)
-    let fieldMetrics: MainThreadFieldMetrics // main.turn and hang.over250.per_hour (+MainTurns)
+    let fieldMetrics: MainThreadFieldMetrics // main.turn and hang.over250.per_hour (+MainTurns, MainTurnHistogram)
     public let turnHistogram = MainTurnHistogram(), inputQueueHistogram = MainTurnHistogram() // +MainTurns, MainTurnHistogram
     /// The newest input event time counted in ``inputQueueHistogram`` (ns of uptime; main thread writes): a re-sent event is no newer.
     let newestQueuedInputNanos = Atomic<UInt64>(0)
@@ -353,7 +353,7 @@ public final class MainThreadWatchdog: Sendable {
             }
             if gap >= Self.count250Nanos {
                 stallPair.wrappingAdd(Self.stallPair250, ordering: .relaxed)
-                fieldMetrics.stallOver250Ended()
+                fieldMetrics.stallOver250Ended(start: previous)
             } else if gap >= Self.count100Nanos {
                 stallPair.wrappingAdd(Self.stallPair100, ordering: .relaxed)
             }

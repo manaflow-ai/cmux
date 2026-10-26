@@ -3,8 +3,8 @@ import CmuxNextMetrics
 import CmuxNextTrace
 import Testing
 
-/// The watchdog's field histograms (task 055): `main.turn` per turn and `hang.over250.per_hour` per active hour,
-/// recorded into a test's own store from heartbeats driven by hand on an injected clock.
+/// The watchdog's field histograms (task 055): `main.turn` per turn and `hang.over250.per_hour` per 30 s of active
+/// time, recorded into a test's own store from heartbeats driven by hand on an injected clock.
 extension MainThreadWatchdogTests {
     /// A watchdog on `clock` whose field histograms go to a fresh store, and that store.
     private static func watchdogWithStore(clock: ManualUptime) -> (MainThreadWatchdog, MetricsStore) {
@@ -23,9 +23,14 @@ extension MainThreadWatchdogTests {
         store.delta().histograms.first { $0.name == id.name }
     }
 
-    /// One main-thread turn: wake, `work`, sleep, then `idle` asleep.
-    private static func turn(_ watchdog: MainThreadWatchdog, _ clock: ManualUptime, work: Duration, idle: Duration = .zero) {
+    /// One main-thread turn: wake, the person's input when `input` (stamped now), `work`, sleep, then `idle` asleep.
+    private static func turn(_ watchdog: MainThreadWatchdog, _ clock: ManualUptime, work: Duration, idle: Duration = .zero,
+                             input: Bool = false) {
         watchdog.heartbeat(.afterWaiting)
+        if input {
+            let now = clock.read()
+            watchdog.noteInputDispatch(eventTimestamp: Double(now) / 1_000_000_000, dispatchedNanos: now)
+        }
         clock.advance(by: work)
         watchdog.heartbeat(.beforeWaiting)
         clock.advance(by: idle)
@@ -49,40 +54,71 @@ extension MainThreadWatchdogTests {
         let layout = HistogramID.mainTurn.layout
         let expected = [layout.bucketIndex(of: 300), layout.bucketIndex(of: 2_400)].compactMap { $0 }.sorted()
         #expect(turns.buckets.map(\.index) == expected)
-        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "no active hour yet")
+        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "no input, no active time")
     }
 
-    /// Stalls of 250 ms or more (not 249 ms) count toward the active hour they end in: one sample per full active
-    /// hour, 0 for an hour with none. An idle gap counts at most 5 minutes of active time.
+    /// Stalls of 250 ms or more (not 249 ms) count in the 30 s of active time they end in, as a rate per hour (each
+    /// stall 120): one sample per interval, 0 for an interval with none.
     @MainActor
-    @Test func countsStallsOf250MillisecondsPerActiveHour() throws {
+    @Test func countsStallsOf250MillisecondsPerActiveInterval() throws {
         let clock = ManualUptime()
         let (watchdog, store) = Self.watchdogWithStore(clock: clock)
-        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(600))
-        // 1 ms + 11 turns of 5 capped idle minutes plus their work: under an hour.
-        let works: [Duration] = [.milliseconds(300), .milliseconds(249), .milliseconds(250)] + Array(repeating: .milliseconds(1), count: 8)
-        for work in works { Self.turn(watchdog, clock, work: work, idle: .seconds(600)) }
-        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "\(works.count) turns stay under an active hour")
-        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(600))
-        let firstHour = try #require(Self.histogram(.hangOver250PerHour, in: store))
-        #expect(firstHour.count == 1)
-        #expect(firstHour.sum == 2, "the 300 and 250 ms stalls; the 249 ms one is under the edge")
-        for _ in 0 ..< 12 { Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(600)) }
-        let twoHours = try #require(Self.histogram(.hangOver250PerHour, in: store))
-        #expect(twoHours.count == 2, "a second active hour with no stall")
-        #expect(twoHours.sum == 2)
-        #expect(twoHours.buckets.contains { $0.index == 0 && $0.count == 1 })
+        // Inputs 11 s apart: the interval closes at the fourth, 33 active seconds in.
+        for work: Duration in [.milliseconds(300), .milliseconds(249), .milliseconds(250)] {
+            Self.turn(watchdog, clock, work: work, idle: .seconds(11) - work, input: true)
+        }
+        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "22 active seconds: the interval is open")
+        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(11) - .milliseconds(1), input: true)
+        let first = try #require(Self.histogram(.hangOver250PerHour, in: store))
+        #expect(first.count == 1)
+        #expect(first.sum == 2 * 120, "the 300 and 250 ms stalls; the 249 ms one is under the edge")
+        for _ in 0 ..< 3 { Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(11) - .milliseconds(1), input: true) }
+        let second = try #require(Self.histogram(.hangOver250PerHour, in: store))
+        #expect(second.count == 2, "a second interval with no stall")
+        #expect(second.sum == 2 * 120)
+        #expect(second.buckets.contains { $0.index == 0 && $0.count == 1 })
     }
 
-    /// A launch left idle for hours adds only the capped gap to active time: no hour sample.
+    /// A launch that ends 40 active minutes in, with no quit (a crash, a force quit), still has its stalls in the
+    /// store: only the open interval's under 30 s are missing, and a decided quit records those too, once.
     @MainActor
-    @Test func aLongIdleGapAddsOnlyFiveActiveMinutes() {
+    @Test func aLaunchShorterThanAnHourKeepsItsStalls() throws {
         let clock = ManualUptime()
         let (watchdog, store) = Self.watchdogWithStore(clock: clock)
-        Self.turn(watchdog, clock, work: .milliseconds(300), idle: .seconds(3 * 3_600))
-        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(3 * 3_600))
-        Self.turn(watchdog, clock, work: .milliseconds(1))
-        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil)
-        #expect(Self.histogram(.mainTurn, in: store)?.count == 3)
+        // Inputs 10 s apart for 2_410 s: 80 full intervals and 10 s open; stalls in turns 5 to 14 and the last.
+        for index in 0 ... 241 {
+            let work: Duration = (5 ... 14).contains(index) || index == 241 ? .milliseconds(300) : .milliseconds(1)
+            Self.turn(watchdog, clock, work: work, idle: .seconds(10) - work, input: true)
+        }
+        let atCrash = try #require(Self.histogram(.hangOver250PerHour, in: store))
+        #expect(atCrash.count == 80)
+        #expect(atCrash.sum == 10 * 120, "the 10 stalls of the closed intervals are in the store")
+        watchdog.recordFieldMetricsAtQuit()
+        watchdog.recordFieldMetricsAtQuit()
+        let atQuit = try #require(Self.histogram(.hangOver250PerHour, in: store))
+        #expect(atQuit.count == 81, "the quit records the open interval once")
+        #expect(atQuit.sum == 11 * 120, "with the last turn's stall")
+    }
+
+    /// The main thread waking every 1.5 s for an hour with no input is not active time, and a stall then (over
+    /// 5 minutes after the last input) does not count; nor does the hour between two inputs.
+    @MainActor
+    @Test func idleWakesWithNoInputAddNoActiveTime() throws {
+        let clock = ManualUptime()
+        let (watchdog, store) = Self.watchdogWithStore(clock: clock)
+        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .milliseconds(1_499), input: true)
+        for index in 0 ..< 2_400 {
+            let work: Duration = index == 1_000 ? .milliseconds(300) : .milliseconds(1)
+            Self.turn(watchdog, clock, work: work, idle: .milliseconds(1_500) - work)
+        }
+        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "an hour of wakes is no interval")
+        Self.turn(watchdog, clock, work: .milliseconds(1), idle: .seconds(20), input: true)
+        Self.turn(watchdog, clock, work: .milliseconds(1), input: true)
+        #expect(Self.histogram(.hangOver250PerHour, in: store) == nil, "20 active seconds since the hour away")
+        watchdog.recordFieldMetricsAtQuit()
+        let atQuit = try #require(Self.histogram(.hangOver250PerHour, in: store))
+        #expect(atQuit.count == 1)
+        #expect(atQuit.sum == 0, "the stall while the person was away does not count")
+        #expect(Self.histogram(.mainTurn, in: store)?.count == 2_403)
     }
 }
