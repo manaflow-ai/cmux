@@ -12,19 +12,19 @@ import Foundation
 // shows the answer in a sheet. Every failure names the machine and the port and says what to run.
 extension CloudHandlers {
     static func bindBrowserActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        bind("cloudOpenBrowser", registry, reason: reason) { invocation in
-            let invocation = effective(invocation)
+        bind("cloudOpenBrowser", registry, reason: reason) { original in
+            // Read before the origin is normalized, while the run's scope is bound.
+            let mayChangeView = viewChange(original)
+            let invocation = effective(original)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "open-browser")
             let names = CloudPortNames(session, port: port)
             let path = try browserPath(invocation, names)
-            // Read now, while the run's scope is bound: a nested run changes the view only when its outer run may.
-            let viewChange = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
             let label = "open machine port in browser"
             if origin(of: invocation) == .user {
-                return runTracked(label, context) { _ = try await openBrowser(session, port: port, path: path, names: names, viewChange: viewChange, invocation, context) }
+                return runTracked(label, context) { _ = try await openBrowser(session, port: port, path: path, names: names, viewChange: mayChangeView, invocation, context) }
             }
             result(label, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
-                try await openBrowser(session, port: port, path: path, names: names, viewChange: viewChange, invocation, context)
+                try await openBrowser(session, port: port, path: path, names: names, viewChange: mayChangeView, invocation, context)
             }
         }
         bind("cloudPortList", registry, reason: reason) { invocation in
@@ -213,6 +213,12 @@ extension CloudHandlers {
         var effective = invocation
         effective.origin = origin(of: invocation)
         return effective
+    }
+
+    /// Whether the run may change the view: its own permission (a person's gesture, `--focus`),
+    /// and its outer run's when it is nested (``ActionRunScope``).
+    static func viewChange(_ invocation: ActionInvocation) -> Bool {
+        invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
     }
 
     /// A CLI or agent run answers within `action.run`'s result deadline: a slow link or app op

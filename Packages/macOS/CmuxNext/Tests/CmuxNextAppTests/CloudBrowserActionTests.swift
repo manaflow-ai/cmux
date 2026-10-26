@@ -54,7 +54,10 @@ struct CloudBrowserActionTests {
     /// command it names is a CLI verb with the machine named.
     @Test func everyPortActionDescribesItselfWithRealCommands() throws {
         let services = Self.fixture().services
-        for descriptor in CloudPortActionCatalog.descriptors() {
+        let ids: Set<ActionID> = ["cloudOpenBrowser", "cloudPortList", "cloudPortForward", "cloudPortClose", "cloudMachineLink"]
+        let descriptors = services.registry.descriptors.filter { ids.contains($0.id) }
+        #expect(descriptors.count == ids.count)
+        for descriptor in descriptors {
             let text = try #require(descriptor.description, "\(descriptor.id) has no description")
             #expect(!text.isEmpty && text.count <= 600)
             #expect(text.contains("--target machine:<id>"), "\(descriptor.id) does not say how to name the machine")
@@ -69,13 +72,22 @@ struct CloudBrowserActionTests {
 
     /// A nested run keeps its outer run's origin: a script's open-browser connects and calls the
     /// app server as the script, never as the person.
-    @Test func aNestedRunTakesItsOuterRunsOrigin() {
+    @Test func aNestedRunTakesItsOuterRunsOriginAndViewRule() {
         let inner = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-a"))
         #expect(CloudHandlers.effective(inner).origin == .user)
+        #expect(CloudHandlers.viewChange(inner))
+        // Inside a CLI run with --focus: a script's origin, and the view may change.
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: true)) {
+            #expect(CloudHandlers.effective(inner).origin == .cli)
+            #expect(CloudHandlers.viewChange(inner))
+        }
+        // Inside one without: the view stays.
         ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
             #expect(CloudHandlers.effective(inner).origin == .cli)
-            #expect(!(inner.allowsViewChange && ActionRunScope.viewChangeAllowed()))
+            #expect(!CloudHandlers.viewChange(inner))
         }
+        // A direct CLI run without --focus never changes the view.
+        #expect(!CloudHandlers.viewChange(ActionInvocation(target: inner.target, origin: .cli)))
     }
 
     // MARK: The route a CLI run opens
@@ -135,7 +147,7 @@ struct CloudBrowserActionTests {
         let names = CloudPortNames(name: "devbox-3", id: "vm-devbox3", port: 8080)
         let limit = CloudHandlers.portFailure(CloudAppOpFailure(code: "cmux.cloud.port_limit", message: "at most 16"), names)
         #expect(limit == CloudPortStrings.limit(names))
-        #expect(limit.contains("cmux cloud port-close --target machine:vm-devbox3 --port 8080"))
+        #expect(limit.contains("cmux cloud port-close --target machine:vm-devbox3 --port <port>"), "it names a forward to close, never the port that failed")
         #expect(limit.contains("cmux cloud port-list --target machine:vm-devbox3"))
         let other = CloudHandlers.portFailure(CloudAppOpFailure(code: "cloud.machine.not_found", message: "no such machine in this team"), names)
         #expect(other.contains("devbox-3") && other.contains("8080") && other.contains("no such machine in this team"))

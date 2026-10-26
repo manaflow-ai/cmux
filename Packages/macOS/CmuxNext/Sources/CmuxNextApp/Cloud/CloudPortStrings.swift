@@ -37,10 +37,10 @@ enum CloudPortStrings {
                               table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
     }
 
-    /// The Cloud app server's `cmux.cloud.port_limit`.
+    /// The Cloud app server's `cmux.cloud.port_limit`: close one of the open forwards (`<port>` from the list).
     static func limit(_ names: CloudPortNames) -> String {
         String(format: String(localized: "cloud.ports.limit",
-                              defaultValue: "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list --target machine:%2$@` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one.",
+                              defaultValue: "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list --target machine:%2$@` lists them, and `cmux cloud port-close --target machine:%2$@ --port <port>` closes one.",
                               table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
     }
 
