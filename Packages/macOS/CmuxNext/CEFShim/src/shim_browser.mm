@@ -235,6 +235,11 @@ int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
+int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture) {
+  if (!fork_api().tab_set_visibility) return 0;
+  return fork_api().tab_set_visibility(browser_id, visibility, capture);
+}
+
 int cmux_shim_print(int browser_id) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
   if (!host) return 0;
