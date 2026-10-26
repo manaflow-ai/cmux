@@ -22,7 +22,8 @@ extension BrowserHibernation {
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
-                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
+                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame,
+                             audible: object["sound"] == true || busy.audio)
         } catch {
             return unanswered(tab)
         }
@@ -77,7 +78,28 @@ extension BrowserHibernation {
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         candidate.hasBackgroundActivity = activity.contains(key)
+        if let audible {
+            // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
+            candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
+            candidate.secondsSinceAudible = audible.secondsSinceAudible(key)
+        }
         return candidate
+    }
+
+    /// Page `page` became tab `key`'s page (`TabContentCache.mount`: a new tab, a swap, a restore,
+    /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
+    /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
+    /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
+    /// page) drops the old page's watch.
+    func pageDidMount(_ key: String, _ page: any BrowserTab) {
+        guard let audible else { return }
+        guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
+        audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
+    }
+
+    /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
+    func soundDidEnd(_ key: String) {
+        if cache?.lifecycle.phase(key) == .mountedHidden { replan() }
     }
 
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
