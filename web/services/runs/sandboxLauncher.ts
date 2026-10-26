@@ -14,12 +14,6 @@ const SANDBOX_DRAIN_MS = 15_000;
  */
 const SANDBOX_LATE_CREATE_MS = 60_000;
 
-/**
- * The last part of the output, already redacted. Each line is redacted as it completes (a private
- * key block is held whole until its END line), so dropping old lines to stay inside the window
- * can never separate a secret from the prefix or header that redaction recognizes it by. A line
- * longer than the window is dropped, with the rest of it as it arrives.
- */
 // A marker is BEGIN or END, then anything on that line, then PRIVATE KEY: whatever sits between
 // (escape remnants, junk) can't hide one.
 const KEY_BEGIN = /-----BEGIN[^\n]*?PRIVATE KEY/g;
@@ -32,8 +26,6 @@ const SHORT_ESCAPE = /^(?:\u001b\[[0-?]*[ -/]*[@-~]|\u001b[@-Z\\-_])/;
 const UNFINISHED_CSI = /^\u001b\[[0-?]*[ -/]*$/;
 /** The longest unfinished CSI sequence carried to the next chunk; a longer one is dropped. */
 const ESCAPE_CARRY_MAX = 4_096;
-/** A line ending in a secret-named label with its value still to come (`PASSWORD:`). */
-const SECRET_LABEL_AT_END = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|_auth|\bsig)["']?\s*[:=]\s*$/i;
 
 /**
  * Terminal output with its escape sequences removed as a terminal reads them, across chunks
@@ -102,15 +94,34 @@ function lastIndexOf(pattern: RegExp, text: string): number {
   return last;
 }
 
+/** Spaces and tabs this long or longer collapse to one space (they carry nothing for a reply). */
+const LONG_BLANK = /[ \t]{64,}/g;
+/** A probe no token shape or value pattern leaves whole when it sits where a secret's value goes. */
+const VALUE_PROBE = "q7Zx4Kp9Wm2Rt6Vn8Ys3Bd5Hf";
+/** Base64 that could be part of a key body. */
+const BASE64_LINE = /^[A-Za-z0-9+/=]+\s*$/;
+
+/**
+ * The output a receipt may show: the last part of what a terminal would display, kept raw and
+ * redacted whole by the receipt's own redactor when it is read, so a label and its value, a quote
+ * and its close, or a key and its body are redacted together however the output was chunked.
+ *
+ * Only a window is kept (old lines drop off at line boundaries, so no token is ever cut in two),
+ * and nothing is lost that redaction needs from beyond it:
+ * - runs of blank lines and long runs of spaces collapse, so no amount of blank output can push a
+ *   label away from its value;
+ * - a line too long to keep is replaced by a placeholder, which keeps a label the line ended in
+ *   (as the redactor reads it: the next line would be redacted as its value) as a stand-in label;
+ * - a private key is dropped from its BEGIN line through its END line as it streams; an END with
+ *   no BEGIN seen (the header hidden) takes back the base64 lines kept above it.
+ */
 export class OutputTail {
   private kept = "";
   private pending = "";
   private skippingLine = false;
-  /** The end of the text dropped so far on the line being skipped. */
+  /** The end of the line being skipped (for markers and a label split across chunks). */
   private skippedTail = "";
   private inKeyBlock = false;
-  /** The last kept line ended in a secret-named label: the next non-blank line is its value. */
-  private secretNext = false;
   private readonly terminal = new TerminalTextFilter();
 
   constructor(private readonly handles: () => readonly (string | null | undefined)[] = () => []) {}
@@ -122,13 +133,17 @@ export class OutputTail {
       this.skip(end < 0 ? next : next.slice(0, end));
       if (end < 0) return;
       next = next.slice(end + 1);
-      this.skippingLine = false;
-      this.skippedTail = "";
+      this.endSkip();
     }
-    this.pending += next;
+    this.pending = (this.pending + next).replace(LONG_BLANK, " ");
     let newline = this.pending.indexOf("\n");
     while (newline >= 0) {
-      this.complete(this.pending.slice(0, newline + 1));
+      const line = this.pending.slice(0, newline + 1);
+      // A whole line too long to keep goes the way of one that streamed past the window.
+      if (line.length > SANDBOX_OUTPUT_TAIL_CHARS) {
+        this.skip(line.slice(0, -1));
+        this.endSkip();
+      } else this.complete(line);
       this.pending = this.pending.slice(newline + 1);
       newline = this.pending.indexOf("\n");
     }
@@ -139,12 +154,8 @@ export class OutputTail {
     }
   }
 
-  /**
-   * A line too long to keep is dropped, but a key marker in it still moves the key block: a key
-   * whose BEGIN line was dropped must not have its body kept.
-   */
+  /** A line too long to keep: dropped, but its key markers and the label it ends in still count. */
   private skip(text: string): void {
-    // The terminal filter already removed escapes, so a marker split across chunks is whole here.
     const scan = this.skippedTail + stripTerminalEscapes(text);
     const begin = lastIndexOf(KEY_BEGIN, scan);
     const end = lastIndexOf(KEY_END, scan);
@@ -156,9 +167,14 @@ export class OutputTail {
     this.skippedTail = scan.slice(-KEY_MARKER_WINDOW);
   }
 
+  private endSkip(): void {
+    if (!this.inKeyBlock) this.keep(`${omittedLine(this.skippedTail)}\n`);
+    this.skippingLine = false;
+    this.skippedTail = "";
+  }
+
   private complete(raw: string): void {
-    // A private key's lines are dropped from its BEGIN line through its END line, read with
-    // control characters removed (the terminal filter already took the escapes out).
+    // Control characters out (the terminal filter already took the escapes out).
     const line = stripTerminalEscapes(raw);
     if (lastIndexOf(KEY_BEGIN, line) >= 0) this.inKeyBlock = true;
     if (this.inKeyBlock) {
@@ -168,41 +184,14 @@ export class OutputTail {
       }
       return;
     }
-    // An END marker with no BEGIN seen (its header hidden): take back the body lines kept above it.
     if (lastIndexOf(KEY_END, line) >= 0) {
-      this.dropKeyBody();
+      this.kept = withoutKeyBody(this.kept);
       this.keep("[redacted private key]\n");
       return;
     }
-    // A value printed on the line after its label (`PASSWORD:` then the value) is redacted
-    // whole; the label is state here, so evicting its line can't separate the two.
-    if (this.secretNext && line.trim()) {
-      this.secretNext = false;
-      this.keep("[redacted]\n");
-      return;
-    }
-    if (SECRET_LABEL_AT_END.test(line.trimEnd())) this.secretNext = true;
-    this.keep(redactReceiptText(line, this.handles()));
-  }
-
-  /**
-   * Remove the kept lines that end in a key body: base64 lines back to (and with) the line that
-   * holds a BEGIN, or as far as the run of base64 lines goes.
-   */
-  private dropKeyBody(): void {
-    const lines = this.kept.split("\n");
-    const last = lines.pop() ?? "";
-    let cut = lines.length;
-    while (cut > 0) {
-      const line = lines[cut - 1] ?? "";
-      if (line.includes("-----BEGIN")) {
-        cut -= 1;
-        break;
-      }
-      if (!/^[A-Za-z0-9+/=]{16,}\s*$/.test(line)) break;
-      cut -= 1;
-    }
-    this.kept = [...lines.slice(0, cut), last].join("\n");
+    // One blank line is as good as many: a run of them never pushes a label off the window.
+    if (!line.trim() && (this.kept.endsWith("\n\n") || this.kept === "")) return;
+    this.keep(line);
   }
 
   private keep(line: string): void {
@@ -214,12 +203,48 @@ export class OutputTail {
   }
 
   toString(): string {
-    // The unfinished last line is redacted too; an unfinished key block shows only its marker.
-    const tail = this.inKeyBlock
-      ? "[redacted private key]"
-      : this.secretNext && this.pending.trim() ? "[redacted]" : redactReceiptText(this.pending, this.handles());
-    return this.kept + tail;
+    // The unfinished last line counts too: a key block shows only its marker, an END takes back
+    // its body, and a line still being skipped shows as omitted.
+    let kept = this.kept;
+    let last = stripTerminalEscapes(this.pending);
+    if (this.skippingLine) last = this.inKeyBlock ? "[redacted private key]" : omittedLine(this.skippedTail);
+    else if (this.inKeyBlock) last = "[redacted private key]";
+    else if (lastIndexOf(KEY_END, last) >= 0) {
+      kept = withoutKeyBody(kept);
+      last = "[redacted private key]";
+    }
+    return redactReceiptText(kept + last, this.handles());
   }
+}
+
+/**
+ * The placeholder for a line too long to keep. When the line ends where a value would follow a
+ * secret's label (the receipt's redactor would take the next line as that value), the
+ * placeholder ends in a stand-in label with the same effect, open quote included.
+ */
+function omittedLine(tail: string): string {
+  const placeholder = "[long line omitted]";
+  if (redactReceiptText(`${tail}\n${VALUE_PROBE}`).includes(VALUE_PROBE)) return placeholder;
+  // Inside an open quote the redactor keeps going past a space; after a bare label it stops.
+  const quoted = !redactReceiptText(`${tail}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE);
+  return `${placeholder} secret=${quoted ? '"' : ""}`;
+}
+
+/** `kept` without the key body that ends it: base64 lines back to (and with) a line holding BEGIN. */
+function withoutKeyBody(kept: string): string {
+  const lines = kept.split("\n");
+  const last = lines.pop() ?? "";
+  let cut = lines.length;
+  while (cut > 0) {
+    const line = lines[cut - 1] ?? "";
+    if (line.includes("-----BEGIN")) {
+      cut -= 1;
+      break;
+    }
+    if (!BASE64_LINE.test(line)) break;
+    cut -= 1;
+  }
+  return [...lines.slice(0, cut), last].join("\n");
 }
 
 /**

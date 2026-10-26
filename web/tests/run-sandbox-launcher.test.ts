@@ -268,60 +268,81 @@ describe("sandbox run lifecycle", () => {
     expect(stopped?.aborted).toBe(true);
   });
 
-  test("the kept tail is redacted line by line, so evicting old lines never separates a secret from its context", async () => {
+  test("the tail is redacted whole, so chunking, eviction and long lines never separate a secret from its context", async () => {
     const tail = (chunks: string[]) => {
       const kept = new OutputTail();
       for (const chunk of chunks) kept.append(chunk);
       return kept.toString();
     };
-    expect(tail([`ghp_${"a".repeat(36)}${" ".repeat(70_000)}\nlast line`])).toBe("last line");
     expect(tail(["short"])).toBe("short");
     // A line longer than the window is dropped through its newline, across chunks.
+    expect(tail([`ghp_${"a".repeat(36)}${"x".repeat(70_000)}\nlast line`])).toBe("[long line omitted]\nlast line");
     const split = tail(["x".repeat(32_768), "x".repeat(32_768), " password=", "example-pass-123!\n", "after\n"]);
-    expect(split).toBe("after\n");
-    expect(sandboxReply(split)).not.toContain("example-pass-123!");
-    // A private key whose BEGIN line would be evicted: the key never survives.
+    expect(split).toBe("[long line omitted]\nafter\n");
+    // Long runs of spaces collapse, so a line of them is kept and its token still redacted.
+    expect(tail([`ghp_${"a".repeat(36)}${" ".repeat(70_000)}\nlast line`])).toBe("[redacted] \nlast line");
+    // Cut off mid-line by a timeout: the unfinished line is redacted too.
+    expect(tail(['echo PASSWORD="example-pass-123!'])).not.toContain("example-pass-123!");
+  });
+
+  test("a label and its value are redacted together: next line, quoted across lines, past blank output or a long line", () => {
+    const tail = (chunks: string[]) => {
+      const kept = new OutputTail();
+      for (const chunk of chunks) kept.append(chunk);
+      return kept.toString();
+    };
+    expect(tail(["PASSWORD:\n", "hunter2\n", "after\n"])).toBe("PASSWORD:\n[redacted]\nafter\n");
+    expect(tail(['PASSWORD="\n', "  hunter2\n", '"\n', "after\n"])).not.toContain("hunter2");
+    // Any amount of blank lines or spaces between them collapses.
+    expect(tail(["export API_KEY=\n", "\n".repeat(70_000), "hunter2\n", "after\n"])).not.toContain("hunter2");
+    expect(tail([" ".repeat(70_000), "PASSWORD:\nhunter2\n"])).not.toContain("hunter2");
+    // The whole-text grammar: suffixed names and signature labels too.
+    expect(tail(["PASSWORD_PROD:\n", "\n".repeat(70_000), "hunter2\n"])).not.toContain("hunter2");
+    expect(tail(["SharedAccessSignature:\n", "c2lnbmF0dXJlMTIz\n"])).not.toContain("c2lnbmF0dXJlMTIz");
+    // A label at the end of a line too long to keep stands in for it, open quote included.
+    expect(tail(["x".repeat(70_000), " PASSWORD:\n", "hunter2\n", "after\n"])).toBe("[long line omitted] secret=\n[redacted]\nafter\n");
+    expect(tail(["x".repeat(70_000), ' PASSWORD="\n', "  hunter2\n", '"\n'])).not.toContain("hunter2");
+    // A long line that ends in a whole value stands in for nothing: the next line is kept.
+    expect(tail(["x".repeat(70_000), " password=done\n", "after\n"])).toBe("[long line omitted]\nafter\n");
+  });
+
+  test("a private key never survives: evicted header, long lines, escapes, a hidden header, no final newline", async () => {
+    const tail = (chunks: string[]) => {
+      const kept = new OutputTail();
+      for (const chunk of chunks) kept.append(chunk);
+      return kept.toString();
+    };
     const { generateKeyPairSync } = await import("node:crypto");
     const pem = generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString();
     const body = pem.split("\n").slice(1, -2).join("\n");
-    const evicted = tail([pem, `${"pad\n".repeat(20_000)}`, "done\n"]);
-    expect(evicted).not.toContain(body);
+    expect(tail([pem, `${"pad\n".repeat(20_000)}`, "done\n"])).not.toContain(body);
     expect(tail(["log\n", pem, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
     // Terminal escapes inside the markers can't hide the block.
     const escaped = pem.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN \u001b[0mPRIVATE KEY-----").replace("-----END PRIVATE KEY-----", "-----END \u001b[1mPRIVATE KEY-----");
     expect(tail(["log\n", escaped, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
-    // Cut off mid-line by a timeout: the unfinished line is redacted too.
-    expect(tail(['echo PASSWORD="example-pass-123!'])).not.toContain("example-pass-123!");
- 
     // A key straight after a line too long to keep: the dropped line's BEGIN marker still starts
     // the block, also when the marker itself is split across chunks.
     const pad = "A".repeat(35_000);
     expect(tail([pad, pad, pem, "done\n"])).toBe("[redacted private key]\ndone\n");
     const cut = pem.indexOf("PRIVATE");
-    const splitMarker = tail([pad, pad, pem.slice(0, cut), pem.slice(cut), "done\n"]);
-    expect(splitMarker).not.toContain(body);
-    expect(splitMarker).toBe("[redacted private key]\ndone\n");
+    expect(tail([pad, pad, pem.slice(0, cut), pem.slice(cut), "done\n"])).toBe("[redacted private key]\ndone\n");
     // A marker split by a long run of escapes, and an escape split across chunks, still count.
     const escapedPem = pem.replace("-----BEGIN PRIVATE KEY-----", `-----BEGIN ${"\u001b[0m".repeat(200)}PRIVATE KEY-----`);
     const escapeCut = escapedPem.indexOf("\u001b[0m") + 2;
-    const longEscapes = tail([pad, pad, escapedPem.slice(0, 600), escapedPem.slice(600), "done\n"]);
-    expect(longEscapes).not.toContain(body);
-    expect(longEscapes).toBe("[redacted private key]\ndone\n");
-    const halfEscape = tail([pad, pad, escapedPem.slice(0, escapeCut), escapedPem.slice(escapeCut), "done\n"]);
-    expect(halfEscape).toBe("[redacted private key]\ndone\n");
+    expect(tail([pad, pad, escapedPem.slice(0, 600), escapedPem.slice(600), "done\n"])).toBe("[redacted private key]\ndone\n");
+    expect(tail([pad, pad, escapedPem.slice(0, escapeCut), escapedPem.slice(escapeCut), "done\n"])).toBe("[redacted private key]\ndone\n");
     // An OSC sequence swallows text, newlines included, until its BEL: a marker split by one
     // across lines reads whole, and a header an OSC hid still takes the body with it.
     const oscSplit = pem.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIV\u001b]0;title\n\u0007ATE KEY-----");
     expect(tail(["log\n", oscSplit, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
     const hiddenHeader = pem.replace("-----BEGIN PRIVATE KEY-----\n", "-----BEGIN \u001b]0;PRIVATE KEY-----\n\u0007");
-    const hidden = tail(["log\n", hiddenHeader, "done\n"]);
-    expect(hidden).not.toContain(body);
-    expect(hidden).toBe("log\n[redacted private key]\ndone\n");
-    // A value on the line after its label is redacted, however far the label scrolled away.
-    expect(tail(["PASSWORD:\n", "hunter2\n", "after\n"])).toBe("PASSWORD:\n[redacted]\nafter\n");
-    const scrolled = tail(["export API_KEY=\n", "\n".repeat(70_000), "hunter2\n", "after\n"]);
-    expect(scrolled).not.toContain("hunter2");
-    expect(scrolled.endsWith("[redacted]\nafter\n")).toBe(true);
+    expect(tail(["log\n", hiddenHeader, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
+    // The output ends right after the END marker, with no newline.
+    const noNewline = hiddenHeader.trimEnd();
+    expect(tail(["log\n", noNewline])).toBe("log\n[redacted private key]");
+    // A body whose last line is short is taken back whole.
+    const shortTail = "-----BEGIN \u001b]0;PRIVATE KEY-----\n\u0007" + `${"Q".repeat(64)}\nAB==\n-----END PRIVATE KEY-----\n`;
+    expect(tail(["log\n", shortTail, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
   });
 
   test("a sandbox journals its states, never its raw terminal output", () => {
