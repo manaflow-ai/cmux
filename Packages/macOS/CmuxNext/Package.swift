@@ -1,6 +1,9 @@
 // swift-tools-version: 6.2
 
 import PackageDescription
+#if os(Linux)
+import Foundation
+#endif
 
 // Umbrella package for the cmux-next app (plans/cmux-next/shell.md).
 // The Xcode target `cmux-next` compiles only App/main.swift and links the
@@ -2136,6 +2139,34 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]
+
+/// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
+/// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
+/// a target with a catalog takes the tables scripts/cmux-next/linux/compile-xcstrings.py compiled
+/// from it, linked into its folder as `LinuxStringTables/<lang>.lproj/<table>.strings`; without
+/// them the build stops on that missing folder. macOS compiles the catalogs itself.
+func addLinuxStringTables(to targets: [Target]) {
+#if os(Linux)
+    let files = FileManager.default
+    for target in targets {
+        let parent: String
+        switch target.type {
+        case .regular, .executable: parent = "Sources"
+        case .test: parent = "Tests"
+        default: continue
+        }
+        let folder = Context.packageDirectory + "/" + (target.path ?? parent + "/" + target.name)
+        let hasCatalog = files.enumerator(atPath: folder)?.contains { ($0 as? String)?.hasSuffix(".xcstrings") == true }
+        if hasCatalog == true {
+            target.resources = (target.resources ?? []) + [.process("LinuxStringTables")]
+        }
+    }
+#endif
+}
+
+if Context.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    addLinuxStringTables(to: packageTargets)
+}
 
 let package = Package(
     name: "CmuxNext",
