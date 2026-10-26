@@ -453,14 +453,27 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        // Read before the check: `run` moves the epoch on before it fails what
+        // waits, so a request that is registered after that sees the change.
+        let epoch = self.link_epoch();
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
-        self.link_request(m, params).await
+        self.link_request_on(m, params, Some(epoch)).await
     }
 
     /// `request` with no admission check: the handshake's `initialize`.
     async fn link_request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.link_request_on(m, params, None).await
+    }
+
+    /// Sends `m` on the link of epoch `epoch` (any link when None).
+    async fn link_request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
@@ -468,6 +481,12 @@ impl Peer {
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
+        // The link it was admitted on went down before it was registered: `run`
+        // already failed what waited, and the next link drops its frame, so a
+        // prompt (which has no deadline) would wait for good.
+        if epoch.is_some_and(|e| e != self.link_epoch() || !self.connected.load(Ordering::SeqCst)) {
+            return Err(self.unreachable_error());
+        }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         if self.out.send(line).await.is_err() {
@@ -704,6 +723,10 @@ impl Peer {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             me.refresh_health();
+            // While these rereads run the link serves as Web, as it did before for
+            // good: a request then gets the Web answer (fewer rights, never more),
+            // and holding the link unready instead would leave a remote too old
+            // to write a token unreachable for every reread on every connect.
             if let Some(why) = me.late_token().await {
                 let _ = stale_tx.send(why);
             }
@@ -1107,5 +1130,30 @@ mod remote_config_tests {
         assert_eq!(peer_token_text("a".repeat(63).as_bytes()), None);
         let read = [br#"{"websocket":{"token":"t"}}"#.as_slice(), b"\0", good.as_bytes()].concat();
         assert_eq!(split_remote_read(&read).1, Some(good));
+    }
+}
+
+#[cfg(test)]
+mod link_epoch_tests {
+    use super::*;
+
+    /// A prompt admitted on a link that went down before it was registered fails at once: the
+    /// next link drops its frame, and a prompt has no deadline, so it would wait for good.
+    #[tokio::test]
+    async fn a_prompt_admitted_on_a_link_that_went_down_fails_instead_of_waiting() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        let admitted_on = peer.link_epoch();
+        // The link drops and the next one is up again before the request registers.
+        peer.link_ended();
+        let answer = tokio::time::timeout(
+            Duration::from_secs(5),
+            peer.link_request_on(method::SESSION_PROMPT, json!({}), Some(admitted_on)),
+        )
+        .await
+        .expect("a prompt on a dead link must not wait");
+        assert!(answer.is_err());
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
     }
 }
