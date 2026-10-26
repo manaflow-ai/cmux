@@ -39,6 +39,7 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type ThemeOverride,
   type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
@@ -67,6 +68,8 @@ export type MockOptions = {
   museumArt?: MuseumArtResult[];
   /** Workspaces with a background of their own, or following the app's (`value` null). */
   workspaceBackgrounds?: WorkspaceBackground[];
+  /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
+  themeOverrides?: ThemeOverride[];
 };
 
 export const mockDomains: Domains = {
@@ -171,6 +174,7 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
+    if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -345,6 +349,12 @@ export class MockSettingsProvider {
         }
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
+      "cmux.settings.theme.overrides.release": () => {
+        const files = new Set((this.host.theme_overrides ?? []).map((override) => override.file)).size;
+        this.setHost({ ...this.host, theme_overrides: [] });
+        return { files };
+      },
+      "cmux.settings.theme.overrides.open": () => ({}),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
