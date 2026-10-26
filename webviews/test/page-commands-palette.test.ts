@@ -22,7 +22,7 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
   });
 
   // The App's side of `pane.commandAvailability` and `pane.action`: recorded, in every actions map
-  // the page sets.
+  // the page sets, a reconnect's too.
   const record = async (page: Page) => {
     await page.addInitScript(() => {
       const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -37,7 +37,9 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         ]),
       );
       let actions: Record<string, unknown> = { ...stand };
-      Object.defineProperty(window, "cmuxAcpmuxActions", {
+      // On the prototype: a lost connection deletes the page's own `cmuxAcpmuxActions` (App.tsx
+      // connectHost), which would take an accessor on `window` with it, and the reconnect's with it.
+      Object.defineProperty(Window.prototype, "cmuxAcpmuxActions", {
         configurable: true,
         get: () => actions,
         set: (next: Record<string, unknown> | undefined) => {
