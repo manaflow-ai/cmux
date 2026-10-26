@@ -23,7 +23,7 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var status: Int32
     }
 
-    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .utility)
+    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
     private let onExit: @Sendable (Exit) -> Void
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-children")
     private var kq: Int32 = -1

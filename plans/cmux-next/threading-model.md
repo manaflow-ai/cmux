@@ -159,8 +159,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`,
   `cmux-next vsync <display>` (VSyncHub)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`,
-  `com.cmuxterm.next.daemon.path.<machine>` (utility), `com.cmuxterm.next.daemon.exit.<pid>` (utility),
-  `com.cmuxterm.next.retry-wake` (utility), `com.cmuxterm.next.process-progress` (utility)
+  `com.cmuxterm.next.daemon.path.<machine>` (utility), `com.cmuxterm.next.daemon.exit.<pid>` (user-initiated;
+  the reconnect waits on the old daemon's exit before it starts the next one),
+  `com.cmuxterm.next.retry-wake` (user-initiated; its socket-folder watch wakes the reconnect while terminals are
+  disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher` (utility), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
@@ -174,7 +176,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.chromium-host.control` (user-initiated; the control channel's reader in cmux and, same label, in the host;
   waits only in `poll`: input, the socket taking a waiting outbox, a wake byte, the quota ceiling's one deadline),
   `com.cmuxterm.chromium-host.exit` (user-initiated serial queue for the host's exit source; a crash shows on the page),
-  `com.cmuxterm.app.next.cef-children` (utility), `com.cmuxterm.import-history-sync`,
+  `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
+  reaps it), `com.cmuxterm.import-history-sync`,
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
   `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
