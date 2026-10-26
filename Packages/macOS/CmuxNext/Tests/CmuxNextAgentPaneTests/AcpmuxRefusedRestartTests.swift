@@ -88,7 +88,8 @@ struct AcpmuxRefusedRestartTests {
             #expect(!stopped)
             let restarted = await AcpmuxHost(environment: environment).restartAcpmux(owner: owner)
             #expect(!restarted)
-            #expect(daemon.calls.allSatisfy(\.isEmpty), "a daemon on another socket was asked: \(daemon.calls)")
+            let asked = daemon.calls.contains { !$0.isEmpty }
+            #expect(!asked, "a daemon on another socket was asked: \(daemon.calls)")
         }
     }
 
