@@ -355,6 +355,7 @@ impl Hub {
             self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
+                self.watches.peer_settled();
             }
         }
     }

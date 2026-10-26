@@ -97,6 +97,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -248,6 +249,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
+        "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -299,6 +302,8 @@ extension SettingsSchema {
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
         "home.server": .privacy,
+        // Whether the person's Chief runs on this Mac or in the cloud: where their messages go.
+        "home.chiefEngine": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -354,6 +359,9 @@ extension SettingsSchema {
         "agents.trust.autoTrust": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
+        // Which hosts an ssh:// link from another app connects to without asking: only the person
+        // trusts a host, so a page or an agent cannot add one and skip the confirmation.
+        "ssh.linkAllowedHosts": .network,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
