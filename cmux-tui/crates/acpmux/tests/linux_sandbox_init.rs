@@ -102,6 +102,8 @@ fn helper_hands_off_listener_sets_env_and_closes_leaked_fds() {
             &fd.to_string(),
             "--proxy-port",
             "0",
+            "--api-port",
+            "0",
             "--",
             "/usr/bin/env",
             py,
@@ -109,7 +111,7 @@ fn helper_hands_off_listener_sets_env_and_closes_leaked_fds() {
             "import os,socket; assert os.environ['HTTP_PROXY'].endswith(':'+os.environ['HTTP_PROXY'].rsplit(':',1)[1]); assert 'NO_PROXY' not in os.environ and 'no_proxy' not in os.environ;
 try: socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); raise SystemExit(4)
 except PermissionError: pass
-d=os.open('/proc/self/fd',os.O_RDONLY|os.O_DIRECTORY); f=[int(x) for x in os.listdir('/proc/self/fd')]; os.close(d); assert all(x <= 2 or x == d for x in f)",
+d=os.open('/proc/self/fd',os.O_RDONLY|os.O_DIRECTORY); f=[int(x) for x in os.listdir(d)]; os.close(d); assert all(x <= 2 or x == d for x in f)",
         ],
         fd,
     );
