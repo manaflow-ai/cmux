@@ -50,6 +50,13 @@ const longProjects: Project[] = [
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+  const field = ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  const menu = ctx.document.querySelector<HTMLElement>(".acpmux-project-menu")!;
+  const width = field.getBoundingClientRect().width;
+  if (width < menu.clientWidth - 24)
+    throw new Error("Project search must fill the menu width, not render as a native short input");
+  if (ctx.document.defaultView!.getComputedStyle(field).borderLeftWidth !== "0px")
+    throw new Error("Project search must keep the composer field style without a native border");
 };
 
 // The macOS menu gesture: press the pill, drag onto a row, release to pick it.
