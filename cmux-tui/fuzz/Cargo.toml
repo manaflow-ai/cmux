@@ -1,0 +1,91 @@
+# cargo-fuzz targets for cmux-tui decoders and input schedulers
+# (plans/cmux-next/chrome-parity/p10-stability.md, tasks 017-021, 181).
+# Its own workspace and lock, so the main Cargo.toml and Cargo.lock stay as
+# they are; the nightly toolchain is pinned in rust-toolchain.toml here.
+# Run: scripts/cmux-next/rust-fuzz.sh --target NAME --seconds 600
+[package]
+name = "cmux-tui-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+cmux-tui = { path = "../crates/cmux-tui", features = ["fuzzing"] }
+cmux-config = { path = "../crates/cmux-config" }
+cmux-server-core = { path = "../crates/cmux-server-core" }
+
+# As the main workspace: cmux-tui needs crossterm's Kitty CSI-u fields.
+[patch.crates-io]
+crossterm = { path = "../vendor/crossterm" }
+terminput-crossterm = { path = "../vendor/terminput-crossterm" }
+
+# cargo fuzz builds release; keep the checks a debug build has, so an
+# overflow or a debug_assert is a finding.
+[profile.release]
+debug = 1
+overflow-checks = true
+debug-assertions = true
+
+[[bin]]
+name = "tui_pty_input"
+path = "fuzz_targets/tui_pty_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tui_browser_input"
+path = "fuzz_targets/tui_browser_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tui_keys"
+path = "fuzz_targets/tui_keys.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_keybindings"
+path = "fuzz_targets/config_keybindings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_schema"
+path = "fuzz_targets/config_schema.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_store"
+path = "fuzz_targets/config_store.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_core_pairing"
+path = "fuzz_targets/server_core_pairing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_core_enrollment"
+path = "fuzz_targets/server_core_enrollment.rs"
+test = false
+doc = false
+bench = false

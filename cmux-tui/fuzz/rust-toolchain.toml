@@ -1,0 +1,7 @@
+# cargo-fuzz needs nightly (-Zsanitizer, SanitizerCoverage). The pin lives in
+# this folder only; the main workspace keeps its pinned stable
+# (plans/cmux-next/chrome-parity/p10-stability.md, risk 7).
+[toolchain]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["rust-src", "llvm-tools-preview"]

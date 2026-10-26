@@ -1210,6 +1210,25 @@ mod tests {
         );
     }
 
+    /// Positions are 1-based; a 0 from the host terminal is malformed input,
+    /// refused like any other, never an arithmetic underflow (found by the
+    /// cmux-tui/fuzz `tui_keys` target).
+    #[test]
+    fn zero_coordinates_are_refused_not_underflowed() {
+        for buffer in [
+            &b"\x1B[<0;10;0m"[..],
+            b"\x1B[<0;0;10M",
+            b"\x1B[32;0;5M",
+            b"\x1B[32;10;0M",
+            b"\x1B[0;5R",
+            b"\x1B[5;0R",
+        ] {
+            assert!(parse_event(buffer, false).is_err(), "{buffer:?} was not refused");
+        }
+        assert!(parse_csi_normal_mouse(b"\x1B[M  !").is_err());
+        assert!(parse_csi_normal_mouse(b"\x1B[M !\x1f").is_err());
+    }
+
     #[test]
     fn test_utf8() {
         // https://www.php.net/manual/en/reference.pcre.pattern.modifiers.php#54805
