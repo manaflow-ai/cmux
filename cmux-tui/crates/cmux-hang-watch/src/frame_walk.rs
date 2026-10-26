@@ -61,8 +61,6 @@ pub(crate) struct Registers {
     pub(crate) pc: u64,
     pub(crate) sp: u64,
     pub(crate) fp: u64,
-    /// The arm64 link register: the return address of a leaf function that has no frame record.
-    pub(crate) lr: Option<u64>,
 }
 
 /// User addresses fit in 47 bits; the bits above hold a pointer-authentication code on arm64e.
@@ -84,7 +82,8 @@ fn frame_record(fp: u64, low: u64, high: u64) -> Option<(u64, u64)> {
         return None;
     }
     // SAFETY: [fp, fp + 16) lies inside `[low, high)`, which `walk`'s caller guarantees is mapped
-    // stack memory of a thread that cannot unmap it meanwhile (it is suspended).
+    // stack memory of a thread that cannot unmap it meanwhile: it is suspended, and the caller saw it
+    // still registered after the suspend, so it has not reached the pthread_exit that frees it.
     let (next, ret) = unsafe {
         (std::ptr::read_volatile(fp as *const u64), std::ptr::read_volatile((fp + 8) as *const u64))
     };
@@ -92,24 +91,16 @@ fn frame_record(fp: u64, low: u64, high: u64) -> Option<(u64, u64)> {
 }
 
 /// Runs while the target is suspended: no lock, no allocation, no call that could take either.
+/// The pc, then each return address of the frame-record chain from fp, as Chrome's
+/// `FramePointerUnwinder::TryUnwind` walks it (base/profiler/frame_pointer_unwinder.cc).
 pub(crate) fn walk(registers: Registers, bounds: Option<Bounds>, out: &mut RawStack) {
     out.push(registers.pc);
-    // A stack pointer outside the thread's stack (a signal stack) leaves only the registers.
+    // A stack pointer outside the thread's stack (a signal stack) leaves only the pc.
     let bounds = bounds.filter(|b| registers.sp >= b.low && registers.sp < b.high);
-    let Some(Bounds { high, .. }) = bounds else {
-        if let Some(lr) = registers.lr.filter(|lr| *lr != 0) {
-            out.push(lr);
-        }
-        return;
-    };
+    let Some(Bounds { high, .. }) = bounds else { return };
     let low = registers.sp;
     let mut fp = registers.fp;
     let mut record = frame_record(fp, low, high);
-    // A leaf (or a function before its prologue) has no record yet: its caller is in lr. When the
-    // top record already returns to lr, lr is that frame and is not repeated.
-    if let Some(lr) = registers.lr.filter(|lr| *lr != 0 && Some(*lr) != record.map(|r| r.1)) {
-        out.push(lr);
-    }
     while let Some((next, ret)) = record {
         if ret == 0 || !out.push(ret) || next <= fp {
             break;
@@ -149,7 +140,7 @@ mod tests {
         words[10] = at(40);
         words[11] = 0x3333;
         let bounds = Bounds { low: base, high: base + 8 * 16 };
-        let registers = Registers { pc: 0x9999, sp: base, fp: at(2), lr: None };
+        let registers = Registers { pc: 0x9999, sp: base, fp: at(2) };
         let mut raw = RawStack::new();
         walk(registers, Some(bounds), &mut raw);
         std::hint::black_box(&words);
@@ -167,7 +158,7 @@ mod tests {
         }
         let bounds = Bounds { low: base, high: base + 8 * words.len() as u64 };
         let mut raw = RawStack::new();
-        walk(Registers { pc: 0x9, sp: base, fp: base, lr: None }, Some(bounds), &mut raw);
+        walk(Registers { pc: 0x9, sp: base, fp: base }, Some(bounds), &mut raw);
         std::hint::black_box(&words);
         assert_eq!(raw.addresses().len(), MAX_FRAMES);
         assert!(raw.truncated());
@@ -179,24 +170,27 @@ mod tests {
         let base = words.as_ptr() as u64;
         let bounds = Bounds { low: base, high: base + 32 };
         let mut raw = RawStack::new();
-        let off_stack = Registers { pc: 0x9, sp: base + 64, fp: base, lr: Some(0x7) };
+        let off_stack = Registers { pc: 0x9, sp: base + 64, fp: base };
         walk(off_stack, Some(bounds), &mut raw);
-        assert_eq!(raw.addresses(), [0x9, 0x7]);
+        assert_eq!(raw.addresses(), [0x9]);
     }
 
     #[test]
-    fn walk_keeps_a_leaf_link_register_once() {
-        let mut words = [0u64; 4];
+    fn walk_adds_no_frame_beyond_the_record_chain() {
+        // A thread spinning in a framed function F after a call returned: arm64's lr still holds
+        // that call's return address inside F, which is not a frame. The walk reads pc and the
+        // chain from fp only, so the sample is [F@pc, caller(F), ...], the same whatever F called
+        // last.
+        let mut words = [0u64; 8];
         let base = words.as_mut_ptr() as u64;
-        words[0] = 0;
-        words[1] = 0x2222;
-        let bounds = Bounds { low: base, high: base + 32 };
+        words[0] = base + 32;
+        words[1] = 0x2222; // F's record: returns into F's caller.
+        words[4] = 0;
+        words[5] = 0x3333;
+        let bounds = Bounds { low: base, high: base + 64 };
         let mut raw = RawStack::new();
-        walk(Registers { pc: 0x9, sp: base, fp: base, lr: Some(0x2222) }, Some(bounds), &mut raw);
-        assert_eq!(raw.addresses(), [0x9, 0x2222], "lr equals the top record: not repeated");
-        raw.clear();
-        walk(Registers { pc: 0x9, sp: base, fp: base, lr: Some(0x1111) }, Some(bounds), &mut raw);
-        assert_eq!(raw.addresses(), [0x9, 0x1111, 0x2222], "a leaf's caller comes from lr");
+        walk(Registers { pc: 0x9000, sp: base, fp: base }, Some(bounds), &mut raw);
         std::hint::black_box(&words);
+        assert_eq!(raw.addresses(), [0x9000, 0x2222, 0x3333]);
     }
 }

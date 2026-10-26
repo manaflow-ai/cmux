@@ -16,8 +16,10 @@
 //! dyld's lock). [`install_image_table`] fills it when the watcher starts.
 //!
 //! Frame pointers: x86_64-apple-darwin and aarch64-apple-darwin both keep them (rustc's Apple target
-//! specs set `frame-pointer` to `always` and `non-leaf`), and the arm64 leaf frame is recovered from
-//! the link register, as KSCrash's machine-context cursor does.
+//! specs set `frame-pointer` to `always` and `non-leaf`). The walk starts at fp and never reads the
+//! arm64 link register, as Chrome's unwinder does: lr is the caller only in a leaf or before a
+//! prologue, and after any call returns it is a stale address that would add a frame that is not
+//! there. A leaf's caller is the one frame this loses.
 
 use std::ffi::{c_char, c_int, c_void};
 use std::sync::Once;
@@ -64,7 +66,7 @@ pub enum SampleError {
     SelfThread,
     /// The port no longer names a live thread.
     DeadThread(KernReturn),
-    /// The slot changed owner before the suspend.
+    /// The slot changed owner before the walk (checked again while the thread is suspended).
     Unregistered,
     /// `thread_suspend` failed.
     Suspend(KernReturn),
@@ -99,9 +101,10 @@ pub fn sample(port: u32) -> Result<Stack, SampleError> {
 }
 
 /// [`sample`] that first takes a reference on the port, then asks `still_valid` whether the port is
-/// still the thread the caller means (the hang watch checks the slot's generation), and suspends only
-/// then.
-pub fn sample_checked(port: u32, still_valid: impl FnOnce() -> bool) -> Result<Stack, SampleError> {
+/// still the thread the caller means (the hang watch checks the slot's generation): once before the
+/// suspend, and once more after it, before it reads the thread's stack. `still_valid` runs while the
+/// thread is suspended, so it must not lock or allocate (one atomic load).
+pub fn sample_checked(port: u32, still_valid: impl Fn() -> bool) -> Result<Stack, SampleError> {
     let mut raw = RawStack::new();
     sample_raw_checked(port, &mut raw, still_valid)?;
     Ok(resolve(&raw))
@@ -113,10 +116,12 @@ pub fn sample_raw(port: u32, out: &mut RawStack) -> Result<(), SampleError> {
     sample_raw_checked(port, out, || true)
 }
 
-fn sample_raw_checked(
+/// [`sample_raw`] with the two `still_valid` checks of [`sample_checked`]; `out` stays empty when
+/// either says no.
+pub fn sample_raw_checked(
     port: u32,
     out: &mut RawStack,
-    still_valid: impl FnOnce() -> bool,
+    still_valid: impl Fn() -> bool,
 ) -> Result<(), SampleError> {
     out.clear();
     if port == 0 {
@@ -134,7 +139,12 @@ fn sample_raw_checked(
     let mut state = ThreadState::default();
     let mut count = STATE_COUNT;
     let suspended = Suspended::new(port)?;
-    // Suspended: register reads and stack loads only, until `suspended` drops.
+    // Suspended: register reads and stack loads only, until `suspended` drops. The thread unregisters
+    // (its Guard drops) before it exits and pthread_exit frees its stack, so an unchanged generation
+    // now means the stack stays mapped through the walk.
+    if !still_valid() {
+        return Err(SampleError::Unregistered);
+    }
     // SAFETY: `state` is a THREAD_STATE_FLAVOR struct of `count` 32-bit words.
     let read = unsafe {
         thread_get_state(port, THREAD_STATE_FLAVOR, (&raw mut state).cast::<u32>(), &mut count)
@@ -231,12 +241,7 @@ struct ThreadState {
 #[cfg(target_arch = "aarch64")]
 impl ThreadState {
     fn registers(&self) -> Registers {
-        Registers {
-            pc: strip(self.pc),
-            sp: strip(self.sp),
-            fp: strip(self.fp),
-            lr: Some(strip(self.lr)),
-        }
+        Registers { pc: strip(self.pc), sp: strip(self.sp), fp: strip(self.fp) }
     }
 }
 
@@ -254,7 +259,7 @@ struct ThreadState {
 #[cfg(target_arch = "x86_64")]
 impl ThreadState {
     fn registers(&self) -> Registers {
-        Registers { pc: self.words[16], sp: self.words[7], fp: self.words[6], lr: None }
+        Registers { pc: self.words[16], sp: self.words[7], fp: self.words[6] }
     }
 }
 

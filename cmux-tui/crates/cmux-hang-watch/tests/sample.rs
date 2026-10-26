@@ -197,6 +197,27 @@ fn sample_checked_does_not_suspend_a_thread_that_unregistered() {
     assert_eq!(result.err(), Some(SampleError::Unregistered));
 }
 
+#[test]
+fn sample_checked_rechecks_after_the_suspend_and_walks_nothing_when_it_changed() {
+    // The thread unregisters between the first check and the suspend (a Guard that dropped on its
+    // way to pthread_exit): the second check, while it is suspended, refuses the walk.
+    let _serial = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (handle, stop, port) = spawn_parked();
+    let calls = Cell::new(0u32);
+    let mut raw = RawStack::new();
+    let result = sample_macos::sample_raw_checked(port, &mut raw, || {
+        calls.set(calls.get() + 1);
+        calls.get() == 1
+    });
+    // The join returns only if the refused sample resumed the thread.
+    stop.store(true, Ordering::Release);
+    handle.thread().unpark();
+    handle.join().unwrap();
+    assert_eq!(result, Err(SampleError::Unregistered));
+    assert_eq!(calls.get(), 2, "checked before and after the suspend");
+    assert!(raw.addresses().is_empty(), "no frames: {:#x?}", raw.addresses());
+}
+
 #[derive(Clone, Default)]
 struct Collect(Arc<Mutex<Vec<Hang>>>);
 
