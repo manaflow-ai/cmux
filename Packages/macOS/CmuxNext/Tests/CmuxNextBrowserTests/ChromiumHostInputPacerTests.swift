@@ -123,6 +123,21 @@ import Testing
         #expect(pacer.waitingCount == 0)
     }
 
+    /// A full ring's backlog folds a flushed move into the one before it: the host acks only the
+    /// newest, which settles both.
+    @Test func anAckOfTheNewestMoveWrittenSettlesEveryEarlierOne() {
+        var pacer = ChromiumHostInputPacer()
+        #expect(pacer.submit(Self.move(1)).frame != nil)
+        pacer.written(.move, seq: 10)
+        #expect(Self.sent(pacer.submit(Self.move(2))).isEmpty)
+        #expect(Self.sent(pacer.submit(Self.key(36))).count == 2)
+        pacer.written(.move, seq: 11)
+        #expect(pacer.movesInFlight == 2)
+        #expect(Self.sent(pacer.submit(Self.move(3))).isEmpty)
+        #expect(pacer.acked(.move, seq: 11) == Self.move(3))  // 10 never comes: folded into 11
+        #expect(pacer.movesInFlight == 1)
+    }
+
     @Test func anUnsentPacedFrameIsNoLongerInFlight() {
         var pacer = ChromiumHostInputPacer()
         #expect(pacer.submit(Self.move(1)).frame != nil)

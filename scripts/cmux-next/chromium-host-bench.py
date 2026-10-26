@@ -52,6 +52,16 @@ Per mode:
            those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
            the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  route    (`--modes route`, task p01-process-042) host mode's input ring with ack pacing (feature
+           chromiumHostInputRing, a host-mode Chromium tab whose page view takes its input): the
+           `debug.chromium_host` `input_route` counters while the probe tab gets
+           scroll_pacing  a trackpad gesture (began, 60 changed, ended) then its momentum (began, 30 changed,
+                          ended), one tick per 4 ms: pass when the page's pacer never had more than 1 wheel in
+                          flight, the first wheel tick of the gesture left cmux within 0.5 ms of its event
+                          (`first_wheel_send_us` p50/p95/max) and the page scrolled during the momentum ticks.
+           key            --count keys into the focused field: pass when the field got every key, none was left
+                          unwritten, and no move or wheel was in flight more than once (keys never wait).
+           A build whose tabs are not in host mode (no input route) fails the mode with the reason.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
            (chromium_host_baseline.py, `baseline-rows.md` in --out):
@@ -462,6 +472,8 @@ def main():
             ok = ok and inproc_tab is not None
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if "route" in modes:
+            ok = run_route(rpc, url) and ok
         if opts.baseline and inproc_tab:
             # After the helper rows: the 9 extra tabs would otherwise be in its pump share.
             RESULT.setdefault("sessions", {}).setdefault("light", {})["tabs10"] = tabs10_wakes(rpc, url)
@@ -631,6 +643,94 @@ def run_inproc(rpc, url):
     row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
     return tab
+
+
+FIRST_WHEEL_LIMIT_US = 500  # p01-process-042: the first wheel tick of a gesture leaves cmux in < 0.5 ms
+
+
+def route_report(rpc):
+    """`debug.chromium_host` `input_route` (host mode's input ring, p01-process-042); None without one."""
+    return (rpc("debug.chromium_host") or {}).get("input_route")
+
+
+def route_page(report):
+    """The route's page whose pacer moved most: the probe's (the bench shows one hosted page)."""
+    pages = (report or {}).get("pages") or []
+    return max(pages, key=lambda page: page.get("sent") or 0) if pages else {}
+
+
+def run_route(rpc, url):
+    """The `route` rows (p01-process-042): scroll pacing with momentum and keys through host mode's input ring."""
+    page, _, _ = open_inproc_probe(rpc, url, "route")
+    if not page:
+        RESULT["modes"]["route"] = {"error": "the probe tab did not open", "pass": False}
+        return False
+    # The hosted page view is a cmux view (no page window): window points over the focused pane's content.
+    border = focused_pane_border(rpc)
+    if not border:
+        RESULT["modes"]["route"] = {"error": "no pane geometry (debug.pane_chrome)", "pass": False}
+        return False
+    click_point = host_click_point(border)
+    before = route_report(rpc)
+    if before is None:
+        RESULT["modes"]["route"] = {"error": "no input route: the tab is not in host mode with the input ring (feature "
+                                             "chromiumHostInputRing, a host the supervisor started with a ring, p01-process-080)",
+                                    "pass": False}
+        return False
+    rows = {}
+    # A page that scrolls: the probe fills the viewport.
+    page("document.documentElement.style.height = 'auto'; document.body.style.height = '20000px'; scrollTo(0, 0); 0")
+    point = click_point("b")
+
+    def scroll(dy, **phase):
+        rpc("debug.mouse", {"action": "scroll", "dy": dy, "hover": False, **point, **phase})
+        time.sleep(0.004)  # test harness: one tick per 4 ms, a trackpad's rate
+
+    scroll(-4, phase="began")
+    for _ in range(60):
+        scroll(-8, phase="changed")
+    scroll(0, phase="ended")
+    time.sleep(0.2)  # test harness: the gesture's last ticks are dispatched
+    after_gesture = page("scrollY") or 0
+    scroll(-20, momentum="began")
+    for _ in range(30):
+        scroll(-12, momentum="changed")
+    scroll(0, momentum="ended")
+    time.sleep(0.3)  # test harness: the momentum ticks are dispatched and drawn
+    after_momentum = page("scrollY") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    first = report.get("first_wheel_send_us") or []
+    rows["scroll_pacing"] = {
+        "max_wheels_in_flight": paced.get("max_wheels_in_flight"), "coalesced": paced.get("coalesced"),
+        "sent": paced.get("sent"), "first_wheel_send_us": results.percentiles(first),
+        "scroll_after_gesture": after_gesture, "scroll_after_momentum": after_momentum,
+        "ring_dropped": report.get("ring_dropped"), "unwritten": report.get("unwritten"),
+    }
+    rows["scroll_pacing"]["pass"] = (paced.get("max_wheels_in_flight") == 1 and bool(first)
+                                     and max(first) < FIRST_WHEEL_LIMIT_US and after_gesture > 0
+                                     and after_momentum > after_gesture)
+
+    rpc("debug.mouse", click_point("t"))
+    time.sleep(0.3)  # test harness: focus lands
+    field_before = page("document.getElementById('t').value.length") or 0
+    unwritten_before = (route_report(rpc) or {}).get("unwritten") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 30)  # test harness: one key per two frames
+    field_after = wait(lambda: (lambda n: n if (n or 0) >= field_before + opts.count else None)(
+        page("document.getElementById('t').value.length")), 10) or page("document.getElementById('t').value.length") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    rows["key"] = {"keys": opts.count, "field_before": field_before, "field_after": field_after,
+                   "unwritten": (report.get("unwritten") or 0) - unwritten_before,
+                   "max_moves_in_flight": paced.get("max_moves_in_flight"),
+                   "max_wheels_in_flight": paced.get("max_wheels_in_flight")}
+    rows["key"]["pass"] = (field_after - field_before == opts.count and rows["key"]["unwritten"] == 0
+                           and (paced.get("max_moves_in_flight") or 0) <= 1)
+    rows["route"] = report
+    RESULT["modes"]["route"] = rows
+    return rows["scroll_pacing"]["pass"] and rows["key"]["pass"]
 
 
 def pump_work_ms(rpc):

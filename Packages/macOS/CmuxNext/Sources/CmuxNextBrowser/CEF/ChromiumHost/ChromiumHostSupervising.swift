@@ -27,6 +27,9 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     public var controlFD: Int32
     /// The input ring's descriptor, -1 while the host has none (task 041).
     public var inputRingFD: Int32
+    /// The bootstrap name the host checked the input ring's doorbell in under
+    /// (``ChromiumHostInputRingRegion``'s, passed in its `--input-doorbell`); nil while it has none.
+    public var inputDoorbellName: String?
     /// The host's output ring's descriptor, -1 while the host has none.
     public var outputRingFD: Int32
     /// `libcmux_cef_shim_remote.dylib`, the remote shim that speaks this wire
@@ -37,10 +40,11 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// without listing the framework itself.
     public var frameworkLocales: [String]
 
-    public init(controlFD: Int32, inputRingFD: Int32 = -1, outputRingFD: Int32 = -1, remoteShim: URL,
-                frameworkLocales: [String]) {
+    public init(controlFD: Int32, inputRingFD: Int32 = -1, inputDoorbellName: String? = nil, outputRingFD: Int32 = -1,
+                remoteShim: URL, frameworkLocales: [String]) {
         self.controlFD = controlFD
         self.inputRingFD = inputRingFD
+        self.inputDoorbellName = inputDoorbellName
         self.outputRingFD = outputRingFD
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales

@@ -346,10 +346,11 @@ public final class ChromiumHostPageView: NSView {
 extension ChromiumHostPageView {
     // MARK: Pacing
 
-    /// The host dispatched this page's move or wheel tick in flight: the next
-    /// waiting one leaves now. Main thread, in the host's ack order.
-    func inputAcked(_ kind: ChromiumHostInputPacer.Paced) {
-        guard let next = inputPacer?.acked(kind) else { return }
+    /// The host dispatched this page's move or wheel tick in flight (input seq
+    /// `seq`, nil: the oldest): the next waiting one leaves now. Main thread, in
+    /// the host's ack order.
+    func inputAcked(_ kind: ChromiumHostInputPacer.Paced, seq: UInt32? = nil) {
+        guard let next = inputPacer?.acked(kind, seq: seq) else { return }
         write(next, paced: kind)
     }
 
@@ -377,7 +378,9 @@ extension ChromiumHostPageView {
     @discardableResult
     private func write(_ frame: ChromiumHostFrame, paced: ChromiumHostInputPacer.Paced?) -> ChromiumHostInputReceipt? {
         let receipt = sink?(frame)
-        if receipt == nil, let paced { inputPacer?.unsent(paced) }
+        if let paced {
+            if let receipt { inputPacer?.written(paced, seq: receipt.seq) } else { inputPacer?.unsent(paced) }
+        }
         return receipt
     }
 

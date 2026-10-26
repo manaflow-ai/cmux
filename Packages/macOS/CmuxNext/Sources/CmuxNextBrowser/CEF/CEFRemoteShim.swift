@@ -21,6 +21,10 @@ import CmuxNextWakeups
 ///   runtime's ``CEFHostReplies`` and detach clears it.
 /// - `uint32_t cmux_remote_shim_last_reply_token(void)`: the REPLY token of the async call this turn
 ///   just made; 0 when it sent nothing (task 018).
+/// - `void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack)`: where the host's
+///   input acks go, `ack(ctx, browser, kind, seq)` on the main thread (task 042); optional.
+/// - `uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq)`: the input seq and control seq of the
+///   next ring frame (task 092); 0 with no host attached; optional.
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
 // crash-allow: every stored property is a let (C function pointers, a dlsym closure over a dlopen handle never closed; dlsym is thread-safe); nothing mutates after make, as in CEFShimLibrary.
@@ -31,6 +35,9 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeRawPointer?, Int) -> Void
     typealias SetReplyFn = @convention(c) (UnsafeMutableRawPointer?, ReplyFn?) -> Void
     typealias LastReplyTokenFn = @convention(c) () -> UInt32
+    typealias InputAckFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, UInt32) -> Void
+    typealias SetInputAckFn = @convention(c) (UnsafeMutableRawPointer?, InputAckFn?) -> Void
+    typealias OrderInputFn = @convention(c) (UnsafeMutablePointer<UInt32>?) -> UInt32
 
     /// Resolves the remote dylib's symbols by name (the shim's C ABI, after the host's hello).
     let symbol: (String) -> UnsafeMutableRawPointer?
@@ -38,6 +45,9 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     private let detachFn: DetachFn
     private let setReplyFn: SetReplyFn
     private let lastReplyTokenFn: LastReplyTokenFn
+    /// The input ring's two entry points (tasks 042 and 092); nil in a dylib built before them.
+    private let setInputAckFn: SetInputAckFn?
+    private let orderInputFn: OrderInputFn?
 
     /// Checks the dylib's ABI identity against `expected`, as ``CEFShimLibrary/open(_:expected:)``
     /// checks the in-process shim, and that it exports the wire entry points and every required
@@ -52,7 +62,9 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         _ = try CEFShimLibrary.resolving(symbol, hostExports: [])
         return CEFRemoteShim(symbol: symbol, attachFn: try resolve("cmux_remote_shim_attach"),
                              detachFn: try resolve("cmux_remote_shim_detach"), setReplyFn: try resolve("cmux_remote_shim_set_reply"),
-                             lastReplyTokenFn: try resolve("cmux_remote_shim_last_reply_token"))
+                             lastReplyTokenFn: try resolve("cmux_remote_shim_last_reply_token"),
+                             setInputAckFn: symbol("cmux_remote_shim_set_input_ack").map { unsafeBitCast($0, to: SetInputAckFn.self) },
+                             orderInputFn: symbol("cmux_remote_shim_order_input").map { unsafeBitCast($0, to: OrderInputFn.self) })
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
@@ -73,6 +85,27 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     func detach() {
         detachFn()
         setReplyFn(nil, nil)
+        setInputAckFn?(nil, nil)
+    }
+
+    /// The remote shim has the input ring's entry points: input acks and ordered input seqs.
+    var hasInputRing: Bool { setInputAckFn != nil && orderInputFn != nil }
+
+    /// Where the host's input acks go from now on (`ack(context, browser, kind, seq)` on the main
+    /// thread); nil drops them. Whoever sets a context keeps it alive until it sets another.
+    @MainActor
+    func setInputAck(context: UnsafeMutableRawPointer?, ack: InputAckFn?) {
+        setInputAckFn?(context, ack)
+    }
+
+    /// The next ring frame's input seq and the control seq it follows (task 092); nil with no host
+    /// attached (the frame is not written) or a dylib without the entry point.
+    @MainActor
+    func orderInput() -> (seq: UInt32, ctlSeq: UInt32)? {
+        guard let orderInputFn else { return nil }
+        var ctlSeq: UInt32 = 0
+        let seq = orderInputFn(&ctlSeq)
+        return seq == 0 ? nil : (seq, ctlSeq)
     }
 
     /// The REPLY token of the async shim call this turn just made (0: it sent nothing).

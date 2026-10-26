@@ -65,6 +65,8 @@ extension AppServices {
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
+        // Host mode only: hosted pages' input through the host's input ring (p01-process-042).
+        chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in

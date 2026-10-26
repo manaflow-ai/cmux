@@ -79,6 +79,9 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
     private var waitingWheels: [Waiting] = []
     /// Arrival order of submitted frames, so a flush keeps the move and the wheel ticks in order.
     private var arrivals: UInt64 = 0
+    /// The input seq of the newest move and wheel tick written (``written(_:seq:)``).
+    private var lastMoveSeq: UInt32?
+    private var lastWheelSeq: UInt32?
 
     /// A waiting frame and the arrival of its newest part.
     private nonisolated struct Waiting: Equatable, Sendable {
@@ -126,8 +129,18 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
         }
     }
 
-    /// The host dispatched the page's `kind` in flight: the next waiting one to send, if any.
-    mutating func acked(_ kind: Paced) -> ChromiumHostFrame? {
+    /// The writer took the paced `kind` this pacer just released, with input seq `seq`.
+    mutating func written(_ kind: Paced, seq: UInt32) {
+        switch kind {
+        case .move: lastMoveSeq = seq
+        case .wheel: lastWheelSeq = seq
+        }
+    }
+
+    /// The host dispatched the page's `kind` in flight with input seq `seq` (nil: the oldest): the
+    /// next waiting one to send, if any. An ack of the newest one written settles every one of its
+    /// kind before it too: the writer's backlog may have folded them into it (the ring was full).
+    mutating func acked(_ kind: Paced, seq: UInt32? = nil) -> ChromiumHostFrame? {
         stats.acks += 1
         switch kind {
         case .move:
@@ -135,8 +148,8 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
                 stats.unexpectedAcks += 1
                 return nil
             }
-            movesInFlight -= 1
-            guard let next = waitingMove else { return nil }
+            movesInFlight = seq != nil && seq == lastMoveSeq ? 0 : movesInFlight - 1
+            guard movesInFlight == 0, let next = waitingMove else { return nil }
             waitingMove = nil
             return sending(next.frame, .move)
         case .wheel:
@@ -144,8 +157,8 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
                 stats.unexpectedAcks += 1
                 return nil
             }
-            wheelsInFlight -= 1
-            guard !waitingWheels.isEmpty else { return nil }
+            wheelsInFlight = seq != nil && seq == lastWheelSeq ? 0 : wheelsInFlight - 1
+            guard wheelsInFlight == 0, !waitingWheels.isEmpty else { return nil }
             return sending(waitingWheels.removeFirst().frame, .wheel)
         }
     }
@@ -154,6 +167,8 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
     mutating func reset() {
         movesInFlight = 0
         wheelsInFlight = 0
+        lastMoveSeq = nil
+        lastWheelSeq = nil
         waitingMove = nil
         waitingWheels.removeAll(keepingCapacity: true)
     }
