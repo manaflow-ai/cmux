@@ -490,6 +490,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.
+    public static let memoryHiddenFrameLRU = Feature(
+        index: 27,
+        name: "memoryHiddenFrameLRU",
+        owner: "PL-memory",
+        description: "Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.
     public static let memoryImageCaches = Feature(
         index: 28,
@@ -988,6 +1005,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
         .memoryFileHomeCaches,
+        .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
         .memoryTerminalLastFrames,
@@ -1047,6 +1065,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
         .memoryFileHomeCaches,
+        .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
         .memoryTerminalLastFrames,

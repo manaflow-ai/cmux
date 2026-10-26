@@ -72,6 +72,7 @@ struct AppMemoryConsumers {
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
+        registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTerminalLastFrames()  // CmuxNextTerminal
@@ -184,6 +185,14 @@ struct AppMemoryConsumers {
     private func registerTerminalLastFrames() {
         guard services.features.isEnabled(.memoryTerminalLastFrames) else { return }
         services.cache.lastFrames.registerMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryHiddenFrameLRU` (default off): evicted terminals' last frames are frames of the app-wide hidden
+    /// frame list, which decides which stay under the warm set's capacity; the list registers itself with the
+    /// coordinator as it is built (p03-rendering-099).
+    private func registerHiddenFrames() {
+        guard let frames = services.hiddenFrames else { return }
+        services.cache.lastFrames.keeper = frames
     }
 
     /// `memoryDiscardConversations` (default off): hidden conversation tabs' laid-out transcripts go after 10 min.
