@@ -30,7 +30,7 @@ export default async function CloudMachinesPage({
       <DocsHeading level={2} id="create">{t("createTitle")}</DocsHeading>
       <p>{t("createCli")}</p>
       <CodeBlock lang="bash">{`cmux cloud new-machine
-cmux cloud new-machine --size large --name "search index"
+cmux cloud new-machine --size large --name search-index
 cmux cloud new-machine --persistent --size medium
 cmux cloud list-machines`}</CodeBlock>
 
@@ -42,7 +42,7 @@ cmux cloud list-machines`}</CodeBlock>
           <tr><td><code>small</code></td><td>4 GB</td><td>2</td></tr>
           <tr><td><code>medium</code></td><td>8 GB</td><td>4</td></tr>
           <tr><td><code>large</code></td><td>16 GB</td><td>8</td></tr>
-          <tr><td><code>xlarge</code></td><td>24 GB</td><td>16</td></tr>
+          <tr><td><code>xlarge</code></td><td>24 GB</td><td>12</td></tr>
         </tbody>
       </table>
 

@@ -34,7 +34,7 @@ cmux cloud sign-out`}</CodeBlock>
 
       <DocsHeading level={2} id="machines">{t("lifecycleTitle")}</DocsHeading>
       <p>{t("lifecycleDesc")}</p>
-      <CodeBlock lang="bash">{`cmux cloud new-machine --size medium --name "search index"
+      <CodeBlock lang="bash">{`cmux cloud new-machine --size medium --name search-index
 cmux cloud new-machine --persistent --size small
 cmux cloud list-machines
 cmux cloud machine-status --target 'machine:<id>'
