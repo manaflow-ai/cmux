@@ -2230,7 +2230,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    let owner_checks = owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2469,6 +2469,10 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // A headless owner starts its background work after its first client
+    // (`owner_start::after_first_client`); subscribe before clients attach.
+    let first_client_gate =
+        args.headless.then(|| owner_start::FirstClientGate::start(&mux, wake_headless));
     let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
@@ -2583,12 +2587,12 @@ fn run_server(
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
-    mux.start_journal_plugin(served_socket.clone());
+    let background_plan = owner_start::OwnerWorkPlan {
+        checks: owner_checks,
+        journal_socket: served_socket.clone(),
+        headless: args.headless,
+    };
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
-    #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace
@@ -2612,20 +2616,11 @@ fn run_server(
         }
         None => None,
     };
-    // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
-    // has elapsed with no attached view.
-    let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
-        Arc::downgrade(&mux),
-        cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
-    ) {
-        Ok(reaper) => Some(reaper),
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "{BIN}: idle terminal reaper unavailable: {error}"
-            );
-            None
-        }
+    // The journal plugin, the usage poller, the idle-close reaper, apps and
+    // the headless checks: after the first client on a headless owner.
+    let mut background = match first_client_gate {
+        Some(gate) => owner_start::OwnerBackground::after_first_client(&mux, background_plan, gate),
+        None => owner_start::OwnerBackground::now(&mux, background_plan),
     };
     // Keeps launch-snapshot.json (`launch-snapshot-v1`) next to the session
     // registry so a frontend can draw the last layout before it connects.
@@ -2657,7 +2652,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, &mut background, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2665,7 +2660,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, &mut background, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2689,7 +2684,8 @@ fn run_server(
     // (`session-shutdown`), not a real end.
     mux.begin_session_shutdown();
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
-    if let Some(reaper) = idle_terminal_reaper {
+    let background = background.into_work();
+    if let Some(reaper) = background.idle_terminal_reaper {
         reaper.stop();
     }
     if let Some(reaper) = terminal_reaper {
@@ -2699,7 +2695,7 @@ fn run_server(
         writer.stop();
     }
     #[cfg(unix)]
-    if let Some(poller) = machine_usage_poller {
+    if let Some(poller) = background.machine_usage_poller {
         poller.stop();
     }
     #[cfg(unix)]

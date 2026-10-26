@@ -8,9 +8,9 @@ use crate::{feature_flags, update_notice};
 
 const LOG_AREA: &str = "background-checks";
 
-/// Starts the checks on a thread of their own.
+/// Starts the checks on a utility-QoS thread of their own.
 pub(super) fn spawn() {
-    let _ = std::thread::Builder::new().name("background-checks".into()).spawn(|| {
+    let _ = cmux_threads::spawn("background-checks", cmux_threads::ThreadQos::Utility, || {
         let line = flags();
         crate::client_log::info(LOG_AREA, &format!("feature-flags: {line}"));
         let line = update_check();

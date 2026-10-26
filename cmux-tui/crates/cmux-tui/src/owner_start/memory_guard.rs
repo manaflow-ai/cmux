@@ -93,7 +93,8 @@ pub(super) fn record(
 pub(super) fn spawn(panic_log: Option<PathBuf>, forwarder: Option<Forwarder>) {
     let Some(log) = panic_log.map(|path| memory_log_path(&path)) else { return };
     let (threshold, interval) = limits();
-    let _ = std::thread::Builder::new().name("memory-guard".into()).spawn(move || {
+    // Background QoS: a sample every few minutes that nobody waits on.
+    let _ = cmux_threads::spawn("memory-guard", cmux_threads::ThreadQos::Background, move || {
         let started = Instant::now();
         let mut guard = MemoryGuard::new(threshold);
         let pid = std::process::id();

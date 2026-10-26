@@ -293,7 +293,7 @@ impl Forwarder {
 }
 
 /// Decides consent once and, when it allows, sends the unsent lines of every
-/// log in `logs` on a thread of its own. Logs one `crash-forward:` outcome
+/// log in `logs` on a utility-QoS thread of its own. Logs one `crash-forward:` outcome
 /// line to the client log; returns the forwarder for later sends.
 pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let env = |name: &str| std::env::var(name).ok();
@@ -327,7 +327,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     };
     let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
     let worker = forwarder.clone();
-    let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
+    let _ = cmux_threads::spawn("crash-forward", cmux_threads::ThreadQos::Utility, move || {
         let mut sent = 0;
         let mut failures = Vec::new();
         for log in &logs {

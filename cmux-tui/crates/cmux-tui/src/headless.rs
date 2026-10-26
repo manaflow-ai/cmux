@@ -1,6 +1,8 @@
 //! The headless owner loop: it blocks until a termination signal, a daemon
 //! shutdown request or the end of the remote runtime wakes it, and records
 //! the session shutdown start from the signal thread (`session-shutdown`).
+//! It also starts the owner's background work when the first-client gate
+//! marks it due (`owner_start::after_first_client`).
 
 use super::*;
 
@@ -10,6 +12,7 @@ mod dev_orphan_exit;
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    background: &mut owner_start::OwnerBackground,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -20,11 +23,9 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
-    // The daemon is ready: apps with an `always` server start off this path.
-    #[cfg(unix)]
-    cmux_tui_core::server::start_apps_when_ready(mux);
     // The brains of the Chiefs that are not the default, when the app asked
-    // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner.
+    // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner. Not
+    // deferred: a Chief create waits for the supervisor's answer.
     let chief_brains = cmux_tui_core::chief_brains::start(mux, socket_path);
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself. The loop blocks until a signal,
@@ -40,9 +41,10 @@ where
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
         let signalled = Arc::downgrade(mux);
-        std::thread::Builder::new()
-            .name("headless-signal-wait".into())
-            .spawn(move || {
+        cmux_threads::spawn(
+            "headless-signal-wait",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 wait_for_shutdown_signal_peek();
                 if shutdown_requested()
                     && let Some(mux) = signalled.upgrade()
@@ -54,8 +56,9 @@ where
                     }
                 }
                 wake_headless();
-            })
-            .ok()
+            },
+        )
+        .ok()
     };
     #[cfg(not(unix))]
     let signal_wait: Option<std::thread::JoinHandle<()>> = None;
@@ -66,6 +69,14 @@ where
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
+        // The gate sets its flag before it takes this lock to wake the loop,
+        // so a due mark is seen here or wakes the wait below.
+        if background.take_due() {
+            drop(generation);
+            background.start_due(mux);
+            generation = lock.lock().unwrap();
+            continue;
+        }
         generation = wake.wait(generation).unwrap();
     }
     drop(generation);
