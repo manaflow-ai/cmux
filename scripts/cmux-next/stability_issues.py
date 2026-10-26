@@ -24,10 +24,19 @@ Rules:
     run writes nothing. Two findings of one signature in one run make one issue with count 2.
   * An issue closes only when a fix is verified and 3 distinct tips that contain the fix ran a lane and major that
     found the signature without finding it again. A finding on a tip with the fix resets the fix and the clean
-    tips; on a closed issue it reopens it, unless a person closed it as not planned.
-  * GitHub reads follow the glaeda-gh read rules: one batched `gh issue list` per invocation, no polling loop, and
-    when a run needs many writes the free `gh api rate_limit` read must show 500 requests to spare; writes beyond
-    the budget or --max-writes are deferred, exit 75, and the same sync applies them later.
+    tips; on an issue closed as completed it reopens it. A person's other close reasons (not planned, duplicate)
+    are kept: the recurrence is counted and noted once in a comment.
+  * Fix-in-build checks use git in --git-dir and fetch a commit from --remote when the checkout does not have it.
+    When git still cannot tell, a finding counts as a recurrence (the fix is reset) and a clean tip does not count;
+    both are named in the notes. --fix must be the commit as it landed (the squash commit, not a PR head).
+  * One writer: every command that writes holds a host lock per repo (--lock-file) for its read, plan and writes,
+    so parallel lab collectors on one host apply their runs one after the other. Duplicates that a second host
+    still makes heal on the next sync: the higher number is merged into the lowest and closed as not planned.
+  * GitHub reads follow the glaeda-gh read rules: one batched `gh issue list` per invocation (plus one `gh label
+    list` when an issue is created), no polling loop. gh issue writes use the GraphQL bucket and label creates the
+    REST core bucket; when a run needs many writes the free `gh api rate_limit` read must show 500 to spare in
+    both. Every write counts against --max-writes and that budget, label creates too; writes beyond them are
+    deferred per signature, exit 75, and the same sync applies them later.
 
 The issue body is generated; a person comments instead of editing it. Its last line holds the state as JSON.
 
@@ -38,23 +47,28 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import json
 import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Iterator, Protocol
 
 DEFAULT_REPO = os.environ.get("CMUX_STABILITY_REPO", "manaflow-ai/cmux")
 RUN_SCHEMA = "cmux-stability-run/v1"
 LABEL = "stability-sig"
 CLEAN_TIPS_TO_CLOSE = 3
 RUNS_KEPT = 200
-REST_RESERVE = 500
+RATE_RESERVE = 500
 BUDGET_CHECK_AT = 20
 EX_TEMPFAIL = 75
+GH_TIMEOUT_SECONDS = 120
+GIT_FETCH_TIMEOUT_SECONDS = 300
+PERSON_CLOSE_REASONS = {"NOT_PLANNED": "not planned", "DUPLICATE": "duplicate"}
 HASH12 = re.compile(r"^[0-9a-f]{12}$")
 STATE_RE = re.compile(r"<!-- stability-sig-state: (\{.*?\}) -->", re.S)
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,7 +85,7 @@ class StabilityIssueError(Exception):
 class Issue:
     number: int
     state: str  # OPEN or CLOSED
-    state_reason: str  # COMPLETED, NOT_PLANNED, REOPENED or ""
+    state_reason: str  # COMPLETED, NOT_PLANNED, DUPLICATE, REOPENED or ""
     title: str
     body: str
     labels: list[str]
@@ -79,13 +93,14 @@ class Issue:
 
 class GitHub(Protocol):
     def list_issues(self, label: str) -> list[Issue]: ...
-    def ensure_labels(self, names: list[str]) -> None: ...
+    def existing_labels(self) -> set[str]: ...
+    def create_label(self, name: str) -> None: ...
     def create_issue(self, title: str, body: str, labels: list[str]) -> int: ...
     def edit_issue(self, number: int, title: str, body: str) -> None: ...
     def comment(self, number: int, text: str) -> None: ...
-    def close_issue(self, number: int, text: str) -> None: ...
+    def close_issue(self, number: int, text: str, reason: str) -> None: ...
     def reopen_issue(self, number: int, text: str) -> None: ...
-    def rest_remaining(self) -> int | None: ...
+    def rate_remaining(self) -> dict[str, int] | None: ...
 
 
 class GhCli:
@@ -97,7 +112,11 @@ class GhCli:
 
     def _run(self, args: list[str], stdin: str | None = None, scoped: bool = True) -> str:
         command = [self.gh, *args, *(["--repo", self.repo] if scoped else [])]
-        proc = subprocess.run(command, input=stdin, text=True, capture_output=True, check=False)
+        try:
+            proc = subprocess.run(command, input=stdin, text=True, capture_output=True, check=False,
+                                  timeout=GH_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            raise StabilityIssueError(f"gh {' '.join(args[:2])} timed out after {GH_TIMEOUT_SECONDS} s") from error
         if proc.returncode != 0:
             raise StabilityIssueError(f"gh {' '.join(args[:2])} failed ({proc.returncode}): {proc.stderr.strip()}")
         return proc.stdout
@@ -110,14 +129,14 @@ class GhCli:
                       body=row.get("body") or "", labels=[label_row["name"] for label_row in row.get("labels") or []])
                 for row in json.loads(out or "[]")]
 
-    def ensure_labels(self, names: list[str]) -> None:
+    def existing_labels(self) -> set[str]:
         # One search covers stability-sig, stability-sig:<hash12> and stability-kind:<kind>.
         out = self._run(["label", "list", "--search", "stability-", "--limit", "2000", "--json", "name"])
-        have = {row["name"] for row in json.loads(out or "[]")}
-        for name in names:
-            if name not in have:
-                self._run(["label", "create", name, "--force", "--color", "b60205",
-                           "--description", "Stability lab signature (scripts/cmux-next/stability_issues.py)"])
+        return {row["name"] for row in json.loads(out or "[]")}
+
+    def create_label(self, name: str) -> None:
+        self._run(["label", "create", name, "--force", "--color", "b60205",
+                   "--description", "Stability lab signature (scripts/cmux-next/stability_issues.py)"])
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> int:
         args = ["issue", "create", "--title", title, "--body-file", "-"]
@@ -135,32 +154,66 @@ class GhCli:
     def comment(self, number: int, text: str) -> None:
         self._run(["issue", "comment", str(number), "--body-file", "-"], stdin=text)
 
-    def close_issue(self, number: int, text: str) -> None:
-        self._run(["issue", "close", str(number), "--reason", "completed", "--comment", text])
+    def close_issue(self, number: int, text: str, reason: str) -> None:
+        self._run(["issue", "close", str(number), "--reason", reason, "--comment", text])
 
     def reopen_issue(self, number: int, text: str) -> None:
         self._run(["issue", "reopen", str(number), "--comment", text])
 
-    def rest_remaining(self) -> int | None:
-        # GET /rate_limit does not count against the quota.
+    def rate_remaining(self) -> dict[str, int] | None:
+        """What is left in the buckets the writes use: graphql (gh issue create/edit/comment/close/reopen) and core
+        (gh label create). GET /rate_limit counts against neither."""
         try:
-            out = self._run(["api", "rate_limit", "--jq", ".resources.core.remaining"], scoped=False)
-            return int(out.strip())
-        except (StabilityIssueError, ValueError):
+            resources = json.loads(self._run(["api", "rate_limit"], scoped=False))["resources"]
+            return {bucket: int(resources[bucket]["remaining"]) for bucket in ("core", "graphql")}
+        except (StabilityIssueError, ValueError, KeyError, TypeError):
             return None
 
 
-def git_is_ancestor(repo_dir: Path) -> Callable[[str, str], bool | None]:
-    """True when `ancestor` is in `tip`'s history, None when git does not know one of them."""
+class GitAncestry:
+    """is_ancestor(ancestor, tip) from git: True or False, None when git cannot tell. A commit the checkout does not
+    have is fetched once from `remote` (GitHub serves any reachable sha), so a lab tip or a fix newer than the
+    checkout still resolves."""
 
-    def check(ancestor: str, tip: str) -> bool | None:
-        proc = subprocess.run(["git", "-C", str(repo_dir), "merge-base", "--is-ancestor", ancestor, tip],
-                              capture_output=True, check=False)
-        if proc.returncode in (0, 1):
-            return proc.returncode == 0
-        return None
+    def __init__(self, repo_dir: Path, remote: str = "origin") -> None:
+        self.repo_dir = repo_dir
+        self.remote = remote
+        self.fetched: set[str] = set()
 
-    return check
+    def _git(self, *args: str, timeout: int = 60) -> int:
+        try:
+            return subprocess.run(["git", "-C", str(self.repo_dir), *args], capture_output=True, check=False,
+                                  timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            return -1
+
+    def _has(self, sha: str) -> bool:
+        return self._git("cat-file", "-e", f"{sha}^{{commit}}") == 0
+
+    def __call__(self, ancestor: str, tip: str) -> bool | None:
+        missing = [sha for sha in dict.fromkeys((ancestor, tip)) if sha not in self.fetched and not self._has(sha)]
+        if missing and self.remote:
+            self.fetched.update(missing)
+            self._git("fetch", "--quiet", "--no-tags", self.remote, *missing, timeout=GIT_FETCH_TIMEOUT_SECONDS)
+        code = self._git("merge-base", "--is-ancestor", ancestor, tip)
+        return code == 0 if code in (0, 1) else None
+
+
+def default_lock_file(repo: str) -> Path:
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return cache / "cmux" / f"stability-issues-{re.sub(r'[^A-Za-z0-9._-]+', '_', repo)}.lock"
+
+
+@contextmanager
+def repo_lock(path: Path) -> Iterator[None]:
+    """The host's one-writer lock for a repo. It waits for the holder, whose gh and git calls all have timeouts."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # --- State --------------------------------------------------------------------------------------------------------
@@ -278,6 +331,7 @@ class Tracked:
     reopen: str = ""
     comments: list[str] = field(default_factory=list)
     close: str = ""
+    close_duplicates: list[tuple[int, str]] = field(default_factory=list)
 
     @property
     def is_closed(self) -> bool:
@@ -285,8 +339,8 @@ class Tracked:
 
     def writes(self) -> list[tuple]:
         """The gh writes, in an order where a failure part-way is repaired by the same sync: the body (which
-        records the run id) is written after a reopen and its comments, and a close is planned again from the
-        state whenever the issue is still open."""
+        records the run id and the merged duplicates) is written after a reopen and its comments and before the
+        duplicates close, and a close is planned again from the state whenever the issue is still open."""
         state_body = render_body(self.state)
         title = render_title(self.state)
         if self.issue is None:
@@ -298,24 +352,29 @@ class Tracked:
         if state_body != self.issue.body or title != self.issue.title:
             out.append(("edit", self.issue.number, title, state_body))
         if self.close:
-            out.append(("close", self.issue.number, self.close))
+            out.append(("close", self.issue.number, self.close, "completed"))
+        out += [("close", number, text, "not planned") for number, text in self.close_duplicates]
         return out
 
 
-def index_issues(issues: list[Issue]) -> tuple[dict[str, Issue], list[str]]:
-    """hash12 -> its issue (the lowest number when there are duplicates), and the duplicates found."""
+def index_issues(issues: list[Issue]) -> tuple[dict[str, Issue], dict[str, list[Issue]]]:
+    """hash12 -> its issue (the lowest number), and hash12 -> the higher-numbered issues that duplicate it. An issue
+    that is also another signature's own issue is never a duplicate to close."""
     by_hash: dict[str, Issue] = {}
-    duplicates: list[str] = []
+    duplicates: dict[str, list[Issue]] = {}
     for issue in sorted(issues, key=lambda item: item.number):
         hashes = {name.split(":", 1)[1] for name in issue.labels if name.startswith(f"{LABEL}:")}
         state = read_state(issue.body)
         if state:
             hashes.add(state["hash12"])
-        for hash12 in hashes:
+        for hash12 in sorted(hashes):
             if hash12 in by_hash:
-                duplicates.append(f"#{issue.number} duplicates #{by_hash[hash12].number} ({hash12})")
+                duplicates.setdefault(hash12, []).append(issue)
             else:
                 by_hash[hash12] = issue
+    owners = {issue.number for issue in by_hash.values()}
+    duplicates = {hash12: kept for hash12, dups in duplicates.items()
+                  if (kept := [dup for dup in dups if dup.number not in owners])}
     return by_hash, duplicates
 
 
@@ -329,6 +388,44 @@ def track(hash12: str, by_hash: dict[str, Issue], sig: dict | None = None) -> Tr
     else:
         state = copy.deepcopy(before)
     return Tracked(hash12=hash12, issue=issue, before=before, state=state)
+
+
+def merge_state(into: dict, other: dict) -> None:
+    """Add a duplicate issue's findings to the signature's state. Fix and clean tips stay the target's."""
+    into["count"] += other.get("count", 0)
+    for major, count in (other.get("per_major") or {}).items():
+        into["per_major"][major] = into["per_major"].get(major, 0) + count
+    for key in other.get("seen_in") or []:
+        if key not in into["seen_in"]:
+            into["seen_in"].append(key)
+    if other.get("first_sha") and (not into["first_sha"] or other.get("first_seen", "") < into["first_seen"]):
+        into["first_sha"], into["first_seen"] = other["first_sha"], other.get("first_seen", "")
+    if other.get("last_sha") and other.get("last_seen", "") >= into["last_seen"]:
+        into["last_sha"], into["last_seen"] = other["last_sha"], other.get("last_seen", "")
+    for key, value in (other.get("repro") or {}).items():
+        if value not in (None, "") and not into["repro"].get(key):
+            into["repro"][key] = value
+    if not into["bisect"] and other.get("bisect"):
+        into["bisect"] = other["bisect"]
+    into["runs"] = list(dict.fromkeys(into["runs"] + list(other.get("runs") or [])))[-RUNS_KEPT:]
+
+
+def merge_duplicates(t: Tracked, duplicates: list[Issue]) -> None:
+    """Heal a race that made two issues for one signature: the higher numbers are merged into this one once (the
+    state records them) and closed as not planned."""
+    if not duplicates:
+        return
+    merged = t.state.setdefault("merged", [])
+    for dup in duplicates:
+        if dup.number not in merged:
+            other = read_state(dup.body)
+            if other:
+                merge_state(t.state, other)
+            merged.append(dup.number)
+        if dup.state == "OPEN":
+            where = f"#{t.issue.number}" if t.issue else "the signature's first issue"
+            t.close_duplicates.append((dup.number, f"Duplicate of {where} for signature {t.hash12}; its counts are "
+                                                   "merged there. Closed by stability_issues.py."))
 
 
 def validate_run(run: dict) -> None:
@@ -346,11 +443,15 @@ def lane_key(item: dict) -> list[str]:
     return [str(item.get("lane") or ""), str(item.get("major") or "")]
 
 
-def plan_sync(issues: list[Issue], run: dict, is_ancestor: Callable[[str, str], bool | None]) -> tuple[list[Tracked], list[str]]:
+def plan_sync(issues: list[Issue], run: dict,
+              is_ancestor: Callable[[str, str], bool | None]) -> tuple[list[Tracked], list[str]]:
     """What one lab run changes. Pure: reads issues as listed, returns the wanted states and notes."""
     validate_run(run)
     run_id, tip = run["run"], run["tip"]
-    by_hash, notes = index_issues(issues)
+    by_hash, duplicates = index_issues(issues)
+    notes = [f"#{dup.number} duplicates #{by_hash[hash12].number} ({hash12}); merged and closed by this sync"
+             for hash12, dups in sorted(duplicates.items()) for dup in dups
+             if dup.state == "OPEN" or dup.number not in (read_state(by_hash[hash12].body) or {}).get("merged", [])]
     found: dict[str, list[dict]] = {}
     for finding in run.get("findings") or []:
         found.setdefault(finding["hash12"], []).append(finding)
@@ -360,8 +461,11 @@ def plan_sync(issues: list[Issue], run: dict, is_ancestor: Callable[[str, str], 
     out: list[Tracked] = []
     for hash12, findings in sorted(found.items()):
         t = track(hash12, by_hash, findings[0])
+        merge_duplicates(t, duplicates.get(hash12, []))
         state = t.state
         if run_id in state["runs"]:
+            if t.writes():
+                out.append(t)
             continue
         for finding in findings:
             sha = finding.get("sha") or tip
@@ -381,35 +485,67 @@ def plan_sync(issues: list[Issue], run: dict, is_ancestor: Callable[[str, str], 
 
         fix = state["fix"]
         note = ""
-        with_fix = [sha for sha in {finding.get("sha") or tip for finding in findings}
-                    if fix and is_ancestor(fix["sha"], sha)]
-        if fix and with_fix:
-            state["fix_history"].append({"sha": fix["sha"], "recurred_on": sorted(with_fix)[0], "run": run_id})
-            state["fix"], state["clean_tips"] = None, []
-            note = (f" The build {sorted(with_fix)[0]} contains the fix {fix['sha']}, so the fix is reset; closing "
-                    f"needs a new verified fix and {CLEAN_TIPS_TO_CLOSE} clean tips.")
+        if fix:
+            # A build git cannot place relative to the fix may contain it: it resets the fix, as a recurrence does.
+            ancestry = {sha: is_ancestor(fix["sha"], sha) for sha in sorted({f.get("sha") or tip for f in findings})}
+            recurred = [sha for sha, has_fix in ancestry.items() if has_fix is not False]
+            if recurred:
+                on = recurred[0]
+                state["fix_history"].append({"sha": fix["sha"], "recurred_on": on, "run": run_id})
+                state["fix"], state["clean_tips"] = None, []
+                if ancestry[on] is None:
+                    notes.append(f"{hash12}: git could not tell whether build {on} contains fix {fix['sha']}; "
+                                 "counted as a recurrence")
+                    note = (f" git could not tell whether the build {on} contains the fix {fix['sha']}, so it "
+                            "counts as a recurrence")
+                else:
+                    note = f" The build {on} contains the fix {fix['sha']}"
+                note += f" and the fix is reset; closing needs a new verified fix and {CLEAN_TIPS_TO_CLOSE} clean tips."
         # A finding from a build without the verified fix is counted but reopens nothing.
-        if t.is_closed and state["fix"] is None and t.issue and t.issue.state_reason != "NOT_PLANNED":
+        if t.is_closed and state["fix"] is None and t.issue and t.issue.state_reason in ("COMPLETED", ""):
             t.reopen = f"Recurred on tip {tip} (run {run_id}). Reopened by stability_issues.py.{note}"
+        elif t.is_closed and t.issue and t.issue.state_reason in PERSON_CLOSE_REASONS:
+            reason = t.issue.state_reason
+            if note or state.get("kept_closed") != reason:
+                state["kept_closed"] = reason
+                t.comments.append(f"Seen again on tip {tip} (run {run_id}). The issue stays closed as "
+                                  f"{PERSON_CLOSE_REASONS[reason]}; reopen it to track the signature again.{note}")
         elif note:
             t.comments.append(f"Seen again on tip {tip} (run {run_id}).{note}")
         out.append(t)
 
     for hash12, issue in sorted(by_hash.items()):
-        if hash12 in found or issue.state != "OPEN":
+        if hash12 in found:
             continue
         before = read_state(issue.body)
-        if not before or not before.get("fix"):
-            continue
-        t = Tracked(hash12=hash12, issue=issue, before=before, state=copy.deepcopy(before))
+        dups = duplicates.get(hash12, [])
+        if before is None:
+            # A hand-made issue with the hash label: the first duplicate with a state, if any, becomes its state.
+            seed = next((s for s in (read_state(dup.body) for dup in dups) if s), None)
+            if seed is None:
+                continue
+            before_state = empty_state(seed)
+        else:
+            before_state = copy.deepcopy(before)
+        t = Tracked(hash12=hash12, issue=issue, before=before, state=before_state)
+        merge_duplicates(t, dups)
         state = t.state
-        covered = any(tuple(key) in ran for key in state["seen_in"])
-        if covered and tip not in state["clean_tips"] and is_ancestor(state["fix"]["sha"], tip):
-            state["clean_tips"].append(tip)
-        if len(state["clean_tips"]) >= CLEAN_TIPS_TO_CLOSE:
-            t.close = (f"Fix {state['fix']['sha']} verified and {len(state['clean_tips'])} clean tips "
-                       f"({', '.join(short(sha) for sha in state['clean_tips'])}) ran a lane that found this "
-                       "signature without finding it. Closed by stability_issues.py; a recurrence reopens it.")
+        if issue.state == "OPEN" and state.get("fix"):
+            fix_sha = state["fix"]["sha"]
+            covered = any(tuple(key) in ran for key in state["seen_in"])
+            if covered and tip not in state["clean_tips"]:
+                has_fix = is_ancestor(fix_sha, tip)
+                if has_fix:
+                    state["clean_tips"].append(tip)
+                elif has_fix is None:
+                    notes.append(f"{hash12}: git could not tell whether tip {tip} contains fix {fix_sha}; "
+                                 "the tip is not counted")
+                else:
+                    notes.append(f"{hash12}: tip {tip} does not contain fix {fix_sha}; the tip is not counted")
+            if len(state["clean_tips"]) >= CLEAN_TIPS_TO_CLOSE:
+                t.close = (f"Fix {fix_sha} verified and {len(state['clean_tips'])} clean tips "
+                           f"({', '.join(short(sha) for sha in state['clean_tips'])}) ran a lane that found this "
+                           "signature without finding it. Closed by stability_issues.py; a recurrence reopens it.")
         if t.writes():
             out.append(t)
     return out, notes
@@ -452,32 +588,53 @@ class Outcome:
 
 
 def apply(tracked: list[Tracked], github: GitHub, max_writes: int, dry_run: bool) -> Outcome:
-    """Writes per signature, all of one signature's writes or none, within --max-writes and the REST budget."""
+    """Writes per signature, all of one signature's writes or none, within --max-writes and the rate budget. The
+    labels a new issue needs are its own writes, created only when that issue is."""
     outcome = Outcome()
     planned = [(t, t.writes()) for t in tracked]
     planned = [(t, writes) for t, writes in planned if writes]
-    total = sum(len(writes) for _, writes in planned)
-    budget = max_writes
-    if not dry_run and total >= BUDGET_CHECK_AT:
-        remaining = github.rest_remaining()
-        if remaining is not None:
-            budget = min(budget, max(0, remaining - REST_RESERVE))
-            outcome.notes.append(f"REST remaining {remaining}, write budget {budget}")
-    creating = [t for t, _ in planned if t.issue is None]
-    if not dry_run and creating:
-        github.ensure_labels(sorted({name for t in creating for name in labels_for(t.state)}))
-    used = 0
+    have = github.existing_labels() if any(t.issue is None for t, _ in planned) else set()
+
+    def with_labels(t: Tracked, writes: list[tuple], labels: set[str]) -> list[tuple]:
+        missing = [name for name in labels_for(t.state) if name not in labels] if t.issue is None else []
+        return [("label", name) for name in missing] + writes
+
+    preview, total = set(have), 0
     for t, writes in planned:
-        if used + len(writes) > budget:
+        full = with_labels(t, writes, preview)
+        preview |= {write[1] for write in full if write[0] == "label"}
+        total += len(full)
+    budget = {"all": max_writes, "core": total, "graphql": total}
+    if not dry_run and total >= BUDGET_CHECK_AT:
+        remaining = github.rate_remaining()
+        if remaining is not None:
+            for bucket in ("core", "graphql"):
+                budget[bucket] = max(0, remaining.get(bucket, 0) - RATE_RESERVE)
+            outcome.notes.append(f"rate remaining core {remaining.get('core')} graphql {remaining.get('graphql')}, "
+                                 f"write budget core {budget['core']} graphql {budget['graphql']}")
+    used = {"all": 0, "core": 0, "graphql": 0}
+    for t, writes in planned:
+        full = with_labels(t, writes, have)
+        need = {"all": len(full), "core": sum(1 for write in full if write[0] == "label")}
+        need["graphql"] = need["all"] - need["core"]
+        # --max-writes never stops the first signature of an invocation, so one that needs more still lands.
+        over = [bucket for bucket in used if used[bucket] + need[bucket] > budget[bucket]]
+        if over and not (over == ["all"] and used["all"] == 0):
             outcome.deferred.append(t.hash12)
             continue
-        used += len(writes)
-        for write in writes:
-            outcome.applied.append(f"{write[0]} {t.hash12}" + (f" #{write[1]}" if write[0] != "create" else ""))
+        for bucket in used:
+            used[bucket] += need[bucket]
+        for write in full:
+            kind, *args = write
+            target = f" {args[0]}" if kind == "label" else (f" #{args[0]}" if kind != "create" else "")
+            outcome.applied.append(f"{kind} {t.hash12}{target}")
+            if kind == "label":
+                have.add(args[0])
             if dry_run:
                 continue
-            kind, *args = write
-            if kind == "create":
+            if kind == "label":
+                github.create_label(*args)
+            elif kind == "create":
                 github.create_issue(*args)
             elif kind == "edit":
                 github.edit_issue(*args)
@@ -493,11 +650,37 @@ def apply(tracked: list[Tracked], github: GitHub, max_writes: int, dry_run: bool
 # --- CLI ----------------------------------------------------------------------------------------------------------
 
 
+def plan(args: argparse.Namespace, github: GitHub,
+         is_ancestor: Callable[[str, str], bool | None]) -> tuple[list[Tracked], list[str]]:
+    """Read and plan inside the caller's lock, so no other sync on this host writes between the read and the writes."""
+    if args.cmd == "sync":
+        try:
+            run = json.loads(args.run.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise StabilityIssueError(f"cannot read {args.run}: {error}") from error
+        return plan_sync(github.list_issues(LABEL), run, is_ancestor)
+    if not HASH12.match(args.hash12):
+        raise StabilityIssueError(f"--hash12 must be 12 lowercase hex characters, got {args.hash12!r}")
+    if args.cmd == "bisect-result":
+        result = {"result": "first_bad", "sha": args.first_bad} if args.first_bad else {"result": "flaky",
+                                                                                         "hits": args.flaky}
+        result.update({key: value for key, value in (("range", args.range), ("evidence", args.evidence)) if value})
+        return [plan_bisect(github.list_issues(f"{LABEL}:{args.hash12}"), args.hash12, result)], []
+    if is_ancestor(args.fix, args.fix) is None:
+        raise StabilityIssueError(f"git cannot resolve fix {args.fix} in --git-dir or its --remote; pass the commit "
+                                  "as it landed (the squash commit, not a PR head)")
+    return [plan_fix(github.list_issues(f"{LABEL}:{args.hash12}"), args.hash12, args.fix, args.evidence)], []
+
+
 def main(argv: list[str] | None = None, github: GitHub | None = None,
          is_ancestor: Callable[[str, str], bool | None] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name of the issue tracker (CMUX_STABILITY_REPO)")
     parser.add_argument("--git-dir", type=Path, default=ROOT, help="checkout used for fix-in-tip ancestry checks")
+    parser.add_argument("--remote", default="origin",
+                        help="remote of --git-dir that commits the checkout lacks are fetched from ('' never fetches)")
+    parser.add_argument("--lock-file", type=Path, default=None,
+                        help="host lock for one writer per repo (default ~/.cache/cmux/stability-issues-REPO.lock)")
     parser.add_argument("--dry-run", action="store_true", help="read issues, print the writes, write nothing")
     parser.add_argument("--max-writes", type=int, default=60, help="gh writes per invocation; the rest is deferred")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -517,29 +700,13 @@ def main(argv: list[str] | None = None, github: GitHub | None = None,
     args = parser.parse_args(argv)
 
     github = github or GhCli(args.repo)
-    is_ancestor = is_ancestor or git_is_ancestor(args.git_dir)
+    is_ancestor = is_ancestor or GitAncestry(args.git_dir, args.remote)
+    lock = nullcontext() if args.dry_run else repo_lock(args.lock_file or default_lock_file(args.repo))
     try:
-        if args.cmd == "sync":
-            try:
-                run = json.loads(args.run.read_text())
-            except (OSError, json.JSONDecodeError) as error:
-                raise StabilityIssueError(f"cannot read {args.run}: {error}") from error
-            tracked, notes = plan_sync(github.list_issues(LABEL), run, is_ancestor)
-        else:
-            if not HASH12.match(args.hash12):
-                raise StabilityIssueError(f"--hash12 must be 12 lowercase hex characters, got {args.hash12!r}")
-            issues = github.list_issues(f"{LABEL}:{args.hash12}")
-            notes = []
-            if args.cmd == "bisect-result":
-                result = ({"result": "first_bad", "sha": args.first_bad} if args.first_bad
-                          else {"result": "flaky", "hits": args.flaky})
-                result.update({key: value for key, value in (("range", args.range), ("evidence", args.evidence))
-                               if value})
-                tracked = [plan_bisect(issues, args.hash12, result)]
-            else:
-                tracked = [plan_fix(issues, args.hash12, args.fix, args.evidence)]
-        outcome = apply(tracked, github, args.max_writes, args.dry_run)
-    except StabilityIssueError as error:
+        with lock:
+            tracked, notes = plan(args, github, is_ancestor)
+            outcome = apply(tracked, github, args.max_writes, args.dry_run)
+    except (StabilityIssueError, OSError) as error:
         print(f"stability_issues: {error}", file=sys.stderr)
         return 1
     outcome.notes = notes + outcome.notes

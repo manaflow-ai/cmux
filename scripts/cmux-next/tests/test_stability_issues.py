@@ -5,11 +5,16 @@
 2. Closing needs a verified fix and 3 distinct clean tips that contain the fix and ran a lane and major that found
    the signature; tips without the fix, tips that ran other lanes and repeated tips do not count.
 3. A finding on a build with the fix resets the fix and reopens a closed issue; one from a build without the fix only
-   counts; an issue a person closed as not planned stays closed.
-4. bisect-result and fix-verified update the issue once; the state block survives `-->` in frame names.
-5. Writes past --max-writes or the REST reserve are deferred with exit 75 and the same sync finishes them.
-6. The gh CLI adapter, end to end against a fake `gh` executable: one issue list read per sync, labels created only
-   when an issue is created, and the run file applied once.
+   counts; an issue a person closed as not planned or duplicate stays closed, with one comment.
+4. A build git cannot place relative to the fix counts as a recurrence (reopens, resets) and never as a clean tip;
+   a fix git cannot resolve is refused; GitAncestry fetches a commit the checkout lacks.
+5. bisect-result and fix-verified update the issue once; the state block survives `-->` in frame names.
+6. Writes past --max-writes or the graphql or core reserve are deferred with exit 75 and the same sync finishes
+   them; label creates count as writes and a deferred signature creates none.
+7. Two issues for one signature (a race between hosts) are merged into the lowest and the other closed, once;
+   a sync holds the host repo lock while it reads and writes.
+8. The gh CLI adapter, end to end against a fake `gh` executable: one issue list read per sync, labels created only
+   when an issue is created, the run file applied once, and both rate buckets read.
 
     python3 -I -m pytest scripts/cmux-next/tests/test_stability_issues.py
     python3 -I -m unittest discover -s scripts/cmux-next/tests -p test_stability_issues.py
@@ -17,6 +22,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import io
 import json
 import os
@@ -25,6 +31,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -45,24 +52,30 @@ def sha(n: int) -> str:
 class FakeGitHub:
     """GitHub in memory, with every call recorded."""
 
-    def __init__(self, remaining: int | None = 5000) -> None:
+    def __init__(self) -> None:
         self.issues: dict[int, si.Issue] = {}
         self.comments: dict[int, list[str]] = {}
         self.calls: list[str] = []
         self.labels: set[str] = set()
-        self.remaining = remaining
+        self.remaining: dict[str, int] | None = {"core": 5000, "graphql": 5000}
 
     def list_issues(self, label: str) -> list[si.Issue]:
         self.calls.append(f"list {label}")
         return [si.Issue(**vars(issue)) for issue in self.issues.values() if label in issue.labels]
 
-    def ensure_labels(self, names: list[str]) -> None:
-        self.calls.append("labels")
-        self.labels |= set(names)
+    def existing_labels(self) -> set[str]:
+        self.calls.append("list labels")
+        return set(self.labels)
+
+    def create_label(self, name: str) -> None:
+        self.calls.append(f"label {name}")
+        self.labels.add(name)
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> int:
         self.calls.append("create")
-        number = len(self.issues) + 1
+        missing = [name for name in labels if name not in self.labels]
+        assert not missing, f"issue created before its labels: {missing}"
+        number = max(self.issues, default=0) + 1
         self.issues[number] = si.Issue(number, "OPEN", "", title, body, list(labels))
         return number
 
@@ -74,9 +87,10 @@ class FakeGitHub:
         self.calls.append(f"comment {number}")
         self.comments.setdefault(number, []).append(text)
 
-    def close_issue(self, number: int, text: str) -> None:
+    def close_issue(self, number: int, text: str, reason: str) -> None:
         self.calls.append(f"close {number}")
-        self.issues[number].state, self.issues[number].state_reason = "CLOSED", "COMPLETED"
+        reason_name = {"completed": "COMPLETED", "not planned": "NOT_PLANNED"}[reason]
+        self.issues[number].state, self.issues[number].state_reason = "CLOSED", reason_name
         self.comments.setdefault(number, []).append(text)
 
     def reopen_issue(self, number: int, text: str) -> None:
@@ -84,7 +98,7 @@ class FakeGitHub:
         self.issues[number].state, self.issues[number].state_reason = "OPEN", "REOPENED"
         self.comments.setdefault(number, []).append(text)
 
-    def rest_remaining(self) -> int | None:
+    def rate_remaining(self) -> dict[str, int] | None:
         self.calls.append("rate_limit")
         return self.remaining
 
@@ -95,6 +109,9 @@ class FakeGitHub:
 
     def writes(self) -> list[str]:
         return [call for call in self.calls if not call.startswith(("list", "rate_limit"))]
+
+    def label_writes(self) -> list[str]:
+        return [call for call in self.calls if call.startswith("label ")]
 
 
 def finding(hash12: str = H1, lane: str = "smoke", major: str = "26", build: str | None = None, **extra) -> dict:
@@ -111,22 +128,27 @@ def run(run_id: str, tip: str, findings: list[dict], lanes: list[tuple[str, str]
             "lanes": [{"lane": lane, "major": major} for lane, major in lanes], "findings": findings}
 
 
-def descends_from_fix(fix_tips: set[str]):
-    """Ancestry: FIX is in exactly the tips listed."""
-    return lambda ancestor, tip: tip in fix_tips if ancestor == FIX else None
+def descends_from_fix(fix_tips: set[str], unknown: set[str] = frozenset()):
+    """Ancestry: FIX is in exactly the tips listed; the `unknown` builds cannot be placed (None)."""
+    return lambda ancestor, tip: None if ancestor != FIX or tip in unknown else tip in fix_tips
 
 
 class Harness(unittest.TestCase):
     def setUp(self) -> None:
         self.gh = FakeGitHub()
         self.fixed: set[str] = set()
+        self.unknown: set[str] = set()
         self.tmp = Path(tempfile.mkdtemp())
+        self.notes: list[str] = []
 
     def cli(self, *argv: str) -> tuple[int, dict, str]:
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = si.main(list(argv), github=self.gh, is_ancestor=descends_from_fix(self.fixed))
-        return code, json.loads(out.getvalue() or "{}"), err.getvalue()
+            code = si.main(["--lock-file", str(self.tmp / "lock"), *argv], github=self.gh,
+                           is_ancestor=descends_from_fix(self.fixed, self.unknown))
+        result = json.loads(out.getvalue() or "{}")
+        self.notes = result.get("notes", [])
+        return code, result, err.getvalue()
 
     def sync(self, data: dict, *flags: str) -> tuple[int, dict, str]:
         path = self.tmp / f"{data['run']}.json"
@@ -325,29 +347,198 @@ class BudgetTests(Harness):
     def many(self, n: int) -> dict:
         return run("r1", sha(1), [finding(f"{i:012x}") for i in range(n)])
 
-    def test_max_writes_defers_and_the_same_sync_finishes(self) -> None:
+    def test_max_writes_counts_label_creates_and_the_same_sync_finishes(self) -> None:
         data = self.many(5)
-        code, out, err = self.sync(data, "--max-writes", "3")
+        # The first new issue needs 3 labels and its create (4 writes), each later one its hash label and create.
+        code, out, err = self.sync(data, "--max-writes", "6")
         self.assertEqual(code, si.EX_TEMPFAIL)
-        self.assertEqual((len(self.gh.issues), len(out["deferred"])), (3, 2))
+        self.assertEqual(len(self.gh.writes()), 6)
+        self.assertEqual(len(self.gh.label_writes()), 4)
+        self.assertEqual((len(self.gh.issues), len(out["deferred"])), (2, 3))
         self.assertIn("run the same command again", err)
-        code, _, _ = self.sync(data, "--max-writes", "3")
-        self.assertEqual((code, len(self.gh.issues)), (0, 5))
+        self.gh.calls.clear()
+        code, _, _ = self.sync(data, "--max-writes", "6")
+        self.assertEqual((code, len(self.gh.issues), len(self.gh.writes())), (0, 5, 6))
         self.assertTrue(all(self.gh.state(n)["count"] == 1 for n in self.gh.issues))
+        self.assertEqual(len(self.gh.labels), 7)
 
-    def test_rest_reserve_is_kept(self) -> None:
-        self.gh.remaining = si.REST_RESERVE + 4
+    def test_a_deferred_signature_creates_no_labels(self) -> None:
+        self.sync(self.many(3), "--max-writes", "4")
+        self.assertEqual(len(self.gh.issues), 1)
+        self.assertEqual(self.gh.labels, {"stability-sig", f"stability-sig:{0:012x}", "stability-kind:ips"})
+
+    def test_max_writes_below_one_signature_still_applies_it(self) -> None:
+        code, _, _ = self.sync(self.many(2), "--max-writes", "1")
+        self.assertEqual((code, len(self.gh.issues)), (si.EX_TEMPFAIL, 1))
+
+    def test_graphql_reserve_is_kept_when_core_is_high(self) -> None:
+        self.gh.remaining = {"core": 5000, "graphql": si.RATE_RESERVE + 4}
         code, out, _ = self.sync(self.many(si.BUDGET_CHECK_AT))
         self.assertEqual(code, si.EX_TEMPFAIL)
         self.assertEqual(len(self.gh.issues), 4)
         self.assertIn("rate_limit", self.gh.calls)
+        self.assertIn("graphql 504", " ".join(out["notes"]))
+
+    def test_core_reserve_is_kept_for_label_creates(self) -> None:
+        self.gh.remaining = {"core": si.RATE_RESERVE + 3, "graphql": 5000}
+        code, _, _ = self.sync(self.many(si.BUDGET_CHECK_AT))
+        self.assertEqual(code, si.EX_TEMPFAIL)
+        self.assertEqual((len(self.gh.issues), len(self.gh.label_writes())), (1, 3))
 
     def test_small_runs_do_not_read_the_rate_limit_and_dry_run_writes_nothing(self) -> None:
         code, out, _ = self.sync(self.many(2), "--dry-run")
         self.assertEqual(code, 0)
         self.assertEqual(self.gh.writes(), [])
         self.assertNotIn("rate_limit", self.gh.calls)
-        self.assertEqual(len(out["applied"]), 2)
+        kinds = [entry.split()[0] for entry in out["applied"]]
+        self.assertEqual((kinds.count("create"), kinds.count("label")), (2, 4))
+
+
+class UnknownAncestryTests(Harness):
+    """git cannot place a build relative to the fix: a finding counts as a recurrence, a clean tip does not count."""
+
+    def verified(self) -> None:
+        self.sync(run("r0", sha(0), [finding()]))
+        self.assertEqual(self.cli("fix-verified", "--hash12", H1, "--fix", FIX, "--evidence", "job 9")[0], 0)
+
+    def test_closed_issue_reopens_on_a_recurrence_git_cannot_place(self) -> None:
+        self.verified()
+        for n in (1, 2, 3):
+            self.fixed.add(sha(n))
+            self.sync(run(f"c{n}", sha(n), []))
+        self.assertEqual(self.gh.issues[1].state, "CLOSED")
+        self.unknown.add(sha(9))
+        self.sync(run("r9", sha(9), [finding()]))
+        self.assertEqual(self.gh.issues[1].state, "OPEN")
+        self.assertIsNone(self.gh.state()["fix"])
+        self.assertEqual(self.gh.state()["fix_history"][-1]["recurred_on"], sha(9))
+        self.assertIn("could not tell", self.gh.comments[1][-1])
+        self.assertTrue(any(sha(9) in note and "could not tell" in note for note in self.notes))
+
+    def test_open_issue_does_not_close_after_a_recurrence_git_cannot_place(self) -> None:
+        self.verified()
+        self.unknown.add(sha(9))
+        self.sync(run("r9", sha(9), [finding()]))
+        for n in (1, 2, 3):
+            self.fixed.add(sha(n))
+            self.sync(run(f"c{n}", sha(n), []))
+        self.assertEqual(self.gh.issues[1].state, "OPEN")
+        self.assertIsNone(self.gh.state()["fix"])
+
+    def test_unknown_clean_tip_is_noted_and_not_counted(self) -> None:
+        self.verified()
+        self.unknown.add(sha(1))
+        self.sync(run("c1", sha(1), []))
+        self.assertEqual(self.gh.state()["clean_tips"], [])
+        self.assertTrue(any(sha(1) in note and "not counted" in note for note in self.notes))
+
+    def test_fix_git_cannot_resolve_is_refused(self) -> None:
+        self.sync(run("r0", sha(0), [finding()]))
+        code, _, err = self.cli("fix-verified", "--hash12", H1, "--fix", sha(77), "--evidence", "x")
+        self.assertEqual(code, 1)
+        self.assertIn("squash commit", err)
+        self.assertIsNone(self.gh.state()["fix"])
+
+
+class PersonCloseTests(Harness):
+    def test_duplicate_close_stays_closed_with_one_comment(self) -> None:
+        self.sync(run("r0", sha(0), [finding()]))
+        self.gh.issues[1].state, self.gh.issues[1].state_reason = "CLOSED", "DUPLICATE"
+        self.sync(run("r1", sha(1), [finding()]))
+        self.sync(run("r2", sha(2), [finding()]))
+        self.assertEqual(self.gh.issues[1].state, "CLOSED")
+        self.assertEqual(self.gh.state()["count"], 3)
+        self.assertNotIn("reopen 1", self.gh.calls)
+        self.assertEqual(len(self.gh.comments[1]), 1)
+        self.assertIn("stays closed as duplicate", self.gh.comments[1][0])
+
+
+class DuplicateIssueTests(Harness):
+    """Two collectors on different hosts raced and made two issues for one signature."""
+
+    def raced(self) -> None:
+        other = FakeGitHub()
+        self.sync(run("a", sha(1), [finding()]))
+        first = self.gh
+        self.gh = other
+        self.sync(run("b", sha(2), [finding(major="27")], lanes=[("smoke", "27")]))
+        self.gh = first
+        dup = other.issues[1]
+        self.gh.issues[2] = si.Issue(2, dup.state, dup.state_reason, dup.title, dup.body, list(dup.labels))
+
+    def test_next_sync_merges_and_closes_the_higher_number(self) -> None:
+        self.raced()
+        self.sync(run("c", sha(3), [finding()]))
+        self.assertEqual((self.gh.issues[2].state, self.gh.issues[2].state_reason), ("CLOSED", "NOT_PLANNED"))
+        self.assertIn("Duplicate of #1", self.gh.comments[2][-1])
+        state = self.gh.state(1)
+        self.assertEqual((state["count"], state["per_major"]), (3, {"26": 2, "27": 1}))
+        self.assertEqual(state["merged"], [2])
+        self.gh.calls.clear()
+        for again in ("a", "b", "c"):
+            self.sync(run(again, sha(3), [finding()]))
+        self.assertEqual(self.gh.writes(), [])
+        self.assertEqual(self.gh.state(1)["count"], 3)
+
+    def test_a_sync_without_the_signature_heals_it_too(self) -> None:
+        self.raced()
+        self.sync(run("c", sha(3), []))
+        self.assertEqual(self.gh.issues[2].state, "CLOSED")
+        self.assertEqual(self.gh.state(1)["count"], 2)
+
+
+class LockTests(Harness):
+    def test_sync_holds_the_repo_lock_while_it_reads_and_writes(self) -> None:
+        lock = self.tmp / "lock"
+        held: list[bool] = []
+        real_create = self.gh.create_issue
+
+        def probe() -> None:
+            with open(lock, "a") as handle:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    held.append(True)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    held.append(False)
+
+        def create(*args):
+            probe()
+            return real_create(*args)
+
+        self.gh.create_issue = create
+        self.sync(run("r1", sha(1), [finding()]))
+        self.assertEqual(held, [True])
+        probe()
+        self.assertEqual(held, [True, False])
+
+
+class GitAncestryTests(unittest.TestCase):
+    def test_a_commit_the_checkout_lacks_is_fetched_from_the_remote(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+
+        def vcs(cwd: Path, *args: str) -> str:
+            return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True,
+                                  check=True).stdout.strip()
+
+        upstream = tmp / "upstream"
+        upstream.mkdir()
+        vcs(upstream, "init", "-q")
+        vcs(upstream, "commit", "-q", "--allow-empty", "-m", "fix")
+        fix = vcs(upstream, "rev-parse", "HEAD")
+        vcs(tmp, "clone", "-q", str(upstream), "checkout")
+        vcs(upstream, "commit", "-q", "--allow-empty", "-m", "newer tip")
+        tip = vcs(upstream, "rev-parse", "HEAD")
+
+        with mock.patch.dict(os.environ, env):
+            self.assertIsNone(si.GitAncestry(tmp / "checkout", remote="")(fix, tip))
+            ancestry = si.GitAncestry(tmp / "checkout")
+            self.assertTrue(ancestry(fix, tip))
+            self.assertFalse(ancestry(tip, fix))
+            self.assertIsNone(ancestry(fix, sha(5)))
 
 
 FAKE_GH = textwrap.dedent('''\
@@ -365,7 +556,7 @@ FAKE_GH = textwrap.dedent('''\
         return [args[i + 1] for i, a in enumerate(args) if a == name]
     assert args[0] == "api" or opt("--repo") == "o/r", args
     if args[:2] == ["api", "rate_limit"]:
-        print(4000)
+        print(json.dumps({"resources": {"core": {"remaining": 4000}, "graphql": {"remaining": 600}}}))
     elif args[:2] == ["issue", "list"]:
         label = opt("--label")
         print(json.dumps([dict(i, labels=[{"name": n} for n in i["labels"]]) for i in db["issues"]
@@ -426,7 +617,11 @@ class GhCliTests(unittest.TestCase):
         self.assertEqual(third.returncode, 0, third.stderr)
         created = [json.loads(line)[2] for line in (tmp / "log.jsonl").read_text().splitlines()
                    if json.loads(line)[:2] == ["label", "create"]]
-        self.assertEqual(created, ["stability-kind:ips", "stability-sig", f"stability-sig:{H1}", f"stability-sig:{H2}"])
+        self.assertEqual(created, ["stability-sig", f"stability-sig:{H1}", "stability-kind:ips", f"stability-sig:{H2}"])
+
+        with mock.patch.dict(os.environ, env):
+            remaining = si.GhCli("o/r", gh=str(bin_dir / "gh")).rate_remaining()
+        self.assertEqual(remaining, {"core": 4000, "graphql": 600})
 
 
 if __name__ == "__main__":
