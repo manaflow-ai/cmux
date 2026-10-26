@@ -47,7 +47,7 @@ jobs:
     # with a newer one. A tick only asks main's nightly.yml for a promotion and
     # reads the branch tip when it starts, so a replaced pending tick loses
     # nothing, and no build is ever cancelled: the builds run in nightly.yml,
-    # whose own groups never cancel (tests/test_nightly_delivery_concurrency.py).
+    # whose own groups never cancel (a delivery-concurrency test enforces it).
     # The group is on the job, so a tick whose `if` skips it (a non-push
     # source run) never replaces a waiting one, and a dispatch for one
     # commit gets its own group so a later tick cannot replace it.
