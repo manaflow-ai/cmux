@@ -195,3 +195,19 @@ struct RunawayPaneWarningOverlayHost: View {
         )
     }
 }
+
+extension ContentView {
+    @ViewBuilder
+    fileprivate func runawayPaneWarningBackground(
+        tabManager: TabManager,
+        selection: SidebarSelectionState
+    ) -> some View {
+        if let center = AppDelegate.shared?.runawayPaneWarningCenter {
+            RunawayPaneWarningOverlayHost(
+                center: center,
+                workspaceIDs: Set(tabManager.tabs.map(\.id)),
+                isShowingWorkspaces: selection.selection == .tabs
+            )
+        }
+    }
+}

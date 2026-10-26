@@ -59,6 +59,12 @@ final class RunawayPaneWarningCenter {
     @ObservationIgnored
     private let appProcessGroupID: Int
 
+    private struct Measurement: Sendable {
+        let warnings: [PaneMemoryPaneKey: RunawayPaneWarning]
+        let unavailableKeys: Set<PaneMemoryPaneKey>
+        let recoveredKeys: Set<PaneMemoryPaneKey>
+    }
+
     init(
         thresholdBytes: @escaping @MainActor () -> Int64 = { PaneMemoryGuardrail.configuredThresholdBytes() },
         processCountThreshold: Int = 1_000,
@@ -125,7 +131,7 @@ final class RunawayPaneWarningCenter {
             self.evaluationTask = nil
             // An unavailable census is no evidence either way; keep state.
             guard let measured else { return }
-            self.apply(measured, policy: policy)
+            self.apply(measured, liveKeys: Set(self.paneProvider?().map(\.key) ?? []), policy: policy)
         }
     }
 
@@ -183,9 +189,17 @@ final class RunawayPaneWarningCenter {
     }
 
     private func apply(
-        _ measured: [PaneMemoryPaneKey: RunawayPaneWarning],
+        _ measurement: Measurement,
+        liveKeys: Set<PaneMemoryPaneKey>,
         policy: RunawaySessionWarningPolicy
     ) {
+        // A pane can close while the census is in flight. Missing TTY data
+        // for a still-live pane is not evidence that its runaway recovered.
+        let measured = measurement.warnings.filter { liveKeys.contains($0.key) }
+        let unavailableKeys = measurement.unavailableKeys.intersection(liveKeys)
+        for key in measurement.recoveredKeys.intersection(liveKeys) {
+            tracker.reset(key)
+        }
         let usages = measured.mapValues {
             RunawaySessionUsage(
                 ttyDevice: $0.ttyDevice,
@@ -194,11 +208,15 @@ final class RunawayPaneWarningCenter {
                 dominantProcessID: nil
             )
         }
-        let newlyWarned = tracker.ingest(usages, policy: policy)
-        let next = measured.values
+        let newlyWarned = tracker.ingest(usages, unavailableKeys: unavailableKeys, policy: policy)
+        let retained = warnings.filter { unavailableKeys.contains($0.key) }
+        let next = (Array(measured.values) + retained)
             .filter { tracker.isPresentable($0.key) }
             .sorted {
-                if $0.memoryBytes == $1.memoryBytes { return $0.processCount > $1.processCount }
+                if $0.memoryBytes == $1.memoryBytes {
+                    if $0.processCount == $1.processCount { return $0.panelId.uuidString < $1.panelId.uuidString }
+                    return $0.processCount > $1.processCount
+                }
                 return $0.memoryBytes > $1.memoryBytes
             }
         // Equal samples must not invalidate the window's observers.
@@ -223,16 +241,24 @@ final class RunawayPaneWarningCenter {
         snapshotProvider: SnapshotProvider,
         argumentsProvider: ArgumentsProvider,
         ttyDevice: TTYDeviceResolver
-    ) async -> [PaneMemoryPaneKey: RunawayPaneWarning]? {
+    ) async -> Measurement? {
         let snapshot = await snapshotProvider()
         guard let census = snapshot.runawaySessionCensus() else { return nil }
         let labeler = RunawaySessionCommandLabeler()
         var measured: [PaneMemoryPaneKey: RunawayPaneWarning] = [:]
+        var unavailableKeys: Set<PaneMemoryPaneKey> = []
+        var recoveredKeys: Set<PaneMemoryPaneKey> = []
         for descriptor in descriptors {
             guard let ttyName = descriptor.ttyName,
-                  let device = ttyDevice(ttyName) else { continue }
+                  let device = ttyDevice(ttyName) else {
+                unavailableKeys.insert(descriptor.key)
+                continue
+            }
             let signallableGroups = selector.signallableProcessGroupIDs(ttyDevice: device, in: census) ?? []
-            guard let usage = census.usage(ttyDevice: device, candidateGroups: signallableGroups) else { continue }
+            guard let usage = census.usage(ttyDevice: device, candidateGroups: signallableGroups) else {
+                recoveredKeys.insert(descriptor.key)
+                continue
+            }
             var command = ""
             if !policy.hasCleared(usage),
                let pid = usage.dominantProcessID,
@@ -253,7 +279,7 @@ final class RunawayPaneWarningCenter {
                 canStop: !signallableGroups.isEmpty
             )
         }
-        return measured
+        return Measurement(warnings: measured, unavailableKeys: unavailableKeys, recoveredKeys: recoveredKeys)
     }
 
     #if compiler(>=6.2)

@@ -134,6 +134,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 signalProcessGroup: signalProcessGroup,
                 waitForGraceDeadline: waitForGraceDeadline,
                 ttyDevice: ttyDevice,
+                shouldTerminate: { await MainActor.run { isEnabled() } },
                 shouldEscalate: { await MainActor.run { isEnabled() } }
             )
             self?.evaluationTask = nil
@@ -184,6 +185,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         signalProcessGroup: @escaping ProcessGroupSignaller,
         waitForGraceDeadline: @escaping GraceDeadline,
         ttyDevice: TTYDeviceResolver,
+        shouldTerminate: @Sendable () async -> Bool = { true },
         shouldEscalate: @Sendable () async -> Bool = { true }
     ) async -> [RunawayPaneTreeTarget] {
         let aggregate: MemoryPressureAggregateSnapshot
@@ -194,7 +196,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         }
         guard authorizesTermination(aggregate),
               let aggregateBytes = aggregate.aggregateBytes,
-              let census = await snapshotProvider().runawaySessionCensus() else { return [] }
+              let census = await snapshotProvider().runawaySessionCensus(),
+              await shouldTerminate(), !Task.isCancelled else { return [] }
 
         let targets: [RunawayPaneTreeTarget] = descriptors.compactMap { descriptor in
             guard let ttyName = descriptor.ttyName,
@@ -212,7 +215,9 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             signalProcessGroup: signalProcessGroup,
             waitForGraceDeadline: waitForGraceDeadline
         )
+        var actedOn: [RunawayPaneTreeTarget] = []
         for target in targets {
+            guard await shouldTerminate(), !Task.isCancelled else { break }
             await terminator.terminate(
                 processGroupIDs: target.selection.processGroupIDs,
                 ttyDevice: target.selection.ttyDevice,
@@ -220,7 +225,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 selector: selector,
                 shouldEscalate: shouldEscalate
             )
+            actedOn.append(target)
         }
-        return targets
+        return actedOn
     }
 }
