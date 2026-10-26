@@ -326,6 +326,7 @@ import {
 import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
+import type { NeedsYouAnswer, NeedsYouItem } from "./needsYou/model";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -662,6 +663,25 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
   return postNative<T>(method, params);
+}
+
+/// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
+/// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
+/// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
+/// not answer it here (`unsupported`: another computer's chat, or a host before the op) opens the
+/// chat, whose card answers it; any other refusal rejects, and the row says so.
+async function answerFromHome(item: NeedsYouItem, choice: NeedsYouAnswer, open: (sessionId: string) => void) {
+  if (!item.permissionId) throw new Error("unanswerable");
+  try {
+    await callNative("chat.asks.answer", {
+      sessionId: item.sessionId,
+      permissionId: item.permissionId,
+      optionId: choice.id,
+    });
+  } catch (error) {
+    if (!(error instanceof NativeError) || error.code !== "unsupported") throw error;
+    open(item.sessionId);
+  }
 }
 
 /// Withdraws a queued prompt before its turn starts; false when it already started.
@@ -9683,7 +9703,13 @@ function AcpmuxPane() {
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
-                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                    <HomeLists
+                      sessions={snapshot.sessions}
+                      currentId={snapshot.sessionId}
+                      asks={snapshot.asks}
+                      onSelect={selectSession}
+                      onAnswer={(item, choice) => answerFromHome(item, choice, selectSession)}
+                    />
                   </div>
                 )}
                 {hostErrorCard}
