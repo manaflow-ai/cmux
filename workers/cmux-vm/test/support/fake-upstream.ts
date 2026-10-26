@@ -58,11 +58,14 @@ export type UpstreamOperation =
   | "createIdentity"
   | "grantVmPermission"
   | "createAccessToken"
-  | "deleteIdentity";
+  | "deleteIdentity"
+  | "updateVmAllowedLinuxUsers"
+  | "listAccessTokens"
+  | "revokeAccessToken";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
-const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens))?$/;
+const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens)(?:\/([^/]+))?)?$/;
 
 /** A provider identity: its VM grants and access tokens (client sessions). */
 interface FakeIdentity {
@@ -148,6 +151,25 @@ export function makeFakeUpstream(apiKey: string) {
         const token = { id: `tok-${crypto.randomUUID()}`, token: `fs_identity_${crypto.randomUUID()}` };
         identity.tokens.push(token);
         return Response.json(token);
+      }
+      case "updateVmAllowedLinuxUsers": {
+        const grantVm = identityMatch?.[3] === undefined ? "" : decodeURIComponent(identityMatch[3]);
+        const index = identity?.grants.findIndex((grant) => grant.vmId === grantVm) ?? -1;
+        if (identity === undefined || index < 0) return notFound();
+        const body: unknown = await request.json();
+        const users: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "allowedLinuxUsers") : undefined;
+        const allowedLinuxUsers = Array.isArray(users) ? users.filter((user): user is string => typeof user === "string") : null;
+        identity.grants[index] = { vmId: grantVm, allowedLinuxUsers };
+        return Response.json({ id: "perm-x", identityId: identity.id, vmId: grantVm, allowedLinuxUsers, grantedAt: "2026-10-21T00:00:00Z", grantedBy: "acct" });
+      }
+      case "listAccessTokens":
+        return identity === undefined ? notFound() : Response.json(identity.tokens.map((token) => ({ id: token.id })));
+      case "revokeAccessToken": {
+        const tokenId = identityMatch?.[3] === undefined ? "" : decodeURIComponent(identityMatch[3]);
+        const index = identity?.tokens.findIndex((token) => token.id === tokenId) ?? -1;
+        if (identity === undefined || index < 0) return notFound();
+        identity.tokens.splice(index, 1);
+        return new Response(null, { status: 204 });
       }
       case "deleteIdentity": {
         if (identity === undefined) return notFound();
@@ -356,8 +378,11 @@ export function makeFakeUpstream(apiKey: string) {
     if (url.pathname === "/v5/identities" && method === "POST") return { operation: "createIdentity", vmId: null };
     const identity = IDENTITY_PATH.exec(url.pathname);
     if (identity !== null) {
-      if (identity[2] === "permissions/vm" && method === "POST") return { operation: "grantVmPermission", vmId: null };
-      if (identity[2] === "tokens" && method === "POST") return { operation: "createAccessToken", vmId: null };
+      if (identity[2] === "permissions/vm" && identity[3] === undefined && method === "POST") return { operation: "grantVmPermission", vmId: null };
+      if (identity[2] === "permissions/vm" && identity[3] !== undefined && method === "PATCH") return { operation: "updateVmAllowedLinuxUsers", vmId: null };
+      if (identity[2] === "tokens" && identity[3] === undefined && method === "POST") return { operation: "createAccessToken", vmId: null };
+      if (identity[2] === "tokens" && identity[3] === undefined && method === "GET") return { operation: "listAccessTokens", vmId: null };
+      if (identity[2] === "tokens" && identity[3] !== undefined && method === "DELETE") return { operation: "revokeAccessToken", vmId: null };
       if (identity[2] === undefined && method === "DELETE") return { operation: "deleteIdentity", vmId: null };
       return null;
     }
@@ -448,6 +473,8 @@ export function makeFakeUpstream(apiKey: string) {
     tokenValid: (token: string) => [...identities.values()].some((id) => id.tokens.some((t) => t.token === token)),
     /** The VM grants of the identity holding `token`. */
     identityGrants: (token: string) => [...identities.values()].find((id) => id.tokens.some((t) => t.token === token))?.grants ?? [],
+    /** The provider token ids of the identity holding `token` (test inspection only; never in a cmux response). */
+    identityTokenIds: (token: string) => [...identities.values()].find((id) => id.tokens.some((t) => t.token === token))?.tokens.map((t) => t.id) ?? [],
     /** Upstream calls of one operation kind, in order. */
     callsTo(method: string, pathPattern: RegExp) {
       return calls.filter((call) => call.method === method && pathPattern.test(call.path));

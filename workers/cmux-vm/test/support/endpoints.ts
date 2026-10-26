@@ -95,6 +95,17 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000`,
     scope: "vm:exec",
   },
+  // Client session identities (cx-b4h.6); test/workers/client-sessions.test.ts covers the rest.
+  { name: "getClientSession", method: "GET", template: "/v1/vms/{vmId}/client-sessions/{sessionId}",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000`, scope: "vm:exec" },
+  { name: "setClientSessionLinuxUser", method: "PUT", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/linux-user`, scope: "vm:exec", json: { linuxUser: "cmux" } },
+  { name: "listClientSessionTokens", method: "GET", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens`, scope: "vm:exec" },
+  { name: "createClientSessionToken", method: "POST", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens`, scope: "vm:exec" },
+  { name: "revokeClientSessionToken", method: "DELETE", template: "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens/{tokenId}",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000/tokens/vct_00000000000000000000000000`, scope: "vm:exec" },
 ];
 
 /** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
@@ -126,6 +137,8 @@ export const TENANT_ENDPOINTS = [
   // Agent keys; test/workers/agent-keys.test.ts runs the isolation cases.
   { name: "createAgentKey", method: "POST", template: "/v1/agent-keys", scope: "vm:write" },
   { name: "revokeAgentKey", method: "DELETE", template: "/v1/agent-keys/{keyId}", scope: "vm:write" },
+  // Client session identities (cx-b4h.6); test/workers/client-sessions.test.ts runs the isolation cases.
+  { name: "listTenantClientSessions", method: "GET", template: "/v1/client-sessions", scope: "vm:exec" },
 ] as const;
 
 export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;

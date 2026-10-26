@@ -318,6 +318,23 @@ export async function makeHarness(options: HarnessOptions = {}) {
         }),
       orphanClientSessions: (limit) =>
         Effect.sync(() => clientSessions.filter((row) => row.revokedAt === null && deleted.has(row.vmId)).slice(0, limit)),
+      setClientSessionLinuxUser: (tenantId, id, linuxUser) =>
+        Effect.sync(() => {
+          const index = clientSessions.findIndex((row) => row.tenantId === tenantId && row.id === id && row.revokedAt === null);
+          const found = clientSessions[index];
+          if (found !== undefined) clientSessions[index] = { ...found, linuxUser };
+        }),
+      liveTenantClientSessions: (tenantId, after, limit) =>
+        Effect.sync(() =>
+          clientSessions
+            .filter((row) => row.tenantId === tenantId && row.revokedAt === null && !deleted.has(row.vmId) && (after === null || row.id > after))
+            .flatMap((row) => {
+              const vm = resources.find((resource) => resource.tenantId === tenantId && resource.kind === "vm" && resource.cmuxId === row.vmId);
+              return vm === undefined ? [] : [{ ...row, vmLabels: vm.labels }];
+            })
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .slice(0, limit),
+        ),
     }),
     Layer.succeed(TeamAdmin, {
       isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),

@@ -5759,6 +5759,730 @@
         },
         "description": "Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.",
         "summary": "Revoke a VM's client session"
+      },
+      "get": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.getClientSession",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientSessionSummary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read one live client session of this VM: id, its one Linux user and creation time. A revoked session, another VM's session, or another tenant's or agent's VM is 404. Requires the vm:exec scope.",
+        "summary": "Read a VM's client session"
+      }
+    },
+    "/v1/client-sessions": {
+      "get": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.listTenantClientSessions",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "The `nextCursor` of the previous page.",
+              "pattern": "^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+            },
+            "required": false,
+            "description": "The `nextCursor` of the previous page."
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientSessionPage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List the live client sessions on the caller's live VMs, across the team, by session id (default limit 100, at most 200). Only sessions on VMs the credential reaches are listed: a key limited to resources or labels sees only those VMs' sessions. Tokens are never returned. A filtered page can hold fewer than `limit` items; follow `nextCursor`. Requires the vm:exec scope.",
+        "summary": "List the team's live client sessions"
+      }
+    },
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user": {
+      "put": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.setClientSessionLinuxUser",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientSessionSummary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. Requires the vm:exec scope.",
+        "summary": "Change a client session's Linux user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetClientSessionLinuxUserRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens": {
+      "get": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.listClientSessionTokens",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ClientSessionTokenList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionTokenList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List the live access tokens of a live client session: their ids only. Tokens are shown once, when minted. A revoked session is 404. Requires the vm:exec scope.",
+        "summary": "List a client session's tokens"
+      },
+      "post": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.createClientSessionToken",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ClientSessionToken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSessionToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mint another access token for a live client session: same VM, same Linux user. The token is shown once; the response carries the SSH login and API origin like the session's first token. A revoked session is 404. Requires the vm:exec scope.",
+        "summary": "Mint another token for a client session"
+      }
+    },
+    "/v1/vms/{vmId}/client-sessions/{sessionId}/tokens/{tokenId}": {
+      "delete": {
+        "tags": [
+          "clientSessions"
+        ],
+        "operationId": "clientSessions.revokeClientSessionToken",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "tokenId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke one access token at once; the session and its other tokens stay. Revoking a token that is already gone is not an error. A revoked session, or a token id that is malformed, is 404. Requires the vm:exec scope.",
+        "summary": "Revoke one token of a client session"
       }
     },
     "/v1/meshes": {
@@ -11951,7 +12675,8 @@
           "linuxUser",
           "apiBaseUrl",
           "ssh",
-          "createdAt"
+          "createdAt",
+          "tokenId"
         ],
         "properties": {
           "id": {
@@ -11992,6 +12717,11 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "tokenId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           }
         },
         "additionalProperties": false
@@ -12030,6 +12760,143 @@
           },
           "linuxUser": {
             "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionPage": {
+        "type": "object",
+        "required": [
+          "sessions",
+          "nextCursor"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientSessionSummary"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as `cursor` to read the next page; null on the last page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetClientSessionLinuxUserRequest": {
+        "type": "object",
+        "required": [
+          "linuxUser"
+        ],
+        "properties": {
+          "linuxUser": {
+            "type": "string",
+            "description": "A Linux user name on the VM (lowercase letter or _ first, then lowercase letters, digits, _ or -; at most 32).",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionTokenList": {
+        "type": "object",
+        "required": [
+          "tokens"
+        ],
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientSessionTokenSummary"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionTokenSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "sessionId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSessionToken": {
+        "type": "object",
+        "required": [
+          "id",
+          "sessionId",
+          "vmId",
+          "token",
+          "providerVmId",
+          "linuxUser",
+          "apiBaseUrl",
+          "ssh",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vct_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "vmId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "providerVmId": {
+            "type": "string"
+          },
+          "linuxUser": {
+            "type": "string"
+          },
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "ssh": {
+            "type": "object",
+            "required": [
+              "host",
+              "user"
+            ],
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "user": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           },
           "createdAt": {
             "type": "string"
@@ -13190,6 +14057,9 @@
     },
     {
       "name": "agents"
+    },
+    {
+      "name": "clientSessions"
     },
     {
       "name": "mesh"

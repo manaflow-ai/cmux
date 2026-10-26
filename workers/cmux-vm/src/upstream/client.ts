@@ -18,7 +18,7 @@ import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
 import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
 import type { VmImageAllowed } from "../proofs/vm-image.ts";
-import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
+import type { ClientSessionTokenId, SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
@@ -123,7 +123,20 @@ export interface ClientSessionGrant {
   readonly providerVmId: UpstreamId;
   readonly apiBaseUrl: string;
   readonly sshHost: string;
+  /** The public id of this token (a one-way hash of the provider's token id). */
+  readonly tokenId: ClientSessionTokenId;
 }
+
+/** Another access token minted for an existing client session: shown once. */
+export interface ClientSessionTokenGrant {
+  readonly tokenId: ClientSessionTokenId;
+  readonly token: string;
+  readonly providerVmId: UpstreamId;
+  readonly apiBaseUrl: string;
+  readonly sshHost: string;
+}
+
+type Exec<C> = KeyHasScope<C, "vm:exec">;
 
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
@@ -140,6 +153,36 @@ export interface UpstreamClientService {
   ) => Effect.Effect<ClientSessionGrant, UpstreamError>;
   /** Deletes a provider identity this service minted, with its tokens and grants; "gone" when it no longer existed. */
   readonly deleteIdentity: (identityId: UpstreamId) => Effect.Effect<"deleted" | "gone", UpstreamError>;
+  /**
+   * Client session identities (cx-b4h.6). Each takes the identity of a session recorded for exactly this owned VM;
+   * the grant they read or change is the one on this VM only, and provider token ids never leave the module.
+   */
+  /** Replaces the Linux user of the identity's grant on this VM: always exactly one, never unrestricted. */
+  readonly setClientSessionLinuxUser: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Exec<C> },
+    identityId: UpstreamId,
+    linuxUser: string,
+  ) => Effect.Effect<void, UpstreamError>;
+  /** The public ids of the identity's live access tokens, in the provider's order. */
+  readonly listClientSessionTokens: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Exec<C> },
+    identityId: UpstreamId,
+  ) => Effect.Effect<ReadonlyArray<ClientSessionTokenId>, UpstreamError>;
+  /** Mints one more access token for the identity. */
+  readonly mintClientSessionToken: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Exec<C> },
+    identityId: UpstreamId,
+  ) => Effect.Effect<ClientSessionTokenGrant, UpstreamError>;
+  /** Revokes the identity's token with this public id; "gone" when it has none (already revoked or never its). */
+  readonly revokeClientSessionToken: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Exec<C> },
+    identityId: UpstreamId,
+    tokenId: ClientSessionTokenId,
+  ) => Effect.Effect<"revoked" | "gone", UpstreamError>;
   /** Identifies this exact canonical allocation, without exposing its private provider ID. */
   readonly instanceFingerprint: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> }) => Effect.Effect<string>;
   /** Reads saved-disk metadata without running guest code, including when retired. */

@@ -84,9 +84,8 @@
       "reason": "Switches a real power outlet on operator hardware; never exposed to tenants."
     },
     "list_identities": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.listTenantClientSessions", "agents.listClientSessions"]
     },
     "create_identity": {
       "status": "wrapped",
@@ -97,47 +96,40 @@
       "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
     },
     "describe_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession"]
     },
     "list_vm_permissions": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession", "agents.listClientSessions"]
     },
     "grant_vm_permission": {
       "status": "wrapped",
       "by": ["agents.createClientSession"]
     },
     "revoke_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.revokeClientSession"]
     },
     "describe_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.getClientSession"]
     },
     "update_vm_allowed_linux_users": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.setClientSessionLinuxUser"]
     },
     "list_access_tokens": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.listClientSessionTokens"]
     },
     "create_access_token": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": ["agents.createClientSession", "clientSessions.createClientSessionToken"]
     },
     "revoke_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["clientSessions.revokeClientSessionToken"]
     },
     "list_snapshots": {
       "status": "wrapped",

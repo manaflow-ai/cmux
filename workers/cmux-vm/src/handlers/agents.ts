@@ -174,6 +174,7 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
               apiBaseUrl: grant.apiBaseUrl,
               ssh: { host: grant.sshHost, user: `${grant.providerVmId}+${linuxUser}` },
               createdAt: createdAt.toISOString(),
+              tokenId: grant.tokenId,
             });
           }),
         ),
