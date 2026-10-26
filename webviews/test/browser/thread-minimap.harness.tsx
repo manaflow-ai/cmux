@@ -7,6 +7,8 @@ import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
+import { animateScroll } from "../../src/agent-session/acpmux/threadMinimap/scrollMotion";
+import { JUMP_CURVE } from "../../src/agent-session/acpmux/threadMinimap/model";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 // The liquid glass next, as dev.tsx and the bundle load it: the user bubble is `.ui-glass`.
@@ -80,4 +82,12 @@ setBookmarkTransport(transport);
 (window as unknown as { __setMarks: (seqs: number[]) => void }).__setMarks = (seqs) => {
   marks = seqs;
   setBookmarkTransport(transport);
+};
+
+// Browser regression hook: a compact-rail jump uses the same interruptible motion helper. Keeping
+// this on the harness lets the test start that real motion before sending input over the rail.
+(window as unknown as { __startRailJump: () => void }).__startRailJump = () => {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return;
+  animateScroll(scroller, () => 0, 400, JUMP_CURVE);
 };
