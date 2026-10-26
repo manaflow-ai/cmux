@@ -51,13 +51,29 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         runtimeObservation = Task { [weak self] in
             for await _ in await irx.changes() {
                 guard let self, !Task.isCancelled else { return }
+                let projectionGeneration = self.scope
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
-                guard let owner, owner == (await irx.directoryScopeID()) else { continue }
+                let currentOwner = await irx.directoryScopeID()
+                guard let owner, owner == currentOwner else {
+                    // A session transition can invalidate the snapshot between
+                    // the two runtime reads. If no newer projection won while
+                    // we were suspended, remove the old account's candidates
+                    // before the shell asks the registry adapter for a list.
+                    await self.clearCatalogIfUnchanged(since: projectionGeneration)
+                    continue
+                }
                 guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
         }
+    }
+
+    /// Clear a discarded projection without erasing a newer directory that was
+    /// installed while the runtime read was suspended.
+    private func clearCatalogIfUnchanged(since generation: UInt64) async {
+        guard scope == generation else { return }
+        await routeCatalog.clear()
     }
 
     /// Applies directory snapshots through one monotonic projection path. An
@@ -127,8 +143,16 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     // MARK: - MobileIrohMacDiscovering
 
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        let projectionGeneration = scope
         let owner = await authenticatedScopeID()
-        guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
+        guard let discovery = await discover() else {
+            await clearCatalogIfUnchanged(since: projectionGeneration)
+            return []
+        }
+        guard owner == (await authenticatedScopeID()) else {
+            await clearCatalogIfUnchanged(since: projectionGeneration)
+            return []
+        }
         guard let owner else { return [] }
         _ = await applyDirectory(discovery, owner: owner)
         return await routeCatalog.liveMacCandidates(
