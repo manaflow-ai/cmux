@@ -274,7 +274,7 @@ mod tests {
         // Room again: the kept output commits, and new output follows it.
         mux.set_registry_max_page_count_for_test(Some(1 << 30));
         mux.flush_terminal_journal().unwrap();
-        mux.journal_terminal_output(terminal_id.clone(), generation, b"after".to_vec());
+        mux.journal_terminal_output(terminal_id, generation, b"after".to_vec());
         mux.flush_terminal_journal().unwrap();
         assert!(!mux.journal_disk_full_for_test());
         let outputs = mux
