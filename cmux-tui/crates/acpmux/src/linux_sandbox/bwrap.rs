@@ -504,7 +504,7 @@ fail() { code=$1; shift; printf 'check %s: %s\n' "$code" "$*" >&2; exit "$code";
 check_hidden_read() {
     content=$(cat -- "$1" 2>/dev/null) || :
     case "$content" in *"$2"*) fail "$3" "masked read path=$1 exposed marker; content=<$content>";; esac
-    test -z "$content" || fail "$4" "masked read path=$1 returned content=<$content>"
+    case "$content" in '') ;; *) fail "$4" "masked read path=$1 returned content=<$content>";; esac
 }
 if (printf changed > "$outside") 2>/dev/null; then
     fail 10 "outside write succeeded: path=$outside"
@@ -520,28 +520,58 @@ check_hidden_read "$secret" "$file_marker" 16 17
 check_hidden_read "$secrets/$directory_marker" "$directory_marker" 18 19
 listing=$(ls -A -- "$secrets" 2>/dev/null) || :
 case "$listing" in *"$directory_marker"*) fail 20 "masked directory exposed marker: listing=<$listing>";; esac
-test -z "$listing" || fail 21 "masked directory returned entries: listing=<$listing>"
-test ! -e "$secrets/$directory_marker" || fail 22 "masked entry exists: path=$secrets/$directory_marker listing=<$listing>"
+case "$listing" in '') ;; *) fail 21 "masked directory returned entries: listing=<$listing>";; esac
+if [ -e "$secrets/$directory_marker" ]; then
+    fail 22 "masked entry exists: path=$secrets/$directory_marker listing=<$listing>"
+fi
 if (printf changed > "$secrets/new") 2>/dev/null; then
     fail 23 "masked directory write succeeded: path=$secrets/new"
 fi
 self_pid_ns=$(readlink /proc/self/ns/pid 2>&1) || fail 24 "self PID namespace readlink failed: status=$? output=<$self_pid_ns>"
-test -n "$self_pid_ns" || fail 25 "self PID namespace empty: observed=<$self_pid_ns>"
-test "$self_pid_ns" != "$host_pid_ns" || fail 26 "PID namespace not isolated: sandbox=<$self_pid_ns> host=<$host_pid_ns>"
+case "$self_pid_ns" in '') fail 25 "self PID namespace empty: observed=<$self_pid_ns>";; esac
+if [ "$self_pid_ns" = "$host_pid_ns" ]; then
+    fail 26 "PID namespace not isolated: sandbox=<$self_pid_ns> host=<$host_pid_ns>"
+fi
 init_pid_ns=$(readlink /proc/1/ns/pid 2>&1) || fail 27 "PID 1 namespace readlink failed: status=$? output=<$init_pid_ns>"
-test -n "$init_pid_ns" || fail 28 "PID 1 namespace empty: observed=<$init_pid_ns>"
-test "$init_pid_ns" = "$self_pid_ns" || fail 29 "PID namespace mismatch: PID1=<$init_pid_ns> self=<$self_pid_ns>"
+case "$init_pid_ns" in '') fail 28 "PID 1 namespace empty: observed=<$init_pid_ns>";; esac
+if [ "$init_pid_ns" != "$self_pid_ns" ]; then
+    fail 29 "PID namespace mismatch: PID1=<$init_pid_ns> self=<$self_pid_ns>"
+fi
 count=0; entries=
 for entry in /proc/[0-9]*; do count=$((count + 1)); entries="$entries $entry"; done
-test "$count" -le 4 || fail 30 "too many visible processes: count=$count entries=<$entries>"
-exec 3< /proc/net/dev || fail 33 "network interface table open failed: status=$? path=/proc/net/dev"
-while IFS= read -r line; do
-    case "$line" in *:*)
-        iface=${line%%:*}
-        iface=$(printf '%s' "$iface" | tr -d ' ') || fail 31 "interface normalization failed: status=$? line=<$line>"
-        test "$iface" = lo || fail 32 "unexpected interface: observed=<$iface> line=<$line>"
-    ;; esac
-done <&3
+if [ "$count" -gt 4 ]; then
+    fail 30 "too many visible processes: count=$count entries=<$entries>"
+fi
+
+# Kernel modules can create down fallback devices (tunl0, gre0, ...). They
+# are harmless when IFF_UP is clear, so check flags rather than names.
+for net_path in /sys/class/net/*; do
+    iface=${net_path##*/}
+    flags=$(cat "$net_path/flags" 2>&1) || fail 31 "interface flags read failed: iface=$iface status=$? output=<$flags>"
+    flags_num=$(printf '%d' "$flags" 2>&1) || fail 32 "interface flags parse failed: iface=$iface flags=<$flags> output=<$flags_num>"
+    up=$((flags_num & 1))
+    if [ "$up" -ne 0 ] && [ "$iface" != lo ]; then
+        fail 33 "non-loopback interface is UP: iface=$iface flags=<$flags> decimal=$flags_num up=$up"
+    fi
+done
+
+ipv6_data=$(cat /proc/net/if_inet6 2>&1) || fail 34 "IPv6 address table read failed: status=$? output=<$ipv6_data>"
+bad_ipv6=$(printf '%s\n' "$ipv6_data" | awk 'NF >= 6 && $1 != "00000000000000000000000000000001" { print $0 }') || fail 35 "IPv6 address inspection failed: status=$? data=<$ipv6_data>"
+case "$bad_ipv6" in '') ;; *) fail 36 "non-loopback IPv6 address: observed=<$bad_ipv6> all=<$ipv6_data>";; esac
+
+fib_data=$(cat /proc/net/fib_trie 2>&1) || fib_data=
+if [ -n "$fib_data" ]; then
+    bad_ipv4=$(printf '%s\n' "$fib_data" | awk '/\|--/ && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $2 !~ /^0\./ && $2 !~ /^127\./ { print $2 }') || fail 37 "IPv4 address inspection failed: status=$? data=<$fib_data>"
+    case "$bad_ipv4" in '') ;; *) fail 38 "non-loopback IPv4 address: observed=<$bad_ipv4>";; esac
+else
+    route_data=$(cat /proc/net/route 2>&1) || fail 39 "route table read failed: status=$? output=<$route_data>"
+    bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF >= 1 && $1 != "lo" { print $0 }') || fail 40 "route inspection failed: status=$? data=<$route_data>"
+    case "$bad_route" in '') ;; *) fail 41 "non-loopback route: observed=<$bad_route> all=<$route_data>";; esac
+fi
+
+route_data=$(cat /proc/net/route 2>&1) || fail 42 "route table read failed: status=$? output=<$route_data>"
+bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF >= 1 && $1 != "lo" { print $0 }') || fail 43 "route inspection failed: status=$? data=<$route_data>"
+case "$bad_route" in '') ;; *) fail 44 "non-loopback route: observed=<$bad_route> all=<$route_data>";; esac
 "#;
         let mut command = strings(&["/bin/sh", "-c", script, "acpmux-bwrap-test"]);
         command.extend(
