@@ -89,7 +89,15 @@ public actor DaemonUpdatePolicy {
     nonisolated static func bundledAcpmuxBuild() async -> String? {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         guard let acpmux = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin) else { return nil }
-        return await AcpmuxVersionHandoff.bundledBuild(acpmux)
+        return await bundledBuild(of: acpmux.executable)
+    }
+
+    /// The build `executable --version` names; nil when it does not answer within `bound` (it is
+    /// stopped then: SIGTERM, SIGKILL 2 s later) or names none. Bounded, since the queue waits on
+    /// it before its first target.
+    nonisolated static func bundledBuild(of executable: URL, within bound: Duration = .seconds(10)) async -> String? {
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(executable, ["--version"], timeout: bound)) else { return nil }
+        return AcpmuxVersionHandoff.build(fromVersion: outcome.text)
     }
 
     private let dependencies: Dependencies
@@ -103,7 +111,8 @@ public actor DaemonUpdatePolicy {
     private var drain: Task<Void, Never>?
     /// The drain's backoff wait; ``offer(_:)`` cuts it short.
     private var sleeper: Task<Void, Never>?
-    /// Targets left for the next launch in this run (no binary, still busy after 6 hours): id to bundled hash.
+    /// Targets done in this run (a final outcome, also one the ledger could not keep) or left for the
+    /// next launch (no binary, still busy after 6 hours): id to bundled hash.
     private var settled: [String: String] = [:]
 
     public init(_ dependencies: Dependencies) {
@@ -273,13 +282,14 @@ public actor DaemonUpdatePolicy {
             again.due = now < cap ? min(now + delay, cap) : now + delay
             return again
         }
+        // Not tried again in this run whatever the ledger write does: a ledger that was not written
+        // would let the next drain retry a rollback.
+        settled[target.id] = local.hash
         if let recorded = Self.recorded(outcome) {
             ledger.targets[target.id] = recorded
             do { try ledger.write(deps.directory) } catch {
                 Self.logger.error("daemon update ledger not written: \(String(describing: error), privacy: .public)")
             }
-        } else {
-            settled[target.id] = local.hash
         }
         await deps.report(Self.event(target, outcome, local: local))
         return nil
