@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+pub(crate) mod admission;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -433,6 +434,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    /// Creates admitted and still starting (`admission.rs`).
+    pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
@@ -539,6 +542,7 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
+            admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             auto_resumes: Default::default(),

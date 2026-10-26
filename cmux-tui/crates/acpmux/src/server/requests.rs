@@ -34,6 +34,48 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
     }
 }
 
+/// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
+/// (`acpmux new --force-admit`), and whether the person asks here (proven, or
+/// this host's app pane; a peer's `via: app` is its client's word, not proof).
+pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+    let can_force = can_force(conn.origin);
+    let force = can_force && force_asked(params);
+    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    // A Web client, here or through a peer, learns no host name or path.
+    let web =
+        super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
+    // The create's name, as `session/new` and `session/fork` read it.
+    let name = mux_meta(params)
+        .and_then(|m| m.get("name"))
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
+}
+
+/// `_meta.acpmux.forceAdmit` is true.
+pub(super) fn force_asked(params: &Value) -> bool {
+    mux_meta(params)
+        .and_then(|m| m.get(crate::hub::admission::FORCE_FIELD))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Whether this connection's `forceAdmit` is honoured: this host's unix socket
+/// or app, as for `--policy` and `--mode`; a Web client's or a peer's is not.
+pub(super) fn can_force(origin: Origin) -> bool {
+    !origin.web_class()
+}
+
+/// Who asks, for the admission log: the proven caller session, else the
+/// connection's origin and id.
+pub(super) fn who(conn: &Conn) -> String {
+    match conn.caller() {
+        Some(session) => format!("session {session}"),
+        None => format!("{:?} connection {}", conn.origin, conn.id),
+    }
+}
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -772,6 +814,20 @@ async fn dispatch_request(
             let disallowed_tools = disallowed_tools(meta)?;
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
+            // A new session needs room on this host (`hub/admission.rs`); an adopt of a
+            // conversation a session already holds attaches there and starts nothing,
+            // unless it may fork into a new chat. Before the worktree, so a refusal
+            // makes none; counted until the create ends.
+            let who = who(conn);
+            let _admitted = match &adopt {
+                Some(a)
+                    if a.if_live != crate::adopt::IfLive::Fork
+                        && hub.holds_conversation(&a.agent_session_id) =>
+                {
+                    None
+                }
+                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            };
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -793,7 +849,10 @@ async fn dispatch_request(
                 subsession: None,
                 disallowed_tools,
             };
-            let s = hub.new_session(req).await?;
+            let s = match &_admitted {
+                Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                None => hub.new_session(req).await?,
+            };
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
             {
@@ -1030,7 +1089,9 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
+            let who = who(conn);
+            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -1687,5 +1748,21 @@ mod dispatch_policy_tests {
             true
         ));
         assert!(peer_approve_all_allowed(Some("ask"), None, false));
+    }
+}
+
+#[cfg(test)]
+mod admission_force_tests {
+    use super::*;
+
+    #[test]
+    fn force_admit_is_honoured_only_from_this_machine() {
+        let forced = json!({"_meta": {"acpmux": {"forceAdmit": true}}});
+        assert!(force_asked(&forced));
+        assert!(!force_asked(&json!({})));
+        assert!(can_force(Origin::Local), "the unix socket");
+        assert!(can_force(Origin::LocalApp), "the app");
+        assert!(!can_force(Origin::Web), "a Web client");
+        assert!(!can_force(Origin::Peer), "a peer");
     }
 }
