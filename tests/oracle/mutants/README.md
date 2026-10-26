@@ -52,3 +52,38 @@ that does not have exactly 10 mutants.
 
 When a source change makes a patch stop applying, write the same fault again against the new code, with the same
 name. Do not delete the mutant.
+
+## Coverage at 6dd74be8546f
+
+The catch run (">= 9/10 caught per product") did not run yet. Two parts of the oracle are missing on
+perf/chrome-parity:
+
+- **Daemon:** `driver_daemon.py` has no case runner there (`oracle.py run --product daemon` stops with
+  "runs no cases on this branch yet (p15-oracle-023)"). The VM builds of the mutants work:
+  `linux_run.sh build SHA --mutant PATCH` compiles each of the 10 with the `oracle` profile and features.
+- **App:** there is no `tests/oracle/corpus/actions/` (gen_actions.py and the action cases are tasks 071 to 081).
+
+The table below is from a read of the generated `daemon-ops` cases (gen_daemon_ops.py, task 060). It shows which
+case makes each fault visible in a settled snapshot. The fix for a "no" row is a case in the generator, not a
+change to the mutant: task 115 files each miss as a corpus gap.
+
+| Mutant | Case that exercises it | Caught by the current corpus? |
+| --- | --- | --- |
+| daemon/workspace-rename-drops-last-char | `workspace-rename-ok` (name `oracle`) | yes, by reading: the name becomes `oracl` |
+| daemon/notification-ack-forgets-first | `notification-ack-ok` (one notification) | yes, by reading: `read_by` in the session facet |
+| daemon/screen-rename-keeps-old-name | none: `screen-rename-ok` renames a screen with no name, and `or` gives the same name | no: needs a rename of a named screen, or a clear to null |
+| daemon/workspace-move-lands-left | none: `workspace-move-ok` moves to index 0, and `saturating_sub` keeps 0 | no: needs a move to index >= 1 |
+| daemon/tab-move-right-overshoots | none: `tab-move-ok` moves to another pane | no: needs a move to the right inside one pane of 3 or more tabs |
+| daemon/tab-pin-after-first-unpinned | none: `tab-pin-ok` pins the only tab | no: needs a pin in a pane of 3 or more tabs |
+| daemon/split-right-opens-left | none: `pane-split-ok` splits `left` only | no: needs `direction: right` |
+| daemon/split-ratio-mirrored | none: `pane-split-ratio-set-ok` names a placeholder split id, and 0.5 mirrors to itself | no: needs a real split id and a ratio that is not 0.5 |
+| daemon/focus-direction-left-right-swapped | none: `pane-focus-direction-ok` has one pane | no: needs two panes side by side |
+| daemon/zoom-ignores-enabled | none: `pane-zoom-ok` omits `enabled`, and a toggle of an unzoomed pane zooms it | no: needs `enabled: true` on a zoomed pane or `enabled: false` on an unzoomed one |
+
+App mutants: no case exercises `closePane`, `equalizeSplits`, `focusPaneLeft`/`Right`, `resizePane*`,
+`selectSurfaceByNumber`, `splitLeft`/`Up`/`Right`/`Down` or `swapPaneLeft`/`Right` yet. They are the actions
+cases of tasks 077 (layout, split, resize, swap) and 080 (focus, pane).
+
+`app/close-keeps-focus` is caught only by I3 (optimistic prefix) on a run with turn checkpoints (the recorder
+armed). The daemon's snapshot moves focus to the successor, so the settled state equals the clean build's. A
+settled-snapshot diff cannot catch it, and a run without turn checkpoints counts it as a miss.
