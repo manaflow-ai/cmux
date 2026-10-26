@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDictation
+import CmuxNextPages
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -106,5 +107,31 @@ struct AgentPaneDictationTests {
         harness.dictation.close()
         #expect(harness.releaseSubscriptions == 0)
         #expect(!harness.dictation.holdsResources)
+    }
+
+    /// A session holds its page's `dictation` keep reason (p13-webui-032), so a hidden chat is not
+    /// frozen or discarded while it still takes words: one begin as it starts, one end as it stops
+    /// or as the pane closes, and never one more.
+    @Test func aSessionHoldsItsPagesDictationReasonUntilItEnds() throws {
+        let harness = Harness()
+        let keep = PageKeepReasons()
+        var changes: [Bool] = []
+        harness.dictation.onRunning = { running in
+            changes.append(running)
+            keep.dictation(running)
+        }
+        try harness.press()
+        #expect(changes == [true])
+        #expect(keep.current.contains(.dictation))
+        harness.dispatch(try harness.key(.keyUp, after: AgentPaneDictation.holdThreshold + 0.1))
+        #expect(harness.dictation.phase.isStartable)
+        #expect(changes == [true, false])
+        #expect(keep.current.isEmpty)
+        try harness.press()
+        harness.dictation.close()
+        #expect(changes == [true, false, true, false], "closing mid-session left the hold")
+        #expect(keep.current.isEmpty)
+        harness.dictation.close()
+        #expect(changes == [true, false, true, false], "a second close ended a hold it did not have")
     }
 }

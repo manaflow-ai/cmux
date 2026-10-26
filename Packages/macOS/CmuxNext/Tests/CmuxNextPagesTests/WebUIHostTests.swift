@@ -84,10 +84,12 @@ struct WebUIHostTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let withPanel = makeHost(nil, openPanel: MadeAheadOpenPanel())
         let answered = try #require(withPanel.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        #expect(answered.webKitView.uiDelegate is PageOpenPanel)
+        #expect((answered.webKitView.uiDelegate as? PageUIDelegate)?.fileInputs != nil)
         let withoutPanel = makeHost(nil)
         let unanswered = try #require(withoutPanel.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        #expect(unanswered.webKitView.uiDelegate == nil)
+        // Its UI delegate still hears Web Inspector; a file input gets no chooser.
+        #expect(unanswered.webKitView.uiDelegate is PageUIDelegate)
+        #expect((unanswered.webKitView.uiDelegate as? PageUIDelegate)?.fileInputs == nil)
         withPanel.close(answered)
         withoutPanel.close(unanswered)
     }

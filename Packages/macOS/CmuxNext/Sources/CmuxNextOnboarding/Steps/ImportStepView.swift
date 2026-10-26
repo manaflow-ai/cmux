@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Import: one row per detected browser profile (the browser's own icon,
 /// the profile's picture and name, a checkbox), then one line of what to
@@ -44,10 +45,12 @@ final class ImportStepView: NSView {
     private var listViews: [NSView] = []
     private var shownProfiles: [BrowserSourceProfile]?
     private var shownAwaiting: [ImportBrowser]?
-    private var loop: RenderLoop?
+    private var loop: ObservationLoop?
+    private let mainWork: MainWorkScheduler
 
-    init(model: ImportStepModel) {
+    init(model: ImportStepModel, mainWork: MainWorkScheduler) {
         self.model = model
+        self.mainWork = mainWork
         consent = ImportConsentView(model: model)
         access = ImportAccessView(model: model)
         super.init(frame: .zero)
@@ -109,7 +112,8 @@ final class ImportStepView: NSView {
             consent.widthAnchor.constraint(equalTo: stack.widthAnchor),
             access.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
-        loop = RenderLoop { [weak self] in self?.render() }
+        // node-free: the onboarding tool window, in no tab
+        loop = ObservationLoop(owner: "onboarding.import", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     @available(*, unavailable)

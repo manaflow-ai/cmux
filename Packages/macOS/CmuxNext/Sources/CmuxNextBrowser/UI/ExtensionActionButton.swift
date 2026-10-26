@@ -48,7 +48,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
             if let shown { applyIcon(shown) }
             needsLayout = true
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
     }
 

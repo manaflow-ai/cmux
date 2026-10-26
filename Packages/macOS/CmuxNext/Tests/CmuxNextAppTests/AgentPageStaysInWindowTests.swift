@@ -6,6 +6,7 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Perceived speed (#20516): closing a browser tab back to a New Tab page, or Cmd-W back to one,
 /// stalled the main thread 170-215 ms with almost no CPU. The page had left the window when the
@@ -49,7 +50,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
 
         // Cmd-T into a browser, then Cmd-W back to the page.
-        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
+        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         pane.show(chrome)
         pane.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300)) // any paint hold on the browser ends

@@ -27,6 +27,8 @@ extension DaemonStore {
         index.unread.flush()
         let cause = causes.takeTabList()
         if index.takeTabListChange() { causes.with(cause) { tabListRevision &+= 1 } }
+        // The tab keys this publish added or dropped, net of the re-keys in between (StoreTabKeys).
+        index.tabKeys.publish()
         waiters.settleTouched(in: self)
     }
 
