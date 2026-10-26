@@ -54,6 +54,24 @@ contains(' <key> ') matches whole keys only:
 - `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
   is online and idle for this placement; an empty value keeps the Blacksmith
   overflow route.
+- `fast_runner`: FAST_LABEL (vars.CI_FAST_LANE_RUNNER, the fast tier's
+  reserved glaeda-fast-* runner) while an online runner carrying it is idle
+  now, else empty (fast_route()). Only then does the fast tier leave JOBS and
+  CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
+  fast pool never holds it in a queue no overflow reaches.
+- `gateway_runner` and `gateway_attempt`: GATEWAY_LABEL (vars.CI_COMPILE_CHECK_GATEWAY,
+  the tailnet runner label the build-fleet compile jobs hand their commit from)
+  or the same label on a wider class, while it has an idle online runner for
+  each of GATEWAY_JOBS beyond the ones this run's own jobs take, else empty
+  (gateway_route());
+  `gateway_attempt` is the run attempt GATEWAY_LABEL was judged in. A gateway
+  job runs only on a `gateway_runner` judged in its own attempt: a re-run that
+  reuses an earlier attempt's placement, a placement that did not run, and a
+  base script that predates the outputs all skip it. With no idle gateway, the
+  build-fleet compiles are skipped and
+  their Mac fallbacks run, and GATEWAY_CASCADE (the Mac fallback of the PR's
+  app compile, release-compile) joins CASCADE_RUNS, so it takes a free
+  Blacksmith slot instead of the minis' queue.
 
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
 mini's label. When the dedicated nightly labels are supplied, its idle state
@@ -279,6 +297,113 @@ def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, 
     )
 
 
+FAST_JOB = "fast-tier"
+# The Mac job each build-fleet gateway job stands in for: it needs a Mac only when the fleet gives no
+# pass, so it takes no idle runner from the gateway job.
+GATEWAY_FALLBACKS = {"app-compile-fleet": "release-compile", "swift-canary-fleet": "swift-canary",
+                     "release-compile-fast": "release-compile"}
+
+
+def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """FAST_LABEL while an online runner carrying it is idle now, else "".
+
+    The fast tier's reserved label is one small pool. On 2026-10-25 the fleet
+    reservation left two runners carrying glaeda-fast-light-xcode-26.6, each
+    running a 20-minute fast tier back to back, and 15 runs' fast tiers queued
+    behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
+    joined the cascade, and nothing else moved it. So the label is a
+    preference taken only when it is free; a busy label, unreadable runners or
+    an unset variable send the tier down the cascade (Blacksmith, hosted
+    macos-26), then the side route, like every other job.
+    """
+    label = (env.get("FAST_LABEL") or "").strip()
+    if not label or runners is None:
+        return ""
+    return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
+
+
+def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                  taken: Mapping[str, int] | None = None) -> str:
+    """GATEWAY_LABEL or a wider class's same label with idle runners left for GATEWAY_JOBS, else "".
+
+    The build-fleet compile jobs (app-compile-fleet, swift-canary-fleet) only
+    hand a commit to the fleet controller over the tailnet, so any owned runner
+    that carries the gateway label or a wider class of it can host them. They
+    took vars.CI_COMPILE_CHECK_GATEWAY as is, and nothing moved them: at 06:00Z
+    on 2026-10-26 glaeda-side-light-xcode-26.6 had 5 jobs running and 44 queued,
+    the oldest for 58 minutes, with four of its minis reserved, and PR #24155's
+    app compile was queued there three times until each newer push cancelled
+    it. So a label is taken only while it has an idle runner for each of
+    GATEWAY_JOBS (at least one) beyond those `taken` (this run's own jobs
+    already placed on it), first the label itself, then the compatible wider
+    labels (compatible_labels(): the std side minis). With none, the gateway
+    jobs do not run and their Mac fallbacks take the cascade. Runners that
+    could not be read show no idle runner either: a gateway job never queues
+    on a label nobody saw free.
+    """
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    if not label or runners is None:
+        return ""
+    want = max(1, len((env.get("GATEWAY_JOBS") or "").split()))
+    for candidate in compatible_labels(label):
+        if pool.live_owned_free(runners, [candidate])[candidate] - (taken or {}).get(candidate, 0) >= want:
+            return candidate
+    return ""
+
+
+def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                  fast: str = "") -> dict[str, int]:
+    """The idle runners this run's own Mac jobs take as they start, by label.
+
+    The side jobs that run (in CASCADE_RUNS, as `env` holds it once the fast
+    tier left) all take decide()'s route and race for its idle runners, while
+    the GUI suites take another label. A Mac job a gateway job stands in for
+    (GATEWAY_FALLBACKS) is not counted: it needs a Mac only without a fleet
+    pass. The fast tier, routed, takes its own label (`fast`).
+    """
+    label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = (env.get("JOBS") or "").split()
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    replaced = {GATEWAY_FALLBACKS[job] for job in (env.get("GATEWAY_JOBS") or "").split() if job in GATEWAY_FALLBACKS}
+    racing = [job for job in jobs if job in runs and job not in replaced]
+    taken: dict[str, int] = {}
+    if racing:
+        taken[side_route(label, runners, len(jobs)) or label] = len(racing)
+    if fast:
+        taken[fast] = taken.get(fast, 0) + 1
+    return taken
+
+
+def without_cascade(env: Mapping[str, str], job: str) -> dict[str, str]:
+    """`env` with `job` dropped from CASCADE_RUNS and FIRST_JOBS."""
+    trimmed = dict(env)
+    for key in ("CASCADE_RUNS", "FIRST_JOBS"):
+        kept = [name for name in (env.get(key) or "").split() if name != job]
+        if key in env:
+            trimmed[key] = (f" {' '.join(kept)} " if kept else "") if key == "CASCADE_RUNS" else " ".join(kept)
+    return trimmed
+
+
+def with_gateway_cascade(env: Mapping[str, str]) -> dict[str, str]:
+    """`env` with GATEWAY_CASCADE's jobs added to CASCADE_RUNS: their build-fleet compile has no gateway."""
+    extra = [job for job in (env.get("GATEWAY_CASCADE") or "").split()
+             if job not in (env.get("CASCADE_RUNS") or "").split()]
+    if not extra:
+        return dict(env)
+    runs = [*(env.get("CASCADE_RUNS") or "").split(), *extra]
+    return {**env, "CASCADE_RUNS": f" {' '.join(runs)} "}
+
+
+def without_fast(env: Mapping[str, str]) -> dict[str, str]:
+    """`env` with the fast tier dropped from JOBS and CASCADE_RUNS: it runs on its own idle runner."""
+    trimmed = dict(env)
+    for key in ("JOBS", "CASCADE_RUNS"):
+        if key in trimmed:
+            kept = [job for job in (trimmed[key] or "").split() if job != FAST_JOB]
+            trimmed[key] = f" {' '.join(kept)} " if key == "CASCADE_RUNS" and kept else " ".join(kept)
+    return trimmed
+
+
 def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
@@ -291,6 +416,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             runners = pool.GitHub(token, repo).runners()
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners ({error})")
+    fast = fast_route(env, runners)
+    if fast:
+        env = without_fast(env)
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
@@ -299,6 +427,23 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
+    if (env.get("FAST_LABEL") or "").strip():
+        why += (f"; the fast tier takes idle `{fast}`" if fast
+                else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
+    gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
+    if gateway_label:
+        if gateway:
+            why += f"; the build-fleet compiles take idle `{gateway}`"
+        else:
+            why += (f"; no idle `{gateway_label}` runner (or a wider class's), so the build-fleet compiles "
+                    "do not run and their Mac fallbacks take the cascade")
+            env = with_gateway_cascade(env)
+    if gateway and "release-compile-fast" in (env.get("GATEWAY_JOBS") or "").split():
+        # The push's fleet fast check runs: its Mac fallback runs only without a verdict, and then on its own
+        # route (cmux-next.yml), so it takes no cascade slot from the run's other jobs.
+        env = without_cascade(env, GATEWAY_FALLBACKS["release-compile-fast"])
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
     dedicated_ready = nightly_runner_ready(env, runners)
@@ -311,6 +456,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
+                         f"fast_runner={fast}\n"
+                         f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:

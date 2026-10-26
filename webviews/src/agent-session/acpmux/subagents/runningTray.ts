@@ -79,19 +79,51 @@ export function trayItems(
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
 /// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
-/// subagents in the order they started (nested ones under their parent), then the chats.
+/// subagents that ended last first, so the few the tray shows under what runs are the latest. A
+/// nested one stays under its parent, and a parent's place is its subtree's latest end, so a child
+/// that ended after the others is never hidden behind older ones. Then the chats, newest first
+/// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
-  const ended = agents
-    .filter((agent) => agent.state !== "running")
-    .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
+  const ended = agents.filter((agent) => agent.state !== "running");
+  // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
+  // meets an agent already on the path).
+  const ids = new Set(ended.map((agent) => agent.id));
+  const children = new Map<string, Subagent[]>();
+  for (const agent of ended) {
+    if (agent.parent === null || !ids.has(agent.parent)) continue;
+    const under = children.get(agent.parent);
+    if (under) under.push(agent);
+    else children.set(agent.parent, [agent]);
+  }
+  const latest = new Map<string, number>();
+  const visiting = new Set<string>();
+  const subtreeEnd = (agent: Subagent): number => {
+    const known = latest.get(agent.id);
+    if (known !== undefined) return known;
+    let end = agent.endedAt ?? agent.startedAt;
+    if (visiting.has(agent.id)) return end;
+    visiting.add(agent.id);
+    for (const child of children.get(agent.id) ?? []) end = Math.max(end, subtreeEnd(child));
+    visiting.delete(agent.id);
+    latest.set(agent.id, end);
+    return end;
+  };
+  for (const agent of ended) subtreeEnd(agent);
+  ended.sort((a, b) => latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
     kind: "agent",
     id: agent.id,
     agent,
     depth,
   }));
-  for (const session of sessions)
-    if (!liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+  const chats = sessions
+    .filter((session) => !liveSession(session))
+    .sort((a, b) =>
+      a.createdAt === undefined || b.createdAt === undefined
+        ? Number(a.createdAt === undefined) - Number(b.createdAt === undefined)
+        : b.createdAt - a.createdAt,
+    );
+  for (const session of chats) items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 
