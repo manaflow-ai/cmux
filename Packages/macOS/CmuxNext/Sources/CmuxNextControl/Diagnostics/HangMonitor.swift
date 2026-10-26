@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextMetrics
 import CmuxNextSettings
 public import CmuxNextTrace
 public import CmuxNextWakeups
@@ -21,6 +22,20 @@ import os
 ///   moment. Like Chrome's `HangWatcher::RecordHang`, which names the hung threads in crash keys, the monitor
 ///   names the thread in the crash keys' hung threads (``CrashKeySlots/noteHung(_:)``) until its scope ends,
 ///   so a crash meanwhile says which threads were hung.
+///
+/// The scan marks a scope reported for its tier before its stack is sampled, and a stack sampled after the
+/// scope ended is dropped (``HangWatch/isStillOpen(_:)``): Chrome's mark-then-capture
+/// (`HangWatchDeadline::SetShouldBlockOnHang`) without its `BlockIfCaptureInProgress`, so a watched thread
+/// never waits for the watchdog.
+///
+/// When the watchdog thread's wait overruns its timeout by more than ``driftToleranceNanos`` (100 ms), the
+/// monitor blames nobody: the machine was too busy for its own thread, so the scopes open then may be late for
+/// the same reason. Those scopes are cancelled in both tiers (``HangWatch/ignoreOpenScopes()``); a scope that
+/// opens later is watched. Only the wait is timed, as Chrome's `HangWatcher::Wait` times only its `TimedWait`
+/// against `kWaitDriftTolerance` (base/threading/hang_watcher.cc): the watchdog's own work between two waits,
+/// such as a main-thread hang report, is not drift.
+///
+/// Each reported hang counts in `hang.thread_hung.<lane>` per active hour (``MainThreadFieldMetrics``).
 struct HangMonitor {
     /// What ``MainThreadWatchdog/attach(hangWatch:crashKeys:)`` connected.
     struct Source: Sendable {
@@ -39,14 +54,22 @@ struct HangMonitor {
     let janks: HangLog
     let logger: Logger?
     let crashKeys: CrashKeySlots?
+    /// Counts each reported hang per lane and active hour; nil counts nothing.
+    let fieldMetrics: MainThreadFieldMetrics?
     #if DEBUG
     let afterHangForTesting: (@Sendable (HangRecord) -> Void)?
     #endif
     /// The reported scopes still named in ``crashKeys``' hung threads (at most its capacity).
     private var named: [HangWatch.Overdue] = []
+    /// How many times the watchdog thread's wait overran its timeout by more than ``driftToleranceNanos``.
+    private(set) var lateWakes = 0
 
-    init(source: Source, log: HangLog, janks: HangLog, logger: Logger?) {
+    /// How far a wait may overrun its timeout before the monitor blames nobody (Chrome's `kWaitDriftTolerance`).
+    static let driftToleranceNanos: UInt64 = 100_000_000
+
+    init(source: Source, log: HangLog, janks: HangLog, logger: Logger?, fieldMetrics: MainThreadFieldMetrics? = nil) {
         (self.watch, self.crashKeys, self.log, self.janks, self.logger) = (source.watch, source.crashKeys, log, janks, logger)
+        self.fieldMetrics = fieldMetrics
         #if DEBUG
         afterHangForTesting = source.afterHangForTesting
         #endif
@@ -55,10 +78,13 @@ struct HangMonitor {
 
     /// Scans when a scan is due and reports what it finds (watchdog thread only).
     ///
+    /// - Parameter waitOverrunNanos: How far the watchdog thread's last wait ran past its timeout (0: it ended
+    ///   in time, early, or had no timeout). Past ``driftToleranceNanos``, no scope open now is reported.
     /// - Returns: How long the watchdog thread may wait before the next scan; nil while the slot table
     ///   is parked (a scope wakes the thread through the kqueue).
-    mutating func service() -> UInt64? {
+    mutating func service(waitOverrunNanos: UInt64 = 0) -> UInt64? {
         clearEndedHangs()
+        if waitOverrunNanos > Self.driftToleranceNanos { ignoreOpenScopes(overrunNanos: waitOverrunNanos) }
         guard let planned = watch.nextScanNanos else { return nil }
         let now = watch.nowNanos()
         guard planned <= now else { return planned - now }
@@ -67,6 +93,15 @@ struct HangMonitor {
         guard let next = result.nextScanNanos else { return nil }
         let after = watch.nowNanos()
         return next > after ? next - after : 0
+    }
+
+    /// The watchdog thread woke `overrunNanos` past its wait's timeout: no scope open now is blamed, however long
+    /// it runs.
+    private mutating func ignoreOpenScopes(overrunNanos: UInt64) {
+        lateWakes += 1
+        let ignored = watch.ignoreOpenScopes()
+        let late = Duration.nanoseconds(Int64(clamping: overrunNanos))
+        logger?.notice("hang watch: the watchdog woke \(late.fractionalMilliseconds, format: .fixed(precision: 1)) ms late; \(ignored) open scopes are not reported")
     }
 
     /// Takes each named scope that ended off ``named``, and its thread off the crash keys' hung threads once no
@@ -94,6 +129,7 @@ struct HangMonitor {
             janks.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
             return
         }
+        countHang(overdue)
         let addresses = ThreadStackSampler(thread: overdue.port).sample()
         // The scope ended while it was sampled: the stack belongs to later work.
         guard watch.isStillOpen(overdue) else { return }
@@ -108,6 +144,29 @@ struct HangMonitor {
         #if DEBUG
         afterHangForTesting?(record)
         #endif
+    }
+
+    /// Counts a hang in its lane's `hang.thread_hung` (the watchdog counts the main thread's own hangs from its
+    /// heartbeat, so a main-thread slot is not counted twice).
+    private func countHang(_ overdue: HangWatch.Overdue) {
+        guard let fieldMetrics, overdue.kind != .main else { return }
+        fieldMetrics.threadHung(Self.lane(name: overdue.name, kind: overdue.kind), atNanos: overdue.deadlineNanos)
+    }
+
+    /// The `hang.thread_hung` lane of a registration: by the name its owner registers (`HangWatchedLane`,
+    /// `BackgroundWork.hangScopeName`), else by its kind; `other` for a lane this table does not name yet.
+    static func lane(name: String, kind: HangWatch.ThreadKind?) -> HistogramID.HangLane {
+        switch name {
+        case "daemon.line": return .daemonReader
+        case "terminal.feed": return .terminalOutput
+        case "lane.files", "lane.system", "lane.cpu": return .backgroundWork
+        default: break
+        }
+        switch kind {
+        case .main: return .main
+        case .control: return .control
+        default: return .other
+        }
     }
 }
 
@@ -133,6 +192,7 @@ extension MainThreadWatchdog {
     /// The monitor of the attached slot table, made on the watchdog thread once one is attached.
     func hangMonitor() -> HangMonitor? {
         guard hangWatchAttached.load(ordering: .acquiring), let source = hangWatchSink.withLock({ $0 }) else { return nil }
-        return HangMonitor(source: source, log: threadHangs, janks: threadJanks, logger: configuration.logStalls ? logger : nil)
+        return HangMonitor(source: source, log: threadHangs, janks: threadJanks, logger: configuration.logStalls ? logger : nil,
+                           fieldMetrics: fieldMetrics)
     }
 }
