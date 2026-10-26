@@ -204,9 +204,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
-    /// Answers the browser's next certificate error `code` on `host`:
-    /// continue (0), or let Chromium's own interstitial decide (1); 0 when
-    /// the browser is gone.
+    /// Answers the browser's next certificate error `code` on `host`: continue (0), or let
+    /// Chromium's own interstitial decide (1); 0 when the browser is gone.
     let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -234,6 +233,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    let widgets: CEFShimWidgetOps
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -431,6 +431,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
+                                   sendInput: r.optional("cmux_shim_widget_send_input"))
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
