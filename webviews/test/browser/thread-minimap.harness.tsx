@@ -60,20 +60,22 @@ const actions = {
   (() => {
     shownRows = rows;
     view.render(
-    <TurnActionsContext.Provider value={actions}>
-      <VirtualTranscript
-        rows={turnView(rows, new Set())}
-        sessionId="minimap-session"
-        onToggleActivity={() => {}}
-        expanded={new Set()}
-        canLoadOlder={olderPage !== undefined}
-        onLoadOlder={olderPage}
-      />
-    </TurnActionsContext.Provider>,
+      <TurnActionsContext.Provider value={actions}>
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="minimap-session"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+          canLoadOlder={olderPage !== undefined}
+          onLoadOlder={olderPage}
+        />
+      </TurnActionsContext.Provider>,
     );
   })();
 
-(window as unknown as { __setOlderPage: (page: (() => Promise<void>) | undefined) => void }).__setOlderPage = (page) => {
+(window as unknown as { __setOlderPage: (page: (() => Promise<void>) | undefined) => void }).__setOlderPage = (
+  page,
+) => {
   olderPage = page;
   (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows(shownRows);
 };
