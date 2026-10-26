@@ -837,6 +837,8 @@ impl Hub {
     }
 }
 
+mod read;
+
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]
 mod tests;

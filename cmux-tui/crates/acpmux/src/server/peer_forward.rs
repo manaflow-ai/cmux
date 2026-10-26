@@ -63,6 +63,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
+    // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
+    // answered here while the peer is down too.
+    "_acpmux/peer_snapshot",
 ];
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
