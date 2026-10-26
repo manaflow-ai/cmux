@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -88,8 +89,10 @@ extension DebugSidebarNestedFixture {
         if let show = params["sidebar"]?.boolValue {
             // A machine header (and its tooltip) is drawn only with a section per computer
             // (`sidebar.groupByComputer`); the fixture turns it on and puts back what it found.
-            if show, groupsByComputerBefore == nil { groupsByComputerBefore = sidebar.model.groupsByComputer }
-            sidebar.model.groupsByComputer = show || (groupsByComputerBefore ?? sidebar.model.groupsByComputer)
+            // A render applies the design preferences to the model, so the preference is what changes.
+            let design = DesignSettings.shared // the sidebar view's
+            if show, groupsByComputerBefore == nil { groupsByComputerBefore = design.sidebarSections.groupsByComputer }
+            design.sidebarSections.groupsByComputer = show || (groupsByComputerBefore ?? design.sidebarSections.groupsByComputer)
             if !show { groupsByComputerBefore = nil }
             sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host) : nil
             sidebar.container.sidebarView.renderNow() // the list reloads on its next turn otherwise; the header is looked up below
