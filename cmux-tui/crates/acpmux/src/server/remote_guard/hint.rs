@@ -201,10 +201,11 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
 /// Change only actual options, never another option's value or prompt words after `--`.
 /// Read value-taking flags from clap's grammar so future launcher options are preserved too.
 fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> bool {
-    use clap::CommandFactory;
-    let cli = crate::cli::command::Cli::command();
-    let Some(new) = cli.find_subcommand("new") else { return false };
-    let args: Vec<_> = cli.get_arguments().chain(new.get_arguments()).collect();
+    use clap::Args;
+    // Only creation flags take values here (the global flags are switches). Building the
+    // whole CLI grammar inside the request handler exhausts a debug worker's 2 MiB stack.
+    let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
+    let args: Vec<_> = new.get_arguments().collect();
     let mut i = 0;
     while i < words.len() {
         let word = &words[i];
