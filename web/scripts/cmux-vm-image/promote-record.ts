@@ -48,7 +48,8 @@ export function recordCandidate(root: string, candidate: Json, snapshot: string,
   const entry = historyEntry(candidate, snapshot, run);
   const file = path.join(root, DEV);
   const dev = JSON.parse(readFileSync(file, "utf8")) as Json;
-  const history = Array.isArray(dev.history) ? (dev.history as Json[]) : [];
+  if (!Array.isArray(dev.history)) throw new Error(`${DEV} has no history array; refusing to write one`);
+  const history = dev.history as Json[];
   const existing = history.find((h) => h.snapshot_id === snapshot);
   if (existing) {
     if (!same(existing, entry)) throw new Error(`${DEV} history already has ${snapshot} with different fields; entries are never edited`);

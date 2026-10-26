@@ -9,7 +9,7 @@
  * its VMs (builder, smoke clones) are deleted. Prints KEPT_SNAPSHOT <id> <name>.
  *
  * Or delete one kept image snapshot by exact id (cloud-vm-image-promote.yml delete_snapshot):
- *   bun ../images/cmux-vm/cleanup.ts --snapshot <sh-id>
+ *   bun ../images/cmux-vm/cleanup.ts --snapshot <sh-id> [--also-root <dir with the branch tip's channel files and wrangler.jsonc>]
  * Refuses an id, or the snapshot's name, that any images/cmux-vm/channels/*.json (pointer,
  * previous, history, prose) or backend/apps/api/wrangler.jsonc mentions, and a snapshot whose
  * name is not a cmuxnp-dev-vmimg- image; it names every reference it found.
@@ -61,11 +61,12 @@ const decodeEscapes = (text: string) => text.replace(/\\u([0-9a-fA-F]{4})/g, (_,
  * "<file>: <json path>" for channel files and "<file>:<line> <var>" for wrangler.jsonc.
  * Fails closed: a channel file that does not parse is a reference for every token.
  */
-export function snapshotReferences(root: string, tokens: ReadonlyArray<string>): string[] {
+export function snapshotReferences(root: string, tokens: ReadonlyArray<string>, label = ""): string[] {
   const refs: string[] = [];
-  for (const rel of referenceFiles(root)) {
-    const text = readFileSync(path.join(root, rel), "utf8");
-    if (rel.endsWith(".json")) {
+  for (const file of referenceFiles(root)) {
+    const text = readFileSync(path.join(root, file), "utf8");
+    const rel = `${label}${file}`;
+    if (file.endsWith(".json")) {
       let doc: unknown;
       try {
         doc = JSON.parse(text);
@@ -73,9 +74,13 @@ export function snapshotReferences(root: string, tokens: ReadonlyArray<string>):
         refs.push(`${rel}: (file does not parse: ${String(error).slice(0, 80)}) so nothing in it can be ruled out`);
         continue;
       }
+      const raw = decodeEscapes(text);
       for (const token of tokens) {
+        const pattern = wordPattern(token);
         const paths: string[] = [];
-        jsonPaths(doc, wordPattern(token), "", paths);
+        jsonPaths(doc, pattern, "", paths);
+        // JSON.parse keeps only the last of duplicate keys: the decoded text catches a mention it dropped.
+        if (!paths.length && pattern.test(raw)) paths.push("(text outside the parsed values, e.g. a duplicate key)");
         for (const p of paths) refs.push(`${rel}: ${p} mentions ${token}`);
       }
     } else {
@@ -104,13 +109,20 @@ const notFound = (error: unknown) => (error as { status?: unknown } | null)?.sta
 /** Deletes one image snapshot by exact id after the reference checks; 0 deleted or already gone, 1 refused or failed. */
 export async function deleteSnapshot(
   id: string,
-  deps: { root: string; snapshots: () => SnapshotApi; log: (line: string) => void; error: (line: string) => void },
+  deps: {
+    /** The checkout, then any later tree to check too (the branch tip fetched just before the delete), as [root, label]. */
+    roots: ReadonlyArray<readonly [string, string]>;
+    snapshots: () => SnapshotApi;
+    log: (line: string) => void;
+    error: (line: string) => void;
+  },
 ): Promise<number> {
   if (!SNAPSHOT_ID.test(id)) {
     deps.error(`refusing ${JSON.stringify(id)}: not a snapshot id (sh- and 32 hex digits)`);
     return 1;
   }
-  const byId = snapshotReferences(deps.root, [id]);
+  const references = (tokens: ReadonlyArray<string>) => deps.roots.flatMap(([root, label]) => snapshotReferences(root, tokens, label));
+  const byId = references([id]);
   if (byId.length) {
     deps.error(`refusing to delete ${id}: it is referenced`);
     for (const ref of byId) deps.error(`  ${ref}`);
@@ -133,13 +145,13 @@ export async function deleteSnapshot(
     deps.error(`refusing to delete ${id}: named ${names.join(", ") || "nothing"}; only ${DEV_IMAGE_PREFIX}* image snapshots are deleted here`);
     return 1;
   }
-  const byName = snapshotReferences(deps.root, names);
+  const byName = references(names);
   if (byName.length) {
     deps.error(`refusing to delete ${id} (${names.join(", ")}): its name is referenced`);
     for (const ref of byName) deps.error(`  ${ref}`);
     return 1;
   }
-  deps.log(`reference check passed: ${id} (${names.join(", ")}) is in no channel file and not in wrangler.jsonc`);
+  deps.log(`reference check passed: ${id} (${names.join(", ")}) is in no channel file and not in wrangler.jsonc (${deps.roots.map(([root, label]) => label || root).join(", ")})`);
   try {
     await snapshots.delete(id);
     deps.log(`deleted snapshot ${id} (${names.join(", ")})`);
@@ -157,8 +169,9 @@ export async function deleteSnapshot(
 export async function main(argv = process.argv): Promise<number> {
   const snapshotId = argValue("--snapshot", argv);
   if (snapshotId !== undefined) {
+    const tip = argValue("--also-root", argv);
     return deleteSnapshot(snapshotId, {
-      root: REPO_ROOT,
+      roots: [[REPO_ROOT, ""], ...(tip ? ([[path.resolve(tip), "(branch tip) "]] as const) : [])],
       snapshots: () => freestyleClient().vms.snapshots,
       log: (line) => console.log(line),
       error: (line) => console.error(line),

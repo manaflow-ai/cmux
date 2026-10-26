@@ -146,6 +146,20 @@ describe("key handling in the run scripts", () => {
       );
       chmodSync(path.join(bin, "bun"), 0o755);
       mkdirSync(path.join(dir, "web"));
+      // The delete step fetches the branch tip from origin: a local bare clone of a seed repo with the reference files.
+      const gitEnv = { PATH: process.env.PATH, HOME: dir, GIT_CONFIG_NOSYSTEM: "1" };
+      const git = async (args: string[], cwd = dir) => expect((await runChild("git", args, { cwd, env: gitEnv })).status).toBe(0);
+      const seed = path.join(dir, "seed");
+      mkdirSync(path.join(seed, "images/cmux-vm/channels"), { recursive: true });
+      mkdirSync(path.join(seed, "backend/apps/api"), { recursive: true });
+      writeFileSync(path.join(seed, "images/cmux-vm/channels/dev.json"), "{}\n");
+      writeFileSync(path.join(seed, "backend/apps/api/wrangler.jsonc"), "{}\n");
+      await git(["init", "-q", "-b", "feat-cmux-next", seed]);
+      await git(["add", "-A"], seed);
+      await git(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "seed"], seed);
+      await git(["clone", "-q", "--bare", seed, path.join(dir, "origin.git")]);
+      await git(["init", "-q"]);
+      await git(["remote", "add", "origin", path.join(dir, "origin.git")]);
       const env = {
         PATH: `${bin}:${process.env.PATH}`,
         FREESTYLE_KEY_SECRET: "s3cr3t-key",
@@ -157,10 +171,15 @@ describe("key handling in the run scripts", () => {
         SNAPSHOT_VAR: "CLOUD_FREESTYLE_SNAPSHOT",
         DELETE_SNAPSHOT: ID(2),
       };
-      const result = await runChild("bash", ["-e", "-c", step(name).run!], { env, cwd: path.join(dir, "web") });
+      const result = await runChild("bash", ["-e", "-c", step(name).run!], { env: { ...env, HOME: dir, GIT_CONFIG_NOSYSTEM: "1" }, cwd: path.join(dir, "web") });
       expect(result.status).toBe(0);
       const [argv, inEnv, file, mode, key] = readFileSync(record, "utf8").split("\n");
       expect(argv).not.toContain("s3cr3t-key");
+      if (name === "Delete the spare snapshot") {
+        expect(argv).toBe(`argv ../images/cmux-vm/cleanup.ts --snapshot ${ID(2)} --also-root ${dir}/branch-tip`);
+        expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/dev.json"), "utf8")).toBe("{}\n");
+        expect(existsSync(path.join(dir, "branch-tip/backend/apps/api/wrangler.jsonc"))).toBe(true);
+      }
       expect(inEnv).toBe("0");
       expect(file!.startsWith(`file ${dir}/freestyle-key.`)).toBe(true);
       expect(mode).toBe("600");
@@ -221,11 +240,11 @@ function fakeApi(snapshots: Record<string, { slug?: string; displayName?: string
   };
 }
 
-async function tryDelete(root: string, id: string, snapshots: Parameters<typeof fakeApi>[0] = {}) {
+async function tryDelete(root: string, id: string, snapshots: Parameters<typeof fakeApi>[0] = {}, tip?: string) {
   const fake = fakeApi(snapshots);
   const logs: string[] = [];
   const errors: string[] = [];
-  const code = await deleteSnapshot(id, { root, snapshots: fake.api, log: (l) => logs.push(l), error: (l) => errors.push(l) });
+  const code = await deleteSnapshot(id, { roots: [[root, ""], ...(tip ? ([[tip, "(branch tip) "]] as const) : [])], snapshots: fake.api, log: (l) => logs.push(l), error: (l) => errors.push(l) });
   return { code, calls: fake.calls, logs, errors: errors.join("\n") };
 }
 
@@ -275,6 +294,24 @@ describe("delete_snapshot reference refusal (cleanup.ts --snapshot)", () => {
       expect(r.errors).toContain(ref);
       expect(r.calls).toEqual([]);
     }
+  });
+
+  test("a mention JSON.parse drops (a duplicate key) still counts", async () => {
+    const root = fakeRoot();
+    writeFileSync(path.join(root, "images/cmux-vm/channels/dup.json"), `{ "history": [{ "snapshot_id": "${ID(27)}" }], "history": [] }\n`);
+    const r = await tryDelete(root, ID(27), { [ID(27)]: { slug: "cmuxnp-dev-vmimg-free" } });
+    expect(r.code).toBe(1);
+    expect(r.errors).toContain("images/cmux-vm/channels/dup.json: (text outside the parsed values");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("a reference only on the branch tip (a channel PR that landed meanwhile) is refused", async () => {
+    const tip = fakeRoot();
+    writeFileSync(path.join(tip, "images/cmux-vm/channels/staging.json"), `{ "snapshot_id": "${ID(28)}" }\n`);
+    const r = await tryDelete(fakeRoot(), ID(28), { [ID(28)]: { slug: "cmuxnp-dev-vmimg-free" } }, tip);
+    expect(r.code).toBe(1);
+    expect(r.errors).toContain("(branch tip) images/cmux-vm/channels/staging.json: snapshot_id");
+    expect(r.calls).toEqual([]);
   });
 
   test("a name only in a channel file (no id recorded) is refused", async () => {
@@ -350,6 +387,15 @@ describe("promote-record.ts", () => {
   test("a team VM candidate records its var", () => {
     const root = fakeRoot();
     expect(recordCandidate(root, candidate({ var: "TEAM_VM_SNAPSHOT", snapshot: "cmuxnp-dev-vmimg-ci-team-300-1" }), ID(300), "300").var).toBe("TEAM_VM_SNAPSHOT");
+  });
+
+  test("refuses a dev.json without a history array", () => {
+    const root = fakeRoot();
+    const file = path.join(root, "images/cmux-vm/channels/dev.json");
+    writeFileSync(file, `${JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), history: { a: ID(50) } }, null, 2)}\n`);
+    const before = readFileSync(file, "utf8");
+    expect(() => recordCandidate(root, candidate(), ID(300), "300")).toThrow(/no history array/);
+    expect(readFileSync(file, "utf8")).toBe(before);
   });
 
   const refused: Array<[string, Record<string, unknown>, string, string]> = [

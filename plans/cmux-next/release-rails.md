@@ -127,7 +127,7 @@ on a branch from feat-cmux-next, opens the channel PR linking the run, and lands
 the next development deploy ships it. `-f delete_snapshot=<sh-id>` (alone or with a promotion)
 deletes one spare image snapshot by exact id (`cleanup.ts --snapshot`); it refuses an id or name
 that any `channels/*.json` (pointer, previous, history, notes) or `wrangler.jsonc` mentions, or a
-snapshot not named `cmuxnp-dev-vmimg-*`, and prints every reference it found.
+snapshot not named `cmuxnp-dev-vmimg-*`, in the checkout and in feat-cmux-next fetched just before the delete, and prints every reference it found.
 
 ## Ship a migration end to end
 

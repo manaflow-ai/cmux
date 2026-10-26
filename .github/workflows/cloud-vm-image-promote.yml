@@ -210,17 +210,27 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # After a promotion, the check reads the promoted files, so the old pointer (now `previous`) stays protected too.
+      # It also reads feat-cmux-next as it is now, so a channel PR that landed while this job ran still counts.
       - name: Delete the spare snapshot
         if: steps.inputs.outputs.delete == 'true'
         env:
           FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
         run: |
           set -euo pipefail
+          tip="$RUNNER_TEMP/branch-tip"
+          rm -rf "$tip" && mkdir -p "$tip/images/cmux-vm/channels" "$tip/backend/apps/api"
+          git -C .. fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
+          git -C .. show FETCH_HEAD:backend/apps/api/wrangler.jsonc > "$tip/backend/apps/api/wrangler.jsonc"
+          git -C .. ls-tree --name-only FETCH_HEAD images/cmux-vm/channels/ > "$RUNNER_TEMP/tip-channels.txt"
+          while IFS= read -r f; do
+            case "$f" in *.json) git -C .. show "FETCH_HEAD:$f" > "$tip/$f" ;; esac
+          done < "$RUNNER_TEMP/tip-channels.txt"
+          echo "branch tip feat-cmux-next $(git -C .. rev-parse FETCH_HEAD)"
           umask 077
           key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
           trap 'rm -f "$key_file"' EXIT
           printf '%s' "$FREESTYLE_KEY_SECRET" > "$key_file"
           chmod 600 "$key_file"
           unset FREESTYLE_KEY_SECRET
-          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --snapshot "$DELETE_SNAPSHOT" 2>&1 | tee "$RUNNER_TEMP/delete.out"
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --snapshot "$DELETE_SNAPSHOT" --also-root "$tip" 2>&1 | tee "$RUNNER_TEMP/delete.out"
           { echo "## delete_snapshot $DELETE_SNAPSHOT"; echo; sed 's/^/    /' "$RUNNER_TEMP/delete.out"; } >> "$GITHUB_STEP_SUMMARY"
