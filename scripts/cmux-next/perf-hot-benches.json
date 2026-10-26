@@ -96,6 +96,11 @@
       "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
       "owner": "Performance Lead"
     },
+    "idle-energy-wake": {
+      "what": "the idle wakeup histogram's afterWaiting observer at every main run-loop wake (IdleEnergyMonitor.noteWake, debug.energy idle): one uptime read, one relaxed input-count load and a compare; one proc_pid_rusage read only when a window opens or closes; budget < 100 ns per wake over the uptime read",
+      "bench": "CMUX_IDLE_ENERGY_BENCH=1 swift test -c release --filter IdleEnergyMonitorBench (ns per wake, ns per rusage read), on macOS 26 and 27",
+      "owner": "p14-energy"
+    },
     "terminal-feed": {
       "what": "one terminal output chunk parsed on its TerminalOutputLane (ghostty_surface_process_output, microseconds for an echoed key, about 1 ms for 256 KiB) inside its terminal.feed hang scope (HangWatch.watch: two stores and no system call once p09-observability-066 fills the slots)",
       "bench": "scripts/cmux-next/bench-typing.py (echo: output parsed stage p95); the scope's own cost: swift test -c release --filter HangWatchTests (p09-observability-066 open and close cost)",

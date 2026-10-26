@@ -19,6 +19,16 @@ struct EnergyPolicyDriverTests {
         #expect(source.policy == EnergyPolicy(onBattery: true))
     }
 
+    /// `debug.energy`'s `session_override` reads the driver's resolver: "Turn Off for Now" is not
+    /// held at launch, nor after the setting and the inputs arrive.
+    @Test func turnOffForNowIsNotHeldAtLaunch() {
+        let driver = EnergyPolicyDriver(source: EnergyPolicySource(), isEnabled: true)
+        #expect(!driver.isOffForSession)
+        driver.update(setting: .auto)
+        driver.update(inputs: Self.lowBattery)
+        #expect(!driver.isOffForSession)
+    }
+
     @Test func inputsDriveTheSaverInAuto() {
         let source = EnergyPolicySource()
         let driver = EnergyPolicyDriver(source: source, isEnabled: true)

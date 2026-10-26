@@ -17,8 +17,9 @@ public import Foundation
 ///   (base/process/process_metrics_apple.mm, `GetIdleWakeupsPerSecond` reads `ri_interrupt_wkups`);
 ///   package-idle wakeups are a subset and are reported apart, never summed.
 /// - `cef`: whether Chromium applies the Energy Saver, and the pump's early passes.
-/// - `idle`: the app's interrupt wakeups per second over this launch's idle minutes, as a histogram
-///   with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008).
+/// - `idle`: the main process's interrupt wakeups per second over this launch's idle minutes, as a
+///   histogram with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008). Main process
+///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessRusage`` reading.
 ///
 /// One main-actor turn copies ``State``; the ledger read and the process sampling run on the
 /// concurrent pool, never on the main actor (as `debug.wakeups` samples its processes). The App
@@ -276,17 +277,12 @@ public struct ProcessEnergy: Sendable, Equatable {
         self.packageIdleWakeups = packageIdleWakeups
     }
 
-    /// Samples `pid`; nil when the process is gone or not ours. Blocking syscalls: call it off the main actor.
+    /// Samples `pid` (``ProcessRusage``, the reading `idle` shares); nil when the process is gone or not
+    /// ours. The tree walk around it makes many syscalls: call it off the main actor.
     public static func sample(kind: String, pid: pid_t, name: String) -> ProcessEnergy? {
-        var info = rusage_info_v6()
-        let status = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-                proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
-            }
-        }
-        guard status == 0 else { return nil }
-        return ProcessEnergy(kind: kind, pid: pid, name: name, energyNanojoules: info.ri_energy_nj,
-                             interruptWakeups: info.ri_interrupt_wkups, packageIdleWakeups: info.ri_pkg_idle_wkups)
+        guard let usage = ProcessRusage.sample(pid) else { return nil }
+        return ProcessEnergy(kind: kind, pid: pid, name: name, energyNanojoules: usage.energyNanojoules,
+                             interruptWakeups: usage.interruptWakeups, packageIdleWakeups: usage.packageIdleWakeups)
     }
 
     var json: EnergyReport.JSONValue {

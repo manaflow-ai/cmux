@@ -1,37 +1,28 @@
 import CmuxNextCompat
-import CoreFoundation
+public import CoreFoundation
 import Darwin
 
-/// The app's idle interrupt wakeups per second over this launch, as a histogram with fixed
-/// buckets (p14-energy-008, `debug.energy`'s `idle`).
+/// The main process's idle interrupt wakeups per second over this launch, as a histogram with
+/// fixed buckets (p14-energy-008, `debug.energy`'s `idle`).
 ///
 /// Chrome samples the same counter (`ProcessMetrics::GetIdleWakeupsPerSecond` in
-/// `base/process/process_metrics_apple.mm` reads `TASK_POWER_INFO`'s `task_interrupt_wakeups`)
-/// from the repeating timer of `chrome/browser/performance_monitor/process_monitor.cc` and records
-/// it into the `PerformanceMonitor.IdleWakeups` histogram
+/// `base/process/process_metrics_apple.mm` reads `ri_interrupt_wkups`) from the repeating timer of
+/// `chrome/browser/performance_monitor/process_monitor.cc` and records it into the
+/// `PerformanceMonitor.IdleWakeups` histogram
 /// (`chrome/browser/performance_monitor/process_metrics_recorder_util.cc`). cmux has no timer for
-/// it: the window closes at the first main run loop wake that other work starts once 60 s have
-/// passed, so an idle app wakes no more often to measure itself.
+/// it: every step happens at a main run loop wake that other work starts, so an idle app wakes no
+/// more often to measure itself.
 ///
-/// A window holds one sample only when no input arrived in it; one with input is dropped, so the
-/// histogram describes the app with nobody using it.
+/// Main process only: the helpers' counters are in `debug.energy`'s `processes`, read through the
+/// same ``ProcessRusage``.
+///
+/// The app is idle once ``idleAfterNanos`` pass with no input (and after launch): a window opens at
+/// the first wake after that and is recorded at the first wake ``windowNanos`` later. Input in a
+/// window drops it and starts the wait again at the first wake that sees the input, so no sample
+/// holds an input or the work it started (animation, scroll momentum, reflow, fetches).
 public struct IdleEnergyStats: Sendable, Equatable {
-    /// The counters read at the start and end of a window.
-    public struct Reading: Sendable, Equatable {
-        /// `CLOCK_UPTIME_RAW` nanoseconds (stops while the Mac sleeps, as the wakeup counter does).
-        public var uptimeNanos: UInt64
-        /// The app's interrupt wakeups since it started (`task_interrupt_wakeups`).
-        public var interruptWakeups: UInt64
-        /// The app's input events since it started (``ExpectedActivity``'s `.input` count).
-        public var inputEvents: UInt64
-
-        public init(uptimeNanos: UInt64, interruptWakeups: UInt64, inputEvents: UInt64) {
-            self.uptimeNanos = uptimeNanos
-            self.interruptWakeups = interruptWakeups
-            self.inputEvents = inputEvents
-        }
-    }
-
+    /// No input for this long and the app is idle.
+    public static let idleAfterNanos: UInt64 = 60 * 1_000_000_000
     /// The shortest window: a sample covers at least one idle minute.
     public static let windowNanos: UInt64 = 60 * 1_000_000_000
 
@@ -41,45 +32,60 @@ public struct IdleEnergyStats: Sendable, Equatable {
 
     /// Samples per bucket: `upperBounds.count + 1` entries, the overflow bucket last.
     public private(set) var counts = [UInt64](repeating: 0, count: IdleEnergyStats.upperBounds.count + 1)
-    /// Windows dropped because input arrived in them.
+    /// Open windows input dropped (input while the app is not yet idle drops none).
     public private(set) var windowsWithInput: UInt64 = 0
     /// The highest rate recorded (the overflow bucket's percentile value).
     public private(set) var maxRate: Double = 0
     /// The last rate recorded, nil before the first sample.
     public private(set) var lastRate: Double?
-    private var start: Reading?
+    private var phase: Phase?
+
+    /// Where the histogram is between wakes; nil before the first wake.
+    private enum Phase: Sendable, Equatable {
+        /// Waiting for ``IdleEnergyStats/idleAfterNanos`` with no input from `since`, after `inputs` input events.
+        case settling(since: UInt64, inputs: UInt64)
+        /// A window open since `since` with `wakeups` interrupt wakeups then, after `inputs` input events.
+        case measuring(since: UInt64, wakeups: UInt64, inputs: UInt64)
+    }
 
     public init() {}
 
     /// Samples recorded this launch.
     public var sampleCount: UInt64 { counts.reduce(0, &+) }
 
-    /// Whether a wake at `uptimeNanos` closes the window (or opens the first one). The only check
-    /// that runs on every wake: no counter is read until it is true.
-    public func isWindowDue(at uptimeNanos: UInt64) -> Bool {
-        guard let start else { return true }
-        return uptimeNanos &- start.uptimeNanos >= Self.windowNanos
-    }
-
-    /// Closes the window at `reading` and opens the next one there. Records the window's rate and
-    /// returns it when the window had no input; returns nil for the first reading and for a window
-    /// with input.
+    /// One main run loop wake at `uptimeNanos` (`CLOCK_UPTIME_RAW`, which stops while the Mac sleeps
+    /// as the counter does), after `inputEvents` input events. `interruptWakeups` reads the main
+    /// process's counter; it is called only when a window opens or closes, and nil skips this wake.
+    /// Returns the rate recorded at this wake, if any.
     @discardableResult
-    public mutating func close(at reading: Reading) -> Double? {
-        defer { start = reading }
-        guard let start, reading.uptimeNanos > start.uptimeNanos, reading.interruptWakeups >= start.interruptWakeups else {
+    public mutating func noteWake(at uptimeNanos: UInt64, inputEvents: UInt64, interruptWakeups: () -> UInt64?) -> Double? {
+        switch phase {
+        case nil:
+            phase = .settling(since: uptimeNanos, inputs: inputEvents)
             return nil
-        }
-        guard reading.inputEvents == start.inputEvents else {
-            windowsWithInput &+= 1
+        case let .settling(since, inputs):
+            guard inputEvents == inputs else {
+                phase = .settling(since: uptimeNanos, inputs: inputEvents)
+                return nil
+            }
+            guard Self.elapsed(uptimeNanos, since: since, atLeast: Self.idleAfterNanos), let wakeups = interruptWakeups() else { return nil }
+            phase = .measuring(since: uptimeNanos, wakeups: wakeups, inputs: inputEvents)
             return nil
+        case let .measuring(since, startWakeups, inputs):
+            guard inputEvents == inputs else {
+                windowsWithInput &+= 1
+                phase = .settling(since: uptimeNanos, inputs: inputEvents)
+                return nil
+            }
+            guard Self.elapsed(uptimeNanos, since: since, atLeast: Self.windowNanos), let wakeups = interruptWakeups() else { return nil }
+            phase = .measuring(since: uptimeNanos, wakeups: wakeups, inputs: inputEvents)
+            guard wakeups >= startWakeups else { return nil }
+            let rate = Double(wakeups - startWakeups) / (Double(uptimeNanos - since) / 1e9)
+            counts[Self.bucketIndex(rate)] &+= 1
+            maxRate = max(maxRate, rate)
+            lastRate = rate
+            return rate
         }
-        let seconds = Double(reading.uptimeNanos - start.uptimeNanos) / 1e9
-        let rate = Double(reading.interruptWakeups - start.interruptWakeups) / seconds
-        counts[Self.bucketIndex(rate)] &+= 1
-        maxRate = max(maxRate, rate)
-        lastRate = rate
-        return rate
     }
 
     /// The bucket that holds `rate`.
@@ -107,22 +113,28 @@ public struct IdleEnergyStats: Sendable, Equatable {
         return maxRate
     }
 
+    /// A clock that went back has not elapsed.
+    private static func elapsed(_ uptimeNanos: UInt64, since start: UInt64, atLeast span: UInt64) -> Bool {
+        uptimeNanos >= start && uptimeNanos - start >= span
+    }
+
     private static func formatted(_ bound: Double) -> String {
         bound == bound.rounded() ? String(Int(bound)) : String(bound)
     }
 }
 
-/// Feeds ``IdleEnergyStats`` from the main run loop's wakes (the app's `debug.energy` report owns one).
+/// Feeds ``IdleEnergyStats`` from the main run loop's wakes. The App builds one per launch in its
+/// energy owner (`EnergyServices`) and starts it at launch; `debug.energy` reads its ``stats``.
 ///
 /// It adds one `afterWaiting` observer and no timer: an observer runs only in passes that other
-/// work started. Each wake costs one uptime read and a compare; the wakeup and input counters are
-/// read once per closed window.
+/// work started. Each wake costs one uptime read, one relaxed input-count load and a compare; the
+/// wakeup counter is read only when a window opens or closes.
 @MainActor
 public final class IdleEnergyMonitor {
     /// Where the monitor reads its counters (the tests' seam).
     public struct Sources: Sendable {
         public var uptimeNanos: @Sendable () -> UInt64
-        /// The app's interrupt wakeups, nil when `task_info` fails.
+        /// The main process's interrupt wakeups, nil when `proc_pid_rusage` fails.
         public var interruptWakeups: @Sendable () -> UInt64?
         public var inputEvents: @Sendable () -> UInt64
 
@@ -134,50 +146,54 @@ public final class IdleEnergyMonitor {
             self.inputEvents = inputEvents
         }
 
-        /// This process's counters; `activity` is the one the app's input monitor notes into.
+        /// This process's counters through ``ProcessRusage``, the reading `debug.energy`'s
+        /// `processes` uses; `activity` is the one the app's input monitor notes into.
         public static func live(activity: ExpectedActivity) -> Sources {
-            Sources(uptimeNanos: { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
-                    interruptWakeups: { Self.ownInterruptWakeups() },
-                    inputEvents: { activity.count(.input) })
-        }
-
-        /// `task_interrupt_wakeups` of this task (`TASK_POWER_INFO`), the counter Chrome reads. A
-        /// Mach call on the caller's own task: no I/O and no lock the caller could wait on.
-        private static func ownInterruptWakeups() -> UInt64? {
-            var info = task_power_info_data_t()
-            var count = mach_msg_type_number_t(MemoryLayout<task_power_info_data_t>.size / MemoryLayout<natural_t>.size)
-            let result = withUnsafeMutablePointer(to: &info) { pointer in
-                pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                    task_info(mach_task_self_, task_flavor_t(TASK_POWER_INFO), $0, &count)
-                }
-            }
-            return result == KERN_SUCCESS ? info.task_interrupt_wakeups : nil
+            let pid = getpid()
+            return Sources(uptimeNanos: { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+                           interruptWakeups: { ProcessRusage.sample(pid)?.interruptWakeups },
+                           inputEvents: { activity.count(.input) })
         }
     }
+
+    /// Adds `onWake` at each main run loop stage in `activities` and returns the token that keeps
+    /// it; releasing the token removes it (``mainRunLoopWakes(_:_:)`` in the app, a fake in tests).
+    public typealias WakeRegistration = @MainActor (_ activities: CFRunLoopActivity, _ onWake: @escaping @MainActor () -> Void) -> AnyObject
 
     public private(set) var stats = IdleEnergyStats()
     private let sources: Sources
-    private var observer: MainRunLoopObserver?
+    private let observeWakes: WakeRegistration
+    private var observation: AnyObject?
 
-    public init(sources: Sources) {
+    /// A monitor that records nothing until ``start()``.
+    ///
+    /// - Parameters:
+    ///   - sources: The counters (``Sources/live(activity:)`` in the app).
+    ///   - observeWakes: Adds the wake handler (``mainRunLoopWakes(_:_:)`` by default).
+    public init(sources: Sources, observeWakes: @escaping WakeRegistration = IdleEnergyMonitor.mainRunLoopWakes) {
         self.sources = sources
+        self.observeWakes = observeWakes
     }
 
-    /// Starts recording at the main run loop's wakes. Calling it again does nothing.
+    /// A ``MainRunLoopObserver`` of `activities` that calls `onWake`.
+    public static func mainRunLoopWakes(_ activities: CFRunLoopActivity, _ onWake: @escaping @MainActor () -> Void) -> AnyObject {
+        MainRunLoopObserver(activities: activities) { _ in onWake() }
+    }
+
+    /// Starts recording at the main run loop's wakes: one `afterWaiting` handler and nothing else.
+    /// Calling it again does nothing.
     public func start() {
-        guard observer == nil else { return }
-        observer = MainRunLoopObserver(activities: .afterWaiting) { [weak self] _ in self?.noteWake() }
+        guard observation == nil else { return }
+        observation = observeWakes(.afterWaiting) { [weak self] in self?.noteWake() }
     }
 
     /// Stops recording; the histogram stays.
     public func stop() {
-        observer = nil
+        observation = nil
     }
 
     /// One main run loop wake (the observer; tests call it directly).
-    public func noteWake() {
-        let now = sources.uptimeNanos()
-        guard stats.isWindowDue(at: now), let wakeups = sources.interruptWakeups() else { return }
-        stats.close(at: IdleEnergyStats.Reading(uptimeNanos: now, interruptWakeups: wakeups, inputEvents: sources.inputEvents()))
+    public func noteWake() { // perf-hot: 0.1us idle-energy-wake (every main run loop wake; one rusage read only when a window opens or closes)
+        stats.noteWake(at: sources.uptimeNanos(), inputEvents: sources.inputEvents(), interruptWakeups: sources.interruptWakeups)
     }
 }

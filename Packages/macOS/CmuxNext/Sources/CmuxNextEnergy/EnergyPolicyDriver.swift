@@ -28,6 +28,9 @@ public final class EnergyPolicyDriver {
         resolver = EnergyPolicyResolver(isEnabled: isEnabled)
     }
 
+    /// "Turn Off for Now" holds (``EnergyPolicyResolver/isOffForSession``); `debug.energy` reports it.
+    public var isOffForSession: Bool { resolver.isOffForSession }
+
     /// The power inputs changed (``EnergyMonitor/follow(_:)``).
     public func update(inputs: EnergyInputs) {
         self.inputs = inputs

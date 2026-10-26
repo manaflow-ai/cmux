@@ -72,17 +72,22 @@ struct EnergyReportTests {
 
     @Test func idleReportsTheHistogramAndItsPercentiles() async throws {
         var idle = IdleEnergyStats()
-        var reading = IdleEnergyStats.Reading(uptimeNanos: 0, interruptWakeups: 0, inputEvents: 0)
-        idle.close(at: reading)
+        var uptime: UInt64 = 0
+        var wakeups: UInt64 = 0
+        idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
+        uptime += IdleEnergyStats.idleAfterNanos
+        idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
         for _ in 0..<3 {
-            reading.uptimeNanos += IdleEnergyStats.windowNanos
-            reading.interruptWakeups += 12
-            idle.close(at: reading)
+            uptime += IdleEnergyStats.windowNanos
+            wakeups += 12
+            idle.noteWake(at: uptime, inputEvents: 0) { wakeups }
         }
         var state = Self.state
         state.idle = idle
         let report = await EnergyReport(state: { [state] in state }, ledger: WakeupLedger(), processes: { [] }).report()
         let section = try #require(report["idle"])
+        #expect(section["scope"]?.stringValue == "main_process")
+        #expect(section["idle_after_s"]?.intValue == 60)
         #expect(section["window_s"]?.intValue == 60)
         #expect(section["samples"]?.intValue == 3)
         #expect(section["windows_with_input"]?.intValue == 0)
