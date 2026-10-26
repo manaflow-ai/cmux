@@ -92,10 +92,8 @@ public struct CmuxNextApp {
             // The Debug tunables features replace (`browserResize.layerHosting`) are their local overrides too: read
             // from the build's debug-tunables.json in the same sequence, never through the tunable store's later load.
             if let tunables = DebugSettingsService.launchFile(launch: environment.launch, environment: ProcessInfo.processInfo.environment) {
-                let keys = LaunchFeatureLocalOverrides.replacedKeys(of: Feature.registered)
-                environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) {
-                    LaunchFeatureLocalOverrides.replacedTunables(in: tunables, keys: keys)
-                }
+                let keys = FeatureLaunchLocalOverrides.replacedKeys(of: Feature.registered)
+                environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) { TunableFile.boolValues(tunables, keys: keys) }
             }
         }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:

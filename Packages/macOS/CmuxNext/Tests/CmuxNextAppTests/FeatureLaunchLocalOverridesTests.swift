@@ -12,14 +12,14 @@ import Testing
 /// lists, over the remote document and the channel default, never in Release. Every reader of the list (the engine,
 /// `features.list`, the lab's arm record) sees the same value.
 @MainActor @Suite(.serialized)
-struct LaunchFeatureLocalOverridesTests {
+struct FeatureLaunchLocalOverridesTests {
     static let work = BackgroundWork(label: "test.feature-tunables")
     private static let tunable = BrowserResizeTunables.layerHosting.descriptor.key
 
     private func list(_ channel: Feature.Channel, _ overrides: FeatureOverrides = FeatureOverrides(),
                       tunable: Bool?, labs: [String: Bool] = [:]) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: channel, overrides: overrides,
-                    local: LaunchFeatureLocalOverrides(labs: FeatureLocalOverrides(values: labs),
+                    local: FeatureLaunchLocalOverrides(labs: FeatureLocalOverrides(values: labs),
                                                        tunables: tunable.map { [Self.tunable: $0] } ?? [:]))
     }
 
@@ -34,7 +34,7 @@ struct LaunchFeatureLocalOverridesTests {
 
     @Test func theFeatureReplacesTheTunable() {
         #expect(Feature.cefLayerHosting.replaces == [Self.tunable])
-        #expect(LaunchFeatureLocalOverrides.replacedKeys(of: Feature.registered).contains(Self.tunable))
+        #expect(FeatureLaunchLocalOverrides.replacedKeys(of: Feature.registered).contains(Self.tunable))
     }
 
     @Test func theTunableIsTheFeaturesLocalResolution() {
@@ -74,12 +74,12 @@ struct LaunchFeatureLocalOverridesTests {
     @Test func theLaunchReadsOnlyReplacedBoolTunables() throws {
         let file = try tunablesFile([Self.tunable: true, "browserResize.syncDeadline": 0.004, "drop.overlay.style": "insetCard"])
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let keys = LaunchFeatureLocalOverrides.replacedKeys(of: Feature.registered)
-        #expect(LaunchFeatureLocalOverrides.replacedTunables(in: file, keys: keys) == [Self.tunable: true])
+        let keys = FeatureLaunchLocalOverrides.replacedKeys(of: Feature.registered)
+        #expect(TunableFile.boolValues(file, keys: keys) == [Self.tunable: true])
         let wrongType = try tunablesFile([Self.tunable: "yes"])
         defer { try? FileManager.default.removeItem(at: wrongType.deletingLastPathComponent()) }
-        #expect(LaunchFeatureLocalOverrides.replacedTunables(in: wrongType, keys: keys).isEmpty)
-        #expect(LaunchFeatureLocalOverrides.replacedTunables(in: file.appending(path: "missing"), keys: keys).isEmpty)
+        #expect(TunableFile.boolValues(wrongType, keys: keys).isEmpty)
+        #expect(TunableFile.boolValues(file.appending(path: "missing"), keys: keys).isEmpty)
     }
 
     /// The file's value is the list's from the launch on, whenever the engine is built: the read ends on a launch
@@ -88,8 +88,8 @@ struct LaunchFeatureLocalOverridesTests {
         let file = try tunablesFile([Self.tunable: true])
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         var environment = AppEnvironment.current([:])
-        let keys = LaunchFeatureLocalOverrides.replacedKeys(of: Feature.registered)
-        let read = LaunchRead(on: Self.work) { LaunchFeatureLocalOverrides.replacedTunables(in: file, keys: keys) }
+        let keys = FeatureLaunchLocalOverrides.replacedKeys(of: Feature.registered)
+        let read = LaunchRead(on: Self.work) { TunableFile.boolValues(file, keys: keys) }
         environment.featureTunableOverrides = read
         _ = await read.finished()
         let features = AppServices.launchFeatures(environment)
