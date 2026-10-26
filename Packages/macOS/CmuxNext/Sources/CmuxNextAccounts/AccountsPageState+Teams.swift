@@ -163,7 +163,7 @@ extension AccountsModel {
             create: model.form == .create
                 ? teamForm(kind: "create", title: AccountsStrings.teamsCreateTitle, help: AccountsStrings.teamsCreateHelp,
                            value: "", submit: AccountsStrings.teamsCreate) : nil,
-            notice: model.notice.map { .init(kind: "success", text: $0) })
+            notice: model.notice.map { AccountsPageState.Notice(kind: "success", text: $0) })
     }
 
     private func pageTeamDetail(_ team: CMUXAuthTeam) -> AccountsPageState.TeamDetails {
@@ -188,7 +188,7 @@ extension AccountsModel {
         var facts = [AccountsPageState.TeamFact(label: AccountsStrings.teamsYourRole, value: AccountsStrings.role(viewer.role))]
         if let billing = detail.billing {
             facts.append(.init(label: AccountsStrings.teamsMemberCount,
-                               value: AccountsStrings.teamsMemberCount(billing.memberCount, of: billing.memberLimit)))
+                               value: AccountsStrings.teamsMemberCountValue(billing.memberCount, of: billing.memberLimit)))
             facts.append(.init(label: AccountsStrings.teamsPlan, value: AccountsStrings.plan(billing.planId)))
         }
         var buttons: [AccountsPageState.Button] = []
@@ -203,14 +203,14 @@ extension AccountsModel {
         return .init(
             loading: nil, error: nil, facts: facts,
             membersTitle: AccountsStrings.teamsMembers,
-            members: detail.members.map { member in
+            members: detail.members.map { member -> AccountsPageState.TeamMember in
                 let name = member.displayName.flatMap { $0.isEmpty ? nil : $0 } ?? member.email ?? AccountsStrings.teamsUnnamedMember
-                return .init(id: member.userId, name: name, detail: name == member.email ? nil : member.email,
+                return AccountsPageState.TeamMember(id: member.userId, name: name, detail: name == member.email ? nil : member.email,
                              role: AccountsStrings.role(member.role), you: member.isViewer ? AccountsStrings.teamsYou : nil)
             },
             invitationsTitle: showsInvitations ? AccountsStrings.teamsInvitations : nil,
             invitations: showsInvitations ? detail.invitations.map { invitation in
-                .init(id: invitation.id, email: invitation.email ?? AccountsStrings.teamsInviteLink,
+                AccountsPageState.TeamInvitation(id: invitation.id, email: invitation.email ?? AccountsStrings.teamsInviteLink,
                       role: AccountsStrings.role(invitation.role),
                       expires: Self.expiryDate(invitation.expiresAt).map(AccountsStrings.teamsExpires))
             } : nil,
