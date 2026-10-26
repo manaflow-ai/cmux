@@ -13,6 +13,38 @@ source = SCRIPT.read_text()
 # network fetch that cannot work on that checkout.
 assert "git remote get-url origin" in source
 assert "NATIVE_FADE_FETCH_SKIPPED no-origin" in source
+fetch_guard = source[source.index("if git remote get-url origin"):source.index("\nFIXED_BLOB=")]
+
+def test_detached_fetch_guard():
+    with tempfile.TemporaryDirectory(prefix="pane-fade-no-origin-") as directory:
+        repo = Path(directory) / "repo"
+        repo.mkdir()
+        def fixture_git(*args):
+            return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+        fixture_git("init", "-q")
+        (repo / "tracked").write_text("published objects\n")
+        fixture_git("add", ".")
+        fixture_git("-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
+                    "-c", "core.hooksPath=/dev/null", "commit", "-qm", "published")
+        head = fixture_git("rev-parse", "HEAD")
+        command = (
+            "set -euo pipefail\n"
+            "die() { echo \"$*\" >&2; exit 2; }\n"
+            f"HEAD_SHA={head}\n"
+            + fetch_guard + "\n"
+            + "printf 'FETCH_GUARD_DONE\\n'\n"
+        )
+        result = subprocess.run(
+            ["bash", "-c", command], cwd=repo,
+            env=os.environ | {"GIT_TRACE": "1"},
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "NATIVE_FADE_FETCH_SKIPPED no-origin" in result.stdout, result.stdout + result.stderr
+        assert "FETCH_GUARD_DONE" in result.stdout
+        assert " fetch " not in result.stderr, result.stderr
+
+test_detached_fetch_guard()
 # Execute the actual identity fence, before the native probe/build portion.
 fence = source[source.index('\nFIXED_BLOB=') + 1:source.index('WORK="$(mktemp')]
 PRODUCT = "product.swift"
