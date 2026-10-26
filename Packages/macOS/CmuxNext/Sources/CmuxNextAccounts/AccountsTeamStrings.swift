@@ -23,7 +23,7 @@ extension AccountsStrings {
     static var teamsYourRole: String { text("accounts.teams.fact.role", "Your role") }
     static var teamsMemberCount: String { text("accounts.teams.fact.members", "Members") }
     /// The member count, with the plan's roster cap when it has one (`3 / 5`).
-    static func teamsMemberCount(_ count: Int, of limit: Int?) -> String {
+    static func teamsMemberCountValue(_ count: Int, of limit: Int?) -> String {
         guard let limit else { return count.formatted() }
         return "\(count.formatted()) / \(limit.formatted())"
     }

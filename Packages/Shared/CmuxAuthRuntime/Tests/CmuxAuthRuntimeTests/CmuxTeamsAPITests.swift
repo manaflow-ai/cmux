@@ -137,7 +137,7 @@ final class TeamsStub: @unchecked Sendable {
         self.host = host
         api = CmuxTeamsAPI(baseURL: URL(string: "https://\(host)") ?? URL(fileURLWithPath: "/"),
                            session: URLSession(configuration: configuration)) {
-            signedIn ? ("access-token", "refresh-token") : nil
+            signedIn ? (access: "access-token", refresh: "refresh-token") : nil
         }
     }
 
