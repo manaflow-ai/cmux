@@ -24,18 +24,19 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
-    private var pairedFile: MobileHostPairedDevicesFile? {
-        dependencies.map { MobileHostPairedDevicesFile(directory: $0.stateDirectory) }
-    }
-
-    /// Loads the list of the signed-in user; a sign-out forgets that user's phones.
+    /// This service alone owns the selected user; the other phone listener only reads it.
     func loadPaired(signedOut: Bool) {
-        guard let file = pairedFile else { return }
-        if signedOut, let previous = paired {
-            try? file.save(MobileHostPairedDevices(userID: previous.userID))
+        let previous = pairedStore.current?.userID
+        if pairedStore.current?.userID != account?.userID { resetPrompts() }
+        pairedStore.select(userID: account?.userID)
+        paired = pairedStore.current
+        guard let directory = dependencies?.stateDirectory else { return }
+        // task-owner: one off-main load for the account event, invalidated by the store generation
+        Task { [pairedStore] in
+            await pairedStore.attach(directory: directory)
+            if signedOut, let previous { await pairedStore.forget(userID: previous) }
+            await pairedStore.reload()
         }
-        if paired?.userID != account?.userID { resetPrompts() }
-        paired = account.map { file.load(userID: $0.userID) }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }
@@ -48,9 +49,7 @@ extension IPhoneHostService {
         prompts.forget(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
-        guard var list = paired else { return }
-        list.remove(id)
-        savePaired(list)
+        savePaired { $0.remove(id) }
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
@@ -70,7 +69,7 @@ extension IPhoneHostService {
 
     private func ask(_ request: MobileHostPairRequest) {
         // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = paired else { return }
+        guard allowed, let list = pairedStore.current else { return }
         switch list.decision(for: request) {
         case .trusted, .denied:
             // hostd may hold an older list: send the current one again.
@@ -81,10 +80,9 @@ extension IPhoneHostService {
         }
         // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
         // pairs without the person-only prompt (IPhonePairingSeed).
-        if let seed = dependencies?.pairingSeed, seed.trusts(request), var trusted = paired, trusted.userID == account?.userID {
+        if let seed = dependencies?.pairingSeed, seed.trusts(request), pairedStore.current?.userID == account?.userID {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
-            trusted.approve(request, at: Date())
-            savePaired(trusted)
+            savePaired { $0.approve(request, at: Date()) }
             return
         }
         let outcome = prompts.receive(request, at: Date())
@@ -162,9 +160,8 @@ extension IPhoneHostService {
         prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
-        if var list = paired, list.userID == account?.userID {
+        savePaired { list in
             if allow { list.approve(request, at: Date()) } else { list.deny(request) }
-            savePaired(list)
         }
         showPairDialog()
     }
@@ -200,14 +197,14 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    private func savePaired(_ list: MobileHostPairedDevices) {
-        paired = list
-        do {
-            try pairedFile?.save(list)
-        } catch {
-            Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
+    private func savePaired(_ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) {
+        guard let user = account?.userID else { return }
+        let generation = pairedStore.generation
+        // task-owner: one serialized save for this answer/removal; stale users cannot write
+        Task { [pairedStore] in
+            do { try await pairedStore.change(for: user, generation: generation, edit) }
+            catch { Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)") }
         }
-        pushPaired()
     }
 
     /// The approver sync, which also hands hostd each phone's own acpmux credential.
@@ -222,11 +219,12 @@ extension IPhoneHostService {
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.
-    private func pushPaired() {
-        let list = paired ?? MobileHostPairedDevices(userID: "")
+    func pushPaired() {
+        let snapshot = pairedStore.versioned
+        let list = snapshot.list ?? MobileHostPairedDevices(userID: "")
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; setDevices is idempotent
-        Task { await supervisor.setDevices(list) }
+        Task { await supervisor.setDevices(list, revision: snapshot.revision) }
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))
@@ -237,8 +235,8 @@ extension IPhoneHostService {
     /// setting); every other phone's record is revoked. Until the account's list is read (or
     /// connections are off), none gets one and none is revoked for being unlisted.
     func pushListedPhones() {
-        let paired = paired ?? MobileHostPairedDevices(userID: "")
-        approverSync?.updatePhones(paired: Set(paired.devices.map(\.id)),
+        let paired = pairedStore.current ?? MobileHostPairedDevices(userID: "")
+        approverSync?.updatePhones(paired: Set(paired.hostdDevices.map(\.id)),
                                    listed: phonesKnown ? paired.listed(in: knownPhones) : nil)
     }
 }

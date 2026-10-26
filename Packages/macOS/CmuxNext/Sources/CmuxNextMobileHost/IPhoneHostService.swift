@@ -116,6 +116,8 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
+    public let pairedStore = MobileHostPairedStore()
+    @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -151,6 +153,14 @@ public final class IPhoneHostService {
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
     public init() {
+        pairedStore.observe { [weak self] _ in
+            // task-owner: one main-actor update per serialized list change
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                paired = pairedStore.current
+                pushPaired()
+            }
+        }
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -206,6 +216,14 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
+        if id.hasPrefix("iroh:"), let user = pairedStore.current?.userID {
+            let endpoint = String(id.dropFirst(5))
+            do {
+                try await pairedStore.change(for: user) { $0.remove(endpoint, transport: .iroh) }
+                phonesError = nil
+            } catch { phonesError = IPhoneHostStrings.removeFailed }
+            return
+        }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))

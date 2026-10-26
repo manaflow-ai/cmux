@@ -56,6 +56,7 @@ public actor MobileHostSupervisor {
     public nonisolated let pairing: AsyncStream<MobileHostEvent>
     private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
     /// The last `devices` line: sent to each new hostd and on every change.
+    private var devicesRevision: UInt64 = 0
     private var devicesLine: Data?
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
@@ -144,7 +145,11 @@ public actor MobileHostSupervisor {
 
     /// The phones this Mac approved: kept for each new hostd and sent to the
     /// running one now (a pairing link waiting on the user passes at once).
-    public func setDevices(_ devices: MobileHostPairedDevices) {
+    public func setDevices(_ devices: MobileHostPairedDevices, revision: UInt64? = nil) {
+        if let revision {
+            guard revision >= devicesRevision else { return }
+            devicesRevision = revision
+        }
         let line = MobileHostLaunch.devicesLine(devices)
         devicesLine = line
         process?.send(line)

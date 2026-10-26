@@ -1,5 +1,6 @@
 public import Foundation
 import CryptoKit
+import CmuxNextCompat
 
 /// A phone that proved its keys to `cmux-mobile-host` and asks this Mac to trust it
 /// (cmux-next-ios `verify/phone-approvals.md`). The keys are 65-byte X9.63 P-256
@@ -15,39 +16,56 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
+    public var transport: MobileHostPairedDevice.Transport
 
-    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil) {
+    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
+                transport: MobileHostPairedDevice.Transport = .hostd) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
+        self.transport = transport
     }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).
     public func sameKeys(as other: MobileHostPairRequest) -> Bool {
-        phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
+        transport == other.transport && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 }
 
 /// One phone the user allowed on this Mac.
 public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable {
+    public enum Transport: String, Sendable, Codable { case hostd, iroh }
+    public var transport: Transport
     public var id: String
     public var name: String
     public var identityKey: String
     public var approvalKey: String
     public var pairedAt: Date
 
-    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date) {
+    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date, transport: Transport = .hostd) {
         self.id = id
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.pairedAt = pairedAt
+        self.transport = transport
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        identityKey = try values.decode(String.self, forKey: .identityKey)
+        approvalKey = try values.decode(String.self, forKey: .approvalKey)
+        pairedAt = try values.decode(Date.self, forKey: .pairedAt)
+        transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
     }
 
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
-    public var fingerprint: String { MobileHostPairedDevices.fingerprint(approvalKey) }
+    public var fingerprint: String { MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey) }
 }
 
 /// The phones this Mac trusts for one signed-in user, and the requests the
@@ -81,22 +99,23 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     public func decision(for request: MobileHostPairRequest) -> Decision {
         if devices.contains(where: {
-            $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
+            $0.transport == request.transport && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
         }) { return .trusted }
-        if denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
+        if request.transport == .hostd, denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
         return .ask
     }
 
     /// The user allowed the request: its keys replace any older keys of that device.
     public mutating func approve(_ request: MobileHostPairRequest, at date: Date) {
-        devices.removeAll { $0.id == request.phoneDeviceID }
-        denied.removeAll { $0.id == request.phoneDeviceID }
+        devices.removeAll { $0.id == request.phoneDeviceID && $0.transport == request.transport }
+        if request.transport == .hostd { denied.removeAll { $0.id == request.phoneDeviceID } }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
-                                       approvalKey: request.approvalKey, pairedAt: date))
+                                       approvalKey: request.approvalKey, pairedAt: date, transport: request.transport))
     }
 
     /// The user refused the request.
     public mutating func deny(_ request: MobileHostPairRequest) {
+        guard request.transport == .hostd else { return }
         denied.removeAll { $0.id == request.phoneDeviceID }
         denied.append(Denied(id: request.phoneDeviceID, identityKey: request.identityKey))
         // Keep the newest refusals only; each refused key costs a prompt anyway.
@@ -104,8 +123,8 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
     }
 
     /// Removed in Settings, or the phone signed out. Its keys stop working at once.
-    public mutating func remove(_ id: String) {
-        devices.removeAll { $0.id == id }
+    public mutating func remove(_ id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
+        devices.removeAll { $0.id == id && $0.transport == transport }
     }
 
     /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
@@ -117,20 +136,22 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     /// The approvers acpmux gets (`_acpmux/approvers_set`).
     /// The pairing of `phone`, a phone of the account, if it is paired here (by its link id).
+    public var hostdDevices: [MobileHostPairedDevice] { devices.filter { $0.transport == .hostd } }
+
     public func pairing(of phone: MobileHostKnownPhone) -> MobileHostPairedDevice? {
-        devices.first { phone.owns($0.id) }
+        hostdDevices.first { phone.owns($0.id) }
     }
 
     /// The paired phones (link ids) that are among the account's `phones`: only these get an
     /// acpmux credential, so a phone removed from the account while this Mac was not running
     /// (still paired here, with no row in Settings > Devices) never holds Full access.
     public func listed(in phones: [MobileHostKnownPhone]) -> Set<String> {
-        Set(devices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
+        Set(hostdDevices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
     }
 
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,
-         "approvers": devices.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
+         "approvers": hostdDevices.filter { !$0.approvalKey.isEmpty }.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
     }
 
     /// Lowercase or uppercase hex; nil for anything else.
@@ -186,6 +207,11 @@ public struct MobileHostPairedDevicesFile: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         try encoder.encode(devices).write(to: file, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        do { try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        catch {
+            // A newly written Allow must not survive a failure to secure its file.
+            try? FileManager.checked.removeItem(at: file)
+            throw error
+        }
     }
 }
