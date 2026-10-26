@@ -1,12 +1,12 @@
 public import Foundation
-import os
 import CmuxNextCompat
+import CmuxNextSignposts
 
 /// Marks of the daemon start path (login environment, `server ensure`,
 /// connect, handshake) for the App's `debug.timings` and Instruments
-/// (signpost events, category "stalls"). Marks come from any thread. The
-/// first connect starts in `main`, before the App installs its receiver, so
-/// marks are kept with their time until then.
+/// (`launch.daemon` events, category "launch"). Marks come from any thread.
+/// The first connect starts in `main`, before the App installs its receiver,
+/// so marks are kept with their time until then.
 public final class DaemonLaunchTimings: @unchecked Sendable {
     public static let shared = DaemonLaunchTimings()
     private struct State {
@@ -15,7 +15,12 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
     }
 
     private let state = Mutex(State())
-    private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
+    private let signposter: Signposter
+
+    /// - Parameter signposter: Where each mark's `launch.daemon` event goes (a `launch` signposter).
+    init(signposter: Signposter = .launch) {
+        self.signposter = signposter
+    }
 
     /// Installs the receiver of marks (once, at launch) and hands it the
     /// marks made before.
@@ -29,7 +34,7 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
     }
 
     public func mark(_ name: String) {
-        signposter.emitEvent("daemon", "\(name, privacy: .public)")
+        signposter.launchStep(.daemon, name)
         let now = Date()
         let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
             if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
