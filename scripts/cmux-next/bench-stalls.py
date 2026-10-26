@@ -98,11 +98,14 @@ class Run:
         tag's saved state, which the primed daemon still uses."""
         def spawned(_process):
             self.started = time.monotonic()  # launch.key_echo_ms counts from the spawn
+            if self.app.teardown:
+                # One teardown for every launch of this build, armed at this one's spawn: a launch that then fails
+                # readiness still ends its daemons and terminal hosts.
+                self.app.teardown.remember()
 
         self.app.fresh_state = not warm_daemon
-        self.app.launch(timeout=60, ready="debug.timings", on_start=spawned)
-        if self.app.teardown:
-            self.app.teardown.remember()  # one teardown for every launch of this build: arm its end() for this one
+        # The lab's host validation runs after the launch spans (one_run), never inside launch.key_echo.
+        self.app.launch(timeout=60, ready="debug.timings", on_start=spawned, validate_host=False)
         self.client = Client(self.app.socket, timeout=10)
 
     def call(self, method, params=None):
@@ -244,6 +247,7 @@ def one_run(app, tabs, daemon="cold", startup_only=False):
         surfaces = timings.get("terminal_surfaces_ms", [])
         metrics["launch.first_surface_ms"] = surfaces[0] if surfaces else None
         detail.append({"label": "launch", "stalls": run.stalls(hangs), "surfaces_ms": surfaces, "marks": launch})
+        app.validate_lab_host()  # once per build, while its app runs, after every launch metric is read
         if startup_only:
             return metrics, detail
 

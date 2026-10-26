@@ -1256,8 +1256,12 @@ class BenchApp:
         os.rename(root, prev)
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
-    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False, validate_host=True):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
+
+        With `validate_host` False, the lab's full host validation (``validate_lab_host``, under the perf-lab runner
+        a nettop window of a minute) is not part of the launch: a bench that times a span from the spawn calls
+        ``validate_lab_host()`` itself once that span ends, while the app still runs.
 
         With `probe_first_answer`, ``first_answer`` sends `system.ping` from the spawn on and ``first_answer_ms``
         holds when the app first answered (ms since the spawn; None when it did not).
@@ -1335,7 +1339,8 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
-                    self.validate_lab_host()
+                    if validate_host:
+                        self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()

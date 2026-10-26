@@ -28,8 +28,10 @@ device, for the same reason (`run_reference_build`, tools/perf/core/bot_platform
 Usage (a fleet GUI host, never a laptop):
   bench-config-parity.py --release APP --bench APP [--runs 3] [--rounds 20] [--idle 30] [--out DIR]
       [--story bench-parity]
-  The story runner hands the Release build as --app (the story's config) and the same commit's
-  `--config bench` build as --bench.
+  --app is the same as --release, so the story runner's `--app --tag --out` parse. The runner does not yet
+  build or fetch a Release artifact or pass a second build as --bench, so the lab catalog marks the story
+  not measurable (stories.d/bench-parity.json `not_measurable`) and plans no round for it. Run it by hand
+  on a fleet GUI host with both builds of one commit.
 """
 
 import argparse
@@ -136,10 +138,14 @@ def stop(app):
 def one_run(kind, app, opts, index):
     out = os.path.join(opts.out, f"{kind}-{index}")
     os.makedirs(out, exist_ok=True)
-    app.launch(ready="system.ping")  # a Release build answers no debug.*: both arms are ready at the same answer
-    if app.teardown:
-        app.teardown.remember()  # one teardown for every launch of this bundle: arm its end() for this one
+    def spawned(_process):
+        if app.teardown:
+            app.teardown.remember()  # one teardown for every launch of this bundle, armed at this one's spawn
+
     try:
+        # A Release build answers no debug.*: both arms are ready at the same answer. Inside the try, so a launch
+        # that fails after its spawn is still stopped.
+        app.launch(ready="system.ping", on_start=spawned)
         pid = app.process.pid
         time.sleep(opts.settle)  # the measured settle after launch (launch work done), not a poll
         cpu0 = cpu_seconds(pid)
@@ -220,7 +226,7 @@ def record_parity(app, story, runs):
         return f"not recorded: {error}", False
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--release", "--app", dest="release",
                         help="the Release build (the story runner's --app: the story's config)")
@@ -236,6 +242,11 @@ def main(argv=None):
     opts = parser.parse_args(argv)
     if not (opts.release and opts.bench):
         parser.error("--release (or --app) and --bench are required")
+    return opts
+
+
+def main(argv=None):
+    opts = parse_args(argv)
     opts.out = os.path.abspath(opts.out)
     os.makedirs(opts.out, exist_ok=True)
     try:
