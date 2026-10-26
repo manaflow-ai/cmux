@@ -273,6 +273,11 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// The windows' frame-aligned input for resize drags (feature `pointerFrameDrags`): pane dividers, column and
+    /// row edges and the sidebar's resize edge move once per frame. Nil while it is off: each drag event moves them.
+    var dragFrameInput: FrameInputCoalescers? {
+        features.isEnabled(.pointerFrameDrags) ? (NSApp as? CmuxApplication)?.frameInput : nil
+    }
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).

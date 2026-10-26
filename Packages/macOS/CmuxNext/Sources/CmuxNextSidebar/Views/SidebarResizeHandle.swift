@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
@@ -17,6 +18,11 @@ final class SidebarResizeHandle: NSView {
     }
 
     var onDrag: ((Phase) -> Void)?
+    /// The window's frame-aligned input (feature `pointerFrameDrags`): a drag resizes at most once
+    /// per frame, to the frame's latest point, as Chromium delivers rAF-aligned moves
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). Nil: every
+    /// drag event resizes at once.
+    var frameInput: FrameInputCoalescers?
     private(set) var isDragging = false { didSet { updateLine() } }
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false { didSet { updateLine() } }
@@ -142,8 +148,19 @@ final class SidebarResizeHandle: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
-        onDrag?(.changed(event.locationInWindow.x - startX))
+        guard let window, let coalescer = frameInput?.coalescer(for: window) else {
+            onDrag?(.changed(event.locationInWindow.x - startX))
+            return
+        }
+        coalescer.post(.drag, owner: Self.frameInputOwner, sample: FrameInputSample(event)) { [weak self] latest, _, _ in
+            // The drag ended (it hid the sidebar) before the frame came.
+            guard let self, isDragging else { return }
+            onDrag?(.changed(latest.location.x - startX))
+        }
     }
+
+    /// The coalescer's owner for sidebar resizes: one drag at a time per window.
+    private static let frameInputOwner = "SidebarResizeHandle"
 
     /// Ends the drag early (it hid the sidebar); later drag events for
     /// this press are ignored.
@@ -152,6 +169,10 @@ final class SidebarResizeHandle: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard isDragging else { return }
+        // The frame's pending resize lands before the release (Chromium's ShouldFlushQueue).
+        if let window { frameInput?.coalescer(for: window).flushBeforeDiscreteInput() }
+        // The flushed resize may have hidden the sidebar and ended the drag.
         guard isDragging else { return }
         isDragging = false
         onDrag?(.ended)

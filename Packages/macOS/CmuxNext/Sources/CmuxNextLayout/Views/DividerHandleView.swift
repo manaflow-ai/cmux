@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// Draggable handle for a split divider, a column's trailing edge or the gap
@@ -13,9 +14,18 @@ final class DividerHandleView: NSView {
         case rowEdge(ColumnID, RowID)
     }
 
+    /// One pointer sample of a drag: where (window coordinates) and when (the event's timestamp,
+    /// on `CACurrentMediaTime`'s clock).
+    struct DragSample: Equatable {
+        var point: NSPoint
+        var time: CFTimeInterval
+    }
+
     enum DragEvent {
         case began(NSPoint)
-        case moved(NSPoint)
+        /// The divider goes to `point`. `samples`, oldest first, are the drag's events since the
+        /// last move, for its velocity; empty: `point` alone, sampled now.
+        case moved(NSPoint, samples: [DragSample] = [])
         case ended(NSPoint)
         case doubleClick
     }
@@ -35,6 +45,11 @@ final class DividerHandleView: NSView {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
+    /// The window's frame-aligned input (feature `pointerFrameDrags`): a drag moves the divider
+    /// at most once per frame with the frame's latest point and every sample, as Chromium
+    /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
+    /// main_thread_event_queue.cc`). Nil: every drag event moves it at once.
+    var frameInput: () -> FrameInputCoalescers? = { nil }
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -222,14 +237,27 @@ final class DividerHandleView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
-        onDrag?(.moved(event.locationInWindow))
+        guard let window, let coalescer = frameInput()?.coalescer(for: window) else {
+            onDrag?(.moved(event.locationInWindow))
+            return
+        }
+        coalescer.post(.drag, owner: Self.frameInputOwner, sample: FrameInputSample(event)) { [weak self] latest, coalesced, _ in
+            // The drag ended (its view left the tree) before the frame came.
+            guard let self, isDragging else { return }
+            onDrag?(.moved(latest.location, samples: coalesced.map { DragSample(point: $0.location, time: $0.timestamp) }))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
+        // The frame's pending moves land before the release (Chromium's ShouldFlushQueue).
+        if let window { frameInput()?.coalescer(for: window).flushBeforeDiscreteInput() }
         isDragging = false
         onDrag?(.ended(event.locationInWindow))
     }
+
+    /// The coalescer's owner for divider drags: one drag at a time per window.
+    private static let frameInputOwner = "DividerHandleView"
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

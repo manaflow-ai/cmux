@@ -60,8 +60,13 @@ extension ScreenContentView {
             }
             model.setGestureActive(true)
             context.requestFrames()
-        case let .moved(windowPoint):
-            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
+        case let .moved(windowPoint, samples):
+            // Every sample feeds the release velocity; the layout moves once, to the latest point.
+            if samples.isEmpty {
+                activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
+            } else {
+                for sample in samples { activeDrag?.sample(contentPoint(fromWindow: sample.point, kind: kind), at: sample.time) }
+            }
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint):
