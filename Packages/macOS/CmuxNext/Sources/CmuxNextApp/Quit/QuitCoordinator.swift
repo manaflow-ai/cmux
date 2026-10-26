@@ -265,24 +265,30 @@ final class QuitCoordinator {
     }
 
     /// Each open window's picture (p08-startup-057), from the pane pictures this quit took already, so nothing is
-    /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none.
+    /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
+    /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
                                            pages: [String: BrowserLaunchPictures.Picture]) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
-        let theme = WindowPictureMeta.fingerprint([String(describing: input), String(describing: services.themeStore.appTheme)])
+        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
         return services.windows.controllers.compactMap { controller -> WindowPictureStore.Shot? in
             let state = controller.state, root = controller.root
-            guard let window = controller.window, state.viewSet == nil, let content = controller.content, !content.isParked else { return nil }
-            let panes = content.panes.values.compactMap { pane in
-                pane.currentTabKey.map { key in
-                    WindowPictureStore.Pane(key: key, area: pane.view.contentHost,
-                                            content: windowPictureContent(key, services, terminals: terminals, agents: agents, pages: pages))
+            let content = controller.content.flatMap { $0.isParked ? nil : $0 }
+            guard let window = controller.window, state.viewSet == nil,
+                  let area = WindowPictureMeta.ContentArea(page: state.page?.rawValue, workspaceID: state.workspaceID,
+                                                           cloudCreating: state.cloudCreation != nil, contentShown: content != nil) else { return nil }
+            var panes: [WindowPictureStore.Pane] = [], screens: [WindowPictureMeta.Screen] = []
+            if case .workspace = area, let content {
+                panes = content.panes.values.compactMap { pane in
+                    pane.currentTabKey.map { key in
+                        WindowPictureStore.Pane(key: key, area: pane.view.contentHost,
+                                                content: windowPictureContent(key, services, terminals: terminals, agents: agents, pages: pages))
+                    }
                 }
+                screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
             }
-            let screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
-            let layout = WindowPictureMeta.Layout(workspaces: services.windows.registry.members(of: state.id),
-                                                  shown: state.page.map { "page:\(String(describing: $0))" } ?? state.workspaceID, screens: screens)
+            let layout = area.layout(workspaces: services.windows.registry.members(of: state.id), screens: screens)
             let facts = WindowPictureStore.Window(id: state.id, profile: state.profileID.rawValue, incognito: services.windows.isIncognito(window: state.id),
                                                   theme: theme, background: background, build: build, layout: layout,
                                                   screen: window.screen.flatMap(WindowPlacementFallback.displayID(of:)))

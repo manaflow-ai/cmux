@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLaunch
 import CmuxNextWakeups
+import CmuxTheme
 import Foundation
 import ImageIO
 import Testing
@@ -237,6 +238,77 @@ struct WindowPictureStoreTests {
         #expect(nudged == layout, "a ratio within a thousandth is another layout")
         let otherShown = Self.layout(shown: "ws_b")
         #expect(otherShown.sidebar != layout.sidebar && otherShown.content != layout.content)
+    }
+
+    /// The theme's fingerprint names each field and token in a fixed order and is pinned, so the same theme gives the
+    /// same digest in every launch (a dictionary's order is seeded per process). Dracula's input and tokens are
+    /// schemas/theme/app-theme-vectors.json's.
+    @Test func theThemeFingerprintIsTheSameInEveryLaunch() throws {
+        let palette = ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+                       "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"].compactMap { ThemeRGB(cssHex: $0) }
+        let input = ThemeInput(background: try #require(ThemeRGB(cssHex: "#282a36")), foreground: try #require(ThemeRGB(cssHex: "#f8f8f2")),
+                               palette: palette)
+        let app = AppTheme.derive(from: input)
+        #expect(WindowPictureMeta.themeParts(input: input, app: app) == [
+            "input", "background=#282A36", "foreground=#F8F8F2", "palette=16",
+            "#21222C", "#FF5555", "#50FA7B", "#F1FA8C", "#BD93F9", "#FF79C6", "#8BE9FD", "#F8F8F2",
+            "#6272A4", "#FF6E6E", "#69FF94", "#FFFFA5", "#D6ACFF", "#FF92DF", "#A4FFFF", "#FFFFFF",
+            "selectionBackground=-", "selectionForeground=-", "cursor=-", "opacity=1.0", "blur=0", "accent=neutral", "accentColor=-",
+            "app", "isDark=true",
+            "window=#282A36", "sidebar=#30323E", "content=#282A36", "elevated=#383944", "control=#3D3F49", "hover=#343641",
+            "pressed=#41434D", "selection=#5E5F68", "separator=#43454E", "controlStroke=#878A8E", "text=#F8F8F2",
+            "textSecondary=#D8DAD9", "icon=#BABABA", "accent=#F7F7F7", "onAccent=#282A36", "accentText=#F7F7F7",
+            "focusRing=#F7F7F7", "danger=#FF7A74", "warning=#F1FA8C", "success=#50FA7B",
+        ])
+        let pinned = "64b38dc3243b9d2c325a3c10b3ef5a2b4eeb68720a2c5c4bf33aecf031520010"
+        #expect(WindowPictureMeta.themeFingerprint(input: input, app: app) == pinned)
+        #expect(WindowPictureMeta.themeFingerprint(input: input, app: AppTheme.derive(from: input)) == pinned)
+        var edited = input
+        edited.cursor = ThemeRGB(hex: 0xFF0000)
+        #expect(WindowPictureMeta.themeFingerprint(input: edited, app: AppTheme.derive(from: edited)) != pinned, "a theme edit kept the fingerprint")
+    }
+
+    /// A window with no pane (a top page or the empty state fills its content area) gives a shot of what AppKit
+    /// drew: the sidebar's region only, no layer and no fill.
+    @Test func aWindowWithNoPaneGivesAShot() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        window.contentView = root
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 50, height: 100))
+        root.addSubview(sidebar)
+        window.orderFrontRegardless()
+        let layout = WindowPictureMeta.Layout(workspaces: ["ws_a"], shown: "top:home", screens: [])
+        let facts = WindowPictureStore.Window(id: "w1", profile: "default", incognito: false, theme: "t", background: Self.background,
+                                              build: "1.0 (1)", layout: layout, screen: nil)
+        let shot = try #require(WindowPictureStore.shot(of: window, root: root, backdrop: nil, sidebar: sidebar, panes: [], facts: facts),
+                                "a window with no pane gave no shot")
+        #expect(shot.layers.isEmpty && shot.fills.isEmpty)
+        #expect(shot.meta.regions.map(\.id) == ["sidebar"])
+        #expect(shot.meta.layout == layout)
+    }
+
+    /// A window with no workspace content still leaves a picture: a top page (its workspace's content parked) or the
+    /// empty state, with no pane tree; a window between states (a workspace not mounted yet, a Cloud workspace being
+    /// created) leaves none.
+    @Test func theContentAreaOfAWindowWithNoWorkspaceContent() throws {
+        typealias Area = WindowPictureMeta.ContentArea
+        let screens = [WindowPictureMeta.Screen(id: "scr_1", tree: .leaf("1"), zoomed: nil)]
+        let home = try #require(Area(page: "home", workspaceID: "ws_a", cloudCreating: false, contentShown: false))
+        #expect(home == .page("home"))
+        #expect(home.layout(workspaces: ["ws_a"], screens: screens) == WindowPictureMeta.Layout(workspaces: ["ws_a"], shown: "top:home", screens: []))
+        let settings = try #require(Area(page: "page:settings", workspaceID: nil, cloudCreating: true, contentShown: false))
+        #expect(settings.layout(workspaces: [], screens: []).content != home.layout(workspaces: [], screens: []).content,
+                "two pages have the same content layout")
+        let empty = try #require(Area(page: nil, workspaceID: nil, cloudCreating: false, contentShown: false))
+        #expect(empty == .empty)
+        #expect(empty.layout(workspaces: [], screens: screens) == WindowPictureMeta.Layout(workspaces: [], shown: nil, screens: []))
+        let workspace = try #require(Area(page: nil, workspaceID: "ws_a", cloudCreating: false, contentShown: true))
+        #expect(workspace.layout(workspaces: ["ws_a"], screens: screens) == WindowPictureMeta.Layout(workspaces: ["ws_a"], shown: "ws_a", screens: screens))
+        #expect(Area(page: nil, workspaceID: "ws_a", cloudCreating: false, contentShown: false) == nil, "an unmounted workspace left a picture")
+        #expect(Area(page: nil, workspaceID: "ws_a", cloudCreating: true, contentShown: true) == nil, "a Cloud workspace being created left a picture")
+        #expect(Area(page: nil, workspaceID: nil, cloudCreating: true, contentShown: false) == nil)
     }
 
     /// A launch compares every field; frames and the sidebar width within half a point.
