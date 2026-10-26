@@ -53,9 +53,7 @@ extension BrowserChromeView {
         let toggle = toolbarToggles
         let key = "omnibarToggle.\(toggle)"
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in // main-proof: CATransaction.h: the completion block is called on the main thread
-            MainActor.assumeIsolated { self?.finishToolbarToggle(toggle) }
-        }
+        TransactionLanding { [weak self] in self?.finishToolbarToggle(toggle) }.install()
         for view in subviews {
             guard let layer = view.layer, let old = before[ObjectIdentifier(view)] else { continue }
             let shift = Self.rowShift(from: old, to: view.frame, flipped: isFlipped)
@@ -79,5 +77,19 @@ extension BrowserChromeView {
         guard toggle == toolbarToggles, isToolbarHidden else { return }
         toolbar.isHidden = true
         separator.isHidden = true
+    }
+}
+
+/// The seam from Core Animation's transaction completion to the main actor: `land` runs when every
+/// animation added in the open transaction has finished.
+@MainActor private struct TransactionLanding {
+    let land: @MainActor () -> Void
+
+    func install() {
+        let land = land
+        CATransaction.setCompletionBlock {
+            // main-proof: CATransaction.h: the completion block is called on the main thread
+            MainActor.assumeIsolated { land() }
+        }
     }
 }
