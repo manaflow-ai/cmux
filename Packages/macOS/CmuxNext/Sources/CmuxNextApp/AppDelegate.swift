@@ -252,7 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
         services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
