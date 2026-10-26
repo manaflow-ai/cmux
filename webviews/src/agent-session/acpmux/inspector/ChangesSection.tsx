@@ -18,7 +18,7 @@ import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
-import { sessionChanges, type SummaryPullRequest } from "../summary/sessionSummary";
+import type { SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 
 const ROW_ICON = rowIconSize(12);
@@ -117,7 +117,7 @@ export const visibleChanges = (
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
 ): SummaryPullRequest[] => {
   void statuses;
-  return sessionChanges(pullRequests);
+  return pullRequests.filter((pr) => pr.opened || pr.changed === true);
 };
 
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,

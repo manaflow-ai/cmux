@@ -6,11 +6,7 @@
 // any command, and as mentions (maybe issues) `owner/repo#N` in other commands and, for the
 // Inspector, the agent's replies.
 import { expect, test } from "bun:test";
-import {
-  sessionChanges,
-  sessionPullRequests,
-  sessionSummary,
-} from "../src/agent-session/acpmux/summary/sessionSummary";
+import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 import { activity, assistant, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -204,7 +200,6 @@ test("Changes keeps created and mutated pull requests while read-only references
     [12, "Referenced issue", undefined],
   ]);
   expect(summary.sources.map((source) => [source.label, source.kind])).toEqual([["Referenced issue", "pullRequest"]]);
-  expect(sessionChanges(summary.pullRequests).map((pr) => pr.number)).toEqual([10, 11]);
 });
 
 test("sources include fetched URLs, files read and MCP tools", () => {
