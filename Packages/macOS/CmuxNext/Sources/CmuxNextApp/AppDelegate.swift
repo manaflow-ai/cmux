@@ -343,6 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
+            // `updates.downloadAutomatically` is opt-in on stable; the dogfood apps write their default once.
+            _ = try? await settings.seedDownloadAutomatically(channelDefault: services.updater.identity.track.downloadsAutomaticallyByDefault)
             _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
             _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
             // Classic cmux keys next reads under another name (`ClassicSettingRename`).

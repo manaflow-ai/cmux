@@ -90,10 +90,11 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips) in ObservationStream({
-                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+            for await (updates, downloads, announcements, tips) in ObservationStream({
+                (settings.snapshot.updates, settings.snapshot.root.value(at: UpdatesSettings.downloadAutomaticallyPath)?.boolValue,
+                 settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
-                self?.apply(updates)
+                self?.apply(updates, downloadsAutomatically: downloads)
                 if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
@@ -102,7 +103,10 @@ extension UpdaterService {
         }
     }
 
-    func apply(_ updates: UpdatesSettings) {
+    /// `downloadsAutomatically` is `updates.downloadAutomatically` as written (cmux.json or a
+    /// managed layer), nil while unset: then the channel's default applies
+    /// (``UpdateTrack/downloadsAutomaticallyByDefault``), as the launch seeds it.
+    func apply(_ updates: UpdatesSettings, downloadsAutomatically: Bool? = nil) {
         WebUpdates.shared.follow(updates)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
@@ -110,7 +114,7 @@ extension UpdaterService {
             keepPreviousVersions: updates.keepPreviousVersions)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
-                  downloadAutomatically: updates.downloadAutomatically,
+                  downloadAutomatically: downloadsAutomatically ?? identity.track.downloadsAutomaticallyByDefault,
                   metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
     }
 }

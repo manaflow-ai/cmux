@@ -243,9 +243,10 @@ public final class UpdaterService {
             // waits once instead of downloading the full DMG. The tip feed lists an
             // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
             if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once it is staged; the daemon
-            // preserves agents, commands and turns while the app relaunches.
-            controller.installsUpdatesWhenIdle = identity.track == .nightly
+            // A downloaded update installs by itself once it is staged while
+            // `updates.downloadAutomatically` is on (``configure``, the channel's default until
+            // the setting loads); the daemon preserves agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = identity.track.downloadsAutomaticallyByDefault
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

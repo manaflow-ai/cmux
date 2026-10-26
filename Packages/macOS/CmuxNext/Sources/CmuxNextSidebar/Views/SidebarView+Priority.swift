@@ -45,6 +45,31 @@ extension SidebarViewComponents {
         addSubview(priorityPanelView)
     }
 
+    /// The quiet Update Available button in the titlebar row (a found update that waits for a
+    /// click, `updates.downloadAutomatically` off): `label` is its tooltip and VoiceOver label,
+    /// nil hides it. A press sends ``SidebarIntent/installUpdate`` (download, then install).
+    public func showUpdateAvailable(_ label: String?) {
+        if let label { updateAvailableButton.label = label }
+        guard updateAvailableButton.isHidden != (label == nil) else { return }
+        updateAvailableButton.isHidden = label == nil
+        needsLayout = true
+    }
+
+    func buildUpdateAvailable() {
+        updateAvailableButton.isHidden = true
+        updateAvailableButton.setAccessibilityIdentifier("cmux.sidebar.updateAvailable")
+        updateAvailableButton.onPress = { [weak self] in self?.model.send(.installUpdate) }
+        addSubview(updateAvailableButton)
+    }
+
+    /// Places the Update Available button before `next` (the leftmost titlebar button) and
+    /// returns the row's new leftmost minX.
+    func layoutUpdateAvailableButton(before next: NSRect, minX: CGFloat) -> CGFloat {
+        guard !updateAvailableButton.isHidden else { return minX }
+        updateAvailableButton.frame = NSRect(x: minX - Metrics.space1 - next.width, y: next.minY, width: next.width, height: next.height)
+        return updateAvailableButton.frame.minX
+    }
+
     /// Places the bell before `next` (the New Workspace button) in the titlebar row; returns the
     /// leftmost titlebar button's minX.
     func layoutPriorityButton(before next: NSRect) -> CGFloat {

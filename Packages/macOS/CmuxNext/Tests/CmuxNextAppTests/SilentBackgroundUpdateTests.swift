@@ -90,11 +90,34 @@ import Testing
         #expect(updater.readyCard?.isInstalling == false, "the staged card's button is disabled")
     }
 
-    @Test func aFoundUpdateStillShowsWhenThePersonTurnedAutomaticDownloadsOff() {
+    /// Downloads off (the stable default, claude-sr2 2026-10-26: "show a quiet 'Update available'
+    /// button in the toolbar or title area, and install on click"): the scheduled check's found
+    /// update is the titlebar button, never the notice card; a click downloads and installs it.
+    @Test func aFoundUpdateIsTheQuietButtonWhenAutomaticDownloadsAreOff() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
         updater.debugIndicatorPhase = .available(version: "2.0")
-        #expect(updater.card == .available(version: "2.0"), "with downloads off the person never learns of the update")
+        #expect(updater.availableButton == UpdateAvailableButton(version: "2.0"), "with downloads off the person never learns of the update")
+        #expect(updater.card == nil, "the found update showed the notice card, not the quiet button")
+        updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
+        #expect(updater.availableButton == nil, "the button stayed while the update downloads")
+    }
+
+    /// A version the person closed stays closed on the button too.
+    @Test func aClosedVersionHidesTheButton() {
+        let updater = Self.updater()
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.debugIndicatorPhase = .available(version: "2.0")
+        updater.closeUpdateCard(.hideVersion)
+        #expect(updater.availableButton == nil)
+    }
+
+    /// Stable and RC are opt-in; the dogfood apps (NIGHTLY, the tip app, DEV) download by default.
+    @Test func automaticDownloadsAreOptInOnlyOnStable() {
+        #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
+        #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
     @Test func theUsersCheckStillShowsAFoundUpdate() {

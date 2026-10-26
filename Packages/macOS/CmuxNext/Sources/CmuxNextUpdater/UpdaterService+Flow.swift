@@ -13,10 +13,21 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        // A found update nobody asked about (downloads wait for a click) is the titlebar's quiet
+        // Update Available button (``availableButton``), not this card; a check they asked for shows here.
+        guard let card = flow.card(downloadsAutomatically: true) else { return pulledWatch.card }
         if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
+    }
+
+    /// The titlebar's quiet Update Available button: a found update that waits for a click
+    /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
+    /// downloads and installs it (``installClicked()``). Nil otherwise, and for a version the
+    /// person closed or snoozed (``updateSnooze``).
+    public var availableButton: UpdateAvailableButton? {
+        guard case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
+        return UpdateAvailableButton(version: version)
     }
 
     /// The footer's update pill, or nil when it does not show.
@@ -188,6 +199,9 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        // "Download and Install Updates Automatically": on, a downloaded update installs by itself
+        // (the relaunch keeps every session); off, nothing downloads or relaunches until a click.
+        if let controller, controller.installsUpdatesWhenIdle != downloadAutomatically { controller.installsUpdatesWhenIdle = downloadAutomatically }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
