@@ -422,7 +422,20 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(sum(c == "systemctl start -- cmux-tui-daemon.service" for c in host.calls), 1, "once per 5 min")
         host.t, host.start_ok = host.t + 5 * 60, True
         self.assertEqual([p["check"] for p in run(host)["problems"]], [])
-        self.assertEqual(cmh.config_problems({"cmuxSystemUnits": ["x.service; rm -rf /"]}), ["cmuxSystemUnits must be unit names or globs"])
+        for bad in (["*"], ["*.service"], ["ssh.service"], ["x.service; rm -rf /"], ["cmux-*"], ["cmux*.service"]):
+            self.assertEqual(cmh.config_problems({"cmuxSystemUnits": bad}), ["cmuxSystemUnits must be cmux service names (a trailing * before .service at most)"], bad)
+            self.assertEqual(cmh.config_problems({"cmuxUserUnits": bad}), ["cmuxUserUnits must be cmux service names (a trailing * before .service at most)"], bad)
+        for bad in (["*"], ["*.service"], ["sshd.service"]):
+            self.assertEqual(cmh.config_problems({"acpmuxUnits": bad}), ["acpmuxUnits must be acpmux service names (a trailing * before .service at most)"], bad)
+        self.assertEqual(cmh.config_problems({"cmuxSystemUnits": ["cmux-tui*.service", "cmux-host.service"], "acpmuxUnits": ["acpmux*.service", "acpmux-agent-huge-blue.service"]}), [])
+        # A listed unit outside the namespace is never touched, even if systemctl returned it.
+        host = FakeHost()
+        host.failed = {"": ["ssh.service"]}
+        p = cmh.Pass(host, dict(cmh.DEFAULTS, cmuxSystemUnits=["cmux-tui-daemon.service"]), {})
+        real = host.run
+        host.run = lambda argv, timeout, user=None: (0, "ssh.service loaded failed failed x\n") if "list-units" in argv else real(argv, timeout, user)
+        p.check_cmux()
+        self.assertFalse(any("ssh.service" in c for c in host.calls if "reset-failed" in c or " start " in c))
 
     def test_reconnect_limits_are_per_daemon_socket(self):
         host = FakeHost()

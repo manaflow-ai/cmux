@@ -74,6 +74,10 @@ FIXED_ACTIONS = re.compile("|".join([
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
 ORDER = ["acpmux", "cmux", "dns", "disk", "ram", "peer", "loop"]
 UNIT_NAME = re.compile(r"[A-Za-z0-9@._:*?\[\]-]{1,100}")
+# What a unit check may restart: its own namespace only, a literal prefix then at most a narrow
+# suffix glob (acpmux*.service, cmux-host-remote.service), never "*" or another program's unit.
+UNIT_SCOPE = {"acpmux": re.compile(r"acpmux[A-Za-z0-9@._:-]*(\*)?\.service"), "cmux": re.compile(r"cmux-[A-Za-z0-9@._:-]+(\*)?\.service")}
+UNIT_KEYS = {"acpmuxUnits": "acpmux", "cmuxSystemUnits": "cmux", "cmuxUserUnits": "cmux"}
 MAX_PROBLEMS = 8
 MAX_PEERS = 256  # rows read from one daemon's list
 MAX_REPLY = 4 << 20  # bytes read from one daemon socket
@@ -462,8 +466,8 @@ class Pass:
         if code != 0:
             return  # no manager to ask
         for unit in [line.split()[0] for line in out.splitlines() if line.strip()]:
-            if not UNIT_NAME.fullmatch(unit):
-                continue
+            if not (UNIT_NAME.fullmatch(unit) and UNIT_SCOPE[check].fullmatch(unit) and "*" not in unit):
+                continue  # only a literal unit in this check's namespace is ever touched
             key = f"{check}:{user.pw_name if user else ''}:{unit}"
             if self.may(f"fix:{key}", 5 * 60, needs_s=25):
                 self.run(manager + ["reset-failed", "--", unit], 5)
@@ -551,9 +555,9 @@ def config_problems(given):
     for key in ("dnsNames", "acpmuxUnits", "acpmuxSockets", "expectedPeers", "cmuxSystemUnits", "cmuxUserUnits"):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")
-    for key in ("acpmuxUnits", "cmuxSystemUnits", "cmuxUserUnits"):
-        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_NAME.fullmatch(u) for u in given[key]):
-            problems.append(f"{key} must be unit names or globs")
+    for key, scope in UNIT_KEYS.items():
+        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_SCOPE[scope].fullmatch(u) for u in given[key]):
+            problems.append(f"{key} must be {scope} service names (a trailing * before .service at most)")
     if isinstance(given.get("expectedPeers"), list) and not all(isinstance(n, str) and PEER_NAME.fullmatch(n) for n in given["expectedPeers"]):
         problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
     if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
