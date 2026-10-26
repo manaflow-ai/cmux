@@ -609,6 +609,7 @@
 }
 .cv-user:hover .cv-user__actions,
 .cv-user__actions:focus-within,
+.cv-user:has([aria-expanded="true"]) .cv-user__actions,
 .cv-user__actions--versions {
   opacity: 1;
 }
@@ -628,7 +629,8 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
-.cv-received-actions:focus-within {
+.cv-received-actions:focus-within,
+.cv-received:has([aria-expanded="true"]) .cv-received-actions {
   opacity: 1;
 }
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
@@ -3978,6 +3980,12 @@ article.acpmux-row:empty {
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
   white-space: nowrap;
+  opacity: 0;
+}
+.cv-received:hover .cv-received__queued,
+.cv-received:focus-within .cv-received__queued,
+.cv-received:has([aria-expanded="true"]) .cv-received__queued {
+  opacity: 1;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
