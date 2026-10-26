@@ -52,13 +52,27 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 impl Holds {
-    /// The holds in `path`, none when it does not exist. A file that cannot
-    /// be read is an error: a hold is never dropped on a guess. It is read as
-    /// state of this user's (`config::private_state_file`: no link, owned by
-    /// this user, not writable by others), at most [`HOLDS_MAX_BYTES`].
+    /// The holds in `path`, none when it does not exist in a folder that
+    /// does (or when there is no such folder at all). A file that cannot be
+    /// read, or a folder that is a dangling link or no folder, is an error: a
+    /// hold is never dropped on a guess. It is read as state of this user's
+    /// (`config::private_state_file`: no link, owned by this user, not
+    /// writable by others), at most [`HOLDS_MAX_BYTES`].
     pub(crate) fn read(path: &Path) -> Result<Holds> {
         match std::fs::symlink_metadata(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Holds::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let dir = path.parent().unwrap_or(Path::new("."));
+                return match (std::fs::symlink_metadata(dir), std::fs::metadata(dir)) {
+                    (Err(e), _) if e.kind() == std::io::ErrorKind::NotFound => Ok(Holds::default()),
+                    (_, Ok(m)) if m.is_dir() => Ok(Holds::default()),
+                    _ => Err(anyhow!(
+                        "{}: its folder {} is not a folder (a dangling link?), so its holds \
+                         cannot be read",
+                        path.display(),
+                        dir.display()
+                    )),
+                };
+            }
             Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
             Ok(_) => {}
         }
@@ -116,24 +130,18 @@ impl Holds {
     }
 }
 
-/// An exclusive lock on the holds next to `path`, held while it lives: one
-/// read-modify-write at a time. None where flock does not exist.
-fn lock_holds(path: &Path) -> Result<Option<std::fs::File>> {
+/// An exclusive lock on the holds next to `path` (`File::lock`: flock on
+/// Unix, LockFileEx on Windows), held while it lives: one read-modify-write
+/// at a time. One that cannot be taken is an error: nothing is written
+/// unlocked.
+fn lock_holds(path: &Path) -> Result<std::fs::File> {
     let lock = path.with_extension("lock");
     if let Some(dir) = lock.parent() {
         crate::config::private_state_dir(dir)?;
     }
     let file = crate::config::private_state_rw(&lock)?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: flock on a descriptor `file` owns; released when it drops.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            let e = std::io::Error::last_os_error();
-            return Err(anyhow!("lock {}: {e}", lock.display()));
-        }
-    }
-    Ok(Some(file))
+    file.lock().with_context(|| format!("lock {}", lock.display()))?;
+    Ok(file)
 }
 
 /// `host hold [NAME] [--reason TEXT] [--until TIME] [--release]`: hold
@@ -315,9 +323,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Two commands at once never lose each other's hold.
+    /// A folder that is a dangling link hides nothing: the read fails, so
+    /// `host update` leaves the peer alone (`holdsUnreadable`).
     #[test]
     #[cfg(unix)]
+    fn a_holds_folder_that_is_a_dangling_link_is_an_error_not_no_holds() {
+        let dir = scratch("dangling");
+        std::fs::create_dir_all(&dir).unwrap();
+        let home = dir.join("home");
+        std::os::unix::fs::symlink(dir.join("gone"), &home).unwrap();
+        assert!(Holds::read(&home.join("update-holds.json")).is_err());
+        let file = dir.join("file");
+        std::fs::write(&file, "").unwrap();
+        assert!(Holds::read(&file.join("update-holds.json")).is_err(), "not a folder");
+        let none = dir.join("no-home").join("update-holds.json");
+        assert_eq!(Holds::read(&none).unwrap(), Holds::default(), "no home at all: nothing held");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two commands at once never lose each other's hold.
+    #[test]
     fn concurrent_holds_are_all_kept() {
         let dir = scratch("race");
         let path = dir.join("update-holds.json");
