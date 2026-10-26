@@ -15,19 +15,21 @@ import sproutSheet from "./sets/sprout/sheet.png";
 /** A manifest with its sheet's URL and the sheet's real size in px (it may be larger than the manifest needs). */
 export type AvatarSet = { manifest: AvatarManifest; sheet: string; size: { width: number; height: number } };
 
-/** The built-in sheets are exactly the size their manifests need (format.test.ts checks each PNG). */
-const load = (json: unknown, sheet: string): AvatarSet => {
+/** `width` x `height`: the sheet PNG's own size in px (format.test.ts reads each PNG and compares). */
+const load = (json: unknown, sheet: string, width: number, height: number): AvatarSet => {
   const parsed = parseAvatarManifest(json);
   if ("error" in parsed) throw new Error(`built-in avatar set: ${parsed.error}`);
-  return { manifest: parsed.manifest, sheet, size: sheetSize(parsed.manifest) };
+  const need = sheetSize(parsed.manifest);
+  if (width < need.width || height < need.height) throw new Error(`built-in avatar set: ${parsed.manifest.id}'s sheet is too small`);
+  return { manifest: parsed.manifest, sheet, size: { width, height } };
 };
 
 /** Mochi first: the pick of the four (the most readable at pet size, and the warmest motion). */
 export const AVATAR_SETS: readonly AvatarSet[] = [
-  load(mochi, mochiSheet),
-  load(captain, captainSheet),
-  load(sprout, sproutSheet),
-  load(bolt, boltSheet),
+  load(mochi, mochiSheet, 256, 192),
+  load(captain, captainSheet, 192, 192),
+  load(sprout, sproutSheet, 256, 192),
+  load(bolt, boltSheet, 192, 192),
 ];
 
 export const avatarSet = (id: string): AvatarSet | undefined => AVATAR_SETS.find((set) => set.manifest.id === id);

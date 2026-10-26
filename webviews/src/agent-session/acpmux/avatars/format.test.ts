@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "bun:test";
+import { avatarSet } from "./sets";
 import { AVATAR_STATES, avatarTrack, parseAvatarManifest, sheetSize, type AvatarManifest } from "./format";
 
 const SETS = ["mochi", "captain", "sprout", "bolt"];
@@ -28,8 +29,10 @@ test("every built-in set has all six states, fits its sheet and stays a few KB",
     const sheet = readFileSync(new URL(parsed.sheet, dir));
     const need = sheetSize(parsed);
     const size = pngSize(sheet);
-    // Exactly the size the manifest needs: the renderer cuts cells from it (sets.ts).
-    expect(size).toEqual(need);
+    expect(size.width).toBeGreaterThanOrEqual(need.width);
+    expect(size.height).toBeGreaterThanOrEqual(need.height);
+    // The size sets.ts declares is the PNG's own: the renderer cuts cells by it.
+    expect(avatarSet(id)?.size).toEqual(size);
     expect(sheet.length).toBeLessThan(4096);
     // done and error play once and hold their last frame; the rest loop.
     expect(parsed.states.done?.loop).toBe(false);
