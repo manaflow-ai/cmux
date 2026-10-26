@@ -66,15 +66,16 @@ type Jump = "click" | "step" | "scrub" | "bookmark";
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
 
-/// The band's first turn at the last commit: its key and row, where its prompt was in the layout,
-/// and where its row drew in the rail; and the first turn's key, which older turns change.
+/// The band's first turn at the last commit: its tick's key and row, where its prompt was in the
+/// layout, and where its row drew in the rail; and the first tick's key, which older turns change.
 type Anchor = { key: string; firstKey: string; index: number; layoutTop: number; y: number };
 
-/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
-function prependedBy(anchor: Anchor | undefined, turns: readonly MinimapTurn[]): number | undefined {
-  if (!anchor || !turns.length || turns[0]!.key === anchor.firstKey) return undefined;
-  for (let index = anchor.index; index < turns.length; index += 1)
-    if (turns[index]!.key === anchor.key) return index - anchor.index;
+/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone). By
+/// the ticks' keys, each its own (model.ts ticksOf), where two turns can share one.
+export function prependedBy(anchor: Anchor | undefined, ticks: readonly MinimapTickRow[]): number | undefined {
+  if (!anchor || !ticks.length || ticks[0]!.key === anchor.firstKey) return undefined;
+  for (let index = anchor.index; index < ticks.length; index += 1)
+    if (ticks[index]!.key === anchor.key) return index - anchor.index;
   return undefined;
 }
 
@@ -194,7 +195,7 @@ export function ThreadMinimap({
   /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
   /// that scroll arrives, the band reads the offset as it will be.
   const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
-  const added = prependedBy(anchor.current, turns);
+  const added = prependedBy(anchor.current, ticks);
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
   if (anchored && seen !== undefined)
@@ -213,6 +214,7 @@ export function ThreadMinimap({
   /// What the handlers below read: the turns and layout as of the last commit.
   const live = useRef({
     turns,
+    ticks,
     tops: layout.tops,
     total: layout.totalHeight,
     marks,
@@ -225,6 +227,7 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     live.current = {
       turns,
+      ticks,
       tops: layout.tops,
       total: layout.totalHeight,
       marks,
@@ -342,11 +345,11 @@ export function ThreadMinimap({
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, tops, total } = live.current;
+      const { turns: all, ticks: keys, tops, total } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
         pending.key !== undefined && performance.now() < pending.until
-          ? all.findIndex((turn) => turn.key === pending.key)
+          ? keys.findIndex((tick) => tick.key === pending.key)
           : -1;
       const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
       let reading = 0;
@@ -362,7 +365,7 @@ export function ThreadMinimap({
       if (index === undefined) return;
       const to = jump(index, how);
       if (to === undefined) return;
-      pending.key = live.current.turns[index]?.key;
+      pending.key = live.current.ticks[index]?.key;
       pending.until = performance.now() + STEP_PENDING_MS;
     };
     const any = () => true;
@@ -455,8 +458,8 @@ export function ThreadMinimap({
     const first = turns[onScreen.first];
     if (first)
       anchor.current = {
-        key: first.key,
-        firstKey: turns[0]!.key,
+        key: ticks[onScreen.first]!.key,
+        firstKey: ticks[0]!.key,
         index: onScreen.first,
         layoutTop: layout.tops[first.index] ?? 0,
         y: railTop + onScreen.first * ROW_PITCH - scrolled,

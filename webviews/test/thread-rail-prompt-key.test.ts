@@ -121,3 +121,21 @@ test("a streamed token beside a repeated key keeps the same ticks", () => {
   expect(next.ticks).toBe(first.ticks);
   expect(new Set(next.ticks.map((tick) => tick.key)).size).toBe(3);
 });
+
+test("older turns arriving find the anchored tick, not an earlier one with its prompt's key", async () => {
+  const { prependedBy } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
+  const user = (id: string, promptId: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+    ({ id, version: 1, at: 0, kind: "user", text: id, promptId, ...extra }) as AcpmuxRow;
+  // acpmux's echo of p-7, then the pane's retried send of it (one promptId), then a later prompt.
+  const retried = user("local-p-7", "p-7", {
+    promptId: undefined,
+    delivery: { state: "sending", promptId: "p-7", sessionId: CHAT, sentAt: 0 },
+  });
+  const rows = [user("user-1", "p-1"), user("user-2", "p-7"), retried, user("user-3", "p-8")];
+  const before = minimapTurns(rows, CHAT).ticks;
+  // The band's first tick is the retried send's (index 2).
+  const anchor = { key: before[2]!.key, firstKey: before[0]!.key, index: 2, layoutTop: 0, y: 0 };
+  // One older turn arrives above: the retried send is now at index 3.
+  const after = minimapTurns([user("user-0", "p-0"), ...rows], CHAT).ticks;
+  expect(prependedBy(anchor, after)).toBe(1);
+});
