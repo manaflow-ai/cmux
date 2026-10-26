@@ -72,10 +72,14 @@ JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/f
   tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
 (cd cmux-next-ios && xcodegen generate -q)
 dd="$work/dd"
+# Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
+# and terminal demo would be missing; the command-line conditions reach the
+# packages too (verify/terminal-flood.md, Reproducing).
 set +e
 xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' \
   build >"$work/build.log" 2>&1
 status=$?
 set -e
