@@ -28,7 +28,8 @@ public nonisolated struct BrowserHostTunables {
     }
 
     /// The backend the settings pick: ``BrowserBackend/host`` with `browserHost.helper` on
-    /// (Debug builds only), otherwise ``BrowserBackend/inProcess``.
+    /// (Debug builds only), otherwise ``BrowserBackend/inProcess``. The App builds its
+    /// `CEFRuntimeSource` from it once the supervisor exists (task 080); until then no tab uses it.
     public static func backend(in tunables: TunableStore) -> BrowserBackend {
         #if DEBUG
         helper.value(in: tunables) ? .host : .inProcess
@@ -41,13 +42,13 @@ public nonisolated struct BrowserHostTunables {
     /// The Debug Settings section of the host app's tunables.
     public static let section = TunableSection(id: "browserHost", title: "Chromium Host App", symbol: "macwindow.on.rectangle", order: 44)
 
-    /// Off (the default until task 100): Chromium runs in process and
-    /// `debug.chromium_host open` refuses. On: Chromium's browser process runs
-    /// in the Chromium Host app (``BrowserBackend/host``), and
-    /// `debug.chromium_host` shows a page of it over a pane.
+    /// Off (the default until task 100): `debug.chromium_host open` refuses.
+    /// On: it shows a Chromium page whose browser process runs in the Chromium
+    /// Host app, over a pane. Tabs stay in process until the supervisor (task
+    /// 080) hands ``backend(in:)`` to the runtime.
     public static let helper = Tunable<Bool>.toggle(
-        "browserHost.helper", section, "Chromium in its own app",
-        help: "Runs Chromium's browser process in the Chromium Host app, so a Chromium crash ends only that app. Debug builds only.",
+        "browserHost.helper", section, "Chromium Host app",
+        help: "Lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug builds only.",
         default: false, code: "BrowserHostTunables.helper")
     #endif
 }

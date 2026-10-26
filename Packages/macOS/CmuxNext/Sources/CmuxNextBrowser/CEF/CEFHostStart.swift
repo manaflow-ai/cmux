@@ -13,24 +13,34 @@ final class CEFHostStart {
 
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
+    private let helloDeadline: Duration
+    private let clock: any Clock<Duration>
     private var task: Task<Result<CEFAttachedHost, CEFRuntime.BootError>, Never>?
 
-    init(supervisor: any ChromiumHostSupervising, open: @escaping Open = { CEFRemoteShim.open($0) }) {
+    /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
+    /// before the start fails (a host that hangs while it starts Chromium).
+    init(supervisor: any ChromiumHostSupervising, open: @escaping Open = { CEFRemoteShim.open($0) },
+         helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.open = open
+        self.helloDeadline = helloDeadline
+        self.clock = clock
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         if let task { return await task.value }
-        let task = Task { [supervisor, open] in await CEFHostStart.attach(supervisor, open: open) }
+        let task = Task { [supervisor, open, helloDeadline, clock] in
+            await CEFHostStart.attach(supervisor, open: open, helloDeadline: helloDeadline, clock: clock)
+        }
         self.task = task
         return await task.value
     }
 
-    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
-        let clock = ContinuousClock()
-        let started = clock.now
+    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, helloDeadline: Duration,
+                               clock: any Clock<Duration>) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+        let elapsed = ContinuousClock()
+        let started = elapsed.now
         let attachment: ChromiumHostAttachment
         do { attachment = try await supervisor.attachment() } catch { return .failure(.host(error.description)) }
         // dlopen holds dyld's loader lock, so never on main; the in-process load beside it in CEFRuntime.start runs the same way.
@@ -43,16 +53,20 @@ final class CEFHostStart {
             attachment.closeDescriptors()
             return .failure(error)
         }
-        guard let hostExports = await remote.attach(attachment) else {
-            return .failure(.host("the host ended before its hello"))
+        let hostExports: Set<String>
+        switch await remote.attach(attachment, helloDeadline: helloDeadline, clock: clock) {
+        case .success(let exports): hostExports = exports
+        case .failure(let error): return .failure(error)
         }
         do {
             let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
-            return .success(CEFAttachedHost(shim: shim, shimABI: CEFShimABI.bundledIdentity() ?? "", locale: locale,
-                                            loadDuration: clock.now - started))
+            return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
+                                            locale: locale, loadDuration: elapsed.now - started))
         } catch {
+            // The shim holds the host's wire from the attach on.
+            remote.detach()
             return .failure(.shim(error))
         }
     }
@@ -61,6 +75,8 @@ final class CEFHostStart {
 /// The remote shim, attached to a host that said hello: host mode's counterpart of `CEFLoadedLibrary`.
 nonisolated struct CEFAttachedHost: Sendable {
     var shim: CEFShimLibrary
+    /// Holds the host's wire: the runtime detaches it when Chromium does not start on it.
+    var remote: CEFRemoteShim
     var shimABI: String
     /// UI locale and Accept-Language from the macOS preferred languages and the host's framework locales.
     var locale: CEFLocale

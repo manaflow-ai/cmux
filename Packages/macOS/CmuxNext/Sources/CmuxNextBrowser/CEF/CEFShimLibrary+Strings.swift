@@ -1,3 +1,5 @@
+import Darwin
+
 nonisolated extension CEFShimLibrary {
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)
     /// and frees it.

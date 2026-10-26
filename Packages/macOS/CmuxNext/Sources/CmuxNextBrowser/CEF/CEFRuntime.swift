@@ -119,7 +119,7 @@ final class CEFRuntime {
     }
     /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
     /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
-    private var displayObservation: MainActorObservation?
+    private(set) var displayObservation: MainActorObservation?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -236,7 +236,11 @@ final class CEFRuntime {
             loaded = await task.value.map(CEFRuntimeBoot.inProcess)
         }
         // Another awaiter finished first, or the app began to quit.
-        if let error = startError() { throw error }
+        if let error = startError() {
+            // A quit during the attach: this runtime never uses the host, so release its wire.
+            if state == .shutDown, case .success(.host(let host)) = loaded { host.remote.detach() }
+            throw error
+        }
         if state == .ready { return }
         try finishStart(loaded, environment: environment, trigger: trigger)
     }
@@ -288,10 +292,10 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                // Helpers, Chromium windows and page windows exist only in process; the host watches its own.
+                // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
+                observeDisplays()
                 if case .inProcess = library {
                     startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
-                    observeDisplays()
                     ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
                 }
                 onReady?()
@@ -312,6 +316,8 @@ final class CEFRuntime {
             }
             let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
+            // The attached host's wire stays with the remote shim until it detaches.
+            if case .success(.host(let host)) = loaded { host.remote.detach() }
             state = .failed(reason)
             onStartFailed?()
             throw .engineUnavailable(.cef, reason: reason)
