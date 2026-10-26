@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextWakeups
 
 extension BrowserHitHandlers {
     // MARK: Copy
@@ -16,8 +17,9 @@ extension BrowserHitHandlers {
             let url = try Self.url(invocation)
             let board = pasteboard()
             let registry = context.services.registry
+            let work = context.services.work
             registry.track(Task {
-                guard let data = try? await BrowserImageData.load(url), let image = blockingNSImage(data) else {
+                guard let data = try? await BrowserImageData.load(url), let image = await BrowserImageData.image(data, on: work) else {
                     registry.refuse(BrowserHitStrings.imageCopyFailed)
                     return ActionWorkFailure(BrowserHitStrings.imageCopyFailed)
                 }
@@ -62,6 +64,17 @@ extension BrowserHitHandlers {
 /// engine gives the host its cached image yet), at most 64 MB.
 enum BrowserImageData {
     static let limit = 64 << 20
+
+    /// The image of `data` for the pasteboard: a bitmap is decoded on `work`'s `.cpu` lane and the main actor only
+    /// wraps its pixels, so the pasteboard's TIFF decodes nothing on the main thread (Chrome decodes images off its UI
+    /// thread: services/data_decoder/public/cpp/decode_image.h); what ImageIO does not read (an SVG) is parsed by
+    /// `NSImage`, gated by its size. Nil when it is no image.
+    static func image(_ data: Data, on work: BackgroundWork) async -> NSImage? {
+        if let decoded = try? await work.run(.userBlocking, mayBlock: .cpu, { blockingImageDecode(data) }) {
+            return NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
+        }
+        return blockingNSImage(data)
+    }
 
     static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
         guard ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") else { throw URLError(.unsupportedURL) }

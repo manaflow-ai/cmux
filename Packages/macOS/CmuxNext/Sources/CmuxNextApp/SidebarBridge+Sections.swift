@@ -87,9 +87,9 @@ extension SidebarBridge {
         let store = services.machines.local.store
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         // The chosen pet character (`home.chiefPetMascot`) is the Chief item's picture: a new pick redraws it,
-        // once its file is read off the main thread.
+        // once its file is read off the main thread (the app's one picture, so a later window has it at once).
         let chiefMascot = { [weak services] in services?.settings?.snapshot.homeChiefPetMascot }
-        let chiefPicture = chiefPicture
+        let chiefPicture = services.chiefSidebarPicture
         let home = services.home
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
@@ -104,9 +104,10 @@ extension SidebarBridge {
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
-                if picture == nil { chiefPicture.load(mascot: mascot) }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
                 let visibleLayout = layout.withoutChats
+                // Only a layout with the Chief item (off by default) reads its picture.
+                if picture == nil, Self.showsChief(visibleLayout) { chiefPicture.load(mascot: mascot) }
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
@@ -116,6 +117,11 @@ extension SidebarBridge {
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
+    }
+
+    /// Whether `layout` has the Chief built-in item, the one item that draws ``ChiefSidebarPicture``.
+    static func showsChief(_ layout: SidebarLayoutDocument) -> Bool {
+        layout.sections.contains { $0.items.contains { $0.ref.builtIn == .chief } }
     }
 
     /// The shortcut of each built-in's action, as menus show it.

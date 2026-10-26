@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextPages
 public import Foundation
 
@@ -68,7 +69,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
         let text = try rendererEvaluate(script)
         guard !text.isEmpty else { return nil }
-        guard let value = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
+        guard let value = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
             throw PageScriptError.noResult
         }
         return value

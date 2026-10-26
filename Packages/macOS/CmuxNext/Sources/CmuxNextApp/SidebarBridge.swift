@@ -25,8 +25,6 @@ final class SidebarBridge {
     private var widthObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
-    /// The Chief item's pet picture, read and decoded on the files lane.
-    private(set) lazy var chiefPicture = ChiefSidebarPicture(work: services.work)
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
     private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?

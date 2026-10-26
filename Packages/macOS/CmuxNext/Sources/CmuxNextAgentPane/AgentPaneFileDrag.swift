@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import ImageIO
 import UniformTypeIdentifiers
 
 /// The host's drag of a real file out of an agent chat (``AgentPaneReplyLinks/startDrag``): the
@@ -9,10 +10,10 @@ import UniformTypeIdentifiers
 @MainActor
 final class AgentPaneFileDrag: NSObject, NSDraggingSource {
     /// What a drag of a file carries besides its URL, read off the main actor (``contents(of:)``):
-    /// an image's bytes for the pasteboard and its picture (at most 160 pt) for the drag image;
-    /// both nil for another file.
+    /// an image's bytes and TIFF for the pasteboard and its decoded picture (at most 160 pt) for the
+    /// drag image; both nil for another file.
     nonisolated struct Contents {
-        var data: Data?
+        var image: AgentPanePasteboardImage?
         var picture: NSImage?
     }
 
@@ -44,7 +45,7 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         // task-owner: the drag's image read; it ends with the read, and a drag that ended meanwhile ignores its result
         Task { [weak view] in
             let contents = await Self.contents(of: file)
-            pasteboard.bytes = pasteboard.bytes ?? contents.data
+            pasteboard.image = pasteboard.image ?? contents.image
             guard let picture = contents.picture, let view else { return }
             Self.show(picture, in: session, from: view)
         }
@@ -61,14 +62,29 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
     }
 
     /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (a mapped
-    /// read of the local copy) and its picture, scaled to at most 160 pt.
+    /// read of the local copy), their TIFF, and its picture, decoded here and scaled to at most 160 pt
+    /// (``pictureSide`` pixels, so a Retina drag image is sharp), so drawing the drag image decodes nothing.
     @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
-        guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
+        guard let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image),
               let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
-        guard let image = blockingNSImage(data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
-        let scale = 160 / max(image.size.width, image.size.height, 160)
-        image.size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        return Contents(data: data, picture: image)
+        return Contents(image: AgentPanePasteboardImage(data, type: type), picture: picture(of: data))
+    }
+
+    /// The longest side, in pixels, of a drag's decoded picture: 160 pt at 2x.
+    nonisolated static let pictureSide = 320
+
+    /// `data`'s picture for the drag image: at most 160 pt on its longest side, from a thumbnail of at most
+    /// ``pictureSide`` pixels; nil when it is no image ImageIO reads.
+    nonisolated static func picture(of data: Data) -> NSImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: pictureSide, kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let source = CheckedImageSource(data), let properties = source.properties(),
+              let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0, let thumbnail = source.thumbnail(options: options) else { return nil }
+        let scale = 160 / max(CGFloat(width), CGFloat(height), 160)
+        return NSImage(cgImage: thumbnail, size: CGSize(width: CGFloat(width) * scale, height: CGFloat(height) * scale))
     }
 
     /// The file's icon, for a file with no picture.

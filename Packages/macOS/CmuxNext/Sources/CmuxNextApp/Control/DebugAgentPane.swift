@@ -151,8 +151,8 @@ enum DebugAgentPane {
             // The page as its engine draws it (`AgentPaneView.pageSnapshot`), PNG at `path`: a window
             // snapshot draws no web content, and a build host may have no screen recording.
             let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
-            guard let image = await view.pageSnapshot(),
-                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+            guard let image = await view.pageSnapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                  case let rep = NSBitmapImageRep(cgImage: image),
                   let png = rep.representation(using: .png, properties: [:]),
                   (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
                 return .object(["pane": .string(pane), "error": .string("snapshot failed")])

@@ -720,12 +720,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
         .target(
             name: "CmuxNextPagesTestSupport",
-            dependencies: ["CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI

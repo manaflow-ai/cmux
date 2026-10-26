@@ -7,9 +7,10 @@ import Testing
 import UniformTypeIdentifiers
 
 /// The image seams of p02-threads-145 (``CheckedImageSource``, ``blockingNSImage(_:fileID:line:)``): they return
-/// what the plain ImageIO and AppKit calls return; on the main thread an image above
-/// ``BlockingKind/cpuIntensiveImageBytes`` is one ``BlockingKind/cpuIntensive`` site at the caller's line, a small
-/// one and the header reads are none, and off the main thread nothing records. Each test binds its own table
+/// what the plain ImageIO and AppKit calls return; on the main thread an image of more than
+/// ``BlockingKind/cpuIntensiveImagePixelBytes`` bytes of pixels is one ``BlockingKind/cpuIntensive`` site at the
+/// caller's line however small its data, a small one and the header reads are none, and off the main thread nothing
+/// records. Each test binds its own table
 /// (``BlockingViolationTable/scoped``).
 @Suite(.serialized)
 struct CheckedImageSourceSeamTests {
@@ -28,6 +29,7 @@ struct CheckedImageSourceSeamTests {
             let thumbnail = source.thumbnail(options: ImageFixture.thumbnailOptions)
             #expect(thumbnail.map { max($0.width, $0.height) } == min(side, ImageFixture.thumbnailSide))
             #expect(blockingNSImage(png)?.size == NSImage(data: png)?.size)
+            #expect(blockingNSImage(png) { $0.representations.first?.pixelsWide } == side)
         }
         #expect(CheckedImageSource(Data("not an image".utf8))?.image() == nil)
         #expect(blockingNSImage(Data("not an image".utf8)) == nil)
@@ -51,12 +53,35 @@ struct CheckedImageSourceSeamTests {
     @MainActor @Test func aLargeDecodeOnTheMainThreadRecordsOneSiteEach() async throws {
         let table = BlockingViolationTable(mode: .record)
         let png = try ImageFixture.png(side: ImageFixture.largeSide)
-        try #require(png.count > BlockingKind.cpuIntensiveImageBytes)
+        try #require(ImageFixture.pixelBytes(side: ImageFixture.largeSide) > BlockingKind.cpuIntensiveImagePixelBytes)
         let expected = try BlockingViolationTable.$scoped.withValue(table) {
             let source = try #require(CheckedImageSource(png))
             _ = (source.type, source.count, source.properties())
             return [
                 ImageFixture.site { _ = source.image() },
+                ImageFixture.site { _ = source.thumbnail(options: ImageFixture.thumbnailOptions) },
+                ImageFixture.site { _ = blockingNSImage(png) },
+                ImageFixture.site { _ = blockingNSImage(png) { $0.tiffRepresentation } },
+            ]
+        }
+        await table.flush()
+
+        let sites = BlockingDetector(table: table).sites
+        #expect(sites.map(\.location).sorted() == expected.sorted())
+        #expect(sites.allSatisfy { $0.kind == .cpuIntensive && $0.context == .main && $0.count == 1 })
+    }
+
+    /// The gate counts decoded pixels, not encoded bytes: a flat 1024 by 1024 PNG is a few KiB of data and 4 MiB of
+    /// pixels, so each decode of it on the main thread is one site.
+    @MainActor @Test func aSmallFileOfManyPixelsOnTheMainThreadRecordsOneSiteEach() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        let png = try ImageFixture.png(side: ImageFixture.flatSide, flat: true)
+        try #require(png.count < BlockingKind.cpuIntensiveImagePixelBytes)
+        try #require(ImageFixture.pixelBytes(side: ImageFixture.flatSide) > BlockingKind.cpuIntensiveImagePixelBytes)
+        let expected = try BlockingViolationTable.$scoped.withValue(table) {
+            let source = try #require(CheckedImageSource(png))
+            return [
+                ImageFixture.site { #expect(source.image()?.width == ImageFixture.flatSide) },
                 ImageFixture.site { _ = source.thumbnail(options: ImageFixture.thumbnailOptions) },
                 ImageFixture.site { _ = blockingNSImage(png) },
             ]
@@ -66,6 +91,20 @@ struct CheckedImageSourceSeamTests {
         let sites = BlockingDetector(table: table).sites
         #expect(sites.map(\.location).sorted() == expected.sorted())
         #expect(sites.allSatisfy { $0.kind == .cpuIntensive && $0.context == .main && $0.count == 1 })
+    }
+
+    /// A lazy image (`kCGImageSourceShouldCache: false`) reads only the header here, so it is no site: its pixels
+    /// decode where it is drawn.
+    @MainActor @Test func aLazyImageOnTheMainThreadRecordsNothing() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        let png = try ImageFixture.png(side: ImageFixture.largeSide)
+        try BlockingViolationTable.$scoped.withValue(table) {
+            let source = try #require(CheckedImageSource(png))
+            #expect(source.image(options: [kCGImageSourceShouldCache: false])?.width == ImageFixture.largeSide)
+        }
+        await table.flush()
+
+        #expect(BlockingDetector(table: table).sites.isEmpty)
     }
 
     /// A small image decodes on the main thread with no site.
@@ -106,8 +145,10 @@ struct CheckedImageSourceSeamTests {
 
 /// Images of a chosen size, the same on every run.
 private nonisolated enum ImageFixture {
-    /// 400 by 400 pixels of noise encode to about 470 KiB of PNG, above the 256 KiB gate.
+    /// 400 by 400 pixels of noise: 625 KiB of pixels, above the 256 KiB gate.
     static let largeSide = 400
+    /// 1024 by 1024 pixels of one colour: 4 MiB of pixels in a PNG of a few KiB.
+    static let flatSide = 1024
     /// Well under 1 KiB of PNG.
     static let smallSide = 4
     /// The longest side ``thumbnailOptions`` asks for.
@@ -122,10 +163,15 @@ private nonisolated enum ImageFixture {
         return "\(fileID):\(line)"
     }
 
-    /// A `side` by `side` PNG of noise (xorshift from a fixed seed, so it does not compress).
-    static func png(side: Int) throws -> Data {
+    /// The bytes a `side` by `side` image decodes to, 4 a pixel.
+    static func pixelBytes(side: Int) -> Int { side * side * 4 }
+
+    /// A `side` by `side` PNG of noise (xorshift from a fixed seed, so it does not compress), or of one colour when
+    /// `flat`.
+    static func png(side: Int, flat: Bool = false) throws -> Data {
         var state: UInt64 = 0x9E37_79B9_7F4A_7C15
-        let pixels = Data((0..<side * side * 4).map { _ in
+        let pixels = Data((0..<pixelBytes(side: side)).map { _ in
+            guard !flat else { return 0x7F }
             state ^= state << 13
             state ^= state >> 7
             state ^= state << 17

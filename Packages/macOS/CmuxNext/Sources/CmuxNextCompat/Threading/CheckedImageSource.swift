@@ -2,10 +2,11 @@ public import CoreGraphics
 public import Foundation
 public import ImageIO
 
-/// Encoded image data (PNG, JPEG, HEIC, GIF...) opened with ImageIO, whose decodes are checked CPU calls
-/// (``cpuIntensiveCall(size:limit:fileID:line:_:)``): on the main thread, an image or thumbnail decode from more than
-/// ``BlockingKind/cpuIntensiveImageBytes`` bytes is a ``BlockingKind/cpuIntensive`` site. Reading the type, the
-/// image count and the properties parses only the header, so it is unchecked.
+/// Encoded image data (PNG, JPEG, HEIC, GIF...) opened with ImageIO, whose decodes are checked CPU calls gated like
+/// ``blockingImageDecode(_:at:fileID:line:)``, by decoded pixels: on the main thread, an image or thumbnail of an
+/// image whose header says more than ``BlockingKind/cpuIntensiveImagePixelBytes`` bytes of pixels (4 a pixel) is a
+/// ``BlockingKind/cpuIntensive`` site, however small the data is. Reading the type, the image count and the
+/// properties parses only the header, so it is unchecked.
 ///
 /// It is the seam for code that needs the `CGImageSource` itself (a type check, a pixel-size limit, a frame of a
 /// dynamic HEIC); ``blockingImageDecode(_:at:fileID:line:)`` and ``blockingImageThumbnail(_:at:options:fileID:line:)``
@@ -15,7 +16,7 @@ public struct CheckedImageSource {
     /// The ImageIO source, for reading its header (a frame lookup in a dynamic HEIC). Decode through
     /// ``image(at:options:fileID:line:)`` or ``thumbnail(at:options:fileID:line:)``, never with it directly.
     public let source: CGImageSource
-    /// The encoded size the decodes are gated on.
+    /// The encoded size; a decode's gate counts the larger of it and the image's decoded pixels.
     public let byteCount: Int
 
     /// Opens `data`, like `CGImageSourceCreateWithData`; nil when ImageIO cannot make a source of it.
@@ -65,8 +66,12 @@ public struct CheckedImageSource {
         CGImageSourceCopyPropertiesAtIndex(source, index, options.map { $0 as CFDictionary }) as? [CFString: Any]
     }
 
-    /// Decodes the image at `index`, like `CGImageSourceCreateImageAtIndex`, as a checked CPU call. Pass
-    /// `kCGImageSourceShouldCacheImmediately` to decode the pixels here rather than at the first draw.
+    /// Decodes the image at `index`, like `CGImageSourceCreateImageAtIndex`, as a checked CPU call. The pixels are
+    /// decoded here (`kCGImageSourceShouldCacheImmediately`), on the calling thread, so the gate times the decode.
+    ///
+    /// A caller that passes `kCGImageSourceShouldCache: false` gets a lazy image: only its header is read here, and
+    /// its pixels decode at each draw, on the drawing thread, unchecked. Use that only for an image that is checked
+    /// and then dropped, or drawn off the main thread.
     ///
     /// - Parameters:
     ///   - index: Which image.
@@ -78,13 +83,20 @@ public struct CheckedImageSource {
     public func image(
         at index: Int = 0, options: [CFString: Any]? = nil, fileID: StaticString = #fileID, line: UInt = #line
     ) -> CGImage? {
-        cpuIntensiveCall(size: byteCount, limit: BlockingKind.cpuIntensiveImageBytes, fileID: fileID, line: line) {
-            CGImageSourceCreateImageAtIndex(source, index, options.map { $0 as CFDictionary })
+        if (options?[kCGImageSourceShouldCache] as? Bool) == false {
+            return CGImageSourceCreateImageAtIndex(source, index, options.map { $0 as CFDictionary })
+        }
+        let decodeNow = (options ?? [:]).merging([kCGImageSourceShouldCacheImmediately: true]) { _, now in now }
+        return cpuIntensiveCall(
+            size: decodedImageBytes(source, at: index, encoded: byteCount),
+            limit: BlockingKind.cpuIntensiveImagePixelBytes, fileID: fileID, line: line
+        ) { () -> CGImage? in
+            CGImageSourceCreateImageAtIndex(source, index, decodeNow as CFDictionary)
         }
     }
 
     /// Makes a thumbnail of the image at `index`, like `CGImageSourceCreateThumbnailAtIndex`, as a checked CPU call
-    /// (the thumbnail decodes the source to scale it).
+    /// gated by the full image's decoded pixels (the thumbnail decodes the source to scale it).
     ///
     /// - Parameters:
     ///   - index: Which image.
@@ -97,7 +109,10 @@ public struct CheckedImageSource {
     public func thumbnail(
         at index: Int = 0, options: [CFString: Any], fileID: StaticString = #fileID, line: UInt = #line
     ) -> CGImage? {
-        cpuIntensiveCall(size: byteCount, limit: BlockingKind.cpuIntensiveImageBytes, fileID: fileID, line: line) {
+        cpuIntensiveCall(
+            size: decodedImageBytes(source, at: index, encoded: byteCount),
+            limit: BlockingKind.cpuIntensiveImagePixelBytes, fileID: fileID, line: line
+        ) { () -> CGImage? in
             CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
         }
     }

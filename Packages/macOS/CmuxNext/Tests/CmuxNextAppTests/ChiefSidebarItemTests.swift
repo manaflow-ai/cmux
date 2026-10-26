@@ -100,6 +100,15 @@ struct ChiefSidebarItemTests {
         #expect(picture("not-a-mascot") == orb)
     }
 
+    /// Only a layout with the Chief item reads its picture: the item is off by default, so the default layout
+    /// reads no pet file.
+    @Test func onlyALayoutWithTheChiefItemLoadsItsPicture() {
+        let chief = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
+        #expect(SidebarBridge.showsChief(chief))
+        #expect(!SidebarBridge.showsChief(SidebarLayoutDocument.defaults.withoutChats))
+        #expect(!SidebarBridge.showsChief(SidebarLayoutDocument(sections: [])))
+    }
+
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
         let lanes = [Self.lane("optchat-sub-6b68ac4a-a10", .working, title: "Inspector"),
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),

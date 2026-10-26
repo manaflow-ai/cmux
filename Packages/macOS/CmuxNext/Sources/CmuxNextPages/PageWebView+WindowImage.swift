@@ -9,9 +9,9 @@ extension PageWebView {
     /// The page as Chromium drew it (`Page.captureScreenshot`); nil on a WebKit page or when
     /// Chromium gives no image.
     public func chromiumImage() async -> CGImage? {
-        guard let page = chromiumSession?.page,
-              let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]) else { return nil }
-        return await Self.capturedPageImage(json)
+        guard let session = chromiumSession,
+              let json = try? await session.page.devTools("Page.captureScreenshot", params: ["format": "png"]) else { return nil }
+        return await Self.capturedPageImage(json, on: session.work)
     }
 }
 
