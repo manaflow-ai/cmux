@@ -2,8 +2,9 @@
 # Builds the React pages (webviews/src/pages/<page>) that CmuxNextPages ships under
 # Resources/pages/ (plans/cmux-next/react-pages.md), all in one esbuild run with code splitting
 # (webviews/scripts/pages/build-pages.mjs): code the pages share is one set of content-hashed
-# chunks under _shared/, and each page's index.html preloads (modulepreload) the scripts its first
-# frame runs and has no inline script. The output is build output (gitignored;
+# chunks under _shared/, which every page imports from cmux-page://cmux.shared/ (one URL per
+# chunk), and each page's index.html preloads (modulepreload) the scripts its first frame runs and
+# has no inline script. The output is build output (gitignored;
 # scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-pages-web.sh          # rebuild every page

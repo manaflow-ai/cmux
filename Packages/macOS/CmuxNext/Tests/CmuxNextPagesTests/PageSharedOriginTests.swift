@@ -142,17 +142,39 @@ struct PageSharedOriginTests {
         #expect(!PageCSP.strict.header.contains(PageID.sharedHost))
     }
 
-    /// A built page names its shared chunks by the shared origin, never by a path relative to its own
-    /// folder: `../_shared/react.js` would resolve inside each page's origin, a different URL per page
-    /// and a 404 there. Vacuous when no pages are built (the bundle holds only GENERATED.md).
+    /// A built page (build-pages.mjs) names its shared chunks by the shared origin, never by a path
+    /// relative to its own folder: `../_shared/react.js` would resolve inside each page's origin, a
+    /// different URL per page. No page folder holds a `_shared` copy, and every shared-origin URL a
+    /// page names is a file of the bundled shared root. Vacuous when no pages are built (the bundle
+    /// holds only GENERATED.md); the webviews test `pages-split-build.test.ts` builds fixture pages.
     @Test func builtPagesNameSharedChunksByTheSharedOrigin() throws {
         guard let pages = PageDescriptor.settings.pagesBundleRoot?.deletingLastPathComponent() else { return }
+        let sharedRoot = pages.appendingPathComponent("_shared", isDirectory: true)
         let files = FileManager.default.enumerator(at: pages, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL } ?? []
-        for file in files where ["html", "js", "css"].contains(file.pathExtension) {
-            guard !file.pathComponents.contains("_shared") else { continue }
+        let prefix = PageID.sharedOrigin + "/"
+        for file in files where ["html", "js"].contains(file.pathExtension) {
+            guard !file.standardizedFileURL.pathComponents.contains("_shared") else { continue }
             let text = try String(contentsOf: file, encoding: .utf8)
-            #expect(!text.contains("_shared/"), "\(file.lastPathComponent) names a shared chunk by a relative path")
+            #expect(!text.contains("../_shared/"), "\(file.lastPathComponent) names a shared chunk by a relative path")
+            for url in Self.sharedURLs(in: text, prefix: prefix) {
+                let chunk = try #require(URL(string: url))
+                #expect(PageSharedChunks.file(for: chunk, root: sharedRoot) != nil,
+                        "\(file.lastPathComponent) names \(url), which cmux.shared does not serve")
+            }
+        }
+        let pageFolders = try FileManager.default.contentsOfDirectory(at: pages, includingPropertiesForKeys: nil)
+        for folder in pageFolders where folder.lastPathComponent != "_shared" {
+            let copy = folder.appendingPathComponent("_shared", isDirectory: true)
+            #expect(!FileManager.default.fileExists(atPath: copy.path), "\(folder.lastPathComponent) has its own _shared copy")
+        }
+    }
+
+    /// Every `cmux-page://cmux.shared/<name>.js` URL in `text`, as a JavaScript string or an attribute.
+    private static func sharedURLs(in text: String, prefix: String) -> [String] {
+        text.components(separatedBy: prefix).dropFirst().compactMap { rest -> String? in
+            let name = rest.prefix(while: { $0 != "\"" && $0 != "'" })
+            return name.hasSuffix(".js") ? prefix + String(name) : nil
         }
     }
 
