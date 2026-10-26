@@ -284,4 +284,15 @@ for (const grouped of [false, true]) {
       expect(shownChanges()).toEqual([]);
     }
   });
+
+  test(`${surface} does not infer an edit from a different tool's input fields`, async () => {
+    await renderAsk(
+      {
+        kind: "read",
+        rawInput: { file_path: path, old_string: "before", new_string: "after" },
+      },
+      grouped,
+    );
+    expect(shownChanges()).toEqual([]);
+  });
 }
