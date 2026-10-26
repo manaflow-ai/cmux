@@ -105,22 +105,47 @@ export async function papercutPane(
     extra?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Open on the last `tail` turns only, as a long chat opens: attach says there is more, and
+    /// `_acpmux/events` pages older records as acpmux does (by `beforeSeq`, `limit` and `kinds`).
+    tail?: number;
+    /// How long acpmux takes to answer a read of older records, as a busy or remote one does (ms).
+    readDelay?: number;
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
-  const answer = (method: string): unknown => {
+  /// Every `_acpmux/events` read, with its params.
+  const reads: Record<string, any>[] = [];
+  const starts = events.flatMap((event, index) => (event.kind === "user_message" ? [index] : []));
+  const opened = options.tail ? (starts.at(-options.tail) ?? 0) : 0;
+  const matches = (kinds: unknown, kind: string) =>
+    !Array.isArray(kinds) || kinds.some((wanted) => wanted === "transcript" || wanted === "all" || wanted === kind);
+  const page = (params: Record<string, any>) => {
+    const limit = Number(params.limit ?? 5000);
+    const before = events.filter(
+      (event) => event.seq < (params.beforeSeq ?? Infinity) && matches(params.kinds, event.kind),
+    );
+    return {
+      events: before.slice(Math.max(0, before.length - limit)),
+      hasMore: before.length > limit,
+      lastSeq: events.length,
+    };
+  };
+  const answer = (method: string, params: Record<string, any> = {}): unknown => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
+        return options.tail
+          ? { session, lastSeq: events.length, events: events.slice(opened), hasMore: opened > 0 }
+          : { session, lastSeq: events.length, events, hasMore: false };
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        reads.push(params);
+        return options.tail ? page(params) : { events: [], hasMore: false, lastSeq: events.length };
       default:
         return null;
     }
@@ -149,8 +174,15 @@ export async function papercutPane(
         methods.push(message.method);
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
-        if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+        if (message.id === undefined) return;
+        const reply = JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: answer(message.method, message.params),
+        });
+        if (message.method === "_acpmux/events" && options.readDelay)
+          setTimeout(() => ws.send(reply), options.readDelay);
+        else ws.send(reply);
       },
     },
   });
@@ -201,7 +233,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop };
+  return { open, close, methods, prompts, record, drop, reads };
 }
 
 /// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`

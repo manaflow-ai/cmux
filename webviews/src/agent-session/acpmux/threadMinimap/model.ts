@@ -7,7 +7,8 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 export type ReplySpan = { text: string; bold: boolean };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
 export type MinimapTurn = {
-  /// The user row's index in the transcript rows (and in the layout's tops).
+  /// The user row's index in the transcript rows (and in the layout's tops); -1 for a prompt older
+  /// than the transcript holds (earlierPrompts.ts), which a jump loads first.
   index: number;
   id: string;
   /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
@@ -205,6 +206,9 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
 export type MinimapTurns = {
   rows: readonly AcpmuxRow[];
   sessionId: string;
+  /// The prompts older than `rows` (earlierPrompts.ts): the first `lead` turns, in this order.
+  earlier?: readonly AcpmuxRow[];
+  lead?: number;
   turns: readonly MinimapTurn[];
   ticks: readonly MinimapTick[];
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -235,13 +239,32 @@ export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[
 /// `previous.spare`, the list before `previous.turns`, which holds every turn up to where the two
 /// last differed, so a streamed token writes the live turn alone and copies none of the others. The
 /// result before `previous` is spent: pass the committed result, or one read from it.
+///
+/// `earlier`, the chat's prompts older than `rows` (earlierPrompts.ts), lead the list as turns with
+/// no row (`index` -1), so the rail shows every prompt of the chat while the transcript holds its
+/// tail. A new `earlier` (a page of prompts read, or older turns loaded in place of some) builds the
+/// list again around the loaded turns, once per page; a streamed token keeps it as it is.
 export function minimapTurns(
   rows: readonly AcpmuxRow[],
   sessionId = "",
   previous?: MinimapTurns,
   change?: RowsChange,
+  earlier: readonly AcpmuxRow[] = NO_ROWS,
 ): MinimapTurns {
-  const reuse = previous?.sessionId === sessionId ? previous : undefined;
+  let reuse = previous?.sessionId === sessionId ? previous : undefined;
+  const lead = earlier.length;
+  const rebuilt = reuse ? (reuse.earlier ?? NO_ROWS) !== earlier : lead > 0;
+  if (rebuilt) {
+    const loaded = reuse ? reuse.turns.slice(reuse.lead ?? 0) : [];
+    reuse = {
+      rows: reuse?.rows ?? NO_ROWS,
+      sessionId,
+      earlier,
+      lead,
+      turns: lead > 0 ? [...earlier.map((row) => earlierTurn(row, sessionId)), ...loaded] : loaded,
+      ticks: reuse?.ticks ?? [],
+    };
+  }
   let from = 0;
   if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
   else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
@@ -250,14 +273,14 @@ export function minimapTurns(
   // turn that starts before `from` is the first one read again.
   let keep = 0;
   if (reuse) {
-    let low = 0;
+    let low = lead;
     let high = reuse.turns.length;
     while (low < high) {
       const middle = (low + high) >>> 1;
       if (reuse.turns[middle]!.index < from) low = middle + 1;
       else high = middle;
     }
-    keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
+    keep = Math.max(lead, Math.min(reuse.turns.length - 1, low - 1));
   }
   // The turns read again, from `keep` on. The ones before are `reuse.turns`' own, never copied.
   const tail: MinimapTurn[] = [];
@@ -289,7 +312,7 @@ export function minimapTurns(
     reply = undefined;
   };
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
-  for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
+  for (let index = reuse && keep > lead ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
     if (opensTurn(row)) {
@@ -304,6 +327,12 @@ export function minimapTurns(
   const length = keep + tail.length;
   let sameTurns = old !== undefined && old.length === length;
   let sameTicks = oldTicks !== undefined && oldTicks.length === length;
+  // A list built again: its earlier turns may not be the ticks' (the tail below is compared anyway).
+  for (let at = 0; rebuilt && sameTicks && at < keep; at += 1) {
+    const turn = old![at]!;
+    const tick = oldTicks![at]!;
+    if (tick.key !== turn.key || tick.prompt !== turn.prompt || tick.id !== turn.id) sameTicks = false;
+  }
   for (let at = 0; at < tail.length && (sameTurns || sameTicks); at += 1) {
     const turn = tail[at]!;
     if (old?.[keep + at] !== turn) sameTurns = false;
@@ -314,9 +343,17 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  if (!old) return { rows, sessionId, turns: tail, ticks: ticksOf(tail, oldTicks) };
+  if (!old) return { rows, sessionId, earlier, lead, turns: tail, ticks: ticksOf(tail, oldTicks) };
   if (sameTurns)
-    return { rows, sessionId, turns: old, ticks: sameTicks ? oldTicks! : ticksOf(old, oldTicks), spare: reuse!.spare };
+    return {
+      rows,
+      sessionId,
+      earlier,
+      lead,
+      turns: old,
+      ticks: sameTicks ? oldTicks! : ticksOf(old, oldTicks),
+      spare: reuse!.spare,
+    };
   const list = reuse!.spare ?? [];
   const agreement = agreed.get(list);
   for (let at = agreement?.list === old ? Math.min(agreement.same, keep) : 0; at < keep; at += 1) list[at] = old[at]!;
@@ -327,10 +364,30 @@ export function minimapTurns(
   return {
     rows,
     sessionId,
+    earlier,
+    lead,
     turns: list,
     ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
     spare: old as MinimapTurn[],
   };
+}
+
+const NO_ROWS: readonly AcpmuxRow[] = [];
+
+/// The turn of a prompt older than the transcript holds: its key is the one its row's turn takes
+/// once loaded (turnKey), so its tick, mark and place stay as the turn loads.
+function earlierTurn(row: AcpmuxRow, sessionId: string): MinimapTurn {
+  const kept = turnsByPrompt.get(row);
+  if (kept && kept.sessionId === sessionId && kept.turn.index === -1) return kept.turn;
+  const turn: MinimapTurn = {
+    index: -1,
+    id: row.id,
+    key: turnKey(sessionId, row),
+    prompt: (row.text ?? "").replace(/\s+/g, " ").trim(),
+    reply: [],
+  };
+  turnsByPrompt.set(row, { turn, sessionId });
+  return turn;
 }
 
 /// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it

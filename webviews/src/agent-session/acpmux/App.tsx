@@ -78,6 +78,7 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import type { EarlierPromptsStore } from "./threadMinimap/earlierPrompts";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
@@ -1913,6 +1914,7 @@ export function VirtualTranscript({
   registry = defaultRegistry,
   canLoadOlder = false,
   historyFrom,
+  earlierPrompts,
   githubRepository,
   fallbackRepository,
   sourceRows,
@@ -1972,6 +1974,8 @@ export function VirtualTranscript({
   historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
+  /// The chat's prompts older than `rows`, for the rail (the client's `earlier`).
+  earlierPrompts?: EarlierPromptsStore;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   githubRepository?: string;
@@ -3839,6 +3843,7 @@ export function VirtualTranscript({
             width={width}
             placed={minimapPlaced}
             change={rowsChange.current}
+            earlier={earlierPrompts}
           />
         )}
         {find?.open && <ChatFindBar find={find} />}
@@ -8213,6 +8218,7 @@ function AcpmuxPane() {
                                                   onLoadOlder={() =>
                                                     directClient.current?.loadOlder() ?? Promise.resolve()
                                                   }
+                                                  earlierPrompts={childRows ? undefined : directClient.current?.earlier}
                                                   openAt={
                                                     !childRows &&
                                                     shownSessionId &&
