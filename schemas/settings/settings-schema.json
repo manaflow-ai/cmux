@@ -92,6 +92,17 @@
             }
           },
           {
+            "key" : "settings.group.autoArchive",
+            "rows" : [
+              "workspaces.autoArchive.style",
+              "workspaces.autoArchive.idleDays"
+            ],
+            "title" : {
+              "key" : "settings.group.autoArchive",
+              "text" : "Auto-Archive"
+            }
+          },
+          {
             "key" : "settings.group.history",
             "rows" : [
               "navigation.historyScope",
@@ -789,6 +800,7 @@
             "rows" : [
               "agentPane.display.width",
               "agentPane.display.fullWidth",
+              "agentPane.display.vscodeMinimap",
               "agentPane.display.font.preset",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
@@ -1186,6 +1198,16 @@
             }
           },
           {
+            "key" : "settings.group.import",
+            "rows" : [
+              "browser.import.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.import",
+              "text" : "Import"
+            }
+          },
+          {
             "key" : "settings.group.memory",
             "rows" : [
               "browser.hibernation",
@@ -1354,6 +1376,16 @@
             "title" : {
               "key" : "settings.group.hangReports",
               "text" : "Hang Reports"
+            }
+          },
+          {
+            "key" : "settings.group.sshLinks",
+            "rows" : [
+              "ssh.linkAllowedHosts"
+            ],
+            "title" : {
+              "key" : "settings.group.sshLinks",
+              "text" : "SSH Links"
             }
           }
         ],
@@ -5339,6 +5371,72 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sshLinks",
+        "text" : "SSH Links"
+      },
+      "help" : {
+        "key" : "settings.machines.sshLinkHosts.help",
+        "text" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ssh.linkAllowedHosts",
+      "keywords" : [
+        "ssh",
+        "link",
+        "url",
+        "host",
+        "trust",
+        "allow",
+        "always",
+        "machine",
+        "security"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "ssh",
+        "linkAllowedHosts"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.machines.sshLinkHosts",
+        "text" : "Always Allowed SSH Link Hosts"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -8481,6 +8579,157 @@
       "title" : {
         "key" : "settings.screenshots.folders",
         "text" : "More Screenshot Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "suggest",
+        "quiet",
+        "groups",
+        "manual",
+        "off"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveSuggest",
+            "text" : "Suggest Archiving"
+          },
+          "value" : "suggest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveQuiet",
+            "text" : "Archive Automatically"
+          },
+          "value" : "quiet"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveGroups",
+            "text" : "Only in Groups With a Rule"
+          },
+          "value" : "groups"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveManual",
+            "text" : "Only When I Tidy"
+          },
+          "value" : "manual"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveOff",
+            "text" : "Never"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "suggest",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.autoArchive",
+        "text" : "Auto-Archive"
+      },
+      "help" : {
+        "key" : "settings.autoArchive.style.help",
+        "text" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoArchive.style",
+      "keywords" : [
+        "archive",
+        "auto archive",
+        "idle",
+        "old",
+        "stale",
+        "tidy",
+        "clean up",
+        "declutter",
+        "workspaces",
+        "sidebar"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoArchive",
+        "style"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.autoArchive.style",
+        "text" : "Idle Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        365,
+        183
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.autoArchive",
+        "text" : "Auto-Archive"
+      },
+      "help" : {
+        "key" : "settings.autoArchive.idleDays.help",
+        "text" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoArchive.idleDays",
+      "keywords" : [
+        "archive",
+        "idle",
+        "days",
+        "age",
+        "old"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoArchive",
+        "idleDays"
+      ],
+      "range" : {
+        "max" : 365,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -363,
+        729,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.autoArchive.idleDays",
+        "text" : "Idle For"
       },
       "validation" : "portable"
     },
@@ -18151,6 +18400,65 @@
       "title" : {
         "key" : "settings.agentPane.display.fullWidth",
         "text" : "Chat Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.vscodeMinimap.help",
+        "text" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.vscodeMinimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "vscode",
+        "vs code",
+        "code",
+        "map",
+        "overview",
+        "scroll",
+        "scrollbar",
+        "right",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "vscodeMinimap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.vscodeMinimap",
+        "text" : "VS Code Minimap"
       },
       "validation" : "portable"
     },
@@ -30422,6 +30730,61 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.import",
+        "text" : "Import"
+      },
+      "help" : {
+        "key" : "settings.browser.importEnabled.help",
+        "text" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.import.enabled",
+      "keywords" : [
+        "import",
+        "browser",
+        "chrome",
+        "safari",
+        "arc",
+        "firefox",
+        "bookmarks",
+        "history",
+        "passwords",
+        "cookies",
+        "suggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "import",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.importEnabled",
+        "text" : "Import from Other Browsers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -36239,7 +36602,7 @@
       },
       "help" : {
         "key" : "settings.agents.defaultPermissionMode.help",
-        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+        "text" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.defaultPermissionMode",
