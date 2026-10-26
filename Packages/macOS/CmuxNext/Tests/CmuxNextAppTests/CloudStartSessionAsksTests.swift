@@ -214,11 +214,16 @@ struct CloudStartSessionAsksTests {
     @Test func anEndAtTheDeadlineReachesTheCaller() async throws {
         let runs = CloudStartSessionRuns()
         let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        // The deadline fires and, before the caller resumes, the run ends.
-        runs.sleep = { _ in open.yield() }
+        let (ending, ended) = AsyncStream<Void>.makeStream()
+        defer { open.finish(); ended.finish() }
+        // The deadline lets the run end, and fires once it has.
+        runs.sleep = { _ in
+            open.yield()
+            for await _ in ending { break }
+        }
         let fields = try await Self.answer(runs) {
             for await _ in gate { break }
+            ended.yield()
             return ["session_id": .string("s")]
         }
         #expect(fields["session_id"] == .string("s"))
