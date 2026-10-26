@@ -132,15 +132,19 @@ import Testing
 
     /// A managed policy that forbids updates refuses the check without reading the feed.
     @Test func aManagedPolicyRefusesTheCheck() async throws {
-        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-action-result", shortVersion: "1.0.0",
+        // A signed release identity (no Sparkle in the test): the policy is the only reason it is off.
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly.update-action-result", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
-                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: true)
         let defaults = try #require(UserDefaults(suiteName: "UpdateActionResultTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true },
                                      prober: UpdateProber(fetcher: Feed(xml: Self.newer), architecture: .arm64),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
-        guard updater.disabledReason == .managedPolicy else { return }
+        guard case .managedPolicy? = updater.disabledReason else {
+            Issue.record("the policy is not why updates are off: \(String(describing: updater.disabledReason))")
+            return
+        }
         guard case .failure(let failure) = try await Self.run("palette.checkForUpdates", updater) else {
             Issue.record("a managed policy's check answered the feed")
             return
