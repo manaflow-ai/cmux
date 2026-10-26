@@ -429,6 +429,7 @@ final class CEFRuntime {
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
+                timeSlice: CEFPumpSchedule.timeSlice(forkAPI: forkAPI),
                 gate: pumpGate
             )
             self.pump = pump

@@ -49,6 +49,8 @@ final class CEFMessagePump {
     }
 
     private let work: () -> Void
+    /// The fork's longest pass (``CEFPumpSchedule/timeSlice(forkAPI:)``): a pass this long may have left work.
+    private let timeSlice: TimeInterval
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
@@ -82,15 +84,18 @@ final class CEFMessagePump {
     /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
     /// `starvation`: the app's rendering starvation guard; `CEFRuntime` passes
     /// none until the pump is on the main-thread board (p06-scheduler task 048).
+    /// `timeSlice`: the loaded fork's (``CEFPumpSchedule/timeSlice(forkAPI:)``).
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
+        timeSlice: TimeInterval = CEFPumpSchedule.timeSlice,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
         starvation: RenderStarvationGuard? = nil
     ) {
         self.work = work
+        self.timeSlice = timeSlice
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -266,8 +271,8 @@ final class CEFMessagePump {
         let elapsed = finished - started
         counters.workRuns += 1
         counters.workSeconds += elapsed
-        if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
-        if earlyPassWatch.passEnded(usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) { counters.earlyPasses += 1 }
+        if elapsed >= timeSlice { counters.longWorkRuns += 1 }
+        if earlyPassWatch.passEnded(usedWholeSlice: elapsed >= timeSlice) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()

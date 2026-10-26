@@ -250,6 +250,70 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1 && rig.queue.count == 0)
     }
 
+    // MARK: Per-fire budget (p14-energy-037)
+
+    @Test("Fifty due entries of 0.1 ms run in three fires: each stops once its 2 ms budget has passed")
+    func fireBudgetSplitsALongFire() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10)
+        var perFire: [Int] = []
+        while rig.timer.armedDate != nil {
+            let before = log.ran.count
+            rig.fire()
+            perFire.append(log.ran.count - before)
+        }
+        #expect(perFire == [20, 20, 10])
+        #expect(log.ran == [UInt64](0..<50), "the entries left keep their order across fires")
+        #expect(rig.fires == 3 && rig.queue.count == 0)
+        #expect(rig.deadlines(of: "busy") == 3, "one record per owner per fire")
+    }
+
+    @Test("A fire that stops at its budget arms for now, so input queued during it runs before the next fire")
+    func inputRunsBetweenBudgetedFires() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10) { index in
+            // A key press reaches the run loop's event source while entry 5 runs.
+            if index == 5 { log.input.append { log.ran.append(1_000) } }
+        }
+        rig.fire()
+        #expect(rig.queue.count == 30)
+        #expect(rig.timer.armedDate == rig.uptime.now, "the rest is due: armed for now, not for a later grid tick")
+        // The run loop's next pass: its sources first, then the timer armed for now.
+        log.drainInput()
+        rig.fire()
+        #expect(Array(log.ran.prefix(22)) == [UInt64](0..<20) + [1_000, 20])
+        rig.fire()
+        #expect(rig.queue.count == 0 && rig.fires == 3)
+    }
+
+    @Test("The entry that crosses the budget finishes; the next one waits for the next fire")
+    func longEntryRunsAlone() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 2, cost: 5 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [0], "at least one entry per fire, however long")
+        rig.fire()
+        #expect(log.ran == [0, 1])
+        #expect(rig.fires == 2)
+    }
+
+    /// `count` entries due at 100 ms that each advance the fake uptime by `cost` ns and log their index.
+    private static func insertBusyEntries(
+        into rig: WakeUpQueueRig, log: RunLog, count: UInt64, cost: UInt64, also: @escaping @MainActor @Sendable (UInt64) -> Void = { _ in }
+    ) {
+        let uptime = rig.uptime
+        for index in 0..<count {
+            rig.queue.insert(owner: "busy", at: 100 * ms, window: .window(delay: .milliseconds(100))) {
+                uptime.now += cost
+                log.ran.append(index)
+                also(index)
+            }
+        }
+    }
+
     // MARK: Energy Saver (p14-energy-023)
 
     @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")
@@ -358,4 +422,12 @@ struct MainWakeUpQueueTests {
 private final class RunLog {
     var ran: [UInt64] = []
     var count = 0
+    /// Input the fake run loop handles before its next timer fire.
+    var input: [@MainActor () -> Void] = []
+
+    func drainInput() {
+        let pending = input
+        input = []
+        for event in pending { event() }
+    }
 }

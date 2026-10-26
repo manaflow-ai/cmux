@@ -58,6 +58,31 @@ import Testing
         #expect(timer.armed == nil, "armed \(String(describing: timer.armed)) after a long pass with no request")
     }
 
+    /// p14-energy-037: from the bounded-slice fork API a pass runs at most 2 ms, the length of one
+    /// deadline-queue fire, so the input queued during it runs before the next pass. An older fork
+    /// keeps CEF's 10 ms.
+    @Test func theBoundedSliceForkAPIRunsAtMostTwoMilliseconds() {
+        let bounded = CEFPumpSchedule.timeSlice(forkAPI: CEFPumpSchedule.boundedSliceForkAPI)
+        #expect(bounded > 0 && bounded <= 0.002)
+        #expect(bounded <= MainWakeUpQueue.fireBudget / .seconds(1))
+        #expect(CEFPumpSchedule.timeSlice(forkAPI: CEFPumpSchedule.boundedSliceForkAPI - 1) == CEFPumpSchedule.timeSlice)
+    }
+
+    /// A 3 ms pass used a bounded-slice fork's whole slice (the fork may have left work), not an
+    /// older fork's 10 ms one.
+    @MainActor
+    @Test(arguments: [(CEFPumpSchedule.boundedSliceForkAPI, 1), (CEFPumpSchedule.boundedSliceForkAPI - 1, 0)])
+    func aLongPassIsJudgedAgainstTheForksSlice(forkAPI: Int32, longRuns: Int) {
+        let timer = CEFPumpCrossThreadGateTests.Timer()
+        let clock = CEFPumpCrossThreadGateTests.Clock()
+        let pump = CEFMessagePump(work: { clock.seconds += 0.003 }, timer: timer,
+                                  timeSlice: CEFPumpSchedule.timeSlice(forkAPI: forkAPI), clock: { clock.seconds },
+                                  ledger: WakeupLedger())
+        pump.start()
+        timer.fire()
+        #expect(pump.stats.longWorkRuns == longRuns)
+    }
+
     /// A fire inside a running pass (a nested run loop) is deferred, and the
     /// pump runs again on the next run loop pass.
     @Test func aReenteredFireRunsAfterThePass() throws {

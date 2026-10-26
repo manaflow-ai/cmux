@@ -43,6 +43,9 @@ public final class MainWakeUpQueue: Sendable {
 
     /// The `WakeupLedger` owner of the queue's own wakes (reason `fire`).
     public static let ledgerOwner = "MainWakeUpQueue"
+    /// The longest one fire runs entries; the rest run on a fire armed for now, after queued input, as
+    /// `MessagePumpCFRunLoopBase::RunWork` runs one `DoWork` batch (base/message_loop/message_pump_apple.mm).
+    public static let fireBudget = Duration.milliseconds(2)
 
     /// What a fire records for an entry's owner when the entry runs.
     public enum LedgerReason: Sendable, Equatable {
@@ -264,6 +267,7 @@ public final class MainWakeUpQueue: Sendable {
     /// Before each entry runs, the timer is armed for what is left, so an entry that spins a nested run
     /// loop (menu tracking, a modal panel) does not stop later deadlines: the nested loop fires the timer
     /// and calls this again. The due entries left share one arm, at the fire's start.
+    /// Past ``fireBudget`` the fire stops after the running entry (so at least one runs) and arms for now.
     @MainActor
     func fire() {
         let now = state.withLock { state in
@@ -280,6 +284,7 @@ public final class MainWakeUpQueue: Sendable {
             }
             ran += 1
             entry.payload.action()
+            if uptime() &- now >= Self.fireBudget.nanosecondCount { break }
         }
         state.withLock { state in
             if ran > 1 { state.coalescedFires &+= 1 }
