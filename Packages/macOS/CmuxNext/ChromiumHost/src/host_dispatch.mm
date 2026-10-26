@@ -238,6 +238,15 @@ void HostContext::Dispatch(const control::Message& message) {
     std::optional<std::string> path = peek.Str();
     if (peek.ok()) profile = path.value_or(std::string());
   }
+  int32_t placed_browser = 0;
+  uint64_t placed_view = 0;
+  if (message.op == kOpDevtoolsSetPlacement) {
+    // Header order: browser, parent view, x, y, width, height.
+    TlvReader peek(message.fields);
+    placed_browser = peek.I32();
+    placed_view = peek.View();
+    if (!peek.ok()) placed_browser = 0;
+  }
   dispatching_ = true;
   dispatching_op_ = message.op;
   dispatching_view_ = 0;
@@ -248,6 +257,7 @@ void HostContext::Dispatch(const control::Message& message) {
   dispatching_op_ = 0;
   dispatching_view_ = 0;
   dispatching_profile_.reset();
+  if (ok && placed_browser) PlaceDevTools(Browser(placed_browser), placed_view);
   std::vector<HeldEvent> events;
   events.swap(held_events_);
   for (const HeldEvent& e : events) ForwardEvent(e.kind, e.browser_id, e.request, e.a, e.b, e.s1.c_str(), e.s2.c_str());
@@ -328,6 +338,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
+  if (kind == CMUX_SHIM_DEVTOOLS_CLOSED) ReleaseDevToolsView(browser_id);
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
     delegate_.BrowserClosed();
@@ -360,15 +371,47 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   std::erase_if(devtools_ids_, [&](const auto& entry) {
     return static_cast<int>(static_cast<uint32_t>(entry.first >> 32)) == chromium_id;
   });
+  // The shim forgets the closed browser's DevTools placement itself (ForgetDevTools).
+  if (auto devtools = devtools_view_of_browser_.find(chromium_id); devtools != devtools_view_of_browser_.end()) {
+    const uint64_t token = devtools->second;
+    devtools_view_of_browser_.erase(devtools);
+    ReleaseView(token);
+  }
   auto view = view_of_browser_.find(chromium_id);
   if (view == view_of_browser_.end()) return;
   const uint64_t token = view->second;
   view_of_browser_.erase(view);
-  for (const auto& [browser, other] : view_of_browser_) {
-    if (other == token) return;  // another browser still has this parent view
+  ReleaseView(token);
+}
+
+void HostContext::PlaceDevTools(int chromium_id, uint64_t token) {
+  uint64_t replaced = 0;
+  if (auto held = devtools_view_of_browser_.find(chromium_id); held != devtools_view_of_browser_.end()) {
+    replaced = held->second;
+    devtools_view_of_browser_.erase(held);
   }
-  open_views_.erase(token);
-  views_.Close(token);
+  if (token) devtools_view_of_browser_[chromium_id] = token;
+  if (replaced && replaced != token) ReleaseView(replaced);
+}
+
+void HostContext::ReleaseDevToolsView(int chromium_id) {
+  auto held = devtools_view_of_browser_.find(chromium_id);
+  if (held == devtools_view_of_browser_.end()) return;
+  const uint64_t token = held->second;
+  devtools_view_of_browser_.erase(held);
+  // cmux places again before it asks for the next DevTools (CEFDevToolsController.placeHosted).
+  cmux_shim_devtools_set_placement(chromium_id, nullptr, 0, 0, 0, 0);
+  ReleaseView(token);
+}
+
+void HostContext::ReleaseView(uint64_t token) {
+  for (const auto& [browser, other] : view_of_browser_) {
+    if (other == token) return;  // a browser still has this parent view
+  }
+  for (const auto& [browser, other] : devtools_view_of_browser_) {
+    if (other == token) return;  // a DevTools placement still names it
+  }
+  if (open_views_.erase(token)) views_.Close(token);
 }
 
 void* HostContext::PageView(uint64_t token) {

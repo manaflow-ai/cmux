@@ -7,7 +7,9 @@ import CmuxNextDesign
 /// DevTools child window follows it (fork parent-view tracking) and keeps
 /// its frontend state (console, selection, open panel). Before, a move into
 /// or out of a window closed DevTools and opened a new one in Chromium's own
-/// top-level window.
+/// top-level window. In host mode the same view holds the DevTools'
+/// hosted page view, so the panel shows the host's DevTools context and the
+/// host itself shows no window (`CEFDevToolsController+Hosted.swift`).
 ///
 /// A panel, not a cmux window: it never joins cmux's window list, layout or
 /// session, and it closes with its page.

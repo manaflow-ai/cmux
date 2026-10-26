@@ -196,6 +196,16 @@ class HostContext {
   void ProduceAttach(bool only_attach);
   void Bad(const std::string& what);
   void Forget(int32_t client_id, int chromium_id);
+  // devtools_set_placement named `token` (0: its own window) for the next
+  // DevTools of `chromium_id`: that view stays open until the DevTools closes,
+  // the browser closes or another placement replaces it (task 024).
+  void PlaceDevTools(int chromium_id, uint64_t token);
+  // The DevTools of `chromium_id` closed, or the browser did: its placement's
+  // view closes, and the shim forgets the placement, so a later open never
+  // gets a parent view that is gone.
+  void ReleaseDevToolsView(int chromium_id);
+  // Closes `token`'s view unless a browser or a DevTools placement still has it.
+  void ReleaseView(uint64_t token);
   void Bind(int32_t client_id, int chromium_id);
   int32_t ClientOf(int chromium_id) const;
   void Post(control::Message message);
@@ -237,9 +247,11 @@ class HostContext {
   // The optional exports' functions in the host's shim, by op (kOptionalExports).
   std::vector<std::pair<uint16_t, void*>> optional_exports_;
 
-  // Open page view tokens, and the view each create_window browser has.
+  // Open page view tokens, the view each create_window browser has, and the
+  // DevTools parent view each inspected browser's placement names.
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
+  std::unordered_map<int, uint64_t> devtools_view_of_browser_;
 };
 
 }  // namespace cmux_host

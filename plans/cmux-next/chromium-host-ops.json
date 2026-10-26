@@ -260,13 +260,14 @@
       "returns": "unsigned int",
       "result_used_by": [
         "CmuxNextBrowser/CEF/CEFLayerHosting.swift",
-        "CmuxNextBrowser/CEF/CEFPaneHost+PageParent.swift"
+        "CmuxNextBrowser/CEF/CEFPaneHost+PageParent.swift",
+        "CmuxNextBrowser/CEF/CEFDevToolsController+Hosted.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "The page window's CAContextID is known only in the host: cmux asks for it once the pane's window exists, and the host turns on the fork's layer hosting of the page window behind the page view's token and answers with the id, which the pane's ChromiumHostPageView shows (CEFPaneHost.showHostedContext, task 023). The in-process caller (CEFLayerHosting) reads it in the call."
+      "reason": "The page window's CAContextID is known only in the host: cmux asks for it once the pane's window exists, and the host turns on the fork's layer hosting of the page window behind the page view's token and answers with the id, which the pane's ChromiumHostPageView shows (CEFPaneHost.showHostedContext, task 023). The in-process caller (CEFLayerHosting) reads it in the call. A docked DevTools asks for its DevTools page window's context the same way when DEVTOOLS_OPENED comes (CEFDevToolsController.showHostedContext, task 024)."
     },
     {
       "name": "cmux_shim_browser_set_resize_sync",
@@ -1406,7 +1407,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "NSView* arg. A docked DevTools is a hosted context shown by a ChromiumHostPageView (task 066); the host gets only the placement rect."
+      "reason": "NSView* arg. In host mode the DevTools is a hosted context: parent_view is the token of the tab's DevTools ChromiumHostPageView, sent before the command that may open DevTools (CEFDevToolsController.placeHosted; the host makes the DevTools without waiting for DEVTOOLS_WILL_OPEN). The host keeps a view behind the token while the placement or its DevTools lives and drops the placement when that DevTools closes (HostContext::PlaceDevTools, task 024)."
     },
     {
       "name": "cmux_shim_devtools_command",
@@ -4401,8 +4402,35 @@
         "cmux_shim_browser_set_resize_sync"
       ],
       "needs": "kept",
-      "change": "In process only: CEFPaneHost.windowCreated gives the page window no Fork in host mode, where the page shows in the pane's ChromiumHostPageView from the context the host gives and the resize fence is the page view's (task 052). The DevTools page window's Fork moves to hosted-context placement with task 024.",
+      "change": "In process only: CEFPaneHost.windowCreated gives the page window no Fork in host mode, where the page shows in the pane's ChromiumHostPageView from the context the host gives and the resize fence is the page view's (task 052). The DevTools page window gets no Fork in host mode either: CEFDevToolsController.opened shows it in the DevTools page view from the context the host gives (task 024).",
       "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFDevToolsController.swift: CEFDevToolsController.willOpen()",
+      "exports": [
+        "cmux_shim_devtools_set_placement"
+      ],
+      "needs": "kept",
+      "change": "In process only: the placement inside DEVTOOLS_WILL_OPEN, which the shim reads when the event returns. In host mode willOpen returns first (hostedWillOpen): the host made the DevTools already, in the place placeHosted gave it (task 024).",
+      "task": "p01-process-024"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFDevToolsController+Hosted.swift: CEFDevToolsController.placeHosted(in:browser:shim:)",
+      "exports": [
+        "cmux_shim_devtools_set_placement"
+      ],
+      "needs": "kept",
+      "change": "Host mode only: parent_view is the token of the DevTools ChromiumHostPageView, never a view pointer, sent before each command that may open DevTools. A DevTools nothing placed (an open the host started) opens undocked in the host and closes to open again placed (closeUnplaced, task 024).",
+      "task": "p01-process-024"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFDevToolsController+Hosted.swift: CEFDevToolsController.showHostedContext(of:)",
+      "exports": [
+        "cmux_shim_browser_set_layer_hosting"
+      ],
+      "needs": "reply",
+      "change": "Host mode only: the token form (sendAsync, whenAnswered with a deadline). The REPLY's context id of the DevTools page window shows in the DevTools ChromiumHostPageView; a reply after that DevTools closed shows nothing (task 024).",
+      "task": "p01-process-024"
     }
   ]
 }
