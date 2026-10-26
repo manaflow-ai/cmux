@@ -144,9 +144,16 @@ export function createAcpmuxDebug(
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
       if (fixture === "shared") {
-        // Kept once, so seeding "shared" twice still restores the live presence from before.
-        if (beforeShared === null) beforeShared = shownPresence.get();
-        shownPresence.set(host.sessionId?.(), SHARED_PRESENCE);
+        // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
+        // taken again once live presence or a switch displaced the fixture. The fixture's own
+        // faces over another chat are never a baseline.
+        const now = shownPresence.get();
+        const sessionId = host.sessionId?.();
+        const showing = now?.presence === SHARED_PRESENCE;
+        if (beforeShared === null || !showing || now?.sessionId !== sessionId) {
+          beforeShared = showing ? undefined : now;
+        }
+        shownPresence.set(sessionId, SHARED_PRESENCE);
       } else if (beforeShared !== null) {
         // Leaving the shared fixture: its made-up faces go, and the live presence from before
         // comes back unless the chat's own acpmux has set a newer one since.

@@ -57,3 +57,40 @@ test("seeding another fixture after the shared one restores the live presence fr
   await debug.seedRows(3, "short");
   expect(shownPresence.get()?.presence).toBe(newer);
 });
+
+test("a shared seed after live presence or a switch displaced the fixture restores the newer presence", async () => {
+  let rows: AcpmuxRow[] = [];
+  let session = "chat-a";
+  const debug = createAcpmuxDebug({
+    replaceRows: (next) => {
+      rows = next;
+      queueMicrotask(() => acpmuxPerf.commit(1, 0, [], performance.now()));
+    },
+    rowCount: () => rows.length,
+    sessionId: () => session,
+  });
+  const inA = { viewing: [{ id: "tailnet:a@example.com", name: "In A" }], typing: [] };
+  const inB = { viewing: [{ id: "tailnet:b@example.com", name: "In B" }], typing: [] };
+  shownPresence.set("chat-a", inA);
+  await debug.seedRows(0, "shared");
+  // A switch to chat B, whose acpmux sends its presence, then the fixture again over B.
+  session = "chat-b";
+  shownPresence.set("chat-b", inB);
+  await debug.seedRows(0, "shared");
+  expect(shownPresence.get()?.sessionId).toBe("chat-b");
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()).toEqual({ sessionId: "chat-b", presence: inB });
+  // A live update in one chat displaces the fixture; seeding again keeps the update as baseline.
+  await debug.seedRows(0, "shared");
+  const update = { viewing: [], typing: [] };
+  shownPresence.set("chat-b", update);
+  await debug.seedRows(0, "shared");
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()?.presence).toBe(update);
+  // A switch with no presence yet: the fixture's faces over chat B are not chat C's baseline.
+  await debug.seedRows(0, "shared");
+  session = "chat-c";
+  await debug.seedRows(0, "shared");
+  await debug.seedRows(3, "short");
+  expect(shownPresence.get()).toBeUndefined();
+});
