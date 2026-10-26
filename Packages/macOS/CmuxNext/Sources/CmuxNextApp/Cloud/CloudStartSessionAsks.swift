@@ -21,6 +21,8 @@ final class CloudStartSessionAsks {
         var asked: CloudStartSessionStrings.Asked
         /// The ask's wait for the person's answer; nil once they clicked Start.
         var answer: AsyncStream<Answer>.Continuation?
+        /// Its account ended (``endAll()``) while it asked: a Start already sent is void.
+        var ended = false
     }
 
     /// The ask that owns each chat's card, by tab.
@@ -73,11 +75,14 @@ final class CloudStartSessionAsks {
             answer = value
             break
         }
-        guard let answer else {
+        guard var answer else {
             // The run was cancelled (its account ended, ``CloudStartSessionRuns/forgetAll()``).
             finish(tab: tab, token: token, failure: nil)
             throw CancellationError()
         }
+        // A Start that came before the account ended, with this ask not yet resumed: the stream
+        // keeps the first answer, so the end is read from the ask and the account itself.
+        if case .start = answer, open[tab]?.token != token || open[tab]?.ended == true || now() != account { answer = .accountChanged }
         switch answer {
         case .start:
             return token
@@ -118,9 +123,10 @@ final class CloudStartSessionAsks {
         // A snapshot: ``finish`` removes entries as it goes.
         for (tab, ask) in Array(open) {
             if let answer = ask.answer {
+                open[tab]?.ended = true
                 answer.yield(.accountChanged)
             } else {
-                finish(tab: tab, token: ask.token, failure: CloudStartSessionStrings.accountChanged(ask.asked))
+                finish(tab: tab, token: ask.token, failure: CloudStartSessionStrings.accountChangedWhileStarting(ask.asked))
             }
         }
     }
@@ -177,6 +183,9 @@ final class CloudStartSessionRuns {
         /// gets if the run is forgotten first, or removes itself at its own deadline.
         var waiters: [UUID: (end: AsyncStream<Outcome?>.Continuation, forgotten: any Error)] = [:]
         var outcome: Outcome?
+        /// Forgotten (``forgetAll()``): a caller whose deadline fired first gets its `forgotten`
+        /// failure all the same, never `pending`.
+        var forgotten = false
         /// When it ended with nobody waiting (kept for the next same ask).
         var kept: ContinuousClock.Instant?
     }
@@ -238,10 +247,13 @@ final class CloudStartSessionRuns {
             ended = value
             break
         }
-        // An end that came as the deadline did (before this caller resumed) still reaches it: the
-        // caller gets the end instead of pending, and the run counts as seen (``take`` drops it,
-        // since this caller was still registered when it ended).
-        if let outcome = ended ?? run.outcome { return try outcome.get() }
+        if let ended { return try ended.get() }
+        // The stream keeps the first value: a forget or an end that came after the deadline did,
+        // before this caller resumed, is read from the run. The forget wins (the run was cancelled);
+        // an end reaches the caller instead of pending, and the run counts as seen (``take`` drops
+        // it, since this caller was still registered when it ended).
+        if run.forgotten { throw forgotten }
+        if let outcome = run.outcome { return try outcome.get() }
         return pending
     }
 
@@ -249,6 +261,7 @@ final class CloudStartSessionRuns {
     /// failure now, every run and creation is cancelled, and none is kept or joined after.
     func forgetAll() {
         for run in runs.values {
+            run.forgotten = true
             for waiter in run.waiters.values { waiter.end.yield(.failure(waiter.forgotten)) }
             run.waiters = [:]
             run.task?.cancel()

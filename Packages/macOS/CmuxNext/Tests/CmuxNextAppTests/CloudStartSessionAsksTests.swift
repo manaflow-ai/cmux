@@ -144,8 +144,23 @@ struct CloudStartSessionAsksTests {
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(Self.asked))) { _ = try await asking.value }
         #expect(cards.shown["chat-6"] == nil)
         #expect(cards.shown["chat-5"]?.first?.state == .failed)
-        #expect(cards.shown["chat-5"]?.first?.text == CloudStartSessionStrings.accountChanged(Self.asked))
+        #expect(cards.shown["chat-5"]?.first?.text == CloudStartSessionStrings.accountChangedWhileStarting(Self.asked))
         #expect(asks.owner(of: "chat-5") == nil && asks.owner(of: "chat-6") == nil)
+    }
+
+    /// A Start clicked just before the account ended, with the ask not yet resumed, starts
+    /// nothing: the ask refuses as an account change and the card goes.
+    @Test func aStartJustBeforeTheAccountEndedIsVoid() async throws {
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let ask = Self.ask(asks, "chat-7")
+        await cards.shownIn("chat-7")
+        // Both in one main-actor turn: the Start is the stream's first answer.
+        cards.click("chat-7", "start")
+        asks.endAll()
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(Self.asked))) { _ = try await ask.value }
+        #expect(cards.shown["chat-7"] == nil)
+        #expect(asks.owner(of: "chat-7") == nil)
     }
 
     // MARK: A run that outlasts its caller's answer
@@ -207,6 +222,26 @@ struct CloudStartSessionAsksTests {
         // The same ask after starts afresh.
         runs.sleep = Self.waits
         #expect(try await Self.answer(runs) { ["session_id": .string("new")] }["session_id"] == .string("new"))
+    }
+
+    /// A forget that lands after the caller's deadline fired, before the caller resumed, still
+    /// refuses that caller: never `pending` for a run its account ended.
+    @Test func aForgetAfterTheDeadlineStillRefusesTheCaller() async throws {
+        let runs = CloudStartSessionRuns()
+        // The forget is queued on the main actor before the deadline's own answer.
+        runs.sleep = { [runs] _ in
+            // task-owner: one-shot test step, ends at once
+            Task { @MainActor in runs.forgetAll() }
+        }
+        let (never, keep) = AsyncStream<Void>.makeStream()
+        defer { keep.finish() }
+        await #expect(throws: Self.forgotten) {
+            _ = try await Self.answer(runs, within: .seconds(1)) {
+                for await _ in never { break }
+                return ["session_id": .string("late")]
+            }
+        }
+        #expect(runs.count == 0)
     }
 
     /// An end that lands as the caller's deadline fires reaches that caller (not pending), and the
