@@ -225,7 +225,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
             return
         }
         guard !ticker.isScheduled else { return }
-        ticker.schedule(after: delay) { @MainActor [weak self] in self?.tickShownCard() }
+        ticker.scheduleOnMain(after: delay) { [weak self] in self?.tickShownCard() }
     }
 
     private func tickShownCard() {

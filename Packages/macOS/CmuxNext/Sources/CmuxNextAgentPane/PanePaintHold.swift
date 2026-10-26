@@ -62,7 +62,7 @@ public final class PanePaintHold {
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: Self.limit) { [weak self] in
             self?.end(token)
         }
     }

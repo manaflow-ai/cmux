@@ -247,7 +247,7 @@ public final class ChatOpenTrace {
     public func waitUntilShown(timeout: Duration) async -> Bool {
         if chatShown { return true }
         let deadline = DemandTimer(owner: "chatOpenTrace.wait")
-        deadline.schedule(after: timeout) { @MainActor [weak self] in self?.resume() }
+        deadline.scheduleOnMain(after: timeout) { [weak self] in self?.resume() }
         await withCheckedContinuation { waiter = $0 }
         deadline.cancel()
         return chatShown
@@ -257,7 +257,7 @@ public final class ChatOpenTrace {
     public func settle(for duration: Duration) async {
         let timer = DemandTimer(owner: "chatOpenTrace.settle")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            timer.schedule(after: duration) { @MainActor in done.resume() }
+            timer.scheduleOnMain(after: duration) { done.resume() }
         }
         withExtendedLifetime(timer) {}
     }

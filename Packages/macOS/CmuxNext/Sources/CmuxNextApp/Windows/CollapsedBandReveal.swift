@@ -96,7 +96,7 @@ final class CollapsedBandReveal {
             closeTimer.cancel()
             if sidebarHidden, !isOpen { open() }
         } else if isOpen {
-            closeTimer.scheduleIfIdle(after: Self.closeDelay) { @MainActor [weak self] in
+            closeTimer.scheduleOnMainIfIdle(after: Self.closeDelay) { [weak self] in
                 guard let self, !engaged, isOpen else { return }
                 close()
             }

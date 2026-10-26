@@ -325,7 +325,7 @@ public final class HoverCardCoordinator {
     private func run(_ effect: HoverCardEffect) {
         switch effect {
         case .schedule(let token, let delay):
-            timer.schedule(after: delay) { @MainActor [weak self] in
+            timer.scheduleOnMain(after: delay) { [weak self] in
                 guard let self else { return }
                 send(.pointerOnCard(pointerIsOnCard()))
                 send(.deadline(token: token))

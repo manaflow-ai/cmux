@@ -78,7 +78,7 @@ public final class AgentPaneLoadingView: NSView {
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
     /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
+        markTimer.scheduleOnMain(after: Self.markDelay) { [weak self] in
             guard let self else { return }
             addSubview(indicator)
         }
@@ -93,7 +93,7 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     private func schedulePaintCheck() {
-        paintTimer.schedule(after: paintCheckInterval) { @MainActor [weak self] in self?.checkPaint() }
+        paintTimer.scheduleOnMain(after: paintCheckInterval) { [weak self] in self?.checkPaint() }
     }
 
     private func checkPaint() {

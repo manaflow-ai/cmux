@@ -49,7 +49,7 @@ final class SurfaceInvariantMonitor {
     /// A pane showed, hid, moved or released content.
     func noteChange() {
         #if DEBUG
-        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.check() }
+        settle.scheduleOnMain(after: Self.settleDelay) { [weak self] in self?.check() }
         #endif
     }
 

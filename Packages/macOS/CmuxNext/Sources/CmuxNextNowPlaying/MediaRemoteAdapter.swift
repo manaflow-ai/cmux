@@ -193,7 +193,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         guard onUpdate != nil else { return }
         quickExits = seconds < Self.quickExit ? quickExits + 1 : 0
         guard quickExits <= Self.maximumQuickExits else { return }
-        restart.schedule(after: .seconds(1 << min(quickExits, 6))) { @MainActor [weak self] in self?.launch() }
+        restart.scheduleOnMain(after: .seconds(1 << min(quickExits, 6))) { [weak self] in self?.launch() }
     }
 }
 

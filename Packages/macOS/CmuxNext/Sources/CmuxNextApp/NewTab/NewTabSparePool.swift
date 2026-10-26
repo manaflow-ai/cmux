@@ -219,7 +219,7 @@ final class NewTabSparePool {
         guard let window, window === target, let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
         guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
-        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+        fitTimer.scheduleOnMain(after: Self.fitSettle) { [weak self] in self?.fitParked() }
     }
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
@@ -328,7 +328,7 @@ final class NewTabSparePool {
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? .milliseconds(250) : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.scheduleOnMain(after: launch ? .milliseconds(250) : Self.idleInput) { [weak self] in self?.warmNow() }
     }
 
     /// A recycled spare not yet back in the window.
