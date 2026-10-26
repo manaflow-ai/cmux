@@ -1,4 +1,4 @@
-import CmuxNextFeatures
+@testable import CmuxNextFeatures
 import Testing
 
 /// A launch's features as hang reports and Sentry carry them (p12-perf-process-151): the hash of every
@@ -19,18 +19,18 @@ struct FeatureFieldStateTests {
         FeatureList(registry: registry, channel: .nightly, overrides: overrides)
     }
 
-    /// The hash is SHA-256 over the sorted `name=on|off` lines (python3: hashlib.sha256(b"killThing=on\n
-    /// labsThing=off\nperfThing=on\n").hexdigest()[:16]), so field.py and a bench result name the same arm.
+    /// The hash is 64-bit FNV-1a over the sorted `name=on|off` lines (offset basis 0xcbf29ce484222325, prime
+    /// 0x100000001b3, the bytes of "killThing=on\nlabsThing=off\nperfThing=on\n"), so any reader can recompute it.
     @Test func theHashIsTheValueOfEveryFeatureInNameOrder() {
         let state = Self.list().fieldState
-        #expect(state.hash == "83e09a110533cd76")
+        #expect(state.hash == "5051faf05b4f8ec6")
         #expect(state.hash.count == FeatureFieldState.hashLength)
         #expect(state.nonDefault.isEmpty)
     }
 
     @Test func anOverrideIsListedWithItsStateAndSourceAndChangesTheHashOnlyWithTheValue() {
         let state = Self.list(FeatureOverrides(environmentEnabled: ["labsThing"], remote: ["killThing": true])).fieldState
-        #expect(state.hash == "363b2a8f1f789985")
+        #expect(state.hash == "d88b099507379aca")
         #expect(state.nonDefault == [
             FeatureFieldState.Entry(name: "killThing", isEnabled: true, source: .remote),
             FeatureFieldState.Entry(name: "labsThing", isEnabled: true, source: .environment),
@@ -42,7 +42,7 @@ struct FeatureFieldStateTests {
 
     @Test func aPolicyOffIsAnOverride() {
         let state = Self.list(FeatureOverrides(policyDisabled: ["killThing"])).fieldState
-        #expect(state.hash == "895704b9f2500081")
+        #expect(state.hash == "632bcd2a8ba9d39a")
         #expect(state.nonDefault.map(\.description) == ["killThing=off@policy"])
     }
 
@@ -53,5 +53,10 @@ struct FeatureFieldStateTests {
             Self.feature(2, "killThing", FeatureDefaults(all: true)),
         ])
         #expect(FeatureList(registry: reordered, channel: .nightly).fieldState == Self.list().fieldState)
+    }
+
+    @Test func aSmallHashKeepsItsLeadingZeros() {
+        #expect(FeatureFieldState.hex(0xab) == "00000000000000ab")
+        #expect(FeatureFieldState.hex(.max) == "ffffffffffffffff")
     }
 }

@@ -1,6 +1,3 @@
-import CryptoKit
-import Foundation
-
 /// A launch's features as field data carries them (p12-perf-process.md section 3.9, "Field"): a hash of
 /// every feature's value, and the features an input other than the channel default decided. Chrome
 /// gives crash reports and UMA logs the active field-trial groups the same way, as hashed names plus
@@ -33,9 +30,10 @@ public nonisolated struct FeatureFieldState: Sendable, Equatable {
     /// The number of hex digits of ``hash``.
     public static let hashLength = 16
 
-    /// The first ``hashLength`` hex digits of SHA-256 over `name=on|off` lines of every feature, sorted
-    /// by name: the value of every feature, so a default flip changes it while the overrides stay the same.
-    /// The source is left out: one arm is what runs, whichever input chose it.
+    /// 64-bit FNV-1a over the `name=on|off\n` lines of every feature sorted by name, as 16 lowercase hex
+    /// digits: the value of every feature, so a default flip changes it while the overrides stay the same.
+    /// The source is left out: one arm is what runs, whichever input chose it. A label, not a secret, so
+    /// no CryptoKit in this core target (Chrome's `variations::HashName` is a truncated SHA-1 for the same use).
     public let hash: String
     /// The features whose source is not the channel default, sorted by name.
     public let nonDefault: [Entry]
@@ -44,11 +42,26 @@ public nonisolated struct FeatureFieldState: Sendable, Equatable {
     public init(_ entries: [(feature: Feature, resolution: Feature.Resolution)]) {
         let sorted = entries.sorted { $0.feature.name < $1.feature.name }
         let lines = sorted.map { "\($0.feature.name)=\($0.resolution.isEnabled ? "on" : "off")\n" }.joined()
-        hash = SHA256.hash(data: Data(lines.utf8)).prefix(Self.hashLength / 2).map { String(format: "%02x", $0) }.joined()
+        hash = Self.hex(Self.fnv1a(lines))
         nonDefault = sorted.compactMap { entry in
             entry.resolution.source == .channelDefault ? nil
                 : Entry(name: entry.feature.name, isEnabled: entry.resolution.isEnabled, source: entry.resolution.source)
         }
+    }
+
+    /// 64-bit FNV-1a of `text`'s UTF-8 bytes.
+    static func fnv1a(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        return hash
+    }
+
+    /// `value` as ``hashLength`` lowercase hex digits.
+    static func hex(_ value: UInt64) -> String {
+        let digits = String(value, radix: 16)
+        return String(repeating: "0", count: hashLength - digits.count) + digits
     }
 }
 

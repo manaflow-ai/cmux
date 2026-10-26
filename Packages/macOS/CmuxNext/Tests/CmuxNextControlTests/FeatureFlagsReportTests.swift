@@ -36,6 +36,7 @@ struct FeatureFlagsReportTests {
         let report = FeatureFlagsReport(features: Self.list(.nightly)).json
         #expect(report["channel"] == .string("nightly"))
         #expect(report["unknown_names"] == .array([.string("noSuchThing")]))
+        #expect(report["features_hash"] == .string(Self.list(.nightly).fieldState.hash))
         let rows = try #require(report["features"]?.arrayValue)
         #expect(rows.map { $0["name"]?.stringValue } == ["perfThing", "killThing", "labsThing"])
         #expect(rows.map { $0["source"]?.stringValue } == ["remote", "policy", "env"])

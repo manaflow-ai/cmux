@@ -48,7 +48,9 @@ public struct FeatureFlagsReport: Sendable {
         return ControlMethod.snapshot(Self.methodName) { _ in report.json }.readingLastPublished()
     }
 
-    /// `{channel, local_overrides, safe_mode, unknown_names, features: [...]}`.
+    /// `{channel, local_overrides, safe_mode, unknown_names, features_hash, features: [...]}`. `features_hash` is
+    /// ``FeatureFieldState/hash`` of the values below, the arm hang reports and Sentry name (a perf-lab result's
+    /// `features_hash`).
     /// A feature's `state` is `on` or `off` (`enabled` the same as a bool),
     /// `source` is ``Feature/Source``'s wire name (`policy`, `env`, `local`,
     /// `remote`, `trial`, `default`) and `default` its channel default, so a
@@ -56,11 +58,13 @@ public struct FeatureFlagsReport: Sendable {
     /// Labs and Debug toggles apply on this channel (DEV and NIGHTLY only).
     public var json: JSONValue {
         let channel = features.channel
+        let entries = entries
         return .object([
             "channel": .string(channel.rawValue),
             "local_overrides": .bool(channel.allowsLocalOverrides),
             "safe_mode": safeMode.map(Self.safeModeJSON) ?? .null,
             "unknown_names": .array(features.unknownNames.map(JSONValue.string)),
+            "features_hash": .string(FeatureFieldState(entries).hash),
             "features": .array(entries.map { Self.row($0.feature, $0.resolution, channel: channel) }),
         ])
     }
