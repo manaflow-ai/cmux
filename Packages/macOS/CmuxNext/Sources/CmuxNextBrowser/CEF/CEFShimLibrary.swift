@@ -58,6 +58,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let doWork: @convention(c) () -> Void
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same window whose first tab has no renderer and never navigates (the spare window's
+    /// placeholder, fork `CMUX_EXTRA_INFO_NO_RENDERER`); 0 when `placeholderSupported` is 0.
+    let createPlaceholderWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    /// 1 when the fork makes renderer-less placeholders (`cmux_tab_renderer_state`, p13-webui-017).
+    let placeholderSupported: @convention(c) () -> Int32
     let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let tabDuplicate: @convention(c) (Int32, Int32, Int32) -> Int32
     let tabActivate: @convention(c) (Int32) -> Int32
@@ -346,6 +351,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
+        createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
+        placeholderSupported = try r("cmux_shim_placeholder_supported")
         tabAdd = try r("cmux_shim_tab_add")
         tabDuplicate = try r("cmux_shim_tab_duplicate")
         tabActivate = try r("cmux_shim_tab_activate")

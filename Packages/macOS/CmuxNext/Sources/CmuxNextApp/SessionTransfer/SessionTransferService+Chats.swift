@@ -71,7 +71,7 @@ extension SessionTransferService {
             throw Failure.chatInChats
         }
         guard result.status == 0 else { throw Self.acpmuxFailure(result.stderr, status: result.status) }
-        let moved = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any]
+        let moved = try? JSONSerialization.blockingJSONObject(with: result.stdout) as? [String: Any]
         return moved?["sessionId"] as? String ?? session
     }
 
@@ -99,7 +99,7 @@ extension SessionTransferService {
         guard let result = try? await ProcessRunner.run(executable: environment.executable, arguments: ["--json", "info", session],
                                                         environment: variables, timeout: .seconds(10), clock: ContinuousClock()),
               result.status == 0,
-              let info = try? JSONSerialization.jsonObject(with: result.stdout) as? [String: Any] else { return false }
+              let info = try? JSONSerialization.blockingJSONObject(with: result.stdout) as? [String: Any] else { return false }
         return info["status"] as? String != "closed"
     }
 
@@ -108,7 +108,7 @@ extension SessionTransferService {
     private nonisolated static func acpmuxFailure(_ stderr: Data, status: Int32) -> Failure {
         let text = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let last = text.split(separator: "\n").last.map(String.init) ?? ""
-        let line = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: Any]
+        let line = try? JSONSerialization.blockingJSONObject(with: Data(last.utf8)) as? [String: Any]
         let error = line?["error"] as? [String: Any]
         if error?["detail"] as? String == "cwd_missing", let folder = (error?["data"] as? [String: Any])?["cwd"] as? String {
             return .chatFolderMissing(folder)

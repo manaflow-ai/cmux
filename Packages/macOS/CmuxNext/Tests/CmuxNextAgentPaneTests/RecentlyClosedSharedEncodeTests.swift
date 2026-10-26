@@ -1,3 +1,4 @@
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -24,19 +25,14 @@ struct RecentlyClosedSharedEncodeTests {
                             icon: "data:image/png;base64," + String(repeating: "A", count: 4096), isAvailable: true)
     }
 
-    private static func page() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "closed-encode-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
-        return file
-    }
-
     @Test(arguments: [1, 8, 24])
     func oneChangeEncodesTheListOnceForAnyNumberOfPages(pages: Int) throws {
-        let file = try Self.page()
-        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let views = try (0..<pages).map { _ in try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file))) }
+        let file = try #require(AgentPageTestRoot.page)
+        let host = WebUIHost.agentPaneTestHost()
+        let views = try (0..<pages).map { _ in
+            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host, gestures: .testing()))
+        }
+        defer { for view in views { view.close() } }
 
         let counter = Counter()
         let list = AgentPaneClosedList(Self.items) { item in
@@ -57,7 +53,6 @@ struct RecentlyClosedSharedEncodeTests {
     @Test func thePayloadMatchesThePerItemEncoding() {
         let list = AgentPaneClosedList(Self.items)
         #expect(list.event == AgentPageEvent(kind: "recentlyClosed", value: .array(Self.items.map(\.json))))
-        #expect(list.script == "window.cmuxAcpmuxBridge?.applyRecentlyClosed?.(\(list.event.value.compactText));")
         #expect(AgentPaneClosedList(Self.items + Self.items).items.count == AgentPaneClosedItem.maximumPushed)
     }
 }

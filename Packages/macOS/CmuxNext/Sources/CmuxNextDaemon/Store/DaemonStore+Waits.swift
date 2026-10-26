@@ -50,6 +50,26 @@ extension DaemonStore {
         }
     }
 
+    /// Returns true once ``connectionEpoch`` is no longer `epoch` (a connect, a drop or a shutdown applied; at once
+    /// when it already moved), or false when the task was cancelled. Resumed by the connection change itself: the
+    /// oracle's settle waits on it for a daemon that is not connected yet, then runs its sync barrier again.
+    ///
+    /// - Parameter epoch: The ``connectionEpoch`` the caller found unusable.
+    public func waitConnectionChange(since epoch: Int) async -> Bool {
+        if connectionEpoch != epoch { return true }
+        let id = sequenceWaiters.makeID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                if Task.isCancelled { return continuation.resume(returning: false) }
+                if connectionEpoch != epoch { return continuation.resume(returning: true) }
+                sequenceWaiters.addConnection(id, epoch: epoch, continuation)
+            }
+        } onCancel: {
+            // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
+            Task { @MainActor in self.sequenceWaiters.cancel(id) }
+        }
+    }
+
     /// The daemon half of `debug.oracle.settle` (p15-oracle-031 adds the snapshot barrier, MotionClock idle, one
     /// CommitBoundary and the deadline, which cancels this task): the store applied every event up to `sequence`
     /// (the sync barrier's; nil: none), then no intent is pending.
@@ -78,6 +98,11 @@ extension DaemonStore {
         for (continuation, result) in sequenceWaiters.takeDueApplied(appliedSequence: appliedSequence, epoch: connectionEpoch) {
             continuation.resume(returning: result)
         }
+    }
+
+    /// Resumes the connection waits once the epoch moved.
+    func resumeConnectionWaits() {
+        for continuation in sequenceWaiters.takeChangedConnection(epoch: connectionEpoch) { continuation.resume(returning: true) }
     }
 
     /// The connection's event stream ended: no event reaches the applied waits still parked.

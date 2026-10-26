@@ -114,14 +114,14 @@ extension PageWebView {
             #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.browserCreated)
             #endif
-            await self.attachChromium(page, scripts: scripts)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
-        let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
+        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {

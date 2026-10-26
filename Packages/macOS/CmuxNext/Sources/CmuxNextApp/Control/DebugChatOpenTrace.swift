@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -90,7 +91,7 @@ enum DebugChatOpenTrace {
             });
             """
         guard let text = try? await view.callPageScript(script) as? String,
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+              let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8)),
               let value = JSON(foundation: object) else { return .null }
         return value
     }

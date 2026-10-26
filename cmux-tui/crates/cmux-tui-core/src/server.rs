@@ -294,8 +294,7 @@ mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
-use capabilities::advertised_capabilities;
-use capabilities::identify_capabilities;
+use capabilities::{advertised_capabilities, identify_capabilities};
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";

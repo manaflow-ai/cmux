@@ -67,7 +67,6 @@ UNMIGRATED_BOOL_TUNABLES = (
     "sidebar.*slideHoldsContent",
     "hibernation.compressedSnapshots",
     "hostPressure.enabled",
-    "agent.pageHost",
     "agent.chromium",
 )
 UNMIGRATED_ENV_SWITCHES = ("CMUX_TUI_TERMINAL_HOST_MODEL",)

@@ -6,24 +6,21 @@ import Foundation
 
 /// The agent tabs' pane page and acpmux host (outside AgentTabStore, which is at its size limit).
 @MainActor struct AgentTabPaneSource {
-    /// The agent pane page and its acpmux host. Release loads only the
-    /// bundled page; the dev server is for Debug and tagged builds
-    /// (webviews/src/agent-session/acpmux/README.md). The page never opens a
-    /// socket to acpmux: the host does (AgentPaneTransport), always with the
-    /// bundled pane's origin, so even a dev server page reaches LocalApp and
-    /// the app starts the daemon with no dev origin and no `--dev`
+    /// The agent pane page (the bundled `index.html`; in Debug builds, and so in tests, the
+    /// directory ``AgentPaneSource/rootVariable`` names) and its acpmux host. The page never
+    /// opens a socket to acpmux: the host does (AgentPaneTransport), so the app starts the daemon
+    /// with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
     /// browser dev slot, with no host, still needs both (dev-slot.sh).
     static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
-        let allowsDevServer = true
+        let allowsRootOverride = true
         #else
-        let allowsDevServer = false
+        let allowsRootOverride = false
         #endif
-        let source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
+        let source = AgentPaneSource.resolve(environment: environment, bundledPage: AgentPaneView.bundledPage,
+                                             allowsRootOverride: allowsRootOverride)
         if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             return (source, MockAgentPaneHost())
         }

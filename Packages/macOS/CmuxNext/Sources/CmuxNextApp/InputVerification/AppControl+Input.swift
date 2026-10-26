@@ -48,9 +48,9 @@ extension AppControl {
                 return .value(DebugTabDrag.report(services: services))
             },
         ])
-        // The refactor oracle's `debug.oracle.*` over the app's one facet list (AppServices+OracleHost) and the
-        // router's topology.
-        if let router = service?.router { router.register(OracleControl(host: services, snapshots: router.snapshots).methods) }
+        // The refactor oracle's `debug.oracle.*` over the app's one facet list (AppServices+OracleHost), the
+        // router's topology and the app's turn recorder.
+        if let router = service?.router { router.register(services.oracleControlMethods(snapshots: router.snapshots)) }
         #endif
     }
 

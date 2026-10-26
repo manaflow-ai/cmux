@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 public import Observation
@@ -139,7 +140,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String] else { return [] }
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
         return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
     }
     /// URL of the last main-frame load that committed (Chromium's current
@@ -230,6 +231,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        // A spare's renderer-less placeholder never loads or shows: no page to set up, no DevTools call.
+        if isRendererlessPlaceholder { return }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil
@@ -245,7 +248,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
+        if host.quietsPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if

@@ -191,6 +191,7 @@ export class MockSettingsProvider {
       "cmux.settings.reset_all": (params) => this.keyed(params, () => this.resetAll()),
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
+      "cmux.settings.editing": () => ({}),
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
@@ -468,6 +469,7 @@ export class MockSettingsProvider {
     const native = new Set([
       "cmux.settings.preview",
       "cmux.settings.preview.end",
+      "cmux.settings.editing",
       "cmux.settings.sound.play",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",

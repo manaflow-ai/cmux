@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextRemote
 import Foundation
 
@@ -27,7 +28,7 @@ extension SSHService {
                 commandLine.command(host, "\(binary) acp --json daemon start --person-key-fd 0"),
                 input: .writer { descriptor in key.writeLine(to: descriptor) }, environment: environment,
                 deadline: .seconds(60), label: "acpmux keyed start \(host.destination)")
-            let status = (try? JSONSerialization.jsonObject(with: Data(started.stdout.utf8))) as? [String: Any]
+            let status = (try? JSONSerialization.blockingJSONObject(with: Data(started.stdout.utf8))) as? [String: Any]
             guard started.status == 0, status?["personKey"] as? Bool == true,
                   let instance = status?["personInstance"] as? String else {
                 return .daemonTookNoKey(Self.lastLine(started.stderr))

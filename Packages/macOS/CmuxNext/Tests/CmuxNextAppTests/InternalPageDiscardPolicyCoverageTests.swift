@@ -1,477 +1,299 @@
+import AppKit
+@testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHibernation
+import CmuxNextPages
+import CmuxNextResources
+@testable import CmuxNextSettings
 import Foundation
+import SwiftUI
 import Testing
 
-/// p07-memory-029 (p07-memory.md DC4; queues MQ-PAGES, MQ-CONTENT, MQ-BROWSERTAB): every kind of
-/// content a tab shows says when its hidden copy may go, so the `memoryDiscard*` features can
-/// release all a person cannot see. Chrome decides every tab's discard eligibility in one place
-/// (chrome/browser/performance_manager/policies/discard_eligibility_policy.cc); cmux's kinds
-/// declare theirs in code, and this suite fails for one that does not:
-/// - an internal page provider that neither implements `discardPolicy(for:)` nor says
-///   `// discard: default <why>`. Every `InternalPageID` shows through a provider (the page store
-///   keeps one per page), so this covers every page. A `WebPageTab(...)` call without a policy
-///   argument takes WebPageTab's default and needs the same comment;
-/// - a `TabContent` case with no row in ``tabContentKinds``;
-/// - a `BrowserTab` other than the mock, hibernated and deferred tabs that is not a
-///   `BrowserHibernationSource` and does not say `// discard: never <why>`.
-@Suite struct InternalPageDiscardPolicyCoverageTests {
-    /// What a `TabContent` case is to the discard planner: a ``ContentKind``, or never discarded.
-    enum ContentDiscard: Hashable, Sendable {
-        case kind(ContentKind)
-        case never(why: String)
-    }
+/// Page policies, batch 1 (`memoryDiscardInternalPages`, p07-memory-024): Settings, Debug Settings,
+/// Keyboard Shortcuts, the changelog (What's New), Stats and the Task Manager each declare when a
+/// hidden tab's view may go, what keeps it, and what the view built again shows. Every test calls
+/// the provider methods the tab store calls (InternalPageTabStore+Show).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
+struct InternalPageDiscardPolicyCoverageTests {
+    static let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// Every `TabContent` case (MQ-CONTENT), by name. A new case needs a row.
-    static let tabContentKinds: [String: ContentDiscard] = [
-        "terminal": .kind(.terminalSurface),
-        "browser": .kind(.browser),
-        "agent": .kind(.agentPage),
-        "page": .kind(.internalPage),
-        "conversation": .kind(.conversation),
-        "placeholder": .never(why: "tiny: a label over a remote terminal that is not attached; it has no surface"),
-        "notice": .never(why: "tiny: one line naming the Mac whose acpmux runs the chat; it has no page"),
+    /// Each page of the batch, the source that declares its policy, and the declaration there: a
+    /// provider's own `discardPolicy(for:)`, a `WebPageTab`'s `discardPolicy:` argument, or the
+    /// `// discard: default <why>` marker (p07-memory-029).
+    static let batchOne: [(page: InternalPageID, source: String, declaration: String)] = [
+        (.settings, "Sources/CmuxNextApp/Settings/SettingsWindowService.swift", "func discardPolicy(for key: String)"),
+        (.debugSettings, "Sources/CmuxNextApp/Settings/DebugSettingsService.swift", "func discardPolicy(for key: String)"),
+        (.keybindings, "Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift", "func discardPolicy(for key: String)"),
+        (.changelog, "Sources/CmuxNextApp/Pages/ChangelogPageTab.swift", "func discardPolicy(for key: String)"),
+        (.stats, "Sources/CmuxNextApp/Pages/StatsPage.swift", "discardPolicy: ."),
+        (.taskManager, "Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift", "func discardPolicy(for key: String)"),
     ]
 
-    /// The page providers on the default policy (never discarded) that cannot carry the source
-    /// comment, with why. An app's own page is made by the app: no task gave its scene a policy.
-    static let pagesOnDefault: [String: String] = [
-        "AppPanePage": "an app's scene keeps its state in its mount; the apps protocol saves and restores no scene yet",
-    ]
-
-    /// The `BrowserTab`s that are never discarded by design: the test engine's tab, the
-    /// hibernated tab (the discarded form itself) and the deferred tab (nothing loaded yet).
-    static let browserTabsWithoutDiscard: Set<String> = ["MockBrowserTab", "HibernatedBrowserTab", "DeferredBrowserTab"]
-
-    /// The package's `Sources`, from this file's path.
-    static var sources: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources")
+    static func services() -> AppServices {
+        let services = TaskManagerActionTests.services()
+        ChangelogPageTab.register(services)
+        return services
     }
 
-    /// The sources, read once for the suite.
-    static let corpus = DiscardCoverageScan.loading(sources)
-
-    private static func scanned() throws -> DiscardCoverageScan {
-        let corpus = Self.corpus
-        try #require(corpus.loadError == nil, "\(corpus.loadError ?? "")")
-        try #require(corpus.fileCount > 100, "read only \(corpus.fileCount) Swift files under \(sources.path)")
-        return corpus
+    /// Services with a settings owner over an empty cmux.json, as the app has once it loads.
+    static func servicesWithSettings() async throws -> AppServices {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-page-discard-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let services = Self.services()
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        services.settings = settings
+        await settings.reload()
+        return services
     }
 
-    // MARK: Internal pages (MQ-PAGES)
-
-    @Test func everyInternalPageProviderDeclaresItsDiscardPolicy() throws {
-        let corpus = try Self.scanned()
-        let providers = corpus.conformers(to: "InternalPageProvider")
-        let names = Set(providers.map(\.name))
-        #expect(names.isSuperset(of: ["DebugHomeNativeFixture", "WebPageTab", "SettingsWindowService", "AppsService"]),
-                "the scan finds the page providers; it found \(names.sorted())")
-        let missing = providers.filter { Self.pagesOnDefault[$0.name] == nil && !corpus.declaresPagePolicy($0.name) }
-            .map { "\($0.file):\($0.line): \($0.name)" }
-        #expect(missing.isEmpty, """
-        These internal pages are on the default policy (never discarded) without saying why. \
-        Implement discardPolicy(for:) (with keepReasons, saveViewState and viewDiscarded as the \
-        page needs), or write `// discard: default <why>` on the provider:
-        \(missing.joined(separator: "\n"))
-        """)
+    /// Calls page op `op` on `page` as the page's script does (one `call` envelope to its router).
+    static func call(_ page: PageWebView, _ op: String, _ params: JSONValue = .object([:])) async -> JSONValue {
+        await page.router.handle(["t": "call", "id": 1, "op": .string(op), "params": params])
     }
 
-    @Test func everyWebPageTabIsMadeWithAPolicy() throws {
-        let corpus = try Self.scanned()
-        try #require(corpus.webPageTabCalls.count >= 4, "the scan finds the WebPageTab pages (Stats, Chief Usage, CodeRouter)")
-        let missing = corpus.webPageTabCalls.filter { !$0.passesPolicy && !corpus.chunk($0.chunk, has: "default") }
-            .map { "\($0.file):\($0.line)" }
-        #expect(missing.isEmpty, """
-        These WebPageTab pages take WebPageTab's default policy without choosing it. Pass the \
-        page's own policy, or write `// discard: default <why>` beside the call:
-        \(missing.joined(separator: "\n"))
-        """)
-    }
+    // MARK: Every page of the batch declares its policy
 
-    /// Two ids with one raw value are one page to the store (it keeps one provider per page): the
-    /// second provider, and its policy, would replace the first.
-    @Test func everyInternalPageIDNamesItsOwnPage() throws {
-        let corpus = try Self.scanned()
-        #expect(corpus.pageIDs.contains { $0.rawValue == "home-native-fixture" }, "the scan finds the page ids (MQ-PAGES)")
-        let literal = corpus.pageIDs.filter { $0.rawValue != nil }
-        let shared = Dictionary(grouping: literal) { $0.rawValue ?? "" }.filter { $0.value.count > 1 }
-            .map { raw, ids in "\(raw): " + ids.map { "\($0.file):\($0.line) \($0.name)" }.joined(separator: ", ") }
-        #expect(shared.isEmpty, "page ids share a raw value:\n\(shared.sorted().joined(separator: "\n"))")
-    }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    @MainActor @Test func theHomeFixtureIsNeverDiscarded() {
-        let fixture = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel())
-        #expect(fixture.discardPolicy(for: LocalPageTab.makeKey(.homeNativeFixture)) == .never)
-    }
-    #endif
-
-    // MARK: Tab content (MQ-CONTENT)
-
-    @Test func everyTabContentCaseMapsToADiscardKind() throws {
-        let text = try String(contentsOf: Self.sources.appendingPathComponent("CmuxNextApp/TabContent.swift"), encoding: .utf8)
-        let cases = DiscardCoverageScan.tabContentCases(in: text)
-        try #require(cases.count >= 7, "the scan finds TabContent's cases; it found \(cases)")
-        let unmapped = cases.filter { Self.tabContentKinds[$0] == nil }
-        #expect(unmapped.isEmpty, """
-        TabContent cases with no discard kind: \(unmapped). Map each to the ContentKind that \
-        discards it, or to never with why, in InternalPageDiscardPolicyCoverageTests.tabContentKinds.
-        """)
-        let gone = Set(Self.tabContentKinds.keys).subtracting(cases)
-        #expect(gone.isEmpty, "rows for TabContent cases that no longer exist: \(gone.sorted())")
-    }
-
-    // MARK: Browser tabs (MQ-BROWSERTAB)
-
-    @Test func everyBrowserTabCanBeDiscardedOrSaysWhyNot() throws {
-        let corpus = try Self.scanned()
-        let tabs = corpus.conformers(to: "BrowserTab")
-        let names = Set(tabs.map(\.name))
-        #expect(names.isSuperset(of: Self.browserTabsWithoutDiscard.union(["WebKitTab", "CEFTab"])),
-                "the scan finds the browser tabs; it found \(names.sorted())")
-        let missing = tabs.filter { !Self.browserTabsWithoutDiscard.contains($0.name) && !corpus.hibernates($0.name) }
-            .map { "\($0.file):\($0.line): \($0.name)" }
-        #expect(missing.isEmpty, """
-        These browser tabs keep their page while hidden at any pressure. Make the tab a \
-        BrowserHibernationSource (CmuxNextBrowser/Engine/BrowserHibernationSupport.swift), or write \
-        `// discard: never <why>` on it:
-        \(missing.joined(separator: "\n"))
-        """)
-    }
-
-    // MARK: The scanner
-
-    @Test func theScanReadsDeclarationsExtensionsAndMarkers() {
-        let source = """
-        import AppKit
-
-        /// A page.
-        // discard: default the page shows one fixed line
-        @MainActor
-        final class Marked: InternalPageProvider {
-            var page: InternalPageID { .settings }
-        }
-
-        @MainActor
-        final class Declared: NSObject, InternalPageProvider {}
-
-        extension Declared {
-            func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
-        }
-
-        final class Commented: InternalPageProvider {
-            // func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
-        }
-
-        final class Silent: InternalPageProvider {
-            // discard: default
-        }
-
-        enum Outer {
-            final class Inner: BrowserTab {} // discard: never a test tab that holds nothing
-        }
-
-        public final class Live: BrowserTab, BrowserOcclusionHosting {}
-        extension Live: BrowserHibernationSource {}
-
-        final class Bare: BrowserTab {}
-        protocol Refined: BrowserTab {}
-
-        let a = WebPageTab(.stats, symbol: "s", title: t,
-                           discardPolicy: .standard) { nil }
-        let b = WebPageTab(.chiefUsage, symbol: "s", title: t) { nil }
-        // let c = WebPageTab(.stats, symbol: "s", title: t) { nil }
-        """
-        var corpus = DiscardCoverageScan()
-        corpus.add(source, file: "Fixture.swift")
-
-        let pages = corpus.conformers(to: "InternalPageProvider")
-        #expect(pages.map(\.name) == ["Marked", "Declared", "Commented", "Silent"])
-        #expect(pages.map { corpus.declaresPagePolicy($0.name) } == [true, true, false, false])
-        #expect(pages.first?.line == 6)
-
-        let tabs = corpus.conformers(to: "BrowserTab")
-        #expect(tabs.map(\.name) == ["Inner", "Live", "Bare"])
-        #expect(tabs.map { corpus.hibernates($0.name) } == [true, true, false])
-
-        #expect(corpus.webPageTabCalls.map(\.line) == [35, 37])
-        #expect(corpus.webPageTabCalls.map(\.passesPolicy) == [true, false])
-    }
-
-    @Test func theScanFindsTabContentCasesInTheEnumOnly() {
-        let source = """
-        enum TabContent {
-            case terminal(TerminalEntry)
-            /// A doc line.
-            case page(InternalPageView)
-
-            var view: NSView {
-                switch self {
-                case .terminal(let entry): entry.view
-                }
-            }
-        }
-
-        enum Other {
-            case notTabContent(Int)
-        }
-        """
-        #expect(DiscardCoverageScan.tabContentCases(in: source) == ["terminal", "page"])
-    }
-}
-
-/// The package's Swift sources as a coverage rule reads them: type declarations with their
-/// conformances, each top-level declaration's text (the comment and attribute lines right above
-/// it through the line before the next one), the page ids and the `WebPageTab(...)` calls. Only
-/// files that mention one of ``tokens`` are parsed.
-struct DiscardCoverageScan: Sendable {
-    struct TypeDeclaration: Sendable {
-        let file: String
-        let line: Int
-        let keyword: String
-        let name: String
-        let inherits: [String]
-        /// The top-level declaration it is or sits in, an index into ``chunks``.
-        let chunk: Int
-    }
-
-    struct Chunk: Sendable {
-        /// Every line.
-        let text: String
-        /// The lines that are not comments.
-        let code: String
-    }
-
-    struct PageIDDeclaration: Sendable {
-        let file: String
-        let line: Int
-        let name: String
-        /// The literal raw value, nil when it is computed.
-        let rawValue: String?
-    }
-
-    struct WebPageTabCall: Sendable {
-        let file: String
-        let line: Int
-        let chunk: Int
-        /// The call passes a policy argument (`discardPolicy:`, `hiddenPolicy:`).
-        let passesPolicy: Bool
-    }
-
-    static let tokens = ["InternalPageProvider", "BrowserTab", "BrowserHibernationSource", "InternalPageID(", "WebPageTab(", "discard: "]
-    static let typeKeywords: Set<String> = ["class", "struct", "enum", "actor", "extension", "protocol"]
-    static let modifiers: Set<String> = ["public", "package", "internal", "private", "fileprivate", "final", "open",
-                                         "nonisolated", "indirect"]
-
-    var fileCount = 0
-    var loadError: String?
-    var types: [TypeDeclaration] = []
-    var chunks: [Chunk] = []
-    var pageIDs: [PageIDDeclaration] = []
-    var webPageTabCalls: [WebPageTabCall] = []
-
-    /// Reads every Swift file under `root`; a failure is kept in ``loadError``.
-    static func loading(_ root: URL) -> DiscardCoverageScan {
-        var corpus = DiscardCoverageScan()
-        let path = root.standardizedFileURL.path
-        guard let files = FileManager.default.enumerator(atPath: path) else {
-            corpus.loadError = "cannot list \(path)"
-            return corpus
-        }
-        do {
-            while let relative = files.nextObject() as? String {
-                guard relative.hasSuffix(".swift") else { continue }
-                let text = try String(contentsOfFile: path + "/" + relative, encoding: .utf8)
-                corpus.fileCount += 1
-                guard tokens.contains(where: { text.contains($0) }) else { continue }
-                corpus.add(text, file: relative)
-            }
-        } catch {
-            corpus.loadError = "\(error)"
-        }
-        return corpus
-    }
-
-    /// The types that list `protocolName` among their conformances (on the type or on an
-    /// extension), first declaration first; a protocol that refines it is not one.
-    func conformers(to protocolName: String) -> [TypeDeclaration] {
-        var seen: Set<String> = []
-        return types.filter { $0.keyword != "protocol" && $0.inherits.contains(protocolName) && seen.insert($0.name).inserted }
-    }
-
-    /// Whether type `name` implements `discardPolicy(for:)` or says `// discard: default <why>`.
-    func declaresPagePolicy(_ name: String) -> Bool {
-        chunkIndices(of: name).contains { chunks[$0].code.contains("func discardPolicy(for ") || chunk($0, has: "default") }
-    }
-
-    /// Whether browser tab `name` is a `BrowserHibernationSource` or says `// discard: never <why>`.
-    func hibernates(_ name: String) -> Bool {
-        types.contains { $0.name == name && $0.inherits.contains("BrowserHibernationSource") }
-            || chunkIndices(of: name).contains { chunk($0, has: "never") }
-    }
-
-    /// Whether chunk `index` has a `// discard: <kind> <why>` line, the why at least two words.
-    func chunk(_ index: Int, has kind: String) -> Bool {
-        chunks[index].text.split(separator: "\n").contains { line in
-            guard let marker = line.range(of: "// discard: ") else { return false }
-            let words = line[marker.upperBound...].split(whereSeparator: \.isWhitespace)
-            guard let first = words.first else { return false }
-            return first == kind && words.count >= 3
+    @Test func everyPageOfTheBatchDeclaresItsPolicy() throws {
+        let services = Self.services()
+        for entry in Self.batchOne {
+            #expect(services.pages.provider(entry.page) != nil, "\(entry.page.rawValue) registers at launch")
+            let source = try String(contentsOf: Self.packageRoot.appending(path: entry.source), encoding: .utf8)
+            #expect(source.contains(entry.declaration) || source.contains("// discard: default "),
+                    "\(entry.page.rawValue) chose its policy in \(entry.source)")
         }
     }
 
-    /// The chunks of type `name`'s declarations and extensions.
-    private func chunkIndices(of name: String) -> Set<Int> {
-        Set(types.filter { $0.name == name && $0.keyword != "protocol" }.map(\.chunk))
-    }
-
-    /// The case names of `enum TabContent` in `text` (MQ-CONTENT: `^    case \w+\(`).
-    static func tabContentCases(in text: String) -> [String] {
-        var inside = false
-        var cases: [String] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("enum TabContent") { inside = true; continue }
-            guard inside else { continue }
-            if line.hasPrefix("}") { break }
-            guard line.hasPrefix("    case ") else { continue }
-            let rest = line.dropFirst("    case ".count)
-            let name = rest.prefix { $0.isLetter || $0.isNumber || $0 == "_" }
-            if !name.isEmpty, rest.dropFirst(name.count).first == "(" { cases.append(String(name)) }
-        }
-        return cases
-    }
-
-    /// Parses one file.
-    mutating func add(_ text: String, file: String) {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var headers: [(line: Int, keyword: String, name: String, inherits: [String])] = []
-        var topLevel: [Int] = []
-        for (index, line) in lines.enumerated() {
-            guard let header = Self.typeHeader(line) else { continue }
-            headers.append((index, header.keyword, header.name, header.inherits))
-            if line.first.map({ !$0.isWhitespace }) ?? false { topLevel.append(index) }
-        }
-
-        // A top-level declaration's chunk starts at the comment and attribute lines right above its
-        // header and ends where the next one's starts; the lines before the first are a chunk too.
-        var bounds = [0]
-        var floor = 0
-        for header in topLevel {
-            var start = header
-            while start > floor, lines[start - 1].hasPrefix("//") || lines[start - 1].hasPrefix("@") { start -= 1 }
-            bounds.append(start)
-            floor = header + 1
-        }
-        bounds.append(lines.count)
-        let base = chunks.count
-        for index in 0..<(bounds.count - 1) {
-            let slice = lines[bounds[index]..<bounds[index + 1]]
-            let code = slice.filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            chunks.append(Chunk(text: slice.joined(separator: "\n"), code: code.joined(separator: "\n")))
-        }
-        // The last chunk whose start is at or before `line` (bounds.last is past every line).
-        func chunkIndex(containing line: Int) -> Int { base + (bounds.lastIndex { $0 <= line } ?? 0) }
-
-        for header in headers {
-            types.append(TypeDeclaration(file: file, line: header.line + 1, keyword: header.keyword, name: header.name,
-                                         inherits: header.inherits, chunk: chunkIndex(containing: header.line)))
-        }
-        for (index, line) in lines.enumerated() where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
-            if let id = Self.pageID(line) {
-                pageIDs.append(PageIDDeclaration(file: file, line: index + 1, name: id.name, rawValue: id.rawValue))
-            }
-            if let arguments = Self.webPageTabArguments(lines, at: index) {
-                webPageTabCalls.append(WebPageTabCall(file: file, line: index + 1, chunk: chunkIndex(containing: index),
-                                                      passesPolicy: arguments.contains("olicy:")))
-            }
+    @Test func theTaskManagerGoesAMinuteAfterItHidesAndTheOthersAfterTen() throws {
+        let services = Self.services()
+        for entry in Self.batchOne {
+            let provider = try #require(services.pages.provider(entry.page))
+            let expected: ContentDiscardPolicy = entry.page == .taskManager ? .afterHidden(.seconds(60)) : .standard
+            #expect(provider.discardPolicy(for: "tab") == expected, "\(entry.page.rawValue)")
         }
     }
 
-    /// `[@Attr ...] [modifiers] class|struct|enum|actor|extension|protocol Name[<...>][: A, B] {`.
-    static func typeHeader(_ line: String) -> (keyword: String, name: String, inherits: [String])? {
-        let words = line.split(whereSeparator: \.isWhitespace)
-        var index = 0
-        while index < words.count, words[index].hasPrefix("@") || modifiers.contains(String(words[index])) { index += 1 }
-        guard index + 1 < words.count, typeKeywords.contains(String(words[index])) else { return nil }
-        let keyword = String(words[index])
-        let declared = words[index + 1]
-        let nameEnd = declared.firstIndex(where: { !($0.isLetter || $0.isNumber || $0 == "_" || $0 == ".") }) ?? declared.endIndex
-        let qualified = declared[..<nameEnd]
-        guard let first = qualified.first, first.isLetter || first == "_" else { return nil }
-        let name = String(qualified.split(separator: ".").last ?? qualified)
-        // The text after the name, through the line's end.
-        guard let keywordRange = line.range(of: keyword + " "),
-              let nameRange = line.range(of: String(qualified), range: keywordRange.upperBound..<line.endIndex) else { return nil }
-        return (keyword, name, inherits(String(line[nameRange.upperBound...])))
+    // MARK: Settings
+
+    @Test func settingsKeepsItsPageWhileAPreviewRuns() async throws {
+        let services = try await Self.servicesWithSettings()
+        let settings = try #require(services.settings)
+        let key = LocalPageTab.makeKey(.settings)
+        _ = services.settingsWindow.makeView(for: key, in: nil)
+        #expect(services.settingsWindow.keepReasons(for: key).isEmpty)
+        let opacity = try #require(SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: "appearance.backgroundOpacity")))
+        #expect(settings.preview(opacity, .number(0.5)))
+        #expect(services.settingsWindow.keepReasons(for: key) == [.unsavedEdits], "a value shown and not written")
+        settings.endPreview()
+        #expect(services.settingsWindow.keepReasons(for: key).isEmpty)
+        services.settingsWindow.tabClosed(key)
     }
 
-    /// The conformance list after a type's name: `<T>: A, @unchecked B<T> where ... {` gives A and B.
-    static func inherits(_ rest: String) -> [String] {
-        var text = Substring(rest)
-        if text.hasPrefix("<") {
-            var depth = 0
-            let close = text.firstIndex { character in
-                if character == "<" { depth += 1 }
-                if character == ">" { depth -= 1 }
-                return depth == 0
-            }
-            guard let close else { return [] }
-            text = text[text.index(after: close)...]
-        }
-        text = text.drop { $0 == " " }
-        guard text.hasPrefix(":") else { return [] }
-        text = text.dropFirst()
-        if let open = text.firstIndex(of: "{") { text = text[..<open] }
-        if let clause = text.range(of: " where ") { text = text[..<clause.lowerBound] }
-        return text.split(separator: ",").compactMap { entry in
-            let words = entry.split(whereSeparator: \.isWhitespace).filter { !$0.hasPrefix("@") }
-            guard let type = words.first else { return nil }
-            return String(type.prefix { $0 != "<" })
-        }
+    @Test func settingsKeepsAPageWhoseFormHoldsUnsavedValues() async throws {
+        let services = try await Self.servicesWithSettings()
+        let key = LocalPageTab.makeKey(.settings), other = LocalPageTab.makeKey(.settings)
+        let page = try #require(services.settingsWindow.makeView(for: key, in: nil) as? PageWebView)
+        // Shown in a tab, so the second tab gets a page of its own (a second window's).
+        let pane = NSView()
+        pane.addSubview(page)
+        let otherPage = try #require(services.settingsWindow.makeView(for: other, in: nil) as? PageWebView)
+        #expect(page !== otherPage)
+        let reply = await Self.call(page, "cmux.settings.editing", ["form": "relay:new", "editing": true])
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(services.settingsWindow.keepReasons(for: key) == [.unsavedEdits], "a relay form with typed values")
+        #expect(services.settingsWindow.keepReasons(for: other).isEmpty, "only the page with the form is kept")
+        _ = await Self.call(page, "cmux.settings.editing", ["form": "relay:new", "editing": false])
+        #expect(services.settingsWindow.keepReasons(for: key).isEmpty)
+        let refused = await Self.call(page, "cmux.settings.editing", ["form": "density"])
+        #expect(refused["t"]?.stringValue == "err", "editing is required")
+        withExtendedLifetime(pane) {}
+        services.settingsWindow.tabClosed(key)
+        services.settingsWindow.tabClosed(other)
     }
 
-    /// `static let <name> = InternalPageID(rawValue: "<raw>")`; the raw value is nil when computed.
-    static func pageID(_ line: String) -> (name: String, rawValue: String?)? {
-        guard let call = line.range(of: "InternalPageID("), let decl = line.range(of: "static let "),
-              decl.upperBound <= call.lowerBound else { return nil }
-        let between = line[decl.upperBound..<call.lowerBound]
-        guard let equals = between.firstIndex(of: "=") else { return nil }
-        let name = between[..<equals].trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return nil }
-        let argument = line[call.upperBound...].drop { $0 == " " }
-        guard argument.hasPrefix("rawValue: \"") else { return (name, nil) }
-        let literal = argument.dropFirst("rawValue: \"".count)
-        guard let quote = literal.firstIndex(of: "\"") else { return (name, nil) }
-        return (name, String(literal[..<quote]))
+    @Test func aDiscardedSettingsPageIsNotKeptAndItsNextPageOpensWhereItWas() async throws {
+        let services = try await Self.servicesWithSettings()
+        let window = services.settingsWindow
+        let key = LocalPageTab.makeKey(.settings)
+        let first = try #require(window.makeView(for: key, in: nil) as? PageWebView)
+        first.open(route: "#/settings/appearance")
+        let state = await window.saveViewState(for: key, content: first)
+        #expect(state.values[PageWebView.discardRouteKey] == "#/settings/appearance")
+        window.viewDiscarded(key)
+        let rebuilt = try #require(window.makeView(for: key, in: nil) as? PageWebView)
+        #expect(rebuilt !== first, "the discarded page is not the kept page any more")
+        window.restoreViewState(state, for: key, content: rebuilt)
+        #expect(rebuilt.route == "#/settings/appearance")
+        window.tabClosed(key)
     }
 
-    /// The argument text of a `WebPageTab(` call that starts on `lines[index]`, through its
-    /// closing parenthesis (it may span up to 20 lines); nil when the line makes none.
-    static func webPageTabArguments(_ lines: [String], at index: Int) -> String? {
-        let line = lines[index]
-        guard let call = line.range(of: "WebPageTab(") else { return nil }
-        if call.lowerBound > line.startIndex {
-            let before = line[line.index(before: call.lowerBound)]
-            if before.isLetter || before.isNumber || before == "_" { return nil }
+    // MARK: Keyboard Shortcuts
+
+    @Test func keyboardShortcutsKeepsItsPageWhileItRecords() async throws {
+        let services = Self.services()
+        let service = try #require(services.pages.provider(.keybindings) as? KeybindingsPageService)
+        let key = LocalPageTab.makeKey(.keybindings)
+        let page = try #require(service.makeView(for: key, in: nil) as? PageWebView)
+        #expect(service.keepReasons(for: key).isEmpty)
+        _ = await Self.call(page, "cmux.keybindings.record.start")
+        #expect(service.keepReasons(for: key) == [.unsavedEdits], "a page taking the next key presses keeps its view")
+        _ = await Self.call(page, "cmux.keybindings.record.stop")
+        #expect(service.keepReasons(for: key).isEmpty)
+        service.tabClosed(key)
+    }
+
+    @Test func aDiscardedKeyboardShortcutsTabMakesANewPageOnItsPlace() async throws {
+        let services = Self.services()
+        let service = try #require(services.pages.provider(.keybindings) as? KeybindingsPageService)
+        let key = LocalPageTab.makeKey(.keybindings)
+        let first = try #require(service.makeView(for: key, in: nil) as? PageWebView)
+        first.open(route: "#/conflicts")
+        _ = await Self.call(first, "cmux.keybindings.record.start")
+        let state = await service.saveViewState(for: key, content: first)
+        service.viewDiscarded(key)
+        #expect(service.keepReasons(for: key).isEmpty, "the discarded page's recorder is no tab's")
+        let rebuilt = try #require(service.makeView(for: key, in: nil) as? PageWebView)
+        #expect(rebuilt !== first)
+        service.restoreViewState(state, for: key, content: rebuilt)
+        #expect(rebuilt.route == "#/conflicts")
+        service.tabClosed(key)
+    }
+
+    // MARK: The changelog (What's New)
+
+    @Test func aDiscardedChangelogOpensWhereItWasUnlessAShowAskedForASpan() async throws {
+        let services = Self.services()
+        let provider = ChangelogPageTab.register(services)
+        let key = LocalPageTab.makeKey(.changelog)
+        let first = try #require(provider.makeView(for: key, in: nil) as? PageWebView)
+        first.open(route: "#/?to=1.2.3")
+        let state = await provider.saveViewState(for: key, content: first)
+        provider.viewDiscarded(key)
+        let rebuilt = try #require(provider.makeView(for: key, in: nil) as? PageWebView)
+        #expect(rebuilt !== first)
+        provider.restoreViewState(state, for: key, content: rebuilt)
+        #expect(rebuilt.route == "#/?to=1.2.3")
+
+        // A page a show opened on a span stays on it.
+        let asked = try #require(PageFactory(services: services).changelogPage(route: "#/?to=2.0.0"))
+        provider.restoreViewState(state, for: key, content: asked)
+        #expect(asked.route == "#/?to=2.0.0")
+        services.webUI.close(asked)
+        provider.tabClosed(key)
+    }
+
+    // MARK: Task Manager
+
+    @Test func eachTaskManagerTabSortsItsOwnTable() throws {
+        let services = Self.services()
+        let service = services.taskManager
+        let one = LocalPageTab.makeKey(.taskManager), two = LocalPageTab.makeKey(.taskManager)
+        _ = service.makeView(for: one, in: nil)
+        _ = service.makeView(for: two, in: nil)
+        let first = try #require(service.tables[one]), second = try #require(service.tables[two])
+        first.sortOrder = TaskManagerSort.order("-memory")
+        #expect(second.sort.isEmpty, "a sort in one window's table leaves the other's")
+        service.tabClosed(one)
+        service.tabClosed(two)
+        #expect(service.tables.isEmpty)
+    }
+
+    @Test func aDiscardedTaskManagerStopsSamplingAndItsNextViewSortsAndScrollsAsBefore() async throws {
+        let services = Self.services()
+        let service = services.taskManager
+        let key = LocalPageTab.makeKey(.taskManager)
+        let content = service.makeView(for: key, in: nil)
+        #expect(service.model?.isRunning == true)
+        let table = try #require(service.tables[key])
+        table.sortOrder = TaskManagerSort.order("-memory,process")
+        var state = await service.saveViewState(for: key, content: content)
+        #expect(state.values["sort"] == "-memory,process")
+        service.viewDiscarded(key)
+        #expect(service.model == nil, "the last view went: no sampling")
+        #expect(service.tables[key] === table, "the tab keeps its table while it is open")
+
+        table.sortOrder = []
+        state.values["topRow"] = "local:4242"
+        let rebuilt = service.makeView(for: key, in: nil)
+        #expect(service.model?.isRunning == true)
+        service.restoreViewState(state, for: key, content: rebuilt)
+        #expect(table.sort == "-memory,process")
+        #expect(table.scrollTarget == ProcessKey(pid: 4242))
+        service.tabClosed(key)
+        #expect(service.model == nil)
+    }
+
+    @Test func theTaskManagerSortReadsBackAsItWasWritten() {
+        let order = TaskManagerSort.order("-memory,process")
+        #expect(order.compactMap(TaskManagerSort.init) == [TaskManagerSort(column: .memory, ascending: false),
+                                                           TaskManagerSort(column: .process, ascending: true)])
+        #expect(TaskManagerSort.text(order) == "-memory,process")
+        #expect(TaskManagerSort.order("-nope,cpu").compactMap(TaskManagerSort.init) == [TaskManagerSort(column: .cpu, ascending: true)])
+    }
+
+    /// A table of `count` rows of 20 points in a 200-point scroll view, scrolled down by `offset`,
+    /// in a container; the data source is returned too (a table holds its data source weakly).
+    static func scrolledTable(count: Int, offset: CGFloat) -> (container: NSView, rows: Rows) {
+        let table = NSTableView()
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("c")))
+        table.rowHeight = 20
+        table.intercellSpacing = .zero
+        table.headerView = nil
+        let rows = Rows(count: count)
+        table.dataSource = rows
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        scroll.documentView = table
+        table.frame = NSRect(x: 0, y: 0, width: 300, height: CGFloat(count) * 20)
+        table.reloadData()
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
+        let container = NSView(frame: scroll.frame)
+        container.addSubview(scroll)
+        return (container, rows)
+    }
+
+    final class Rows: NSObject, NSTableViewDataSource {
+        let count: Int
+        init(count: Int) { self.count = count }
+        func numberOfRows(in tableView: NSTableView) -> Int { count }
+    }
+
+    @Test func theTaskManagerSavesTheRowAtTheTopOfItsTable() {
+        let rows = (0..<50).map { index in
+            TaskManagerRow(id: ProcessKey(pid: Int32(1000 + index)), kind: .app, task: "t", name: "p", cpu: nil, memoryBytes: 0)
         }
-        var depth = 1
-        var arguments = ""
-        var text = Substring(line[call.upperBound...])
-        var next = index + 1
-        while true {
-            for character in text {
-                if character == "(" { depth += 1 }
-                if character == ")" { depth -= 1 }
-                if depth == 0 { return arguments }
-                arguments.append(character)
-            }
-            guard next < lines.count, next - index < 20 else { return arguments }
-            arguments.append("\n")
-            text = Substring(lines[next])
-            next += 1
+        let scrolled = Self.scrolledTable(count: rows.count, offset: 400)
+        #expect(TaskManagerPageService.topRow(in: scrolled.container, rows: rows) == ProcessKey(pid: 1020), "400 points down: row 20")
+        let top = Self.scrolledTable(count: rows.count, offset: 0)
+        #expect(TaskManagerPageService.topRow(in: top.container, rows: rows) == ProcessKey(pid: 1000))
+        #expect(TaskManagerPageService.topRow(in: NSView(), rows: rows) == nil, "no table")
+        withExtendedLifetime((scrolled.rows, top.rows)) {}
+    }
+
+    @Test func aRebuiltTaskManagerTableScrollsItsSavedRowToTheTop() async throws {
+        let processes = (0..<60).map { ProcessKey(pid: Int32(2000 + $0)) }
+        let tabs = processes.map { TabResourceSources(tabID: "tab_\($0.pid)", title: "t\($0.pid)", kind: .terminal, processes: [$0]) }
+        let samples = Dictionary(uniqueKeysWithValues: processes.map { ($0, TaskManagerMemorySavedTests.sample($0, memory: 1 << 20)) })
+        let source = TaskManagerMemorySavedTests.Source([TaskManagerSampleSet(resources: ResourceSampleSet(tabs: tabs, shared: [], samples: samples))])
+        let model = TaskManagerModel(source: source, kill: { _ in })
+        let table = TaskManagerTableState(scrollTarget: ProcessKey(pid: 2040))
+        let host = NSHostingView(rootView: TaskManagerView(model: model, table: table))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        await model.refresh()
+        let rows = table.rows(of: model.snapshot)
+        #expect(rows.contains { $0.id == ProcessKey(pid: 2040) }, "a sample lists the saved row")
+        for _ in 0..<150 where TaskManagerPageService.topRow(in: host, rows: rows) != ProcessKey(pid: 2040) {
+            try? await Task.sleep(for: .milliseconds(10))
+            host.layoutSubtreeIfNeeded()
         }
+        #expect(table.scrollTarget == nil, "the table scrolled")
+        #expect(TaskManagerPageService.topRow(in: host, rows: rows) == ProcessKey(pid: 2040))
     }
 }
