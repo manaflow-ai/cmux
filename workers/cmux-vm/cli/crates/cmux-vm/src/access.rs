@@ -320,6 +320,7 @@ pub(crate) async fn session(
             for (label, pointer) in [
                 ("id", "/id"),
                 ("vm", "/vmId"),
+                ("token id", "/tokenId"),
                 ("linux user", "/linuxUser"),
                 ("created", "/createdAt"),
             ] {

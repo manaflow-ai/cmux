@@ -486,6 +486,8 @@ async fn session_verbs_read_retarget_and_mint_tokens_shown_only_with_json() {
     let out = cli(&server, &["session", "token-create", VM_ID, SESSION]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(!out.stdout.contains("secret-token-2"), "{}", out.stdout);
+    // The new token's id is `id` here (`tokenId` only on session create).
+    assert!(out.stdout.contains(TOKEN_ID), "{}", out.stdout);
     let out = cli(
         &server,
         &["--json", "session", "token-create", VM_ID, SESSION],

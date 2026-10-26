@@ -44,6 +44,7 @@ pub(crate) struct UpdateArgs {
     #[arg(long, conflicts_with_all = ["labels", "labels_file"])]
     clear_labels: bool,
     /// Seconds without network activity before the VM pauses; -1 removes the limit
+    /// (dev/test teams must stay between 1 and 300)
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle: Option<i64>,
     /// Seconds the VM may run before it stops; -1 removes the limit
