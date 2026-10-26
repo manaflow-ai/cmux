@@ -17,6 +17,8 @@ final class MachineRegistry {
     static let localID = "local"
 
     let local: DaemonService
+    /// Which machine lists each tab (``MachineTabIndex``): every daemon here is tracked while it is.
+    let tabIndex: MachineTabIndex
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
     /// The account's Cloud machine cap from the last `/api/vm` list (nil
@@ -36,8 +38,10 @@ final class MachineRegistry {
     /// the forwarding connection and the browser runtimes on it).
     @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
-    init(local: DaemonService) {
+    init(local: DaemonService, tabIndex: MachineTabIndex = MachineTabIndex()) {
         self.local = local
+        self.tabIndex = tabIndex
+        tabIndex.track(local)
     }
 
     /// Local first, then Cloud machines, then SSH machines, then servers.
@@ -182,11 +186,13 @@ final class MachineRegistry {
     func add(_ session: CloudMachineSession) {
         guard self.session(session.machineID) == nil else { return }
         cloud.append(session)
+        tabIndex.track(session.daemon)
     }
 
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         let removed = cloud.remove(at: index)
+        tabIndex.forget(removed.daemon)
         onDaemonRemoved?(removed.daemon)
         return removed
     }
@@ -196,11 +202,13 @@ final class MachineRegistry {
     func add(_ session: SSHMachineSession) {
         guard sshSession(session.machineID) == nil else { return }
         ssh.append(session)
+        tabIndex.track(session.daemon)
     }
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         let removed = ssh.remove(at: index)
+        tabIndex.forget(removed.daemon)
         onDaemonRemoved?(removed.daemon)
         return removed
     }
@@ -210,11 +218,13 @@ final class MachineRegistry {
     func add(_ session: ServerMachineSession) {
         guard server(session.machineID) == nil else { return }
         servers.append(session)
+        tabIndex.track(session.daemon)
     }
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {
         guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         let removed = servers.remove(at: index)
+        tabIndex.forget(removed.daemon)
         onDaemonRemoved?(removed.daemon)
         return removed
     }

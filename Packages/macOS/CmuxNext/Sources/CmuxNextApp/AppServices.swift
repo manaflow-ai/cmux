@@ -588,7 +588,7 @@ final class AppServices {
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
-        machines = MachineRegistry(local: daemon)
+        machines = MachineRegistry(local: daemon, tabIndex: MachineTabIndex())
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -750,12 +750,11 @@ final class AppServices {
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
-    /// and the pane that holds it, on any machine (O(1) per daemon).
+    /// and the pane that holds it, on any machine: one lookup of its machine (``MachineTabIndex``).
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
-        for daemon in machines.daemons {
-            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
-        }
-        return nil
+        guard let store = machines.tabIndex.daemon(holdingTab: id)?.store, let tab = store.tab(idOrResource: id),
+              let pane = store.pane(holding: tab) else { return nil }
+        return (tab, pane)
     }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {

@@ -19,16 +19,21 @@ import Foundation
 /// Each key it gives or drops is reported to ``waiters`` (StoreWaiters.swift), so a wait for one
 /// tab or workspace reads its condition only when that key changes. Each workspace that joins or
 /// leaves is reported to ``unread`` (UnreadLedger.swift) and to ``workspaceListDigest``: the unread
-/// sum and the workspace-list check cost the workspaces a change names, never the list.
+/// sum and the workspace-list check cost the workspaces a change names, never the list. Each tab
+/// record keyed or dropped is reported to ``tabKeys`` (StoreTabKeys.swift): the index of tabs across
+/// machines (`MachineTabIndex`) follows the keys a change names, never the stores.
 @MainActor struct StoreIndex {
     /// The keyed waits this index's changes resume; kept across ``rebuild(_:)``.
     let waiters: StoreWaiters
     /// The unread sum of the indexed workspaces; kept across ``rebuild(_:)``.
     let unread: UnreadLedger
+    /// The tab keys this store lists, for the index over every machine; kept across ``rebuild(_:)``.
+    let tabKeys: StoreTabKeys
 
-    init(waiters: StoreWaiters, unread: UnreadLedger) {
+    init(waiters: StoreWaiters, unread: UnreadLedger, tabKeys: StoreTabKeys = StoreTabKeys()) {
         self.waiters = waiters
         self.unread = unread
+        self.tabKeys = tabKeys
     }
 
     private(set) var tabsBySurface: [SurfaceID: TabModel] = [:]
@@ -140,10 +145,12 @@ import Foundation
         for entry in entries.values {
             if case .workspace = entry.keys, let workspace = entry.record as? WorkspaceModel { unread.leave(workspace) }
         }
-        self = StoreIndex(waiters: waiters, unread: unread)
+        tabKeys.beginRebuild()
+        self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys)
         (indexedRecords, tabOrderChanges) = (counted, orderChanges)
         waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
+        tabKeys.endRebuild()
         noteTabOrderChanged()
     }
 
@@ -266,6 +273,7 @@ import Foundation
             if let resource { tabsByResource[resource] = tab }
             if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
+            tabKeys.noteKeyed(id: id, resource: resource)
             waiters.noteTabKeyed(id: id, surface: surface, resource: resource)
         }
     }
@@ -308,6 +316,7 @@ import Foundation
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
             if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
+            tabKeys.noteUnkeyed(id: id, resource: resource)
             waiters.noteTabUnkeyed(id: id, surface: surface)
         }
     }
