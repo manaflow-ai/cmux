@@ -34,26 +34,34 @@ public struct FrameSequenceReport: Sendable, Equatable {
 /// frames.
 ///
 /// Two kinds open it:
-/// - ``Kind/motion``, while an animation client (a layout spring's driver, the sidebar, an autoscroll) ticks on the
-///   scheduler, the span of `motion.run`. It records `smoothness.dropped_pct.motion`; a run shorter than
-///   ``minimumReportedFrames`` carries into the next one, as Chrome merges a short sequence into the next of its
-///   type (`kMinFramesForThroughputMetric`, cc/metrics/frame_sequence_metrics.cc).
+/// - ``Kind/motion``, for the span of a layout `motion.run` (``FrameScheduler/beginMotionSequence()`` to
+///   ``FrameScheduler/endMotionSequence()``), on the CPU or the render server, as Chrome starts and stops a
+///   tracker for each animation sequence (`FrameSequenceTrackerCollection::StartSequence`). Other animation
+///   clients (drags, autoscroll) are not layout motion. It records `smoothness.dropped_pct.motion`; a run shorter
+///   than ``minimumReportedFrames`` carries into the next one, as Chrome merges a short sequence into the next of
+///   its type (`kMinFramesForThroughputMetric`, cc/metrics/frame_sequence_metrics.cc).
 /// - ``Kind/commitWindow``, for ``commitWindowFrames`` refreshes after an action's commit
 ///   (``FrameScheduler/noteCommit()``), the missed frames of Cmd-T, Cmd-N or Cmd-W (``onSequenceEnd``).
 ///
 /// Each tick an open sequence counts records `frame.interval`, and each sequence that closes writes one
-/// `frame.sequence` ring event (arg0 expected, arg1 produced). Stall-deadline ticks have no vsync: they count
-/// nothing, end a commit window, and the next link tick starts a new interval. While nothing is open and nothing
-/// animates, a tick costs one branch (``frameBegan(_:motion:)``).
+/// `frame.sequence` ring event (arg0 expected, arg1 produced). A tick with no vsync (the stall deadline, a tick
+/// between vsyncs) counts nothing; while the window's link still runs for someone who sees it, the vsyncs go on
+/// and the next link tick counts all it missed as drops (a main-thread stall that the stall deadline reached main
+/// before the link did), as Chrome counts every BeginFrame a stalled main thread missed. When the window is
+/// hidden or its link stops or changes, a commit window ends with what it counted and the motion's next link tick
+/// starts afresh. While nothing is open, a tick costs one branch (``frameBegan(_:vsyncsGoOn:)``).
 @MainActor
 public final class FrameSequenceTracker {
     /// What opened a sequence.
     public enum Kind: Sendable, Equatable {
-        /// An animation client ticks on the scheduler.
+        /// A layout `motion.run`.
         case motion
         /// The refreshes right after an action's commit.
         case commitWindow
     }
+
+    /// A display-link tick: its vsync time and the display's refresh period, in seconds.
+    typealias LinkFrame = (timestamp: CFTimeInterval, refreshInterval: Double)
 
     /// Refreshes a commit window spans (Chrome reads an action's first frames the same way: the
     /// `EventLatency` of its first frame and the drops right after it).
@@ -77,12 +85,16 @@ public final class FrameSequenceTracker {
     private var commit = Counter()
     /// A commit window closes once it expects this many frames (a commit inside one extends it).
     private var commitTarget: UInt32 = 0
-    /// The timestamp of the last link tick an open sequence counted (`frame.interval`'s start).
+    /// The `motion.run` spans open in the window (two layout roots of one window may run at once): the motion
+    /// sequence closes when the last ends.
+    private var motionRuns = 0
+    /// The timestamp of the last link tick an open sequence counted (`frame.interval`'s start); nil whenever
+    /// nothing is open, so an idle gap is never an interval.
     private var lastFrame: CFTimeInterval?
     /// Motion frames not yet in a `smoothness.dropped_pct.motion` sample (runs under ``minimumReportedFrames``).
     private(set) var unreportedMotion = FrameSequenceReport()
-    /// Keeps the scheduler ticking through a commit window (made on the first commit); it goes idle in the tick
-    /// that closes the window.
+    /// Keeps the scheduler ticking while a sequence is open (made on the first one that holds a scheduler); it
+    /// goes idle in the tick that closes the last one, or when the last motion run ends.
     private var hold: FrameClient?
 
     private static let motionBit: UInt8 = 1
@@ -98,39 +110,33 @@ public final class FrameSequenceTracker {
     /// A sequence is open.
     public var isOpen: Bool { openMask != 0 }
 
+    /// A motion sequence is open.
+    public var isMotionOpen: Bool { openMask & Self.motionBit != 0 }
+
     /// A commit window is open.
     public var isCommitWindowOpen: Bool { openMask & Self.commitBit != 0 }
 
     // MARK: Ticks
 
-    /// The scheduler began a frame: `frame` is its link tick (nil for a stall-deadline tick) and `motion` says
-    /// whether an animation client ticks in it. Opens or closes the motion sequence, then counts the tick in each
-    /// open sequence.
+    /// The scheduler began a frame: `frame` is its link tick, nil for a tick with no vsync. For such a tick,
+    /// `vsyncsGoOn` says whether the window's link still runs and someone sees the window (read only then).
     @inline(__always)
-    func frameBegan(_ frame: (timestamp: CFTimeInterval, refreshInterval: Double)?, motion animating: Bool) { // perf-hot: 0.5ms frame-tick (every frame)
-        guard openMask | (animating ? Self.motionBit : 0) != 0 else { return }
-        advance(frame, motion: animating)
+    func frameBegan(_ frame: LinkFrame?, vsyncsGoOn: @autoclosure () -> Bool) { // perf-hot: 0.5ms frame-tick (every frame)
+        guard openMask != 0 else { return }
+        if let frame, frame.refreshInterval > 0 {
+            count(frame)
+        } else if !vsyncsGoOn() {
+            restart()
+        }
     }
 
-    private func advance(_ frame: (timestamp: CFTimeInterval, refreshInterval: Double)?, motion animating: Bool) {
-        if animating, openMask & Self.motionBit == 0 {
-            openMask |= Self.motionBit
-            motion = Counter()
-        } else if !animating, openMask & Self.motionBit != 0 {
-            closeMotion()
-        }
-        guard openMask != 0 else {
-            lastFrame = nil
-            return
-        }
-        guard let frame, frame.refreshInterval > 0 else {
-            // No vsync to count from (the link stopped or nobody sees the window): a commit window ends with what
-            // it counted, and the motion's next link tick starts afresh.
-            if openMask & Self.commitBit != 0 { closeCommitWindow() }
-            lastFrame = nil
-            motion.anchor = nil
-            return
-        }
+    /// The window's display link was made, rebuilt or dropped: the vsyncs before it say nothing about the next.
+    func linkDidChange() {
+        guard openMask != 0 else { return }
+        restart()
+    }
+
+    private func count(_ frame: LinkFrame) {
         if let lastFrame, frame.timestamp > lastFrame {
             metrics.record(.frameInterval, Int64(((frame.timestamp - lastFrame) * 1_000_000).rounded()))
         }
@@ -140,6 +146,41 @@ public final class FrameSequenceTracker {
             commit.count(frame.timestamp, refreshInterval: frame.refreshInterval)
             if commit.report.expected >= commitTarget { closeCommitWindow() }
         }
+    }
+
+    /// No vsync to count from (nobody sees the window, or its link stopped): a commit window ends with what it
+    /// counted, and the motion's next link tick starts a new interval.
+    private func restart() {
+        if openMask & Self.commitBit != 0 { closeCommitWindow() }
+        motion.anchor = nil
+        lastFrame = nil
+    }
+
+    // MARK: Motion
+
+    /// A `motion.run` began in the window: the motion sequence opens unless a run holds it open already; its
+    /// first link tick is its first frame.
+    func beginMotion() {
+        motionRuns += 1
+        guard openMask & Self.motionBit == 0 else { return }
+        openMask |= Self.motionBit
+        motion = Counter()
+    }
+
+    /// Opens the motion sequence and keeps `scheduler` ticking until it closes.
+    func beginMotion(holding scheduler: FrameScheduler) {
+        beginMotion()
+        keepTicking(scheduler)
+    }
+
+    /// A `motion.run` of the window ended: the last one closes the motion sequence (and lets the scheduler go
+    /// idle when no commit window is open).
+    func endMotion() {
+        guard motionRuns > 0 else { return }
+        motionRuns -= 1
+        guard motionRuns == 0, openMask & Self.motionBit != 0 else { return }
+        closeMotion()
+        if openMask == 0 { hold?.deactivate() }
     }
 
     // MARK: Commits
@@ -159,8 +200,12 @@ public final class FrameSequenceTracker {
     /// Opens a commit window at `now` and keeps `scheduler` ticking until it closes.
     func commitDidLand(at now: CFTimeInterval, holding scheduler: FrameScheduler) {
         commitDidLand(at: now)
-        let client = hold ?? FrameClient(owner: "FrameSequenceTracker.commit", isAnimation: false, on: scheduler) { [weak self] _ in
-            self?.isCommitWindowOpen ?? false
+        keepTicking(scheduler)
+    }
+
+    private func keepTicking(_ scheduler: FrameScheduler) {
+        let client = hold ?? FrameClient(owner: "FrameSequenceTracker", isAnimation: false, on: scheduler) { [weak self] _ in
+            self?.isOpen ?? false
         }
         hold = client
         client.activate()
@@ -168,16 +213,16 @@ public final class FrameSequenceTracker {
 
     // MARK: Closing
 
-    /// The scheduler left its display (no client left) or went away: every open sequence ends with what it counted.
+    /// The scheduler left its display (no client left) or went away: every open sequence ends with what it
+    /// counted, and the runs it was open for are forgotten.
     func closeAll() {
-        guard openMask != 0 else { return }
+        motionRuns = 0
         if openMask & Self.motionBit != 0 { closeMotion() }
         if openMask & Self.commitBit != 0 { closeCommitWindow() }
-        lastFrame = nil
     }
 
     private func closeMotion() {
-        openMask &= ~Self.motionBit
+        close(Self.motionBit)
         let report = motion.report
         guard report.expected > 0 else { return }
         unreportedMotion.expected &+= report.expected
@@ -190,8 +235,14 @@ public final class FrameSequenceTracker {
     }
 
     private func closeCommitWindow() {
-        openMask &= ~Self.commitBit
+        close(Self.commitBit)
         end(.commitWindow, commit.report)
+    }
+
+    /// Clears `bit`; with nothing left open the next sequence's first tick starts a new `frame.interval`.
+    private func close(_ bit: UInt8) {
+        openMask &= ~bit
+        if openMask == 0 { lastFrame = nil }
     }
 
     /// Writes the ring summary and tells ``onSequenceEnd``, unless the sequence saw no link tick to count.
@@ -234,5 +285,17 @@ extension FrameScheduler {
     /// ``FrameSequenceTracker/commitWindowFrames`` refreshes, and this scheduler ticks through them.
     public func noteCommit() {
         sequences.commitDidLand(at: displayClock.now(), holding: self)
+    }
+
+    /// A layout `motion.run` began in this scheduler's window (`LayoutMotionTrace`): its refreshes are a motion
+    /// sequence, and this scheduler ticks through it, also while the render server runs the springs. Each call
+    /// has one ``endMotionSequence()``.
+    public func beginMotionSequence() {
+        sequences.beginMotion(holding: self)
+    }
+
+    /// The `motion.run` that ``beginMotionSequence()`` began ended.
+    public func endMotionSequence() {
+        sequences.endMotion()
     }
 }
