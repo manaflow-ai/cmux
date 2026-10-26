@@ -33,8 +33,16 @@ extension ChromiumHostPageView {
     }
 
     /// A point over the page is answered from the page's tree, as Chrome's page view answers from
-    /// its root element (`-[RenderWidgetHostViewCocoa accessibilityHitTest:]`).
-    public override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+    /// its root element (`-[RenderWidgetHostViewCocoa accessibilityHitTest:]`). AppKit declares the
+    /// hit test on NSObject, nonisolated; assistive clients' reads arrive on the main thread, and a
+    /// call from any other thread gets AppKit's own answer.
+    public nonisolated override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard Thread.isMainThread else { return super.accessibilityHitTest(point) }
+        let hit = MainActor.assumeIsolated { AccessibilityHit(element: pageHitTest(point)) } // main-proof: checked Thread.isMainThread above
+        return hit.element
+    }
+
+    private func pageHitTest(_ point: NSPoint) -> Any? {
         guard let element = remoteAccessibility.element else {
             askForRemoteAccessibility()
             return super.accessibilityHitTest(point)
@@ -134,4 +142,10 @@ struct ChromiumHostAccessibilityBridge {
         },
         hitTest: { element, point in (element as? NSAccessibilityRemoteUIElement)?.accessibilityHitTest(point) },
         layoutChanged: { element in NSAccessibility.post(element: element, notification: .layoutChanged) })
+}
+
+/// The hit test's element handed out of `MainActor.assumeIsolated` on the same main thread.
+// crash-allow: one `let` made and read on the main thread inside one accessibilityHitTest call; it never crosses threads.
+private nonisolated struct AccessibilityHit: @unchecked Sendable {
+    let element: Any?
 }
