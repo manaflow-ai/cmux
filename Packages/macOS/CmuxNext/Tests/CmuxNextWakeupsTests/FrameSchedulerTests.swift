@@ -1,77 +1,98 @@
 import CmuxNextCompat
 import CmuxNextSignposts
 @testable import CmuxNextTrace
-import CmuxNextWakeups
+@testable import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import CoreFoundation
 import QuartzCore
 import Testing
 
-/// frame.tick, frame.commit and frame.present_estimate (p09-observability 037) on a fake link: each link
-/// tick writes frame.tick while the frame category records, and a key flow's commit is presented at the
-/// first vsync whose target is at or after max(its commit, its GPU completion), as Chrome dates a
-/// presentation it did not get from the display (ui/gfx/presentation_feedback.h, no `kHWClock`).
+/// frame.tick, frame.commit and frame.present_estimate (p09-observability 037) on fake display links:
+/// each link tick writes frame.tick with its display while the frame category records, each run-loop turn's
+/// commit writes one frame.commit, and a key flow's commit is presented at the first vsync of its own display
+/// whose target is at or after max(its commit, its GPU completion), as Chrome dates a presentation it did not
+/// get from the display (ui/gfx/presentation_feedback.h, no `kHWClock`).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerTests {
     private static let interval = 1.0 / 60
 
-    /// Off: no record, no commit boundary, no link for the presents.
-    @Test func offWritesNothingAndAsksForNoFrame() {
+    /// Off: a link tick and a commit write nothing, and a marked flow asks for no link.
+    @Test func offWritesNothingAndAsksForNoLink() {
         let rig = PresentRig(recording: false)
-        let client = FrameClient(owner: "spring", on: rig.scheduler) { _ in true }
-        client.activate()
-        rig.presents.markCommit(flow: 7)
-        #expect(rig.pendingCommits.isEmpty, "a commit boundary was installed while not recording")
-        rig.scheduler.frameDidFire(timestamp: 1, refreshInterval: Self.interval, targetTimestamp: 1 + Self.interval)
+        rig.presents.markCommit(flow: 7, display: 2)
+        rig.presents.turnDidCommit()
+        #expect(!rig.displays.hasLink(2) && rig.links.made == 0, "the presents asked for a link while not recording")
+        let spring = rig.spring()
+        rig.displays.displayDidFire(1, timestamp: 1, refreshInterval: Self.interval, targetTimestamp: 1 + Self.interval)
         #expect(rig.log.records.isEmpty, "\(rig.log.records.count) records while the frame category is off")
         #expect(rig.presents.waitingFlows.isEmpty)
-        client.deactivate()
-        #expect(rig.links.made == 1, "the presents asked for a link while not recording")
+        spring.deactivate()
     }
 
-    /// Recording, each link tick writes frame.tick with its timestamp and target.
-    @Test func eachLinkTickWritesFrameTick() {
+    /// Recording, each link tick writes frame.tick: its timestamp, its display and the time to its target.
+    @Test func eachLinkTickWritesFrameTickWithItsDisplay() throws {
         let rig = PresentRig()
-        let client = FrameClient(owner: "spring", on: rig.scheduler) { _ in true }
-        client.activate()
-        rig.scheduler.frameDidFire(timestamp: 2, refreshInterval: Self.interval, targetTimestamp: 2.016)
-        let ticks = rig.log.records(.frameTick)
-        #expect(ticks.count == 1)
-        #expect(ticks.first?.arg0 == 2_000_000_000)
-        #expect(ticks.first?.arg1 == 2_016_000_000)
-        #expect(ticks.first?.flags.isEmpty == true)
-        client.deactivate()
+        let spring = rig.spring()
+        rig.displays.displayDidFire(1, timestamp: 2, refreshInterval: Self.interval, targetTimestamp: 2.016)
+        let tick = try #require(rig.log.records(.frameTick).first)
+        #expect(rig.log.records(.frameTick).count == 1)
+        #expect(tick.arg0 == 2_000_000_000)
+        #expect(tick.arg1 >> 32 == 1, "the tick does not name its display")
+        #expect(tick.arg1 & 0xFFFF_FFFF == 16_000_000)
+        #expect(tick.flags.isEmpty)
+        spring.deactivate()
     }
 
-    /// Commit then tick: the idle link runs for the flow, the first vsync at or after the commit
-    /// presents it with the estimated flag, and the link stops again.
+    /// Commit then tick: the idle display gets one tick for the flow, its vsync presents the flow with the
+    /// estimated flag, and the link it made goes with that tick.
     @Test func aCommitIsPresentedAtTheFirstVsyncAfterIt() throws {
         let rig = PresentRig()
-        rig.presents.markCommit(flow: 7)
-        #expect(rig.pendingCommits.count == 1)
-        #expect(!rig.scheduler.hasLink, "the link ran before the commit ended")
-        rig.now.set(1_000_000_000)
-        rig.endCommit()
-        #expect(rig.scheduler.hasLink && rig.links.made == 1, "an idle link was not asked for one tick")
-        rig.scheduler.frameDidFire(timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        rig.presents.markCommit(flow: 7, display: 1)
+        #expect(!rig.displays.hasLink(1), "the link ran before the commit")
+        rig.now.now = 1_000_000_000
+        rig.presents.turnDidCommit()
+        let commit = try #require(rig.log.records(.frameCommit).first)
+        #expect(commit.arg0 == 7 && commit.arg1 == 1)
+        #expect(rig.displays.hasLink(1) && rig.links.made == 1, "an idle display was not asked for one tick")
+        rig.displays.displayDidFire(1, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
         let present = try #require(rig.log.records(.framePresentEstimate).first)
         #expect(present.arg0 == 7)
         #expect(present.arg1 == 1_020_000_000)
         #expect(present.flags == .estimated)
         #expect(rig.presents.waitingFlows.isEmpty)
-        #expect(!rig.scheduler.hasLink, "the link kept running after the present")
+        #expect(!rig.displays.hasLink(1) && rig.links.made == 1, "the one tick's link kept running")
+    }
+
+    /// Two displays: a flow on the second is presented by its vsync, not by the first display's, and only
+    /// the second display is asked for a tick.
+    @Test func onlyTheFlowsDisplayPresentsIt() throws {
+        let rig = PresentRig()
+        let spring = rig.spring()
+        rig.presents.markCommit(flow: 7, display: 2)
+        rig.now.now = 1_000_000_000
+        rig.presents.turnDidCommit()
+        #expect(rig.displays.hasLink(2), "the flow's display was not asked for a tick")
+        rig.displays.displayDidFire(1, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        #expect(rig.log.records(.framePresentEstimate).isEmpty, "another display's vsync presented the flow")
+        rig.displays.displayDidFire(2, timestamp: 1.008, refreshInterval: 1.0 / 120, targetTimestamp: 1.0163)
+        let present = try #require(rig.log.records(.framePresentEstimate).first)
+        #expect(present.arg1 == 1_016_300_000)
+        #expect(rig.log.records(.frameTick).map { $0.arg1 >> 32 } == [1, 2])
+        spring.deactivate()
     }
 
     /// A vsync whose target is before the commit does not present it; the next one does.
     @Test func aVsyncBeforeTheCommitDoesNotPresentIt() throws {
         let rig = PresentRig()
-        rig.presents.markCommit(flow: 7)
-        rig.now.set(1_030_000_000)
-        rig.endCommit()
-        rig.scheduler.frameDidFire(timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        let spring = rig.spring()
+        rig.presents.markCommit(flow: 7, display: 1)
+        rig.now.now = 1_030_000_000
+        rig.presents.turnDidCommit()
+        rig.displays.displayDidFire(1, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
         #expect(rig.log.records(.framePresentEstimate).isEmpty, "presented at a vsync before its commit")
-        rig.scheduler.frameDidFire(timestamp: 1.020, refreshInterval: Self.interval, targetTimestamp: 1.037)
+        rig.displays.displayDidFire(1, timestamp: 1.020, refreshInterval: Self.interval, targetTimestamp: 1.037)
         let present = try #require(rig.log.records(.framePresentEstimate).first)
         #expect(present.arg1 == 1_037_000_000)
+        spring.deactivate()
     }
 
     /// A GPU that finishes before the vsync leaves the present at that vsync; one that finishes after
@@ -83,116 +104,150 @@ import Testing
         #expect(late == 1_037_000_000, "a GPU done after the vsync did not move the present one frame")
     }
 
-    /// A flow whose GPU work never reports is dropped after its frames and stops the link.
-    @Test func aFlowThatNeverPresentsIsDroppedAndTheLinkStops() {
+    /// A flow that waits for its GPU asks for no tick; its GPU completion asks for one.
+    @Test func aGPUCompletionAsksForTheTick() throws {
         let rig = PresentRig()
-        rig.presents.markCommit(flow: 7, awaitsGPU: true)
-        rig.now.set(1_000_000_000)
-        rig.endCommit()
+        rig.presents.markCommit(flow: 7, display: 1, awaitsGPU: true)
+        rig.now.now = 1_000_000_000
+        rig.presents.turnDidCommit()
+        #expect(!rig.displays.hasLink(1), "a flow still waiting for its GPU asked for a tick")
+        rig.presents.gpuDidFinish(flow: 7, atNanos: 1_004_000_000)
+        #expect(rig.displays.hasLink(1), "the GPU completion asked for no tick")
+        rig.displays.displayDidFire(1, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        let present = try #require(rig.log.records(.framePresentEstimate).first)
+        #expect(present.arg1 == 1_020_000_000)
+    }
+
+    /// A flow whose GPU work never reports is dropped after its display's ticks, however they come.
+    @Test func aFlowThatNeverPresentsIsDroppedAfterItsFrames() {
+        let rig = PresentRig()
+        let spring = rig.spring()
+        rig.presents.markCommit(flow: 7, display: 1, awaitsGPU: true)
+        rig.now.now = 1_000_000_000
+        rig.presents.turnDidCommit()
         for frame in 0...FramePresentEstimate.framesToWait {
             let start = 1.005 + Double(frame) * Self.interval
-            rig.scheduler.frameDidFire(timestamp: start, refreshInterval: Self.interval, targetTimestamp: start + Self.interval)
+            rig.displays.displayDidFire(1, timestamp: start, refreshInterval: Self.interval, targetTimestamp: start + Self.interval)
         }
         #expect(rig.presents.waitingFlows.isEmpty)
         #expect(rig.log.records(.framePresentEstimate).isEmpty)
-        #expect(!rig.scheduler.hasLink, "the link kept running for a flow that was dropped")
+        spring.deactivate()
     }
 
-    /// A missed boundary (the run loop slept first) measured no commit: the flow is not presented.
-    @Test func aMissedBoundaryHasNoPresent() {
+    /// The typing probe hands a press's echo commit to the presents: the press's flow, on the display of the
+    /// terminal it went to, is presented by that display's next vsync.
+    @Test func aTypingProbeEchoIsPresentedOnItsDisplay() throws {
         let rig = PresentRig()
-        rig.presents.markCommit(flow: 7)
-        rig.endCommit(.missed)
-        #expect(rig.presents.waitingFlows.isEmpty)
-        #expect(!rig.scheduler.hasLink)
+        let probe = TypingLatencyProbe(path: nil, trace: rig.trace)
+        probe.attach(presents: rig.presents)
+        probe.startFlows()
+        let surface = probe.makeSurfaceKey()
+        probe.keyDown(eventTimestamp: 0)
+        probe.keyReachedTerminal(surface, display: 2)
+        probe.terminalTookKey()
+        probe.mark(.dispatchEnd)
+        probe.inputWritten(on: surface)
+        let flow = try #require(probe.openFlow)
+        probe.mark(.socketSubmit, flow: flow)
+        probe.outputDecoded(flow: flow)
+        probe.mark(.outputReceived, flow: flow)
+        probe.mark(.outputParsed, flow: flow)
+        probe.mark(.contents, surface: surface)
+        rig.now.now = 1_000_000_000
+        probe.turnDidEnd()
+        rig.presents.turnDidCommit()
+        probe.stopFlows()
+        let commit = try #require(rig.log.records(.frameCommit).first)
+        #expect(commit.arg0 == flow)
+        rig.displays.displayDidFire(2, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        let present = try #require(rig.log.records(.framePresentEstimate).first)
+        #expect(present.arg0 == flow)
+        #expect(present.arg1 == 1_020_000_000)
     }
 
-    /// The real boundary writes frame.commit with its flow after the turn's commit.
-    @Test func theCommitBoundaryWritesFrameCommit() {
+    /// The run-loop observer writes one frame.commit for the turn's commit, with the flow it carries,
+    /// however many commit boundaries wait on that commit.
+    @Test func oneFrameCommitForEachTurn() throws {
         let log = FrameRecordLog()
         let trace = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
         trace.setCategoryMask(TraceCategories.frame.rawValue)
+        let presents = FramePresentEstimate(trace: trace)
+        presents.observeCommits()
+        presents.markCommit(flow: 9, display: 1)
         let box = OutcomeBox()
-        CommitBoundary(trace: trace).after(flow: 9) { box.outcome = $0 }
+        CommitBoundary().after { box.outcomes.append($0) }
+        CommitBoundary().after { box.outcomes.append($0) }
         let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
         CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
         _ = CFRunLoopRunInMode(.defaultMode, 0, true)
         CFRunLoopTimerInvalidate(timer)
-        #expect(box.outcome == .committed)
-        #expect(log.records(.frameCommit).map(\.arg0) == [9])
+        #expect(box.outcomes == [.committed, .committed])
+        let commits = log.records(.frameCommit)
+        #expect(commits.count == 1, "\(commits.count) frame.commit records for one turn's commit")
+        let commit = try #require(commits.first)
+        #expect(commit.arg0 == 9)
+        #expect(commit.arg1 == 1)
     }
 
     /// The vsync target, in trace nanoseconds, that presents a flow committed at 1.000 s whose GPU work
     /// finishes at `gpuDoneNanos`, learned on main after the 1.020 s vsync's tick.
     private func presentTarget(gpuDoneNanos: UInt64) throws -> UInt64 {
         let rig = PresentRig()
-        rig.presents.markCommit(flow: 7, awaitsGPU: true)
-        rig.now.set(1_000_000_000)
-        rig.endCommit()
-        rig.scheduler.frameDidFire(timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
+        let spring = rig.spring()
+        defer { spring.deactivate() }
+        rig.presents.markCommit(flow: 7, display: 1, awaitsGPU: true)
+        rig.now.now = 1_000_000_000
+        rig.presents.turnDidCommit()
+        rig.displays.displayDidFire(1, timestamp: 1.005, refreshInterval: Self.interval, targetTimestamp: 1.020)
         #expect(rig.log.records(.framePresentEstimate).isEmpty, "presented before its GPU work finished")
         rig.presents.gpuDidFinish(flow: 7, atNanos: gpuDoneNanos)
         if rig.log.records(.framePresentEstimate).isEmpty {
-            rig.scheduler.frameDidFire(timestamp: 1.020, refreshInterval: Self.interval, targetTimestamp: 1.037)
+            rig.displays.displayDidFire(1, timestamp: 1.020, refreshInterval: Self.interval, targetTimestamp: 1.037)
         }
         return try #require(rig.log.records(.framePresentEstimate).first).arg1
     }
 }
 
-/// A test scheduler on a fake link whose clock's presents write to a runtime of their own, with the commit
-/// boundaries held until the test ends them.
+/// A display clock on fake links (every window-less scheduler on display 1) whose presents write to a
+/// runtime of their own and whose commits the test ends by hand.
 @MainActor
 private final class PresentRig {
     let log: FrameRecordLog
     let links: PresentLinks
     /// The trace clock's uptime nanoseconds.
     let now: FakeUptime
+    let trace: TraceRuntime
     let presents: FramePresentEstimate
-    let scheduler: FrameScheduler
-    private let commits: PendingCommits
-
-    /// The commit boundaries not ended yet.
-    var pendingCommits: [@MainActor (CommitBoundary.Outcome) -> Void] { commits.bodies }
+    let displays: DisplayClock
 
     init(recording: Bool = true) {
-        let log = FrameRecordLog(), now = FakeUptime(), commits = PendingCommits(), links = PresentLinks()
-        let clock = TraceClock(reader: .init(uptimeNanos: { now.value }, continuousNow: { ContinuousClock.now }))
-        let trace = TraceRuntime(role: .app, clock: clock, stubRecorder: { log.append($0) })
-        trace.setCategoryMask(recording ? TraceCategories.frame.rawValue : 0)
-        let presents = FramePresentEstimate(trace: trace, clock: clock) { _, body in commits.bodies.append(body) }
+        let log = FrameRecordLog(), now = FakeUptime(), links = PresentLinks()
         self.log = log
         self.now = now
-        self.commits = commits
         self.links = links
+        let clock = TraceClock(reader: .init(uptimeNanos: { now.now }, continuousNow: { ContinuousClock.now }))
+        let trace = TraceRuntime(role: .app, clock: clock, stubRecorder: { log.append($0) })
+        trace.setCategoryMask(recording ? TraceCategories.frame.rawValue : 0)
+        let presents = FramePresentEstimate(trace: trace, clock: clock, observesRunLoop: false)
+        self.trace = trace
         self.presents = presents
-        scheduler = FrameScheduler.testing(clock: ManualClock(), mediaTime: { 1 }, presents: presents) { _ in links.make() }
+        displays = DisplayClock(makeLink: { _, _ in links.make() }, displayOf: { _ in 1 }, clock: ManualClock(),
+                                mediaTime: { 1 }, presents: presents)
     }
 
-    /// Ends the oldest pending commit with `outcome`.
-    func endCommit(_ outcome: CommitBoundary.Outcome = .committed) {
-        guard !commits.bodies.isEmpty else { return }
-        commits.bodies.removeFirst()(outcome)
+    /// A spring that keeps display 1's link running, as a busy app does.
+    func spring() -> FrameClient {
+        let scheduler = FrameScheduler(name: "spring", host: .screen, displays: displays, clock: ManualClock(), budget: nil)
+        let client = FrameClient(owner: "spring", on: scheduler) { _ in true }
+        client.activate()
+        return client
     }
 }
 
-@MainActor
-private final class PendingCommits {
-    var bodies: [@MainActor (CommitBoundary.Outcome) -> Void] = []
-}
-
-/// The uptime a test's trace clock reads.
-private nonisolated final class FakeUptime: Sendable {
-    private let state = Mutex<UInt64>(0)
-
-    var value: UInt64 { state.withLock { $0 } }
-
-    func set(_ nanos: UInt64) { state.withLock { $0 = nanos } }
-}
-
-/// The outcome a boundary reported.
+/// The outcomes the boundaries reported.
 @MainActor
 private final class OutcomeBox {
-    var outcome: CommitBoundary.Outcome?
+    var outcomes: [CommitBoundary.Outcome] = []
 }
 
 /// The records a test runtime wrote.

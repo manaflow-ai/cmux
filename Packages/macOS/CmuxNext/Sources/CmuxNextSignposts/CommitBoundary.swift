@@ -1,4 +1,3 @@
-public import CmuxNextTrace
 public import CoreFoundation
 
 /// Runs work once, right after the next Core Animation commit of the main run loop.
@@ -24,10 +23,8 @@ public import CoreFoundation
 /// common modes fires when a common mode runs again (Core Animation's observer is in the common
 /// modes too, so nothing committed in between either).
 ///
-/// Each commit it sees writes ``SignpostName/frameCommit`` while the frame category records, as Chrome
-/// traces each commit (`ProxyImpl::ScheduledActionCommit`, cc/trees/proxy_impl.cc); one load while it
-/// does not. A boundary for a key's flow names it, so ``FramePresentEstimate`` can end that flow at the
-/// vsync that shows the commit.
+/// A boundary writes no trace record of the commit: `frame.commit` is written once per turn's commit
+/// by one repeating observer, however many boundaries wait on it (``FramePresentEstimate/observeCommits()``).
 ///
 /// ```swift
 /// let interval = Signposter.action.begin(.actionCommit, "id=tab.new")
@@ -46,31 +43,19 @@ public struct CommitBoundary: Sendable {
     /// The observer order: one after Core Animation's commit observer.
     public static let order: CFIndex = 2_000_001
 
-    /// The runtime its ``SignpostName/frameCommit`` records go to.
-    private let trace: TraceRuntime
-
     /// A boundary on the main run loop.
-    ///
-    /// - Parameter trace: Where its ``SignpostName/frameCommit`` records go (the app's runtime; tests pass their own).
-    public init(trace: TraceRuntime = .shared) {
-        self.trace = trace
-    }
+    public init() {}
 
     /// Runs `body` once, after the Core Animation commit that ends this main run-loop turn.
     ///
-    /// - Parameters:
-    ///   - flow: The key flow this commit shows (0: none), the ``SignpostName/frameCommit`` record's `arg0`.
-    ///   - body: Main-actor work; it runs in the same turn, before the run loop waits,
-    ///     and gets ``Outcome/missed`` when the boundary first saw the run loop wake instead.
+    /// - Parameter body: Main-actor work; it runs in the same turn, before the run loop waits,
+    ///   and gets ``Outcome/missed`` when the boundary first saw the run loop wake instead.
     @MainActor
-    public func after(flow: UInt64 = 0, _ body: @escaping @MainActor (Outcome) -> Void) {
+    public func after(_ body: @escaping @MainActor (Outcome) -> Void) {
         let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
             | CFRunLoopActivity.afterWaiting.rawValue
-        let trace = trace
         let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, false, Self.order) { _, activity in
             let outcome: Outcome = activity == .afterWaiting ? .missed : .committed
-            // A missed boundary saw no commit: it writes none.
-            if outcome == .committed { trace.event(.frameCommit, arg0: flow) }
             // main-proof: the observer is added to the main run loop only (below).
             MainActor.assumeIsolated { body(outcome) }
         }

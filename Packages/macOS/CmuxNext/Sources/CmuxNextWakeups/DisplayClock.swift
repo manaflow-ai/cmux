@@ -90,8 +90,8 @@ public final class DisplayClock {
     }
     private var displays: [CGDirectDisplayID: Display] = [:]
     /// Writes each link tick's `frame.tick` and the key flows' `frame.present_estimate` while a
-    /// recording turns the frame category on (p09-observability 037); the app scheduler on this clock
-    /// ticks while a flow waits (``FrameScheduler/app``).
+    /// recording turns the frame category on (p09-observability 037); a flow waiting on a display whose
+    /// link is idle gets one tick of it (``presentNeedsFrame(_:)``).
     public let presents: FramePresentEstimate
 
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
@@ -131,6 +131,7 @@ public final class DisplayClock {
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
+        self.presents.onNeedsFrame = { [weak self] display in self?.presentNeedsFrame(display) }
     }
 
     /// Links alive now, over every display (0 at idle).
@@ -176,6 +177,18 @@ public final class DisplayClock {
     /// The display `scheduler` is on now (``noDisplay`` when there is no screen).
     private func resolve(_ scheduler: FrameScheduler) -> CGDirectDisplayID {
         displayOf(scheduler.hostWindow) ?? Self.noDisplay
+    }
+
+    /// The display `window` is on (nil: the main display), by this clock's resolver.
+    public func display(of window: NSWindow?) -> CGDirectDisplayID? { displayOf(window) }
+
+    /// One link tick of `id` for a key flow's present, asked only while recording (``presents``): a paused
+    /// link runs a frame, and an idle display gets a link that its first tick (or the stall deadline) drops.
+    private func presentNeedsFrame(_ id: CGDirectDisplayID) {
+        let display = record(id)
+        guard let link = display.link ?? make(display) else { return }
+        link.isPaused = false
+        if display.subscribers.isEmpty { arm(display) }
     }
 
     private func join(_ scheduler: FrameScheduler, _ display: Display) {
@@ -270,14 +283,6 @@ public final class DisplayClock {
         link.requestFrameRate(Self.linkRange(rate))
     }
 
-    /// The range a link asks for at `rate`: ``FrameRate/range``, never below ``slowestLinkHertz``.
-    static func linkRange(_ rate: FrameRate) -> CAFrameRateRange {
-        let range = rate.range, floor = slowestLinkHertz
-        guard range.minimum < floor else { return range }
-        return CAFrameRateRange(minimum: floor, maximum: max(range.maximum, floor),
-                                preferred: max(range.preferred ?? floor, floor))
-    }
-
     /// A client that needs a faster rate armed while the link ran slower, whose next callback can
     /// still come on the slow cadence (33 ms at 30 Hz, past an input's 10 ms budget): the display
     /// ticks once on the next turn, as for a display with no link, unless its link fires first.
@@ -338,7 +343,7 @@ public final class DisplayClock {
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
         // frame.tick and the waiting flows' presents, for link ticks while recording: one load when not.
         if presents.isRecording, let timestamp {
-            presents.frameDidTick(timestamp: timestamp,
+            presents.frameDidTick(display: display.id, timestamp: timestamp,
                                   target: targetTimestamp ?? timestamp + (refreshInterval ?? FrameTick.defaultRefreshInterval))
         }
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
@@ -464,7 +469,9 @@ public final class DisplayClock {
     /// `id`'s stall deadline passed (its timer; tests call it directly). Its subscribers that are on
     /// another display now move there first.
     func stallTimerFired(_ id: CGDirectDisplayID) {
-        guard let display = displays[id], !display.subscribers.isEmpty else { return }
+        guard let display = displays[id] else { return }
+        // A link no subscriber holds (a present's one tick that never came) goes.
+        guard !display.subscribers.isEmpty else { return idle(display) }
         relocate(display)
         guard !display.subscribers.isEmpty else { return }
         let sinceFrame = mediaTime() - display.lastFrame

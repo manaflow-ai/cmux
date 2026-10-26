@@ -45,7 +45,7 @@ public final class FrameScheduler: NSObject {
     /// The scheduler for window-less frame work, on the main display (no budget: budgeted batches
     /// tick on the injected ``MainWorkScheduler``), on the clock the composition root installed
     /// (``install(displays:)``; a clock of its own before that, in tests).
-    public private(set) static var app = makeApp(displays: DisplayClock())
+    public private(set) static var app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
 
     private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
 
@@ -57,7 +57,7 @@ public final class FrameScheduler: NSObject {
     public static func install(displays: DisplayClock) {
         guard displays !== appDisplays else { return }
         app.invalidate()
-        app = makeApp(displays: displays)
+        app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil)
     }
 
     /// `window`'s scheduler, created on first use and dropped with the window.
@@ -165,8 +165,6 @@ public final class FrameScheduler: NSObject {
     /// The highest ``FrameClient/rate`` of its active clients (nil while idle): what it asks of
     /// its display's link (``DisplayClock``).
     public private(set) var frameRate: FrameRate?
-    /// Ticks while a key flow's commit waits for the vsync that shows it (``servesPresents()``).
-    var presentsClient: FrameClient?
 
     /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
@@ -183,6 +181,29 @@ public final class FrameScheduler: NSObject {
         self.ledger = ledger
         self.clock = clock
         super.init()
+    }
+
+    /// A scheduler with a fake link on a display clock of its own (tests; budgeted work:
+    /// ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``). `clock` runs the stall timer;
+    /// `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
+    public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                               makeLink: @escaping LinkFactory) -> FrameScheduler {
+        testing(name: "test", clock: clock, ledger: ledger, mediaTime: mediaTime, budget: nil, makeLink: makeLink)
+    }
+
+    /// A scheduler named `name` on a one-display clock whose links `makeLink` makes for it.
+    static func testing(name: String, clock: any Clock<Duration>, ledger: WakeupLedger,
+                        mediaTime: @escaping @MainActor () -> CFTimeInterval, budget: MainFrameBudget?,
+                        makeLink: @escaping LinkFactory) -> FrameScheduler {
+        let owner = TestLinkOwner()
+        let displays = DisplayClock(makeLink: { _, _ in
+            guard let scheduler = owner.scheduler else { return nil }
+            return makeLink(scheduler)
+        }, displayOf: { _ in 1 }, clock: clock, ledger: ledger, mediaTime: mediaTime)
+        let scheduler = FrameScheduler(name: name, host: .screen, displays: displays, clock: clock, ledger: ledger, budget: budget)
+        owner.scheduler = scheduler
+        return scheduler
     }
 
     /// Owners of the clients that are ticking now.
@@ -445,5 +466,11 @@ public final class FrameScheduler: NSObject {
 
     private struct WeakScheduler {
         weak var value: FrameScheduler?
+    }
+
+    /// Lets a test clock's link factory reach the scheduler it was made for.
+    @MainActor
+    private final class TestLinkOwner {
+        weak var scheduler: FrameScheduler?
     }
 }
