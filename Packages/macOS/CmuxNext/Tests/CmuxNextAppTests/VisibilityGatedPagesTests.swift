@@ -171,7 +171,7 @@ import Testing
     @Test func theVaultPageReadsNothingOnAHideAndShow() async throws {
         let source = CountingVaultSource()
         let vault = SessionVault(source: source, copyText: { _ in }, openURL: { _ in })
-        let host = VaultHostView(vault: vault, registry: ActionRegistry(), readsInWindow: false)
+        let host = VaultHostView(vault: vault, registry: ActionRegistry(), readsOnAppear: false)
         let gate = try #require(host.visibilityGate)
         let shown = Self.show(host, gate: gate)
         defer { shown.close() }
@@ -182,7 +182,7 @@ import Testing
         #expect(source.refreshes == 0, "the page tab reads on show itself (VaultPageTab.setContentVisible), its view reads nothing")
     }
 
-    @Test func theVaultSectionReadsWhenItMovesIntoAWindow() async {
+    @Test func theVaultSectionReadsWhenItAppears() {
         let source = CountingVaultSource()
         let vault = SessionVault(source: source, copyText: { _ in }, openURL: { _ in })
         let host = VaultHostView(vault: vault, registry: ActionRegistry())
@@ -191,7 +191,12 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.contentView = nil; window.close() }
         window.contentView = host
-        for _ in 0..<20 where source.refreshes == 0 { await Task.yield() }
+        let deadline = Date().addingTimeInterval(2)
+        while source.refreshes == 0, Date() < deadline {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
         #expect(source.refreshes == 1, "the right sidebar's section reads once it shows")
     }
 }

@@ -64,22 +64,18 @@ struct WorkspaceTodoRow: View {
 /// The text field of an item being edited. Its text starts as the item's when the edit begins (the
 /// field is made), not on appear: a gated page tab appears again on each show
 /// (`VisibilityGatedHostingView`), and the text typed so far must stay.
-struct WorkspaceTodoEditField: View {
+private struct WorkspaceTodoEditField: View {
     let item: WorkspaceChecklistItem
     let actions: WorkspaceTodoRowActions
     @State private var text: String
 
     init(item: WorkspaceChecklistItem, actions: WorkspaceTodoRowActions) {
-        self.item = item
-        self.actions = actions
+        (self.item, self.actions) = (item, actions)
         _text = State(initialValue: item.text)
     }
 
     var body: some View {
-        TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
-            .textFieldStyle(.plain)
-            .focusEffectDisabled()
-            .onSubmit { actions.commitEdit(item.id, text) }
-            .onExitCommand { actions.cancelEdit() }
+        TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text).textFieldStyle(.plain).focusEffectDisabled()
+            .onSubmit { actions.commitEdit(item.id, text) }.onExitCommand { actions.cancelEdit() }
     }
 }

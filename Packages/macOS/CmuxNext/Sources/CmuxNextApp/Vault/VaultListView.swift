@@ -8,6 +8,8 @@ struct VaultListView: View {
     let vault: SessionVault
     let appearance: VaultAppearance
     let actions: VaultRowActions
+    /// Reads the vault when the list appears (the sidebar section; the page tab reads on show itself).
+    let readsOnAppear: Bool
 
     var body: some View {
         @Bindable var vault = vault
@@ -48,5 +50,6 @@ struct VaultListView: View {
             }
         }
         .background(colors.background)
+        .task { if readsOnAppear { await vault.reload() } }
     }
 }
