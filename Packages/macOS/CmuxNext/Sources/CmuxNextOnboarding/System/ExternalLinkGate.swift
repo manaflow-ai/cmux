@@ -24,12 +24,14 @@ public final class ExternalLinkGate {
     public var allowedHosts: @MainActor () -> [String]
     /// Adds a trust key to `ssh.linkAllowedHosts`.
     public var rememberHost: @MainActor (String) async -> Void
-    /// Asks the person (``ask(_:in:)``).
-    public var askSSH: @MainActor (SSHLinkTarget) async -> SSHLinkAnswer
+    /// Asks the person in the window the link opened in (``ask(_:in:)``).
+    public var askSSH: @MainActor (SSHLinkTarget, NSWindow?) async -> SSHLinkAnswer
+    /// "Always allow" writes, one at a time: each reads the list the one before it wrote.
+    private var remembering: Task<Void, Never>?
 
     public init(knownHosts: @escaping @MainActor () async -> [String], allowedHosts: @escaping @MainActor () -> [String],
                 rememberHost: @escaping @MainActor (String) async -> Void,
-                askSSH: @escaping @MainActor (SSHLinkTarget) async -> SSHLinkAnswer) {
+                askSSH: @escaping @MainActor (SSHLinkTarget, NSWindow?) async -> SSHLinkAnswer) {
         self.knownHosts = knownHosts
         self.allowedHosts = allowedHosts
         self.rememberHost = rememberHost
@@ -37,23 +39,27 @@ public final class ExternalLinkGate {
     }
 
     /// Runs `run` (the terminal that connects) for a known or always-allowed host, else only
-    /// after the person pressed Connect; Cancel, Escape or a closed window runs nothing.
-    public func openSSH(_ target: SSHLinkTarget, run: @MainActor () -> Void) async {
+    /// after the person pressed Connect in `window`, the window the link opened in; Cancel,
+    /// Escape or a closed window runs nothing. `run` returns false when it could not open the
+    /// terminal (its pane closed while the question was up): the host is then not remembered.
+    public func openSSH(_ target: SSHLinkTarget, in window: NSWindow? = nil, run: @MainActor () -> Bool) async {
         let key = target.trustKey
         var trusted = allowedHosts().contains { SSHLinkTarget.trustKey($0) == key }
         // The known hosts are read before the question, never after: a peer list that answers
         // late cannot turn a Connect the person did not press into a run.
         if !trusted { trusted = await knownHosts().contains { SSHLinkTarget.trustKey($0) == key } }
         guard trusted else {
-            switch await askSSH(target) {
-            case .cancel: return
-            case .connect(let always):
-                run()
-                if always { await rememberHost(key) }
+            guard case .connect(let always) = await askSSH(target, window), run(), always else { return }
+            let previous = remembering
+            let next = Task { [rememberHost] in
+                await previous?.value
+                await rememberHost(key)
             }
+            remembering = next
+            await next.value
             return
         }
-        run()
+        _ = run()
     }
 
     /// The hosts of acpmux peer URLs (`ssh://cosmic-gray`, from `_acpmux/peers`), for ``knownHosts``.

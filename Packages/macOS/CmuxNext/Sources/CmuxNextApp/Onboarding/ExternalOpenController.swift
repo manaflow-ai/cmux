@@ -35,7 +35,7 @@ final class ExternalOpenController {
                     services?.daemon.logger.error("always allow ssh link host failed: \(String(describing: error), privacy: .public)")
                 }
             },
-            askSSH: { @MainActor [weak services] target in await ExternalLinkGate.ask(target, in: services?.windows.active?.window) })
+            askSSH: { @MainActor target, window in await ExternalLinkGate.ask(target, in: window) })
     }
 
     init(services: AppServices) {
@@ -162,7 +162,16 @@ final class ExternalOpenController {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
         // Any page can open `ssh://host`: an unknown host asks first (ExternalLinkGate).
-        case .ssh(let target): Task { [weak pane] in await sshGate.openSSH(target) { pane?.newTerminalTab(cwd: nil, typing: target.command + "\n") } }
+        // The question shows in the pane's window, and Connect opens the terminal in that pane.
+        case .ssh(let target):
+            let window = pane.view.window
+            Task { [weak pane] in
+                await sshGate.openSSH(target, in: window) {
+                    guard let pane, pane.view.window != nil else { return false }
+                    pane.newTerminalTab(cwd: nil, typing: target.command + "\n")
+                    return true
+                }
+            }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .deepLink, .unsupported: return

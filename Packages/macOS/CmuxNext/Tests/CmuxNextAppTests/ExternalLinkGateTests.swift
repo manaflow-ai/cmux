@@ -17,7 +17,7 @@ import Testing
     func gate(_ probe: Probe, known: [String] = [], answer: SSHLinkAnswer = .cancel) -> ExternalLinkGate {
         ExternalLinkGate(knownHosts: { known }, allowedHosts: { probe.allowed },
                          rememberHost: { key in probe.events.append("remember \(key)"); probe.allowed.append(key) },
-                         askSSH: { target in probe.events.append("ask \(target.display)"); return answer })
+                         askSSH: { target, _ in probe.events.append("ask \(target.display)"); return answer })
     }
 
     func target(_ link: String) throws -> SSHLinkTarget {
@@ -29,8 +29,11 @@ import Testing
         return target
     }
 
-    func open(_ link: String, _ gate: ExternalLinkGate, _ probe: Probe) async throws {
-        try await gate.openSSH(target(link)) { probe.events.append("run") }
+    func open(_ link: String, _ gate: ExternalLinkGate, _ probe: Probe, opens: Bool = true) async throws {
+        try await gate.openSSH(target(link)) {
+            probe.events.append(opens ? "run" : "pane gone")
+            return opens
+        }
     }
 
     @Test func anUnknownHostAsksBeforeAnythingRuns() async throws {
@@ -69,6 +72,15 @@ import Testing
         #expect(probe.events == ["ask root@New.Example.com:2222", "run", "remember new.example.com", "run"])
     }
 
+    /// Connect in a window whose pane closed while the question was up opens nothing and
+    /// remembers nothing, whatever "Always allow" said.
+    @Test func aClosedPaneRemembersNothing() async throws {
+        let probe = Probe(allowed: [])
+        try await open("ssh://gone.example", gate(probe, answer: .connect(always: true)), probe, opens: false)
+        #expect(probe.events == ["ask gone.example", "pane gone"])
+        #expect(probe.allowed.isEmpty)
+    }
+
     /// Trust is per host, compared without case and nothing else: a trailing dot, a longer name
     /// or a look-alike is another host to ssh, so it asks.
     @Test func onlyTheSameHostSkipsTheQuestion() async throws {
@@ -90,7 +102,9 @@ import Testing
     /// maps the Kelvin sign to `k`, so ssh would connect to the ASCII host the dialog names.)
     @Test func aCraftedLinkNeverRoutes() throws {
         for link in ["ssh://-oProxyCommand=evil", "ssh://-l@host", "ssh://h%C3%B6st.example", "ssh://%D0%B0pple.example",
-                     "ssh://host;rm%20-rf", "ssh://host:0", "ssh://us%27er@host"] {
+                     "ssh://host;rm%20-rf", "ssh://host:0", "ssh://us%27er@host",
+                     // Only [user@]host[:port]: no password, path, query, fragment or unread port.
+                     "ssh://leo:secret@host", "ssh://host/path", "ssh://host?x=1", "ssh://host#frag", "ssh://host:", "ssh://leo@[::1]:"] {
             let url = try #require(URL(string: link))
             #expect(ExternalOpenRouter().route(url) == .unsupported, "\(link)")
         }

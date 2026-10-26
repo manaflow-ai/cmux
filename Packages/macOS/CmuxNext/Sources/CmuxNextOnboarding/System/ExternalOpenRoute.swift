@@ -133,6 +133,13 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     /// and `--` ends ssh's options, so a crafted link cannot pass an option
     /// (`-oProxyCommand=...`) to ssh.
     func ssh(_ url: URL) -> ExternalOpenRoute {
+        // Only `[user@]host[:port]`: no password, path, query or fragment, nothing a page could
+        // hope cmux passes on, and every character as written ASCII (Foundation maps some
+        // letters, the Kelvin sign, to ASCII ones before `host` is read).
+        let text = url.absoluteString
+        guard text.unicodeScalars.allSatisfy(\.isASCII), url.password(percentEncoded: true) == nil,
+              url.query(percentEncoded: true) == nil, url.fragment(percentEncoded: true) == nil,
+              ["", "/"].contains(url.path(percentEncoded: true)), Self.portIsWellFormed(url) else { return .unsupported }
         guard let host = url.host(percentEncoded: false), Self.isHostName(host) else { return .unsupported }
         var user: String?
         if let login = url.user(percentEncoded: false) {
@@ -143,6 +150,17 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             guard (1...65535).contains(port) else { return .unsupported }
         }
         return .ssh(SSHLinkTarget(user: user, host: host, port: url.port))
+    }
+
+    /// A `:` after the host names a port URL could read (`host:` or `host:abc` is refused, never
+    /// read as no port).
+    static func portIsWellFormed(_ url: URL) -> Bool {
+        guard url.port == nil, let rest = url.absoluteString.split(separator: "/", maxSplits: 3, omittingEmptySubsequences: false).dropFirst(2).first
+        else { return true }
+        var authority = Substring(rest)
+        if let at = authority.lastIndex(of: "@") { authority = authority[authority.index(after: at)...] }
+        if authority.hasPrefix("["), let close = authority.firstIndex(of: "]") { authority = authority[authority.index(after: close)...] }
+        return !authority.contains(":")
     }
 
     /// `x-man-page://ls`, `x-man-page://1/ls`, `x-man-page:///ls`.
