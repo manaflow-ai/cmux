@@ -901,11 +901,10 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        let reader_thread =
-            std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
-                let surface = surface.clone();
-                move || hosted_reader.run(surface, reader)
-            })?;
+        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-host"), {
+            let surface = surface.clone();
+            move || hosted_reader.run(surface, reader)
+        })?;
         *surface
             .as_pty()
             .expect("hosted PTY surface owns its reader")

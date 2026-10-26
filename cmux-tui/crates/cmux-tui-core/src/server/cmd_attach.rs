@@ -270,55 +270,53 @@ pub(super) fn attach_surface(
         let worker_lifecycle = lifecycle.clone();
         let worker_stream = outbound_stream.clone();
         let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-        let spawned =
-            std::thread::Builder::new().name("mux-render-attach-out".into()).spawn(move || {
-                let writer = worker_writer;
-                let mux = worker_mux;
-                let lifecycle = worker_lifecycle;
-                let outbound_stream = worker_stream;
-                if worker_committed.recv().is_err() {
-                    return;
-                }
-                let mut state =
-                    RenderClientState::new(writer.render_service.clone(), &attach.initial);
-                let interrupt = StreamInterrupt::new();
-                writer.register_interrupt(&interrupt);
-                outbound_stream.register_interrupt(&interrupt);
-                lifecycle.register_interrupt(&interrupt);
-                attach.stream.wake_on(&interrupt);
-                while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                    let send_result = match attach.stream.recv_until_interrupted(&interrupt) {
-                        Ok(RenderAttachFrame::Frame(frame)) => {
-                            let message = state.delta_message(surface_id, &frame);
-                            writer.send_stream_backpressured(&message, &outbound_stream)
-                        }
-                        Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => writer
-                            .send_stream_backpressured(
-                                &json!({
-                                    "event": "scroll-changed",
-                                    "surface": surface_id,
-                                    "offset": offset,
-                                    "at_bottom": at_bottom,
-                                }),
-                                &outbound_stream,
-                            ),
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                    };
-                    if let Err(error) = send_result {
-                        handle_attach_send_error(&lifecycle, &error);
-                        break;
+        let spawned = crate::echo_thread::spawn("mux-render-attach-out", move || {
+            let writer = worker_writer;
+            let mux = worker_mux;
+            let lifecycle = worker_lifecycle;
+            let outbound_stream = worker_stream;
+            if worker_committed.recv().is_err() {
+                return;
+            }
+            let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            lifecycle.register_interrupt(&interrupt);
+            attach.stream.wake_on(&interrupt);
+            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
+                let send_result = match attach.stream.recv_until_interrupted(&interrupt) {
+                    Ok(RenderAttachFrame::Frame(frame)) => {
+                        let message = state.delta_message(surface_id, &frame);
+                        writer.send_stream_backpressured(&message, &outbound_stream)
                     }
+                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => writer
+                        .send_stream_backpressured(
+                            &json!({
+                                "event": "scroll-changed",
+                                "surface": surface_id,
+                                "offset": offset,
+                                "at_bottom": at_bottom,
+                            }),
+                            &outbound_stream,
+                        ),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                if let Err(error) = send_result {
+                    handle_attach_send_error(&lifecycle, &error);
+                    break;
                 }
-                if writer.is_open() && !lifecycle.overflowed() {
-                    let _ = writer.send_stream_backpressured(
-                        &json!({"event": "detached", "surface": surface_id}),
-                        &outbound_stream,
-                    );
-                }
-                report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
-            });
+            }
+            if writer.is_open() && !lifecycle.overflowed() {
+                let _ = writer.send_stream_backpressured(
+                    &json!({"event": "detached", "surface": surface_id}),
+                    &outbound_stream,
+                );
+            }
+            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+            detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
+        });
         if let Err(error) = spawned {
             lifecycle.cancel();
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
@@ -389,7 +387,7 @@ pub(super) fn attach_surface(
         let worker_lifecycle = lifecycle.clone();
         let worker_stream = outbound_stream.clone();
         let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-        let spawned = std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
+        let spawned = crate::echo_thread::spawn("mux-attach-out", move || {
             let writer = worker_writer;
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
@@ -519,7 +517,7 @@ pub(super) fn attach_surface(
     let worker_mux = mux.clone();
     let worker_stream = outbound_stream.clone();
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned = std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
+    let spawned = crate::echo_thread::spawn("mux-attach-out", move || {
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;

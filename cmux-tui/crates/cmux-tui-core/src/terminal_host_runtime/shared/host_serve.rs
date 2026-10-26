@@ -435,11 +435,11 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         write_frame(&mut stream, &ready)?;
     }
 
-    let mut command_stream = stream.try_clone()?;
+    let command_stream = stream.try_clone()?;
     let command_host = host.clone();
-    thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+    let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
         let mut detached = false;
-        while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
+        while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
             // Client-to-host messages currently define no flags and never
             // participate in the host live-stream sequence.
             if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
@@ -701,7 +701,9 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             command_sender.close_and_wake_writer();
         }
         command_host.remove_client(client);
-    })?;
+    };
+    let client_input = "terminal-host-client-input";
+    crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 
     while let Ok(frame) = receiver.recv() {

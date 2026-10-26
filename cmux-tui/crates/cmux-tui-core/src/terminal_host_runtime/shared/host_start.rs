@@ -160,7 +160,7 @@ pub(crate) fn start_host_runtime(
     shared.clipboard.start_timer(&shared)?;
 
     let parser_host = shared.clone();
-    thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+    crate::echo_thread::spawn("terminal-host-parser", move || {
         let guarded = parser_host.clone();
         let parse = move || {
             run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
@@ -172,7 +172,7 @@ pub(crate) fn start_host_runtime(
     })?;
 
     let reader_host = shared.clone();
-    thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+    crate::echo_thread::spawn("terminal-host-pty", move || {
         reader_host.wait_for_launch_owner_stream_ready();
         let mut buffer = [0u8; PTY_READ_BYTES];
         // File-medium Kitty images are read here, next to the program, so
