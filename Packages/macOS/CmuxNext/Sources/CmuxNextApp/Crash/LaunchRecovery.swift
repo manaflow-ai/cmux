@@ -16,13 +16,16 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// over the socket, SIGTERM, SIGINT, SIGHUP) when it ended. Nil in
     /// markers written before this field existed.
     var quitting: Bool?
+    /// The boot the run was in (`kern.bootsessionuuid` as hex); nil when unknown or in markers written before
+    /// this field existed. A different boot at the next launch means the machine restarted after the run.
+    var bootSession: String?
     /// The uncaught Objective-C exception that ended the run
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting
+        case pid, launched, recovery, survived, signal, quitting, bootSession
     }
 
     /// The run ended because someone asked it to: a requested-quit signal
