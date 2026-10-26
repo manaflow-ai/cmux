@@ -21,6 +21,7 @@ mod pairing;
 mod remote;
 mod remote_client;
 mod runtime;
+mod sandbox_run;
 mod server_mount;
 mod session;
 mod session_reset;
@@ -52,6 +53,7 @@ pub(crate) use pairing::PairingMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
+pub(crate) use sandbox_run::SandboxRunMessages;
 pub(crate) use server_mount::server_mount;
 pub(crate) use session::SessionMessages;
 pub(crate) use session_reset::SessionResetMessages;
@@ -152,6 +154,7 @@ pub(crate) struct Catalog {
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
+    pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
@@ -166,6 +169,7 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
     billing: billing::ENGLISH,
+    sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
@@ -198,6 +202,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
     billing: billing::JAPANESE,
+    sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
