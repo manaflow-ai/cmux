@@ -59,7 +59,17 @@ struct CmdNRowSlotTests {
         controller.showWorkspace(requested: state.workspaceID)
 
         var frames: [[String]] = []
-        list.onApply = { frames.append(rows($0)) }
+        var tags: [String] = []
+        list.onApply = { layout in
+            let frame = rows(layout)
+            frames.append(frame)
+            // Where each row draws and whether the sidebar document places it (+d), for a failure's message.
+            tags.append(frame.map { id in
+                let kind = services.machines.workspace(id: id)?.0.kind.map { "/\($0)" } ?? ""
+                let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
+                return "\(id.prefix(6))\(kind)\(item)"
+            }.joined(separator: " "))
+        }
         _ = services.registry.perform("newTab")
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && rows(list.displayed).count > before.count }
         if !settled(start + 4) { print("cmd-n-slot: not settled after the press: \(describe())") }
@@ -68,6 +78,7 @@ struct CmdNRowSlotTests {
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
+        print("cmd-n-slot: anchor \(anchor.prefix(6)), new \(created.prefix(6)), frames: \(tags.joined(separator: " | "))")
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere)")

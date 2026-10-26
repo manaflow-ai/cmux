@@ -128,7 +128,8 @@ enum NewWorkspacePlacements {
     }
 
     /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
-    /// the window's current workspace (not Home), or the one New Workspace Above or Below names.
+    /// the window's current workspace (not Home), or the one New Workspace Above or Below names; under
+    /// `top` / `bottom`, right after it / last in its group when it is in one (``NewWorkspaceDefaultSlot``'s rule).
     static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
         switch slot {
         case .above(let id)?: return .before(id)
@@ -140,7 +141,8 @@ enum NewWorkspacePlacements {
         switch byDefault.placement {
         case .beforeCurrent: return .before(current)
         case .afterCurrent: return .after(current)
-        case .top, .bottom: return nil
+        case .top: return .afterInGroup(current)
+        case .bottom: return .lastInGroupOf(current)
         }
     }
 

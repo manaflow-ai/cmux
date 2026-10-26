@@ -89,15 +89,19 @@ public final class SidebarDocSections {
     /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
     public var placesNewRowsFirst: @MainActor () -> Bool = { true }
     /// Where a live workspace the document does not place yet lists when its creator named a neighbour
-    /// (`beforeCurrent` / `afterCurrent`, New Workspace Above or Below): right before or after that
-    /// workspace, where the daemon's create puts it, so its item's arrival moves nothing. Nil, or a
-    /// neighbour not listed: first or last (``placesNewRowsFirst``).
+    /// (`beforeCurrent` / `afterCurrent`, New Workspace Above or Below, or `top` / `bottom` from inside a
+    /// group): beside that workspace, where the daemon's create puts it, so its item's arrival moves
+    /// nothing. Nil, or a neighbour not listed: first or last (``placesNewRowsFirst``).
     public var unplacedAnchor: @MainActor (WorkspaceModel) -> UnplacedAnchor? = { _ in nil }
 
     /// A listed workspace a new one lists beside (``unplacedAnchor``).
     public enum UnplacedAnchor: Equatable, Sendable {
         case before(String)
         case after(String)
+        /// Right after it when it is in a group (`top` from inside a group), else nowhere.
+        case afterInGroup(String)
+        /// Last in its group when it is in one (`bottom` from inside a group), else nowhere.
+        case lastInGroupOf(String)
     }
 
     public init() {}
@@ -185,19 +189,28 @@ public final class SidebarDocSections {
         return sections
     }
 
-    /// Lists `workspace` right before or after the workspace `anchor` names, in that one's section (its
-    /// group, or its loose run), among the machine's own first `within` sections (not Pinned or a
-    /// custom section's group). False when they do not list that workspace.
+    /// Lists `workspace` beside the workspace `anchor` names, in that one's section (its group, or its
+    /// loose run), among the machine's own first `within` sections (not Pinned or a custom section's
+    /// group). False when they do not list that workspace, or a group anchor's workspace is not in a group.
     public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection],
                               within: Int) -> Bool {
-        let (id, after) = switch anchor {
-        case .before(let id): (id, false)
-        case .after(let id): (id, true)
+        let id: String
+        switch anchor {
+        case .before(let anchor), .after(let anchor), .afterInGroup(let anchor), .lastInGroupOf(let anchor): id = anchor
         }
         for (index, section) in sections.enumerated().prefix(within) {
             guard let at = section.workspaces.firstIndex(where: { $0.id == id }) else { continue }
             var workspaces = section.workspaces
-            workspaces.insert(workspace, at: after ? at + 1 : at)
+            switch anchor {
+            case .before: workspaces.insert(workspace, at: at)
+            case .after: workspaces.insert(workspace, at: at + 1)
+            case .afterInGroup:
+                guard section.group != nil else { return false }
+                workspaces.insert(workspace, at: at + 1)
+            case .lastInGroupOf:
+                guard section.group != nil else { return false }
+                workspaces.append(workspace)
+            }
             sections[index] = CmuxNextDaemon.SidebarSection(group: section.group, workspaces: workspaces)
             return true
         }
