@@ -38,6 +38,11 @@ public final class TraceRuntime: Sendable {
     /// One bit per category (`SignpostCategory.traceBit`, ``TraceCategories``); a trace point records only
     /// while its bit is set. Usable from inline code so a trace point in another module inlines the check.
     @usableFromInline let categoryFlags = Atomic<UInt64>(0)
+    /// The categories last asked for (launch defaults, `trace.start`, `trace.stop`), before the keystroke-timing
+    /// gate; ``categoryFlags`` is this word without ``TraceCategories/keyTiming`` while the gate is closed.
+    let requestedFlags = Atomic<UInt64>(0)
+    /// The ``KeyTimingHold`` bits that hold the keystroke-timing gate closed; the gate is open at 0.
+    let keyTimingHoldBits = Atomic<UInt64>(0)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -50,7 +55,7 @@ public final class TraceRuntime: Sendable {
     /// The address of the ``TraceRing`` the write methods publish to (an `Unmanaged` reference retained
     /// once by ``attach(_:)`` and never released: a ring lives as long as its process), 0 until its owner
     /// attaches it.
-    private let ringAddress = Atomic<UInt64>(0)
+    let ringAddress = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -82,11 +87,12 @@ public final class TraceRuntime: Sendable {
     public func attach(_ ring: TraceRing) -> Bool {
         let retained = Unmanaged.passRetained(ring)
         let address = UInt64(UInt(bitPattern: retained.toOpaque()))
-        guard ringAddress.compareExchange(expected: 0, desired: address, ordering: .releasing).exchanged else {
+        guard ringAddress.compareExchange(expected: 0, desired: address, ordering: .sequentiallyConsistent).exchanged else {
             retained.release()
             return false
         }
-        ring.mirrorCategories(categoryMask)
+        // Read after the ring is visible: a publish that saw no ring stored its flags before this load.
+        ring.mirrorCategories(categoryFlags.load(ordering: .sequentiallyConsistent))
         return true
     }
 
@@ -106,13 +112,6 @@ public final class TraceRuntime: Sendable {
     /// The category flags: bit `n` on means category bit `n` records.
     @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
-
-    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate) and
-    /// mirrors them into the attached ring's header `categories` (trace.md "Header": mirrored on each change).
-    public func setCategoryMask(_ mask: UInt64) {
-        categoryFlags.store(mask, ordering: .relaxed)
-        attachedRing?._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
-    }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
     /// that is off (Chrome's `category_group_enabled` read).
@@ -321,7 +320,8 @@ extension TraceRuntime {
         public var categoryMask: UInt64
         /// The recording ring's size in records (capped by role).
         public var recordCapacity: Int
-        /// Whether per-key records and key flows are on (off by default; never while secure input is on).
+        /// Whether per-key records and key flows are on (off by default; never while secure input is on:
+        /// ``TraceRuntime/isKeyTimingSuppressed``).
         public var keys: Bool
 
         /// A request.
