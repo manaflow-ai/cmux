@@ -243,7 +243,8 @@ class ShardMap:
 
 
 def stories_from_catalog(catalog) -> tuple[StorySpec, ...]:
-    return tuple(StorySpec(s.id, s.tier, s.seconds, s.config) for s in catalog.stories)
+    """The stories the lab can run: a not-measurable one (catalog.Story.not_measurable) gets no round and no build."""
+    return tuple(StorySpec(s.id, s.tier, s.seconds, s.config) for s in catalog.stories if s.measurable())
 
 
 # ---------- state ----------
