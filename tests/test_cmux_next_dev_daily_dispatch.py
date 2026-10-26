@@ -52,6 +52,10 @@ check("GH_TOKEN: ${{ github.token }}" not in sign_text,
       "every signer source-run read must try the App token before GITHUB_TOKEN")
 check("- name: Wait for the API budget before publishing" in publish_text,
       "the release writes must wait for the shared budget instead of failing on it")
+for call in ("ghw release upload", "ghw release edit", "ghw release create", 'ghw api "repos/$GH_REPO/compare/'):
+    check(call in publish_text, f"the release write path must retry through a rate limit: {call}")
+check(re.search(r"^\s+gh release (upload|edit|create) ", publish_text, re.MULTILINE) is None,
+      "a release write must not call gh without the rate-limit retry")
 check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
