@@ -26,7 +26,7 @@
 
 use std::cell::Cell;
 use std::panic::Location;
-use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU16, AtomicU64, Ordering};
 
 /// What a blocking call waits on. The names are stable: `server.blocking`
 /// reports them and the app's reports group by them.
@@ -145,67 +145,8 @@ impl AllowReason {
     }
 }
 
-/// What a violation does beyond recording its site.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BlockingMode {
-    /// Record the site and continue (Release always; Debug with
-    /// `CMUX_DAEMON_BLOCKING=record`).
-    Record,
-    /// Record the site, then panic at the caller's location (the Debug default
-    /// since the sweep passed in record mode, task p02-threads-021). Debug
-    /// builds only; Release treats it as [`BlockingMode::Record`].
-    Panic,
-}
-
-/// The environment variable whose value `record` selects
-/// [`BlockingMode::Record`]; unset or any other value is
-/// [`BlockingMode::Panic`].
-pub const MODE_ENV: &str = "CMUX_DAEMON_BLOCKING";
-
-const MODE_UNSET: u8 = 0;
-const MODE_RECORD: u8 = 1;
-const MODE_PANIC: u8 = 2;
-
-static MODE: AtomicU8 = AtomicU8::new(MODE_UNSET);
-
-/// Sets the process-wide violation mode, replacing the [`MODE_ENV`] value.
-pub fn set_mode(mode: BlockingMode) {
-    let raw = match mode {
-        BlockingMode::Record => MODE_RECORD,
-        BlockingMode::Panic => MODE_PANIC,
-    };
-    MODE.store(raw, Ordering::Relaxed);
-}
-
-/// The violation mode in effect. Read from [`MODE_ENV`] on first use.
-pub fn mode() -> BlockingMode {
-    let raw = match MODE.load(Ordering::Relaxed) {
-        MODE_UNSET => {
-            let from_env = mode_from_env(std::env::var(MODE_ENV).ok().as_deref());
-            // A concurrent set_mode wins over the environment.
-            match MODE.compare_exchange(MODE_UNSET, from_env, Ordering::Relaxed, Ordering::Relaxed)
-            {
-                Ok(_) => from_env,
-                Err(current) => current,
-            }
-        }
-        raw => raw,
-    };
-    if raw == MODE_PANIC && cfg!(debug_assertions) {
-        BlockingMode::Panic
-    } else {
-        BlockingMode::Record
-    }
-}
-
-/// The raw mode [`MODE_ENV`]'s value selects: `record` is the off switch,
-/// anything else (unset included) panics.
-fn mode_from_env(value: Option<&str>) -> u8 {
-    match value {
-        Some("record") => MODE_RECORD,
-        _ => MODE_PANIC,
-    }
-}
+mod mode;
+pub use mode::{BlockingMode, MODE_ENV, mode, set_mode, with_mode};
 
 /// Per-thread restriction state in one word, so the check is one TLS read and
 /// one AND. Bits 0-15: the kinds denied now, derived from the fields above
@@ -648,15 +589,6 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
-    #[test]
-    fn the_environment_panics_unless_it_says_record() {
-        assert_eq!(mode_from_env(None), MODE_PANIC);
-        assert_eq!(mode_from_env(Some("panic")), MODE_PANIC);
-        assert_eq!(mode_from_env(Some("")), MODE_PANIC);
-        assert_eq!(mode_from_env(Some("Record")), MODE_PANIC);
-        assert_eq!(mode_from_env(Some("record")), MODE_RECORD);
-    }
-
     fn on_disallowed_thread<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
         set_mode(BlockingMode::Record);
         std::thread::Builder::new()
@@ -888,6 +820,28 @@ mod tests {
         .join()
         .expect("test thread");
         assert_eq!(count_at(read_line), 1);
+    }
+
+    /// A thread's panic mode panics there, leaves other threads in the
+    /// process mode, and ends with its scope, also when it unwinds.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn with_mode_is_per_thread_and_scoped() {
+        set_mode(BlockingMode::Record);
+        let panicked = std::thread::spawn(|| {
+            let panicked = std::panic::catch_unwind(|| {
+                with_mode(BlockingMode::Panic, || {
+                    assert_eq!(mode(), BlockingMode::Panic);
+                    with_blocking_disallowed(|| assert_blocking_allowed(BlockingKind::Sleep));
+                });
+            })
+            .is_err();
+            panicked && mode() == BlockingMode::Record
+        })
+        .join()
+        .expect("test thread");
+        assert!(panicked, "the violation panics and the override ends with its scope");
+        assert_eq!(mode(), BlockingMode::Record);
     }
 
     #[test]

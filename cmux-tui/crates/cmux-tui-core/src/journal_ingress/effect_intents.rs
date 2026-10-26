@@ -63,7 +63,7 @@ impl PendingRegistryReceipt {
         site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
-        match self.0.recv_timeout(timeout) {
+        match cmux_threads::checked::sync::recv_timeout(&self.0, timeout) {
             Ok(result) => Some(result),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
