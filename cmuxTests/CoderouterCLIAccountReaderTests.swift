@@ -707,14 +707,16 @@ struct CoderouterAccountStoreTests {
         #expect(store.refreshRequest == 1)
     }
 
-    @Test("Scope cancellation invalidates an in-flight New Account operation")
-    func addTaskGenerationIsScoped() {
+    @Test("A team scope transition invalidates a pending New Account operation")
+    func teamScopeTransitionInvalidatesPendingAdd() {
         let store = CoderouterAccountStore()
         let generation = store.beginAddTask()
 
         #expect(store.isCurrentAddTask(generation))
-        store.cancelAddTask()
+        store.resetForTeamScopeChange()
         #expect(!store.isCurrentAddTask(generation))
+        #expect(store.isRefreshing)
+        #expect(store.isCurrentAddTask(store.beginAddTask()))
     }
 
     @Test("Remounted machine panels reuse the CodeRouter state owner")
