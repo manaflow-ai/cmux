@@ -23,11 +23,11 @@
 // opens the card in place, the fold playing as a tool row's does (useAnchoredCollapse.ts: at once
 // under Reduce Motion), and closes it again. This default is independent of the global Minimal
 // Mode setting; the user's and assistant's messages keep their existing presentation.
-// Out of Minimal Mode, opening and closing move only what is under the line too (Leo 2026-10-21:
-// "just expand the area at the bottom and you're in the same place"): the line stays on its pixel
-// while a cut card slides open to its whole height or back (fold.ts `playResize`), and Details
-// folds in or out in height and opacity. Reply opens the card without holding the line, so the view
-// follows the editor. Only the reader's clicks play the motion, never Find opening a match.
+// Opening and closing move only what is under the line (Leo 2026-10-21: "just expand the area at
+// the bottom and you're in the same place"): the line stays on its pixel while the card opens to
+// its whole height or closes (fold.ts `playResize`), and Details folds in or out in height and
+// opacity. Reply opens the card without holding the line, so the view follows the editor. Only the
+// reader's clicks play the motion, never Find opening a match.
 import {
   useCallback,
   useContext,
@@ -174,14 +174,13 @@ export function IncomingMessageLine({
     observer.observe(box);
     observer.observe(box.firstElementChild ?? box);
     return () => observer.disconnect();
-    // Minimal Mode draws the card in a box of its own: measured again in the new one.
+    // The compact disclosure draws the card in a box of its own: measured again in the new one.
   }, [body, minimal]);
-  // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
-  // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
+  // Closed, the compact line carries the first line of the text; open, today's full card.
+  // The disclosure's card folds in place while its line stays anchored.
   // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
   const minimalCard = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
-  // Out of it, the card stays drawn and only Details' row folds, under the line held the same way.
-  // Each mode folds its own box, so switching modes mid-fold never hands one's motion to the other's.
+  // Details folds under the open card, with its own anchor so the message line stays put.
   const cardDetails = useAnchoredCollapse({ open, onOpenChange: show, animates: () => !minimal && played.current });
   const collapse = minimal ? minimalCard : cardDetails;
   const minimalHeader = minimalCard.headerRef;
