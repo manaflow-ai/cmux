@@ -4,7 +4,8 @@
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
-      "owner": "PL-cef-helper"
+      "owner": "PL-cef-helper",
+      "trace": ["cef.host_input"]
     },
     "cef-host-control": {
       "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push (the reader flushes waiting frames in batches, one sendmsg each)",
@@ -69,7 +70,8 @@
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
-      "owner": "PL-motion-cef"
+      "owner": "PL-motion-cef",
+      "trace": ["cef.geometry"]
     },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
