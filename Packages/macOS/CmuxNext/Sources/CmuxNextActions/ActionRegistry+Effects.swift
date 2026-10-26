@@ -70,25 +70,32 @@ extension ActionRegistry {
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
     /// and, unless a capturing caller reports it itself, shows it.
     ///
-    /// A person's run (its effective origin is the person's, ``ActionOrigin/observationCause``) is
-    /// the rest of the person's action (Chrome `base::TaskPriority::USER_BLOCKING`,
-    /// base/task/task_traits.h): its remote half runs at ``WorkPriority/userBlocking``, and its
-    /// completion runs as one ``MainWorkClass/userBlocking`` task on ``mainWork``, ahead of visible
-    /// work and not held by the input response it answers.
+    /// The completion (the rollback and notice, and for a run started in a person's input the
+    /// answer to that input) runs under the run's cause through ``mainWork``
+    /// (``MainWorkScheduler/reply(as:owner:file:line:_:)``). A person's run is the rest of the
+    /// person's action (Chrome `base::TaskPriority::USER_BLOCKING`, base/task/task_traits.h): its
+    /// remote half runs at ``WorkPriority/userBlocking`` and its completion as one
+    /// ``MainWorkClass/userBlocking`` task, ahead of visible work and not held by the input response
+    /// it answers; that task's commit closes the response (``MainFrameBudget/noteAnswered(_:)``).
     private func start(_ id: ActionID, _ invocation: ActionInvocation, _ send: @escaping @MainActor () async -> ActionWorkFailure?,
                        rollback: (@MainActor (ActionWorkFailure) -> Void)?) {
         let reported = isCapturingWork
         let title = title(for: id) ?? id.rawValue
-        let isPerson = (ActionRunScope.current?.origin ?? invocation.origin).observationCause == .person
-        let completions = isPerson ? mainWork : nil
-        let task: ActionWork = Task(priority: isPerson ? WorkPriority.userBlocking.taskPriority : nil) { [weak self] in
-            guard let failure = await send() else { return nil }
+        let cause = (ActionRunScope.current?.origin ?? invocation.origin).observationCause
+        let mainWork = self.mainWork
+        let answers = cause == .person ? mainWork?.budget.answerableInput : nil
+        let task: ActionWork = Task(priority: cause == .person ? WorkPriority.userBlocking.taskPriority : nil) { [weak self] in
+            let failure = await send()
+            guard failure != nil || answers != nil else { return nil }
             let complete: @MainActor () -> Void = {
-                rollback?(failure)
-                if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+                if let failure {
+                    rollback?(failure)
+                    if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+                }
+                if let answers { mainWork?.budget.noteAnswered(answers) }
             }
-            if let completions {
-                await completions.apply(.userBlocking, owner: "ActionRegistry.completion") { complete() }
+            if let mainWork {
+                await mainWork.reply(as: cause, owner: "ActionRegistry.completion") { complete() }
             } else {
                 complete()
             }

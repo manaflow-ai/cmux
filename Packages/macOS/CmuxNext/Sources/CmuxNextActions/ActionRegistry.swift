@@ -144,7 +144,7 @@ public final class ActionRegistry {
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
     /// Each handler run's changes take its origin's cause here (``ActionOrigin/observationCause``); nil: the cause where it ran.
     @ObservationIgnored public var causes: ObservationCauses?
-    /// Where a person's run completes, as userBlocking work (``settle(_:of:_:)``); nil: where its remote half resumed.
+    /// Where an effect's completion runs, under its run's cause; a person's as userBlocking work (``settle(_:of:_:)``). Nil: where its remote half resumed.
     @ObservationIgnored public var mainWork: MainWorkScheduler?
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.

@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import Observation
 import Testing
 
 /// The userBlocking class of ``MainFrameBudget`` (p06-scheduler-208, Chrome kUserBlocking in
@@ -50,44 +51,127 @@ extension MainFrameBudgetTests {
         keeper.deactivate()
     }
 
-    @Test func userBlockingRunsWhileItsInputResponseIsOpenAndItsCommitClosesIt() {
+    @Test func userBlockingRunsWhileItsInputResponseIsOpenAndItsCompletionsCommitClosesIt() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
-        budget.noteDiscreteInput(expectsFrame: true)
+        let key = Self.frameExpectingKey(budget)
+        #expect(key != nil, "an action run in a key's dispatch answers that key")
         #expect(!budget.mayRun(.automation), "the open response holds automation")
         #expect(budget.mayRun(.userBlocking), "the open response held the reply it waits for")
-        budget.run(.userBlocking, owner: budget.board.owner("action.reply")) { clock.advance(ms: 1) }
+        // The key's own turn commits; no link tick began since the key.
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(budget.isInputResponseOpen, "the key's own commit closed its response")
+        budget.run(.userBlocking, owner: budget.board.owner("action.reply")) {
+            clock.advance(ms: 1)
+            if let key { budget.noteAnswered(key) }
+        }
         #expect(budget.mayRun(.userBlocking), "a second reply in the same frame waited for the response")
         #expect(budget.isInputResponseOpen, "the reply has not committed yet")
-        // The pass after the reply is its commit; no link tick began since the key.
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(!budget.isInputResponseOpen, "the reply's commit did not close the response")
+        #expect(!budget.isInputResponseOpen, "the completion's commit did not close the response")
         #expect(budget.mayRun(.automation))
         #expect(budget.stats.yieldedToInputResponse[3] == 0)
         #expect(budget.stats.maxInputResponseNanos == 1_000_000)
         #expect(budget.stats.inputResponseCapHits == 0)
     }
 
-    /// A reply that answered the previous key does not close the response of the key after it.
-    @Test func aUserBlockingTaskBeforeANewKeyDoesNotCloseThatKeysResponse() {
+    /// Only a completion that names the key closes its response before the tick render: not the
+    /// key's own commit, not a userBlocking task that answers nothing (a person-caused flush), not
+    /// a completion that ran before the key's own commit, and not one outside a userBlocking task.
+    @Test func theResponseStaysOpenUntilTheTickRenderForWorkThatDoesNotAnswerTheKey() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let reply = budget.board.owner("action.reply")
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
-        budget.noteDiscreteInput(expectsFrame: true)
-        budget.run(.userBlocking, owner: budget.board.owner("action.reply")) { clock.advance(ms: 1) }
-        budget.noteDiscreteInput(expectsFrame: true)
+        let key = Self.frameExpectingKey(budget)
+        // A completion in the key's own turn, before its commit: that commit carries it.
+        budget.run(.userBlocking, owner: reply) { if let key { budget.noteAnswered(key) } }
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(budget.isInputResponseOpen, "the first key's reply closed the second key's response")
-        // A task that ran with no response open has no response to close.
+        #expect(budget.isInputResponseOpen, "a completion before the key's own commit closed the response at that commit")
+        budget.run(.userBlocking, owner: reply) { clock.advance(ms: 1) }
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(budget.isInputResponseOpen, "a userBlocking task that answers nothing closed the response")
+        budget.run(.visible, owner: budget.board.owner("sidebar.rows")) { if let key { budget.noteAnswered(key) } }
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(budget.isInputResponseOpen, "a visible task answered the person's key")
+        #expect(!budget.mayRun(.automation))
         clock.advance(ms: 17)
         budget.beginFrame(timestamp: 2, refreshInterval: 1.0 / 60)
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(!budget.isInputResponseOpen)
-        budget.run(.userBlocking, owner: budget.board.owner("action.reply")) { clock.advance(ms: 1) }
-        budget.noteDiscreteInput(expectsFrame: true)
+        #expect(!budget.isInputResponseOpen, "the tick render after the key closes it")
+    }
+
+    /// A reply that answered the previous key does not close the response of the key after it, and
+    /// a run outside a dispatch answers no key.
+    @Test func aCompletionOfAnEarlierKeyDoesNotCloseTheNextKeysResponse() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let reply = budget.board.owner("action.reply")
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(budget.answerableInput == nil, "a run outside a dispatch answers no key")
+        let first = Self.frameExpectingKey(budget)
         budget.noteRenderPass(nanos: 1_000_000)
-        #expect(budget.isInputResponseOpen, "a reply that ran with no response open closed the next one")
+        let second = Self.frameExpectingKey(budget)
+        #expect(first != second)
+        budget.noteRenderPass(nanos: 1_000_000)
+        budget.run(.userBlocking, owner: reply) { if let first { budget.noteAnswered(first) } }
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(budget.isInputResponseOpen, "the first key's reply closed the second key's response")
+        budget.run(.userBlocking, owner: reply) { if let second { budget.noteAnswered(second) } }
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(!budget.isInputResponseOpen, "the second key's own reply did not close its response")
+        // A completion marked before a new key does not close that key's response.
+        let third = Self.frameExpectingKey(budget)
+        budget.noteRenderPass(nanos: 1_000_000)
+        budget.run(.userBlocking, owner: reply) { if let third { budget.noteAnswered(third) } }
+        _ = Self.frameExpectingKey(budget)
+        budget.noteRenderPass(nanos: 1_000_000)
+        #expect(budget.isInputResponseOpen, "the third key's reply closed the fourth key's response")
+    }
+
+    /// The finding of the 208 review: a person's change in a frame-expecting key's turn posts a
+    /// userBlocking flush that runs on the next turn, before any link tick. Neither that flush nor
+    /// the render pass after it is the key's frame: automation stays held until the tick render.
+    @Test func aPersonFlushInTheKeysTurnDoesNotCloseTheResponseBeforeTheTickRender() {
+        let clock = BudgetClock()
+        var turns: [@MainActor () -> Void] = []
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read),
+                                             performTurn: { turns.append($0) }) { _ in FakeFrameLink() }
+        let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        let model = UserBlockingModel()
+        var applied: [Int] = []
+        let token = ServiceObservation(.visible, owner: "test.person", on: work) { model.count } apply: { applied.append($0) }
+        work.budget.noteDiscreteDispatch(began: true)
+        work.causes.withCause(.person) { model.count = 1 }
+        work.budget.noteDiscreteInput(expectsFrame: true)
+        work.budget.noteDiscreteDispatch(began: false)
+        #expect(work.postedCount(.userBlocking) == 1, "the person's change posted its userBlocking flush")
+        for turn in turns { turn() }
+        #expect(applied == [0, 1], "the flush ran on the next turn")
+        // A render pass off the link's tick: the key's own commit, or the flush's.
+        work.budget.noteRenderPass(nanos: 1_000_000)
+        #expect(work.budget.isInputResponseOpen, "the person's flush closed the response before the tick render")
+        #expect(!work.budget.mayRun(.automation), "automation ran in the gap the response protects")
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        work.budget.noteRenderPass(nanos: 1_000_000)
+        #expect(!work.budget.isInputResponseOpen, "the tick render closes it")
+        #expect(work.budget.mayRun(.automation))
+        keeper.deactivate()
+        withExtendedLifetime(token) {}
+    }
+
+    /// One discrete key whose turn expects a frame: its dispatch, the input it reports, the end of
+    /// the dispatch. Returns the input an action run in it answers.
+    private static func frameExpectingKey(_ budget: MainFrameBudget) -> MainFrameBudget.InputToken? {
+        budget.noteDiscreteDispatch(began: true)
+        let key = budget.answerableInput
+        budget.noteDiscreteInput(expectsFrame: true)
+        budget.noteDiscreteDispatch(began: false)
+        return key
     }
 
     @Test func theTypingBurstDoesNotRateLimitUserBlocking() {
@@ -177,6 +261,11 @@ extension MainFrameBudgetTests {
         #expect(MainWorkClass.userBlocking > .frame && MainWorkClass.userBlocking < .visible)
         #expect(WorkPriority(MainWorkClass.userBlocking) == .userBlocking)
     }
+}
+
+@MainActor @Observable
+private final class UserBlockingModel {
+    var count = 0
 }
 
 @MainActor

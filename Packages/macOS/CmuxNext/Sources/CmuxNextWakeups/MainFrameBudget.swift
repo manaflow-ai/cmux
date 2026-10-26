@@ -267,7 +267,8 @@ public final class MainFrameBudget {
     /// the next window (its scheduled work stops at ``Budgets/passTarget`` minus that pass) and is
     /// the frame's sample of the commit estimate that places the next deadlines (``MainCommitMeter``).
     /// The pass also ends an input response that a link tick after the input rendered in
-    /// (``noteTickRenderEnded()``), or that a userBlocking task answered (the pass is its commit).
+    /// (``noteTickRenderEnded()``), or that a person's completion answered after the input's own
+    /// commit (``noteAnswered(_:)``: the pass is the completion's commit).
     public func noteRenderPass(nanos: UInt64) {
         renderSinceRoll = max(renderSinceRoll, nanos)
         stats.renderPasses += 1
@@ -284,7 +285,7 @@ public final class MainFrameBudget {
     /// the tick that closes it.
     public func noteDiscreteInput(expectsFrame: Bool) {
         record(response.noteInput(expectsFrame: expectsFrame, at: uptimeNanos()))
-        userBlocking.noteInput(expectsFrame: expectsFrame)
+        userBlocking.noteInput(expectsFrame: expectsFrame, inDispatch: isDiscreteDispatchOpen)
         if expectsFrame { requestTick?() }
         inputResponsePass?.inputResponseChanged()
     }
@@ -302,6 +303,7 @@ public final class MainFrameBudget {
     /// progress, the ``InputResponsePass`` accepts the person's items and is on the run loop, so
     /// a run loop nested in the dispatch runs it at its first wait.
     public func noteDiscreteDispatch(began: Bool) {
+        if began { userBlocking.noteDispatchBegan(outermost: discreteDispatches == 0) }
         discreteDispatches = began ? discreteDispatches + 1 : max(0, discreteDispatches - 1)
         inputResponsePass?.inputResponseChanged()
     }
@@ -312,6 +314,20 @@ public final class MainFrameBudget {
     /// A user-blocking task committed the input's result: the input response closes.
     public func noteUserBlockingCommit() {
         record(response.close(at: uptimeNanos()))
+    }
+
+    /// The discrete input an action run starting now answers: the outermost dispatch in progress;
+    /// nil outside a dispatch (a CLI run, a reply's later turn). Its completion hands it to
+    /// ``noteAnswered(_:)``.
+    public var answerableInput: InputToken? { userBlocking.answerable(dispatchOpen: isDiscreteDispatchOpen) }
+
+    /// The running userBlocking task is the completion of a run that answers `input` (a person's
+    /// action whose remote half replied, `ActionRegistry`). When `input` opened the open input
+    /// response and its own turn has committed, the next render pass, this task's commit, closes
+    /// the response (``UserBlockingFrame``). Outside a userBlocking task it does nothing.
+    public func noteAnswered(_ input: InputToken) {
+        guard open.last?.workClass == .userBlocking else { return }
+        userBlocking.noteAnswered(input, responseOpen: response.isOpen(at: uptimeNanos()))
     }
 
     /// Whether an input response is open now: automation, background and idle work wait.
@@ -454,7 +470,6 @@ public final class MainFrameBudget {
         if let index {
             // The typing burst's rate counts requests, not the batch that ran them (or ran none).
             if !task.isBatch { response.noteTask(index, startedAt: task.start) }
-            if task.workClass == .userBlocking, !task.ranNothing, response.isOpen(at: end) { userBlocking.commitPending = true }
             spent[index] &+= own
             stats.tasks[index] += 1
             stats.maxTaskNanos[index] = max(stats.maxTaskNanos[index], own)

@@ -128,7 +128,9 @@ public final class VisibleObservation<Value> {
     /// A queued flush task: flushes when the pending flush's class is still `workClass` (a raised
     /// cause has its own task on the higher class's queue).
     private func flushQueued(_ workClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.isVisible else { return }
+        guard !cancelled, let cause = tracker.dirtyCause, cause.budgetedClass == workClass, node.isVisible else {
+            return work.budget.noteRanNothing()
+        }
         flushNow()
     }
 

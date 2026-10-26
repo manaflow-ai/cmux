@@ -136,6 +136,18 @@ extension MainWorkScheduler {
         return try result.get()
     }
 
+    /// Runs `body`, the main-thread part of a reply to work `cause` started, with `cause` as the
+    /// current cause in ``causes``. A person's reply (the rest of their action, an
+    /// `ActionRegistry` completion, a person-scope daemon reply) runs as one
+    /// ``BudgetedWorkClass/userBlocking`` task (Chrome kUserBlocking,
+    /// content/browser/scheduler/browser_task_queues.h); any other runs here, where it resumed.
+    public func reply(as cause: ObservationCause, owner: String, file: StaticString = #fileID, line: UInt = #line,
+                      _ body: @escaping @MainActor () -> Void) async {
+        let causes = self.causes
+        guard cause == .person else { return causes.withCause(cause) { body() } }
+        await apply(.userBlocking, owner: owner, file: file, line: line) { causes.withCause(.person) { body() } }
+    }
+
     /// Posted work of `workClass` not run yet, held by the launch or not (`debug.main_budget`, tests).
     public func postedCount(_ workClass: BudgetedWorkClass) -> Int {
         posting.queues.first { $0.workClass == workClass.workClass }?.count ?? 0

@@ -181,7 +181,7 @@ public final class ServiceObservation<Value> {
     /// A posted flush: flushes when the pending flush's class is still `taskClass` (a raised cause
     /// has its own task in the higher class).
     private func flushQueued(_ taskClass: BudgetedWorkClass) { // perf-hot: 0.05ms frame-tick (one task per dirty observer)
-        guard !cancelled, let cause = dirtyCause, flushClass(cause) == taskClass else { return }
+        guard !cancelled, let cause = dirtyCause, flushClass(cause) == taskClass else { return work.budget.noteRanNothing() }
         flushNow()
     }
 

@@ -69,6 +69,9 @@ public final class DaemonService {
     /// shows. Under a budgeted class it waited while a key was pending or other visible work spent the
     /// frame, and the backlog grew without bound under steady churn (review 2 of pl-main-bc).
     @ObservationIgnored let drainScheduler: FrameBatcher
+    /// The app's main-thread scheduler: a person-scope command's reply settles on it as
+    /// userBlocking work (``settleReply(_:)``).
+    let mainWork: MainWorkScheduler
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -88,7 +91,8 @@ public final class DaemonService {
     ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
-    ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
+    ///     budget). The service drains its store on a batcher it builds on it and settles person-scope
+    ///     replies on it (a test passes one it ticks by hand).
     ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
     ///     its recorder (nil in a release build, which counts nothing).
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
@@ -104,6 +108,7 @@ public final class DaemonService {
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
+        self.mainWork = mainWork
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
