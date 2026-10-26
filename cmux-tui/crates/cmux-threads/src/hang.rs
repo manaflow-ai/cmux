@@ -409,6 +409,7 @@ impl Shared {
             return false;
         }
         if !state.replan {
+            // wakeup-allow: deadline the earliest open scope's deadline; with no scope open the watcher parks in park() with no timeout
             state =
                 self.wake.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0;
         }
