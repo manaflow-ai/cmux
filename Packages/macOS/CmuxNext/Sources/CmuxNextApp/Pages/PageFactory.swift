@@ -4,6 +4,7 @@ import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -169,6 +170,10 @@ struct PageFactory {
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.setFeature = { [weak services] name, on in  // Experimental > Feature Flags (feature featureFlagsCard)
+            guard let services, services.features.isEnabled(.featureFlagsCard) else { throw PageError.unavailable("no Feature Flags card") }
+            do { try services.featureLocalOverrides.set(name, on) } catch { throw PageError.invalidParams(String(describing: error)) }
+        }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
