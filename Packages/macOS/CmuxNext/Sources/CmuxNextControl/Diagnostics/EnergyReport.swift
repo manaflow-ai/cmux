@@ -4,7 +4,7 @@ public import Darwin
 public import Foundation
 
 /// `debug.energy`: the Energy Saver state and what the app costs while idle
-/// (plans/cmux-next/chrome-parity/p14-energy.md, task 007). The top-level keys are exactly:
+/// (plans/cmux-next/chrome-parity/p14-energy.md, tasks 007 and 008). The top-level keys are exactly:
 ///
 /// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch).
 /// - `inputs`: what the policy was resolved from: Low Power Mode, power source, battery, thermal state,
@@ -17,6 +17,8 @@ public import Foundation
 ///   (base/process/process_metrics_apple.mm, `GetIdleWakeupsPerSecond` reads `ri_interrupt_wkups`);
 ///   package-idle wakeups are a subset and are reported apart, never summed.
 /// - `cef`: whether Chromium applies the Energy Saver, and the pump's early passes.
+/// - `idle`: the app's interrupt wakeups per second over this launch's idle minutes, as a histogram
+///   with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008).
 ///
 /// One main-actor turn copies ``State``; the ledger read and the process sampling run on the
 /// concurrent pool, never on the main actor (as `debug.wakeups` samples its processes). The App
@@ -71,6 +73,7 @@ public struct EnergyReport: Sendable {
             "ledger_top": .array(LedgerOwner.top(ledger, count: Self.ledgerTopCount).map(\.json)),
             "processes": .array(processes.map(\.json)),
             "cef": state.cef.json,
+            "idle": state.idle.json,
         ]
     }
 
@@ -87,12 +90,16 @@ extension EnergyReport {
         public var inputs: Inputs
         public var wakeQueue: WakeQueue
         public var cef: CEF
+        /// This launch's idle wakeup histogram.
+        public var idle: IdleEnergyStats
 
-        public init(policy: EnergyPolicy, inputs: Inputs, wakeQueue: WakeQueue, cef: CEF) {
+        public init(policy: EnergyPolicy, inputs: Inputs, wakeQueue: WakeQueue, cef: CEF,
+                    idle: IdleEnergyStats = IdleEnergyStats()) {
             self.policy = policy
             self.inputs = inputs
             self.wakeQueue = wakeQueue
             self.cef = cef
+            self.idle = idle
         }
     }
 

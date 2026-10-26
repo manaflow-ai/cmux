@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy` (p14-energy-007): the exact top-level keys, the wake queue's wakes, the ledger's top
+/// `debug.energy` (p14-energy-007, 008): the exact top-level keys, the idle histogram, the wake queue's wakes, the ledger's top
 /// owners, the process counters Chrome's way (interrupt wakeups, not summed with package-idle ones),
 /// and sampling off the main thread.
 @Suite(.timeLimit(.minutes(1)))
@@ -29,10 +29,10 @@ struct EnergyReportTests {
         await EnergyReport(state: { Self.state }, ledger: ledger, processes: processes).report()
     }
 
-    @Test func topLevelKeysAreExactlyTheSix() async throws {
+    @Test func topLevelKeysAreExactlyTheSixAndIdle() async throws {
         let report = await Self.report()
         let object = try #require(report.objectValue)
-        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef"])
+        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef", "idle"])
         #expect(object["policy"]?["is_saver"]?.boolValue == true)
         #expect(object["policy"]?["reason"]?.stringValue == "battery")
         #expect(object["policy"]?["wake_alignment_ms"]?.doubleValue == 32)
@@ -68,6 +68,36 @@ struct EnergyReportTests {
         ledger.record("DemandTimer", reason: "fire", count: 50)
         let report = await Self.report(ledger: ledger)
         #expect(report["wake_queue"]?["fires"]?.intValue == 7)
+    }
+
+    @Test func idleReportsTheHistogramAndItsPercentiles() async throws {
+        var idle = IdleEnergyStats()
+        var reading = IdleEnergyStats.Reading(uptimeNanos: 0, interruptWakeups: 0, inputEvents: 0)
+        idle.close(at: reading)
+        for _ in 0..<3 {
+            reading.uptimeNanos += IdleEnergyStats.windowNanos
+            reading.interruptWakeups += 12
+            idle.close(at: reading)
+        }
+        var state = Self.state
+        state.idle = idle
+        let report = await EnergyReport(state: { [state] in state }, ledger: WakeupLedger(), processes: { [] }).report()
+        let section = try #require(report["idle"])
+        #expect(section["window_s"]?.intValue == 60)
+        #expect(section["samples"]?.intValue == 3)
+        #expect(section["windows_with_input"]?.intValue == 0)
+        #expect(section["p50"]?.doubleValue == 0.25)
+        #expect(section["p99"]?.doubleValue == 0.25)
+        let buckets = try #require(section["buckets"]?.arrayValue)
+        #expect(buckets.map { $0["le"]?.stringValue } == ["0", "0.1", "0.25", "0.5", "1", "2", "5", "10", "50", "50+"])
+        #expect(buckets.map { $0["count"]?.intValue } == [0, 0, 3, 0, 0, 0, 0, 0, 0, 0])
+    }
+
+    @Test func idleBeforeTheFirstIdleMinuteHasNullRates() async {
+        let report = await Self.report()
+        #expect(report["idle"]?["samples"]?.intValue == 0)
+        #expect(report["idle"]?["p50"] == JSONValue.null)
+        #expect(report["idle"]?["max"] == JSONValue.null)
     }
 
     @Test func goneServicesReportNull() async {
