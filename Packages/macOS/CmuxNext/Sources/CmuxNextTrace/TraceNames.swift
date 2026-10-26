@@ -52,16 +52,17 @@ extension TraceRing {
     }
 
     /// Appends one record named by `name`, under its id in the active ring, interned there at its first
-    /// record (trace.md "Name table": one id per ring). An id interned in the heap before the file's copy
-    /// names the same text in the file, which copies the heap's entries.
+    /// record (trace.md "Name table": one id per ring). After that first record the name costs one relaxed
+    /// load on top of ``write(name:phase:flags:timestamp:arg0:arg1:)``.
     ///
     /// - Parameters:
-    ///   - name: the trace point's name; one `static let` per site, serving this process's ring only.
+    ///   - name: the trace point's name; one `static let` per site.
     ///   - phase: begin, end, instant, async, flow or counter.
     ///   - flags: bit 0: `arg1` is an async or track id; bit 1: the time is an estimate.
     ///   - timestamp: trace clock nanoseconds (TraceClock).
     ///   - arg0: the first argument.
     ///   - arg1: the second argument.
+    // perf-hot: 60ns trace-ring-write-interned
     public func write(_ name: TraceRuntime.InternedName, phase: TraceRecord.Phase, flags: UInt8 = 0, timestamp: UInt64,
                       arg0: UInt64 = 0, arg1: UInt64 = 0) {
         guard let active = activeRing else { return }
@@ -75,38 +76,69 @@ extension TraceRing {
 public typealias TraceSite = TraceRuntime.InternedName
 
 extension TraceRuntime.InternedName {
-    /// This name's id in the ring of `slot` (0 heap, 1 black-box file, 2 recording), interned into `storage`
-    /// at its first record there. After that it is one relaxed load.
+    /// This name's id in `storage`, the ring of `slot` (0 heap, 1 black-box file, 2 recording), interned
+    /// there at its first record. After that it is one relaxed load and a compare of the ring's tag.
     @inline(__always)
     func id(inSlot slot: Int, of storage: TraceRingStorage) -> UInt16 {
-        let known = UInt16(truncatingIfNeeded: ringIDs.load(ordering: .relaxed) >> UInt64(16 * slot))
-        return known != 0 ? known : intern(inSlot: slot, of: storage)
+        let tag = Self.tag(of: storage)
+        let known = cached(slot)
+        return known & ~Self.idMask == tag ? UInt16(truncatingIfNeeded: known) : intern(inSlot: slot, of: storage, tag: tag)
     }
 
-    /// Claims an entry in `storage` and keeps its id in the slot's 16 bits, set only while they are 0: when
-    /// two threads intern at once, both entries hold the same text and both use the id that won. A full
-    /// table gives 0 (counted in `name_overflow`) and caches nothing.
+    /// The id cached for `slot`, 0 when none: tests and tools only (it does not say which ring gave it).
+    func cachedID(inSlot slot: Int) -> UInt16 {
+        UInt16(truncatingIfNeeded: cached(slot))
+    }
+
+    /// Claims an entry in `storage` and caches its id with the ring's tag. When two threads intern into one
+    /// ring at once, both entries hold the same text and the record uses the id that won. A word holding
+    /// another ring's tag is taken over, so each ring's records name only its own entries. A full table
+    /// gives 0 (counted in `name_overflow`) and caches nothing.
     ///
-    /// The exchange is bounded: it fails only when a slot's 16 bits went from 0 to an id, which happens at
-    /// most once per slot, so after at most ``ringSlots`` failures it sees its own slot set or stores it.
+    /// The exchange is bounded: after ``cacheTries`` lost exchanges (rings in one slot taking the word in
+    /// turn) the record uses its own entry's id, which is valid in `storage`, and leaves the cache alone.
     @inline(never)
-    private func intern(inSlot slot: Int, of storage: TraceRingStorage) -> UInt16 {
+    private func intern(inSlot slot: Int, of storage: TraceRingStorage, tag: UInt64) -> UInt16 {
         let id = storage.intern(text, category: categoryBit)
         guard id != 0 else { return 0 }
-        let shift = UInt64(16 * slot)
-        var seen = ringIDs.load(ordering: .relaxed)
-        for _ in 0 ... Self.ringSlots {
-            let winner = UInt16(truncatingIfNeeded: seen >> shift)
-            if winner != 0 { return winner }
-            let swap = ringIDs.compareExchange(expected: seen, desired: seen | UInt64(id) << shift, ordering: .relaxed)
+        var seen = cached(slot)
+        for _ in 0 ..< Self.cacheTries {
+            if seen & ~Self.idMask == tag { return UInt16(truncatingIfNeeded: seen) }
+            let swap = exchange(slot, expected: seen, desired: tag | UInt64(id))
             if swap.exchanged { return id }
             seen = swap.original
         }
         return id
     }
 
-    /// The rings a process has (heap, black-box file, recording): the 16-bit slots of ``ringIDs``.
-    static let ringSlots = 3
+    /// The tag of a ring: its storage's address above bit 12 (every ring is page aligned, and no storage
+    /// is ever freed or unmapped, so no two rings of a process share one), shifted past the 16-bit id.
+    @inline(__always)
+    private static func tag(of storage: TraceRingStorage) -> UInt64 {
+        (UInt64(UInt(bitPattern: storage.base)) >> 12) << 16
+    }
+
+    @inline(__always)
+    private func cached(_ slot: Int) -> UInt64 {
+        switch slot {
+        case TraceRingActive.heapSlot: heapID.load(ordering: .relaxed)
+        case TraceRingActive.fileSlot: fileID.load(ordering: .relaxed)
+        default: recordingID.load(ordering: .relaxed)
+        }
+    }
+
+    private func exchange(_ slot: Int, expected: UInt64, desired: UInt64) -> (exchanged: Bool, original: UInt64) {
+        switch slot {
+        case TraceRingActive.heapSlot: heapID.compareExchange(expected: expected, desired: desired, ordering: .relaxed)
+        case TraceRingActive.fileSlot: fileID.compareExchange(expected: expected, desired: desired, ordering: .relaxed)
+        default: recordingID.compareExchange(expected: expected, desired: desired, ordering: .relaxed)
+        }
+    }
+
+    /// The id bits of a cache word.
+    private static let idMask: UInt64 = 0xFFFF
+    /// Exchanges an intern tries before it uses its own entry uncached.
+    private static let cacheTries = 4
 }
 
 extension TraceRingStorage {

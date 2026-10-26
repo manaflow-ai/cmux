@@ -48,17 +48,13 @@ extension TraceRing {
 
         /// Decodes a ring image (``TraceRing/image()`` or a ring file's bytes); nil when it is not a whole v1 ring.
         public init?(bytes: [UInt8]) {
-            // An aligned copy: the decoder reads 8-byte words atomically.
-            let copy = UnsafeMutableRawPointer.allocate(byteCount: max(bytes.count, 8), alignment: 16)
-            defer { copy.deallocate() }
-            bytes.withUnsafeBytes { source in
-                if let address = source.baseAddress { copy.copyMemory(from: address, byteCount: source.count) }
-            }
-            guard let storage = TraceRingStorage(validating: copy, byteCount: bytes.count) else { return nil }
-            self.init(storage)
+            guard let image = TraceRingStorage.withValidated(bytes: bytes, { Image($0) }) else { return nil }
+            self = image
         }
 
-        init(_ storage: TraceRingStorage) {
+        /// Reads a ring no thread writes (a validated copy). The records go first anyway, as
+        /// ``TraceRingStorage/copy(into:)`` reads them, so every name and thread a record names is in the tables.
+        private init(_ storage: TraceRingStorage) {
             typealias Offsets = TraceRingOffsets
             func load(_ offset: Int) -> UInt64 { storage.word(offset).load(ordering: .relaxed) }
             let identity = load(Offsets.identityWord)
@@ -76,9 +72,9 @@ extension TraceRing {
                 categories: load(Offsets.categories),
                 nameOverflow: UInt32(truncatingIfNeeded: overflow), threadOverflow: UInt32(truncatingIfNeeded: overflow >> 32)
             )
+            records = storage.decode()
             names = storage.nameEntries()
             threads = storage.threadEntries()
-            records = storage.decode()
             // Two threads interning one name at once publish two entries with one text; either id reads right.
             namesByID = Dictionary(names.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             threadsByIndex = Dictionary(threads.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
@@ -95,9 +91,24 @@ extension TraceRing {
         }
     }
 
-    /// The active ring decoded from its own tables, safe while threads write (a record or entry being written
-    /// is left out).
+    /// The active ring decoded from its own tables, safe while threads write: it decodes ``image()``, whose
+    /// copy reads the chunks before the tables, so each record's name and thread entry are in the image (a
+    /// record or entry being written is left out).
     public func decodedImage() -> Image? {
-        activeRing.map { Image($0.pointee.storage) }
+        Image(bytes: image())
+    }
+}
+
+extension TraceRingStorage {
+    /// Runs `body` on an aligned copy of `bytes` (the decoder reads 8-byte words atomically) when it holds a
+    /// whole v1 ring; nil otherwise. The copy is freed when `body` returns. Every decoder of ring bytes reads
+    /// through this one check.
+    static func withValidated<Result>(bytes: [UInt8], _ body: (TraceRingStorage) -> Result) -> Result? {
+        let copy = UnsafeMutableRawPointer.allocate(byteCount: max(bytes.count, 8), alignment: 16)
+        defer { copy.deallocate() }
+        bytes.withUnsafeBytes { source in
+            if let address = source.baseAddress { copy.copyMemory(from: address, byteCount: source.count) }
+        }
+        return TraceRingStorage(validating: copy, byteCount: bytes.count).map(body)
     }
 }

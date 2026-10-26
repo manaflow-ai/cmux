@@ -69,7 +69,7 @@ struct TraceNamesTests {
         #expect(entry.id == 11, "interned names follow the catalog and category entries")
         #expect(entry.kind == TraceRing.NameEntry.Kind.interned)
         #expect(entry.category == 6)
-        #expect(name.ringIDs.load(ordering: .relaxed) == UInt64(entry.id), "slot 0 (the heap) keeps the id")
+        #expect(name.cachedID(inSlot: 0) == entry.id, "slot 0 (the heap) keeps the id")
         #expect(image.records.count == 1000)
         #expect(image.records.allSatisfy { $0.name == entry.id })
     }
@@ -91,7 +91,7 @@ struct TraceNamesTests {
         #expect(image.records.count == threads * 100)
         let ids = Set(image.records.map(\.name))
         #expect(ids.count == 1)
-        #expect(ids.first.map(UInt64.init) == name.ringIDs.load(ordering: .relaxed))
+        #expect(ids.first == name.cachedID(inSlot: 0))
         #expect(image.records.allSatisfy { image.name(of: $0) == "task.post.here" })
         #expect((1 ... threads).contains(image.names.filter { $0.text == "task.post.here" }.count))
     }
@@ -109,7 +109,139 @@ struct TraceNamesTests {
         #expect(image.records.map { image.name(of: $0) } == ["fits.here", nil, nil])
         #expect(image.records.map(\.name) == [2, 0, 0])
         #expect(image.header.nameOverflow == 2, "each record that found the table full tried again and was counted")
-        #expect(overflows.ringIDs.load(ordering: .relaxed) == 0)
+        #expect(overflows.cachedID(inSlot: 0) == 0)
+    }
+
+    /// Two rings in one slot (two runtimes of one process, as tests make) never share a name's id: each ring
+    /// whose name table differs interns the name itself, also when the rings take turns.
+    @Test("A second ring in the same slot interns the name again and never uses the first ring's id")
+    func secondRingInTheSameSlot() throws {
+        let first = Self.ring()
+        let other = TraceRing.nameTable(names: [(id: 1, category: 0, text: "action.perform"), (id: 2, category: 1, text: "key.frame"),
+                                                (id: 3, category: 6, text: "daemon.request"), (id: 4, category: 6, text: "daemon.reply")],
+                                        categories: [(bit: 0, text: "action")])
+        let second = Self.ring(catalog: other)
+        let name = TraceRuntime.InternedName("cmux.io.read", categoryBit: 6)
+        for (index, ring) in [first, second, first, second, first].enumerated() {
+            ring.write(name, phase: .instant, timestamp: UInt64(index + 1), arg0: UInt64(index))
+        }
+        for ring in [first, second] {
+            let image = try #require(ring.decodedImage())
+            #expect(!image.records.isEmpty)
+            #expect(image.records.allSatisfy { image.name(of: $0) == "cmux.io.read" },
+                    "\(image.records.map { image.name(of: $0) ?? "<none>" })")
+        }
+    }
+
+    /// `decodedImage()` on a live ring: a thread's entry and its interned name are published before its first
+    /// record, so an image that holds the record also holds both (the copy reads the chunks first). Short-lived
+    /// threads take exited entries again, so a table read before the records would show an older generation.
+    @Test("A live image names every record's name and thread while new threads write")
+    func liveImageNamesEveryRecord() throws {
+        let writers = 8
+        let batches = 50
+        let ring = Self.ring(names: 512, chunks: 256)
+        let names = (0 ..< writers * batches).map { _ in TraceRuntime.InternedName("live.thread.first", categoryBit: 0) }
+        let done = SharedCount()
+        let checked = SharedCount()
+        let lacking = SharedCount()
+        runOnThreads(writers + 1) { tag in
+            guard tag < writers else {
+                while done.value.load(ordering: .acquiring) < writers {
+                    guard let image = ring.decodedImage() else { continue }
+                    let generations = Dictionary(image.threads.map { ($0.index, $0.generation) }, uniquingKeysWith: max)
+                    let missing = image.records.filter { record in
+                        guard image.name(of: record) != nil, let generation = generations[record.threadIndex] else { return true }
+                        return generation < record.threadGeneration
+                    }
+                    lacking.value.add(missing.count, ordering: .relaxed)
+                    checked.value.add(1, ordering: .relaxed)
+                }
+                return
+            }
+            for batch in 0 ..< batches {
+                runOnThreads(1) { _ in
+                    for index in 0 ..< 8 {
+                        ring.write(names[tag * batches + batch], phase: .instant, timestamp: UInt64(batch * 8 + index + 1),
+                                   arg0: UInt64(tag))
+                    }
+                }
+            }
+            done.value.add(1, ordering: .releasing)
+        }
+        #expect(checked.value.load(ordering: .relaxed) > 0)
+        #expect(lacking.value.load(ordering: .relaxed) == 0, "records whose name or thread entry the image lacks")
+    }
+
+    /// The runtime's write methods are what trace points call: past their category gate they publish into
+    /// the attached ring, stamped by the runtime's clock, and the first attached ring stays.
+    @Test("A runtime publishes catalog and interned writes into its attached ring")
+    func runtimeWritesIntoItsRing() throws {
+        let runtime = TraceRuntime(role: .app, clock: TraceClock(reader: TraceClock.Reader(
+            uptimeNanos: { 5_000 }, continuousNow: { ContinuousClock.now })))
+        let ring = Self.ring()
+        #expect(runtime.attach(ring))
+        #expect(!runtime.attach(Self.ring()), "the first ring stays")
+        let name = TraceRuntime.InternedName("cmux.io.read", categoryBit: 6)
+        runtime.write(name: 2, categoryBit: 1, phase: .begin, arg0: 1)
+        runtime.write(name, phase: .instant, arg0: 2)
+        #expect(try #require(ring.decodedImage()).records.isEmpty, "both categories are off")
+        runtime.setCategoryMask(1 << 1 | 1 << 6)
+        runtime.write(name: 2, categoryBit: 1, phase: .begin, arg0: 3)
+        runtime.write(name, phase: .instant, flags: .asyncID, arg0: 4, arg1: 9)
+        let image = try #require(ring.decodedImage())
+        #expect(image.records.map(\.arg0) == [3, 4])
+        #expect(image.records.map { image.name(of: $0) } == ["key.frame", "cmux.io.read"])
+        #expect(image.records.map(\.phase) == [.begin, .instant])
+        #expect(image.records.map(\.flags) == [0, 1])
+        #expect(image.records.allSatisfy { $0.timestamp == 5_000 })
+        #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 0, "a runtime with a ring counts nothing on the side")
+    }
+
+    @Test("Every runtime phase is the record phase with the same byte")
+    func phasesMatch() {
+        for phase in TraceRuntime.Phase.allCases {
+            #expect(phase.recordPhase.rawValue == phase.rawValue, "\(phase)")
+        }
+        #expect(TraceRuntime.Phase.allCases.count == TraceRecord.Phase.allCases.count)
+    }
+
+    /// Interned writes after the first cost what catalog-id writes cost (the tagged id is one relaxed load):
+    /// the median 31-record batch of each, in one thread. Optimized builds only, as the ring's contention
+    /// check (TraceRingTests); elsewhere the test shows as skipped. The `trace-ring-write-interned` bench.
+    @Test("Interned writes after first use keep the catalog-id write's cost",
+          .enabled(if: !_isDebugAssertConfiguration(), "needs an optimized build (-c release)"))
+    func internedWriteCost() {
+        let catalog = (0 ..< 3).map { _ in Self.batchMedian(interned: false) }.min() ?? 0
+        let interned = (0 ..< 3).map { _ in Self.batchMedian(interned: true) }.min() ?? 0
+        print("trace ring batch p50: catalog id \(catalog) ns, interned \(interned) ns")
+        #expect(Double(interned) <= Double(catalog) * 1.2 + 31, "interned \(interned) ns, catalog id \(catalog) ns")
+    }
+
+    /// The median nanoseconds of a 31-record batch (one chunk claim and 31 writes) on a new thread.
+    private static func batchMedian(interned: Bool) -> UInt64 {
+        let batches = 4000
+        let ring = TraceRing(records: (batches + 2) * TraceRing.recordsPerChunk, role: .app)
+        let name = TraceRuntime.InternedName("bench.interned", categoryBit: 0)
+        let median = SharedCount()
+        runOnThreads(1) { _ in
+            ring.write(name, phase: .instant, timestamp: 0)
+            var local = [UInt64](repeating: 0, count: batches)
+            for batch in 0 ..< batches {
+                let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+                for index in 0 ..< TraceRing.recordsPerChunk {
+                    if interned {
+                        ring.write(name, phase: .instant, timestamp: start, arg0: UInt64(index))
+                    } else {
+                        ring.write(name: 1, phase: .instant, timestamp: start, arg0: UInt64(index))
+                    }
+                }
+                local[batch] = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start
+            }
+            local.sort()
+            median.value.store(Int(local[batches / 2]), ordering: .relaxed)
+        }
+        return UInt64(median.value.load(ordering: .relaxed))
     }
 
     /// The heap's entries are copied into the file, and a name used after the swap is interned in the file
@@ -123,8 +255,7 @@ struct TraceNamesTests {
         ring.write(name, phase: .begin, timestamp: 1, arg0: 1)
         let file = try #require(TraceRingFile.adopt(ring, directory: directory))
         ring.write(name, phase: .end, timestamp: 2, arg0: 2)
-        let ids = name.ringIDs.load(ordering: .relaxed)
-        #expect(ids & 0xFFFF != 0 && ids >> 16 & 0xFFFF != 0, "one id in the heap's slot and one in the file's")
+        #expect(name.cachedID(inSlot: 0) != 0 && name.cachedID(inSlot: 1) != 0, "one id in the heap's slot and one in the file's")
         let bytes = try [UInt8](#require(FileManager.default.contents(atPath: file.path)))
         let image = try #require(TraceRing.Image(bytes: bytes))
         #expect(image.records.map(\.arg0) == [1, 2])
