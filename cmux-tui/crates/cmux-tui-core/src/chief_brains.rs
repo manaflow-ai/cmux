@@ -43,6 +43,8 @@
 //!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed
 //!   when its `chief-id` names it and no brain holds its lock.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
@@ -160,7 +162,7 @@ pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
     let config =
         config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
     let mux_home = brain_home(&config.home, chief);
-    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
     if owner.trim() != chief {
         return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
     }
@@ -379,8 +381,7 @@ impl BrainPending {
     pub(crate) fn resolve(self) -> BrainStart {
         match self {
             Self::Ready(start) => start,
-            Self::Wait(answer) => answer
-                .recv_timeout(Duration::from_secs(5))
+            Self::Wait(answer) => waits::recv_timeout(&answer, Duration::from_secs(5))
                 .unwrap_or(BrainStart::NotStarted("unconfirmed")),
         }
     }
@@ -506,10 +507,10 @@ impl ChiefBrains {
         }
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
-            let _ = ended.recv_timeout(SHUTDOWN_GRACE + Duration::from_secs(1));
+            let _ = waits::recv_timeout(&ended, SHUTDOWN_GRACE + Duration::from_secs(1));
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -524,7 +525,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     // reading blocks until a writer comes: no sleep, no polling.
     #[cfg(debug_assertions)]
     if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
-        let _ = std::fs::File::open(gate);
+        let _ = files::open(gate);
     }
     let (sender, inbox) = mpsc::channel();
     {
@@ -692,13 +693,13 @@ impl Supervisor {
         loop {
             let signal = match self.next_deadline() {
                 Some(at) => {
-                    match inbox.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    match waits::recv_timeout(inbox, at.saturating_duration_since(Instant::now())) {
                         Ok(signal) => Some(signal),
                         Err(mpsc::RecvTimeoutError::Timeout) => None,
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                None => match inbox.recv() {
+                None => match waits::recv(inbox) {
                     Ok(signal) => Some(signal),
                     Err(_) => return,
                 },
@@ -934,7 +935,7 @@ impl Supervisor {
             return;
         }
         // Two ids with the same tail would share a directory: the first keeps it.
-        let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+        let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
         if !owner.trim().is_empty() && owner.trim() != chief {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
             if !std::mem::replace(&mut brain.lock_noted, true) {
@@ -981,23 +982,21 @@ impl Supervisor {
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
         let mux_home = brain_home(&self.config.home, &record.id);
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&mux_home)?;
-        std::fs::write(mux_home.join("chief-id"), &record.id)?;
+        files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &mux_home)?;
+        files::write(mux_home.join("chief-id"), &record.id)?;
         let token = mux.with_conversations(|store| store.mint_agent_token(&record.id))?;
         let token_file = mux_home.join("agent-token");
-        let _ = std::fs::remove_file(&token_file);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&token_file)?;
+        let _ = files::remove_file(&token_file);
+        let mut file = files::open_with(
+            files::File::options().write(true).create_new(true).mode(0o600),
+            &token_file,
+        )?;
         file.write_all(token.as_bytes())?;
         drop(file);
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(mux_home.join("host.log"))?;
+        let log = files::open_with(
+            files::File::options().create(true).append(true).mode(0o600),
+            mux_home.join("host.log"),
+        )?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = cmux_process::Command::new(&self.config.executable);
         command
@@ -1103,7 +1102,7 @@ impl Supervisor {
         }
         let deadline = Instant::now() + SHUTDOWN_GRACE;
         while self.brains.values().any(|b| b.process.is_some()) {
-            match inbox.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            match waits::recv_timeout(inbox, deadline.saturating_duration_since(Instant::now())) {
                 Ok(Signal::Exited { chief, pid, .. }) => {
                     if let Some(brain) = self.brains.get_mut(&chief)
                         && brain.process.as_ref().map(|p| p.pid) == Some(pid)
@@ -1149,11 +1148,11 @@ fn wait_exited(pid: u32) -> bool {
 fn lock_held(lock: &Path) -> bool {
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd;
-        let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
-        // SAFETY: flock on a descriptor this function owns; it is released
-        // when `file` drops.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+        let Ok(file) = files::open_with(files::File::options().read(true), lock) else {
+            return false;
+        };
+        // The probe lock is released when `file` drops.
+        files::advisory_lock(&file, libc::LOCK_EX | libc::LOCK_NB).is_err()
     }
     #[cfg(not(unix))]
     {
@@ -1167,14 +1166,14 @@ fn lock_held(lock: &Path) -> bool {
 /// and never while a brain still holds its lock (a stale holder that has not exited yet keeps
 /// it; the folder then stays).
 fn remove_brain_home(dir: &Path, chief: &str) {
-    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
-    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
+    let owner = files::read_to_string(dir.join("chief-id")).unwrap_or_default();
+    if !files::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
         || owner.trim() != chief
         || lock_held(&dir.join("state/host.lock"))
     {
         return;
     }
-    if let Err(error) = std::fs::remove_dir_all(dir) {
+    if let Err(error) = files::remove_dir_all(dir) {
         eprintln!("cmux-tui: removing {}: {error}", dir.display());
     }
 }
@@ -1184,7 +1183,7 @@ fn remove_brain_home(dir: &Path, chief: &str) {
 fn stop_lock_holder(lock: &Path) {
     #[cfg(unix)]
     if lock_held(lock)
-        && let Some(pid) = std::fs::read_to_string(lock)
+        && let Some(pid) = files::read_to_string(lock)
             .ok()
             .and_then(|text| text.split_whitespace().next()?.parse::<i32>().ok())
             .filter(|pid| *pid > 1)
@@ -1213,23 +1212,23 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
     // NIGHTLY's Chief home, named by the build identity resolver.
     let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
-    let Ok(canonical) = std::fs::canonicalize(home) else { return };
+    let Ok(canonical) = files::canonicalize(home) else { return };
     // NIGHTLY's home under the inherited HOME and under the account's home
     // (a job runner's HOME differs from it).
     let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
     if defaults.into_iter().flatten().any(|user| {
-        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
+        files::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
             == Some(canonical.as_path())
     }) {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };
+    let Ok(entries) = files::read_dir(home.join("c")) else { return };
     for entry in entries.flatten() {
         let chief_dir = home.join("c").join(entry.file_name());
         let old = chief_dir.join("a");
         // A real folder only: never follow a link out of the Chief home.
-        let is_dir = std::fs::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
-            && std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+        let is_dir = files::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
+            && files::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
         if !is_dir || lock_held(&chief_dir.join("state/host.lock")) {
             continue;
         }
@@ -1252,6 +1251,7 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
                     command.env(key, value);
                 }
             }
+            crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
             command.status().ok()
         };
         // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
@@ -1266,7 +1266,7 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
             continue;
         }
-        if let Err(error) = std::fs::remove_dir_all(&old) {
+        if let Err(error) = files::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }
     }

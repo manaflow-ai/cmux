@@ -10,9 +10,15 @@ use std::future::Future;
 /// File-system calls ([`BlockingKind::Fs`]).
 pub mod fs {
     use super::{BlockingKind, assert_blocking_allowed};
-    use std::fs::{self, File, Metadata, OpenOptions, Permissions, ReadDir};
+    use std::fs;
     use std::io;
     use std::path::{Path, PathBuf};
+
+    /// The std file types, named here so daemon code imports them beside the
+    /// checked calls. Their disk calls are the checked functions below.
+    pub use std::fs::{
+        DirBuilder, DirEntry, File, FileType, Metadata, OpenOptions, Permissions, ReadDir,
+    };
 
     macro_rules! checked_fs {
         ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $call:path; )*) => {
@@ -79,6 +85,29 @@ pub mod fs {
     pub fn open_with(options: &OpenOptions, path: impl AsRef<Path>) -> io::Result<File> {
         assert_blocking_allowed(BlockingKind::Fs);
         options.open(path)
+    }
+
+    /// `DirBuilder::create`.
+    #[track_caller]
+    pub fn create_dir_with(builder: &DirBuilder, path: impl AsRef<Path>) -> io::Result<()> {
+        assert_blocking_allowed(BlockingKind::Fs);
+        builder.create(path)
+    }
+
+    /// `flock(2)` on `file`'s descriptor. `LOCK_SH` and `LOCK_EX` wait for
+    /// the lock unless `operation` has `LOCK_NB`.
+    #[cfg(unix)]
+    #[track_caller]
+    pub fn advisory_lock(file: &impl std::os::fd::AsFd, operation: libc::c_int) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        assert_blocking_allowed(BlockingKind::Fs);
+        // SAFETY: flock reads or changes only the advisory lock of a
+        // descriptor the borrow keeps open.
+        if unsafe { libc::flock(file.as_fd().as_raw_fd(), operation) } == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
     }
 }
 
@@ -279,6 +308,44 @@ mod tests {
             (line, bytes)
         });
         assert!(!bytes.is_empty(), "the checked read still reads");
+        assert_eq!(count_at(line), 1);
+        assert_eq!(kinds_at(line), vec![BlockingKind::Fs]);
+    }
+
+    #[test]
+    fn checked_dir_builder_records_one_site_and_creates_the_folder() {
+        let dir = std::env::temp_dir().join(format!("cmux-threads-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let nested = dir.join("a/b");
+        let (line, created) = run_on(true, move || {
+            let line = line!() + 1;
+            let created = fs::create_dir_with(std::fs::DirBuilder::new().recursive(true), &nested);
+            (line, created.map(|()| nested.is_dir()))
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(created.expect("create"), "the checked builder still creates");
+        assert_eq!(count_at(line), 1);
+        assert_eq!(kinds_at(line), vec![BlockingKind::Fs]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn advisory_lock_records_one_site_and_locks() {
+        let path = std::env::temp_dir().join(format!("cmux-threads-lock-{}", std::process::id()));
+        let lock_path = path.clone();
+        let (line, held, free_again) = run_on(true, move || {
+            let first = fs::create(&lock_path).expect("lock file");
+            let second = fs::open(&lock_path).expect("second descriptor");
+            let line = line!() + 1;
+            fs::advisory_lock(&first, libc::LOCK_EX | libc::LOCK_NB).expect("lock");
+            let held = fs::advisory_lock(&second, libc::LOCK_EX | libc::LOCK_NB).is_err();
+            fs::advisory_lock(&first, libc::LOCK_UN).expect("unlock");
+            let free_again = fs::advisory_lock(&second, libc::LOCK_EX | libc::LOCK_NB).is_ok();
+            (line, held, free_again)
+        });
+        let _ = std::fs::remove_file(&path);
+        assert!(held, "a second descriptor sees the lock");
+        assert!(free_again, "unlocking frees it");
         assert_eq!(count_at(line), 1);
         assert_eq!(kinds_at(line), vec![BlockingKind::Fs]);
     }

@@ -6,7 +6,8 @@
 //! entry points (`sys::adopt_launch`) and the service-manager signal hooks
 //! (`sys::host_signals`).
 
-use std::fs;
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -76,7 +77,7 @@ pub fn serve_terminal_host_stdio(
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
         UnpublishedHostGuard { shared: shared.clone(), endpoint: endpoint.clone(), armed: true };
-    let _ = fs::remove_file(&endpoint);
+    let _ = files::remove_file(&endpoint);
     if let Some(parent) = endpoint.parent() {
         prepare_private_dir(parent)?;
     }
@@ -148,7 +149,7 @@ pub fn serve_terminal_host_stdio(
         && let Ok(delay) = delay.parse::<u64>()
         && delay > 0
     {
-        thread::sleep(Duration::from_millis(delay.min(5_000)));
+        crate::request_path::sleep(Duration::from_millis(delay.min(5_000)));
     }
     // Debug builds only: a test can hold several launches open at once
     // before Ready and prove they overlap.
@@ -295,7 +296,7 @@ pub fn serve_terminal_host_stdio(
     // the old host's exit.
     #[cfg(debug_assertions)]
     wait_at_test_gate("CMUX_TUI_TEST_HOST_EXIT_GATE");
-    thread::sleep(Duration::from_millis(20));
+    crate::request_path::sleep(Duration::from_millis(20));
     drop(guard);
     Ok(())
 }
@@ -311,8 +312,8 @@ fn wait_at_test_gate(variable: &str) {
     };
     let (opened, wait) = std::sync::mpsc::channel();
     let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
-        let _ = fs::File::open(&gate);
+        let _ = files::open(&gate);
         let _ = opened.send(());
     });
-    let _ = wait.recv_timeout(Duration::from_secs(30));
+    let _ = waits::recv_timeout(&wait, Duration::from_secs(30));
 }

@@ -1,7 +1,8 @@
 //! The seven `fs-v1` ops on the daemon's roots. Params and results are the
 //! shapes of the request file `daemon-fs-for-cloud.md` ("Exact wire JSON").
 
-use std::fs::File;
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt as _;
 use std::sync::Mutex;

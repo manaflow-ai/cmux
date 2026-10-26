@@ -20,6 +20,7 @@
 //!   output pipes does not hold the reply: the pipes are read for a short
 //!   grace after git exits.
 
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
@@ -116,6 +117,7 @@ impl UserGit<'_> {
         // prompt, and git leads the group the deadline stops.
         #[cfg(unix)]
         command.new_session();
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
@@ -259,7 +261,7 @@ impl Pipe {
 
     /// What was kept by the time the pipe closed, or by `grace`.
     fn collect(self, grace: Instant) -> Vec<u8> {
-        let _ = self.done.recv_timeout(grace.saturating_duration_since(Instant::now()));
+        let _ = waits::recv_timeout(&self.done, grace.saturating_duration_since(Instant::now()));
         let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         let mut bytes = kept.head.clone();
         if kept.dropped {

@@ -5,6 +5,7 @@
 //! connection loop (`serve_client*`) over `HostStream`.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
@@ -531,7 +532,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         && let Ok(delay) = delay.parse::<u64>()
                         && delay > 0
                     {
-                        thread::sleep(Duration::from_millis(delay.min(5_000)));
+                        crate::request_path::sleep(Duration::from_millis(delay.min(5_000)));
                     }
                     if launch_owner_claimed {
                         command_host.mark_launch_owner_stream_ready();
@@ -704,7 +705,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     })?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
+    while let Ok(frame) = waits::recv(&receiver) {
         if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
             tap.release(&frame);
             break;

@@ -1,3 +1,4 @@
+use cmux_threads::checked::fs as files;
 #[cfg(target_os = "macos")]
 use std::mem::size_of;
 use std::sync::Arc;
@@ -1544,7 +1545,7 @@ fn direct_child_pids(pid: u32) -> Vec<u32> {
 
 #[cfg(target_os = "linux")]
 fn direct_child_pids(pid: u32) -> Vec<u32> {
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+    files::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
         .ok()
         .into_iter()
         .flat_map(|children| {

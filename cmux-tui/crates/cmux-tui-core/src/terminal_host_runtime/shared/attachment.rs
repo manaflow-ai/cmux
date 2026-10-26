@@ -5,6 +5,7 @@
 //! launch-time ownership of the host process (`SpawnedHostProcess`).
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::io as std_io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
@@ -58,7 +59,7 @@ impl InputAckReceipt {
     }
 
     pub(crate) fn wait_for(self, timeout: Duration) -> std::io::Result<()> {
-        match self.receiver.recv_timeout(timeout) {
+        match waits::recv_timeout(&self.receiver, timeout) {
             Ok(frame) => {
                 if !frame.payload.is_empty() {
                     self.abort_connection();
@@ -389,26 +390,28 @@ impl HostAttachment {
             return Err(error.into());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let response =
-            match (!remaining.is_zero()).then(|| receiver.recv_timeout(remaining)).transpose() {
-                Ok(Some(response)) => response,
-                Ok(None) | Err(RecvTimeoutError::Timeout) => {
-                    match self.defer_or_receive_raced_cell_pixel_ack(
-                        request_id,
-                        (width_px, height_px),
-                        &receiver,
-                    )? {
-                        Some(response) => response,
-                        None => return Err(DeferredCellPixelAck.into()),
-                    }
+        let response = match (!remaining.is_zero())
+            .then(|| waits::recv_timeout(&receiver, remaining))
+            .transpose()
+        {
+            Ok(Some(response)) => response,
+            Ok(None) | Err(RecvTimeoutError::Timeout) => {
+                match self.defer_or_receive_raced_cell_pixel_ack(
+                    request_id,
+                    (width_px, height_px),
+                    &receiver,
+                )? {
+                    Some(response) => response,
+                    None => return Err(DeferredCellPixelAck.into()),
                 }
-                Err(RecvTimeoutError::Disconnected) => {
-                    self.control_responses.waiters.lock().recover_poison().remove(&request_id);
-                    anyhow::bail!(
-                        "terminal host connection closed before acknowledging cell pixel size"
-                    );
-                }
-            };
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                self.control_responses.waiters.lock().recover_poison().remove(&request_id);
+                anyhow::bail!(
+                    "terminal host connection closed before acknowledging cell pixel size"
+                );
+            }
+        };
         if response.kind != MessageKind::CellPixelSizeAck
             || response.payload.as_slice()
                 != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
@@ -545,7 +548,7 @@ impl HostAttachment {
         // resolve() removes the waiter while holding the same mutex
         // before delivering the response. An absent entry therefore
         // means a response won the timeout race or the connection failed.
-        receiver.recv().map(Some).map_err(|_| {
+        waits::recv(receiver).map(Some).map_err(|_| {
             anyhow::anyhow!("terminal host connection closed while acknowledging cell pixel size")
         })
     }

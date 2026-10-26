@@ -61,7 +61,7 @@ impl AcceptBackoff {
                 Err(error) if error.kind() != std::io::ErrorKind::Interrupted => {
                     // `poll` itself failed: wait out the backoff without the waker,
                     // so a lasting failure cannot spin.
-                    thread::sleep(remaining);
+                    crate::request_path::sleep(remaining);
                     break;
                 }
                 Err(_) => {}

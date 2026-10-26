@@ -4,6 +4,7 @@
 //! adopted session id, and process-group signals (`GroupSignal`).
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -219,7 +220,7 @@ impl HostShared {
             self.smart.mark_applied(source_cursor);
             return;
         }
-        if applied.recv().is_ok() {
+        if waits::recv(&applied).is_ok() {
             *self.default_colors.lock().recover_poison() = colors;
         } else {
             self.smart.mark_applied(source_cursor);
@@ -280,8 +281,7 @@ impl HostShared {
                         "terminal parser worker stopped"
                     )));
                 }
-                let result = applied
-                    .recv()
+                let result = waits::recv(&applied)
                     .map_err(|_| {
                         ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal parser worker stopped"

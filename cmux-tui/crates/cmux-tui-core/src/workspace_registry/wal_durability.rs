@@ -35,8 +35,9 @@
 //! The thread sleeps on a condition variable while nothing is owed (no
 //! timer, no wakeups at idle).
 
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::cell::RefCell;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -250,7 +251,7 @@ fn run(shared: &Shared) {
 /// large: it copies what it can without waiting for a writer or reader.
 /// True when a checkpoint ran (it synced the WAL before copying it).
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
-    let large = std::fs::metadata(&shared.wal_path).is_ok_and(|meta| meta.len() > CHECKPOINT_BYTES);
+    let large = files::metadata(&shared.wal_path).is_ok_and(|meta| meta.len() > CHECKPOINT_BYTES);
     if !large {
         return false;
     }
@@ -288,7 +289,7 @@ const CHECKPOINTER_PRAGMAS: &str = "PRAGMA fullfsync=OFF;";
 /// SQLite syncs itself.
 fn flush(shared: &Shared) {
     if let Some(delay) = shared.slow_flush {
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
     }
     sync_wal(shared, false);
 }
@@ -319,12 +320,12 @@ fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
         if unsafe { libc::fcntl(file.as_raw_fd(), command) } != -1 {
             return Ok(());
         }
-        file.sync_data()
+        files::sync_data(&file)
     }
     #[cfg(not(all(target_os = "macos", not(test))))]
     {
         let _ = full;
-        file.sync_data()
+        files::sync_data(file)
     }
 }
 

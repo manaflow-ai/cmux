@@ -10,6 +10,7 @@
 //! never signals it: only an explicit Terminate ends a session the host
 //! does not own.
 
+use cmux_threads::checked::fs as files;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::*;
@@ -33,7 +34,7 @@ pub(super) fn leads_session(pid: libc::pid_t, session: libc::pid_t) -> bool {
 fn is_zombie(pid: libc::pid_t) -> bool {
     // `/proc/<pid>/stat` is "pid (comm) S ..."; comm may contain spaces or
     // parentheses, so the state follows the last ')'.
-    fs::read_to_string(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
+    files::read_to_string(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
         stat.rsplit_once(')').is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
     })
 }
@@ -181,7 +182,7 @@ impl AdoptedChild {
             return;
         }
         while leads_session(self.pid, self.pid) {
-            thread::sleep(Duration::from_millis(50));
+            crate::request_path::sleep(Duration::from_millis(50));
         }
     }
 }

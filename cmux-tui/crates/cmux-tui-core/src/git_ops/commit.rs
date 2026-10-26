@@ -16,6 +16,7 @@
 //! journal: git commits with a reflog message that names the attempt, and a
 //! retry reports HEAD only when HEAD's newest reflog entry names it.
 
+use cmux_threads::checked::fs as files;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -399,14 +400,14 @@ impl Scratch {
 
     fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, GitFailure> {
         let path = self.path.join(name);
-        let mut options = fs::OpenOptions::new();
+        let mut options = fs::File::options();
         options.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let written = options.open(&path).and_then(|mut file| {
+        let written = files::open_with(&options, &path).and_then(|mut file| {
             use std::io::Write;
             file.write_all(bytes)
         });
@@ -417,6 +418,6 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        let _ = files::remove_dir_all(&self.path);
     }
 }

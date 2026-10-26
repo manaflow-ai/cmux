@@ -14,6 +14,7 @@
 //! are deleted with them. Uploads in flight are per connection and never
 //! stored until their commit.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -229,13 +230,13 @@ impl Attachments {
         let blobs = match directory {
             Some(directory) => {
                 let root = directory.join(ATTACHMENTS_DIRECTORY);
-                fs::create_dir_all(root.join(".partial"))
+                files::create_dir_all(root.join(".partial"))
                     .with_context(|| format!("create {}", root.display()))?;
                 crate::platform::restrict_directory(&root)?;
                 // Partial files of an earlier run are never resumed.
-                if let Ok(entries) = fs::read_dir(root.join(".partial")) {
+                if let Ok(entries) = files::read_dir(root.join(".partial")) {
                     for entry in entries.flatten() {
-                        let _ = fs::remove_file(entry.path());
+                        let _ = files::remove_file(entry.path());
                     }
                 }
                 Blobs::Directory(root)
@@ -261,7 +262,7 @@ impl Attachments {
     fn remove_blob(&mut self, hash: &str) {
         match &mut self.blobs {
             Blobs::Directory(root) => {
-                let _ = fs::remove_file(root.join(hash));
+                let _ = files::remove_file(root.join(hash));
             }
             Blobs::Memory(map) => {
                 map.remove(hash);
@@ -272,7 +273,7 @@ impl Attachments {
     fn read_blob(&self, hash: &str, offset: u64, length: usize) -> anyhow::Result<Vec<u8>> {
         match &self.blobs {
             Blobs::Directory(root) => {
-                let mut file = fs::File::open(root.join(hash))
+                let mut file = files::open(root.join(hash))
                     .map_err(|_| refused(Reject::UnknownAttachment.code()))?;
                 file.seek(SeekFrom::Start(offset))?;
                 let mut data = Vec::with_capacity(length);
@@ -293,7 +294,8 @@ impl Attachments {
         Ok(match &self.blobs {
             Blobs::Directory(root) => {
                 let path = root.join(".partial").join(format!("{upload}-{piece:?}"));
-                let file = fs::OpenOptions::new().create_new(true).write(true).open(&path)?;
+                let file =
+                    files::open_with(fs::File::options().create_new(true).write(true), &path)?;
                 crate::platform::restrict_file(&path)?;
                 Sink::File { path, file }
             }
@@ -308,13 +310,13 @@ impl Attachments {
         match (piece.sink, &mut self.blobs) {
             (Sink::File { path, file }, Blobs::Directory(root)) => {
                 crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
-                file.sync_all()?;
+                files::sync_all(&file)?;
                 drop(file);
                 if exists {
-                    let _ = fs::remove_file(&path);
+                    let _ = files::remove_file(&path);
                 } else {
                     let target = root.join(&piece.hash);
-                    fs::rename(&path, &target)?;
+                    files::rename(&path, &target)?;
                     crate::platform::sync_directory(root)?;
                 }
             }
@@ -330,7 +332,7 @@ impl Attachments {
         for piece in upload.pieces {
             if let Sink::File { path, file } = piece.sink {
                 drop(file);
-                let _ = fs::remove_file(path);
+                let _ = files::remove_file(path);
             }
         }
     }
@@ -980,7 +982,7 @@ impl Attachments {
     fn drop_upload_piece(piece: PendingPiece) {
         if let Sink::File { path, file } = piece.sink {
             drop(file);
-            let _ = fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
     }
 }

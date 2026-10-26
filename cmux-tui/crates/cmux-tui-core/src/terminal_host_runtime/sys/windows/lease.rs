@@ -3,7 +3,8 @@
 //! owner-only root, locked shared by every launch and host publication and
 //! exclusive (without waiting) by a session reset, with `LockFileEx`.
 
-use std::fs::{File, OpenOptions};
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -46,13 +47,15 @@ fn open_lock(root: &Path, create: bool) -> anyhow::Result<File> {
     let path = terminal_host_publication_lock_path(root);
     file_owner(root)
         .with_context(|| format!("terminal-host root is not private: {}", root.display()))?;
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(create)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(&path)
-        .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+    let file = files::open_with(
+        File::options()
+            .read(true)
+            .write(true)
+            .create(create)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT),
+        &path,
+    )
+    .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
