@@ -5,6 +5,7 @@
 //! that keeps two updates of one host apart in `host_lock.rs`; `host
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
+use super::host_auto_update::take_auto_update_off;
 use super::{
     DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
     SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
@@ -359,6 +360,8 @@ struct PeerUpdate {
     reason: Option<String>,
     error: Option<String>,
     migrated_from: Option<String>,
+    /// Why the host is left without its self-update timer, when it is.
+    auto_update_off: Option<String>,
 }
 
 impl PeerUpdate {
@@ -372,6 +375,7 @@ impl PeerUpdate {
             reason: None,
             error: None,
             migrated_from: None,
+            auto_update_off: None,
         }
     }
 
@@ -397,6 +401,7 @@ impl PeerUpdate {
             ("reason", self.reason.clone()),
             ("error", self.error.clone()),
             ("migratedFrom", self.migrated_from.clone()),
+            ("autoUpdateOff", self.auto_update_off.clone()),
         ];
         for (key, value) in optional {
             if let Some(value) = value {
@@ -412,9 +417,13 @@ impl PeerUpdate {
         match self.outcome {
             Outcome::Updated => {
                 let version = self.version.as_deref().unwrap_or("updated");
-                match &self.migrated_from {
+                let line = match &self.migrated_from {
                     Some(unit) => format!("{version} (moved from {unit} to acpmux.service)"),
                     None => version.to_owned(),
+                };
+                match &self.auto_update_off {
+                    Some(why) => format!("{line}; auto-update off: {why}"),
+                    None => line,
                 }
             }
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
@@ -600,6 +609,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let restarted = restart_checked(remote, &restart, pushed.as_deref());
     let (reason, why) = match restarted.result {
         Ok(status) => {
+            up.auto_update_off = restarted.auto_update_off;
             up.build = answering_build(&status);
             up.status = Some(cut(status, 400));
             up.migrated_from = restarted.migrating;
@@ -664,6 +674,8 @@ struct Restarted {
     refused: bool,
     /// The daemon's status, or why it failed: a reason code and a message.
     result: std::result::Result<String, (String, String)>,
+    /// Why the script left the host without its self-update timer.
+    auto_update_off: Option<String>,
 }
 
 /// Run a restart script, then wait for the daemon to answer
@@ -673,6 +685,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         migrating,
         refused,
         result: Err((reason.to_owned(), why)),
+        auto_update_off: None,
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
@@ -703,7 +716,8 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         let why = format!("the restarted daemon runs build {build}, not the pushed {want}");
         return failed(migrating, false, "buildMismatch", why);
     }
-    Restarted { migrating, refused: false, result: Ok(status) }
+    let auto_update_off = take_auto_update_off(&out.stdout).1;
+    Restarted { migrating, refused: false, result: Ok(status), auto_update_off }
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
