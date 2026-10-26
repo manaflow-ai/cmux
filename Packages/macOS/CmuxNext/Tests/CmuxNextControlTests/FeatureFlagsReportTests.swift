@@ -93,6 +93,24 @@ struct FeatureFlagsReportTests {
         #expect(report(true).entries.map { $0.resolution.source } == [.local, .policy, .environment])
     }
 
+    /// Hang reports and Sentry read ``FeatureFlagsReport/fieldState`` (p12-perf-process-151): a live toggle that
+    /// flips a feature changes the hash and names the feature as a `local` override, the same hash
+    /// `features_hash` reports; a toggle that answers the launch's value keeps the hash.
+    @Test func aLiveToggleChangesTheFieldStateThatHangReportsAndSentryName() throws {
+        let launch = FeatureFlagsReport(features: Self.list(.nightly)).fieldState
+        #expect(launch == Self.list(.nightly).fieldState)
+        let flipped = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { false }])
+        let state = flipped.fieldState
+        #expect(state.hash != launch.hash)
+        #expect(flipped.json["features_hash"] == .string(state.hash))
+        #expect(launch.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .remote)))
+        #expect(state.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: false, source: .local)))
+        #expect(!state.nonDefault.contains { $0.name == "perfThing" && $0.source == .remote })
+        let same = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { true }]).fieldState
+        #expect(same.hash == launch.hash)
+        #expect(same.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .local)))
+    }
+
     @Test func localTogglesApplyOnlyOnDevAndNightly() {
         #expect(FeatureFlagsReport(features: Self.list(.dev)).json["local_overrides"] == .bool(true))
         #expect(FeatureFlagsReport(features: Self.list(.nightly)).json["local_overrides"] == .bool(true))

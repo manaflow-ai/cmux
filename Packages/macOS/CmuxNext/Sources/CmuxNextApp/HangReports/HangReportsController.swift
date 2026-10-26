@@ -96,12 +96,14 @@ final class HangReportsController {
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
-    /// `hangReportsSchema3` feature says cmux.com accepts it. `features` is this launch's features hash and overrides.
+    /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
+    /// app runs with, at each report.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
-                              wireSchema: HangReport.WireSchema = .deployed, features: HangReport.FeatureState? = nil,
+                              wireSchema: HangReport.WireSchema = .deployed,
+                              features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)

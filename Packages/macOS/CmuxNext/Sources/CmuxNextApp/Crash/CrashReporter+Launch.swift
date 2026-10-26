@@ -53,7 +53,8 @@ struct AppCrashReporting: Sendable {
     let acpmuxPanics: OwnerPanicForwarder?
 
     /// - Parameters:
-    ///   - features: This launch's features, put on the Sentry scope right after it starts.
+    ///   - features: The features the app runs with, put on the Sentry scope right after it starts
+    ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
     ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {

@@ -43,13 +43,17 @@ public struct FeatureFlagsReport: Sendable {
         features.registry.features.map { (feature: $0, resolution: resolution(of: $0)) }
     }
 
+    /// The ``FeatureFieldState`` of ``entries``: what `features_hash` hashes, and what hang reports and Sentry
+    /// name (the App reads it through `FeatureFlagsPage.report`), so all three name one arm, live toggles included.
+    public var fieldState: FeatureFieldState { FeatureFieldState(entries) }
+
     public var method: ControlMethod {
         let report = self
         return ControlMethod.snapshot(Self.methodName) { _ in report.json }.readingLastPublished()
     }
 
     /// `{channel, local_overrides, safe_mode, unknown_names, features_hash, features: [...]}`. `features_hash` is
-    /// ``FeatureFieldState/hash`` of the values below, the arm hang reports and Sentry name (a perf-lab result's
+    /// ``fieldState``'s hash of the values below, the arm hang reports and Sentry name (a perf-lab result's
     /// `features_hash`).
     /// A feature's `state` is `on` or `off` (`enabled` the same as a bool),
     /// `source` is ``Feature/Source``'s wire name (`policy`, `env`, `local`,

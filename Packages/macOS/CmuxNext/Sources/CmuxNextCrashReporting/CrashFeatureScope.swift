@@ -1,4 +1,5 @@
 public import CmuxNextFeatures
+public import CmuxNextWakeups
 public import Sentry
 
 /// This launch's features on the Sentry scope (p12-perf-process-151): the `features_hash` tag (the hash
@@ -60,10 +61,20 @@ public nonisolated struct CrashFeatureScope: Sendable, Equatable {
 }
 
 extension CrashReporter {
-    /// Puts `features` on the scope every later event and crash carries. Call once, right after
-    /// ``start(profile:)``; does nothing while Sentry is off.
+    /// Puts `features` on the scope every later event and crash carries, replacing the last ones: right after
+    /// ``start(profile:)``, then at each change of the features the app runs with. Does nothing while Sentry is off.
     public func setFeatures(_ features: CrashFeatureScope) {
         guard isStarted else { return }
         SentrySDK.configureScope { scope in features.apply(to: scope) }
+    }
+
+    /// Sets ``setFeatures(_:)`` from `read` now and again each time its value changes, so a crash carries the
+    /// features it ran with after a live toggle changed one, as Chrome updates its variations crash keys when a
+    /// field trial's group changes (components/variations/variations_crash_keys.cc). `background`: nothing on
+    /// screen changes. The caller holds the returned observation for the process's life.
+    @MainActor
+    public func followFeatures(on work: MainWorkScheduler, _ read: @escaping @MainActor () -> CrashFeatureScope)
+        -> ServiceObservation<CrashFeatureScope> {
+        ServiceObservation(.background, owner: "CrashReporter.features", on: work, read: read) { [self] in setFeatures($0) }
     }
 }

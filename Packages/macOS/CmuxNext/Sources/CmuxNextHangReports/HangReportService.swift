@@ -370,7 +370,7 @@ public actor HangReportService {
         let context = HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
             os: environment.os, hardware: environment.hardware, counts: await environment.counts(),
-            features: environment.features)
+            features: environment.features())
         return builder.build(context: context, watchdog: watchdog, metricKit: metricKit, inputLatency: inputLatency,
                              mainThread: mainThread, fieldData: fieldData)
     }
