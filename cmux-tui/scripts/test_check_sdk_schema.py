@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import importlib.util
 import sys
 import tempfile
@@ -127,6 +129,10 @@ class SnifferNameTests(unittest.TestCase):
         '    if cmd == "cancel-request" {\n        return None;\n    }\n'
         "    None\n}\n"
     )
+    APPS_TABLE = (
+        '{"modules": {"apps": {"enum": "Command", "literals": '
+        '{"cancel-request": {"request": "CancelRequest", "handler": "cancel_request"}}}}}'
+    )
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -135,19 +141,30 @@ class SnifferNameTests(unittest.TestCase):
     def apps_rs(self, extra_variants: str) -> str:
         return self.APPS_RS.replace("EXTRA_VARIANTS", extra_variants)
 
-    def write(self, tui: Path, name: str, text: str) -> None:
-        path = tui / "crates/cmux-tui-core/src/server" / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+    def served(self, files: dict[str, str], **options) -> dict:
+        """sniffer_names over a fixture tree. `scripts/...` files go under
+        the tui root, the rest under server/; by default every server file
+        is a sniffer module and none is nameless."""
 
-    def served(self, files: dict[str, str]) -> dict:
+        server_files = {name for name in files if not name.startswith(("scripts/", "../"))}
+        options.setdefault("modules", server_files)
+        options.setdefault("nameless", {})
+        options.setdefault("name_lists", {})
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
             for name, text in files.items():
-                self.write(tui, name, text)
-            return SNIFFERS.sniffer_names(tui)
+                if name.startswith("scripts/"):
+                    path = tui / name
+                else:
+                    path = tui / "crates/cmux-tui-core/src/server" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            return SNIFFERS.sniffer_names(tui, **options)
 
-    def test_every_literal_form_is_a_served_name(self) -> None:
+    def names(self, source: str, shared: dict | None = None) -> set[str]:
+        return SNIFFERS.literal_names(source, "fixture.rs", shared)
+
+    def test_literal_forms_are_served_names(self) -> None:
         source = (
             'const COMMAND: &str = "by-const";\n'
             'const PLAN: &str = "plan-const";\n'
@@ -171,7 +188,10 @@ class SnifferNameTests(unittest.TestCase):
             '    match operation { "apps.store" => {} _ => {} }\n'
             "    None\n}\n"
         )
-        served = self.served({"sniffer.rs": source, "plain.rs": 'fn x() { cmd == "no-try-handle"; }\n'})
+        served = self.served(
+            {"sniffer.rs": source, "plain.rs": 'fn x() { cmd == "not-a-sniffer"; }\n'},
+            modules={"sniffer.rs"},
+        )
         self.assertEqual(
             set(served),
             {
@@ -188,6 +208,76 @@ class SnifferNameTests(unittest.TestCase):
         )
         self.assertEqual({entry.module for entry in served.values()}, {"sniffer.rs"})
 
+    def test_guard_arms_matches_and_command_expressions(self) -> None:
+        self.assertEqual(
+            self.names('fn f() { match cmd { "a" if ok => 1, "b" => 2, _ => 0 } }'), {"a", "b"}
+        )
+        self.assertEqual(
+            self.names(
+                'fn f() { match v.get("cmd").and_then(Value::as_str) {\n'
+                '    Some("g") if matches!(w, W::Open { y: false }) => 1, _ => 0 } }'
+            ),
+            {"g"},
+        )
+        self.assertEqual(self.names('fn f() { matches!(cmd, "a" | "b") }'), {"a", "b"})
+        self.assertEqual(
+            self.names(
+                'const A: &str = "c-a";\nconst B: &str = "c-b";\n'
+                'fn f() { matches!(fields.get("cmd").and_then(Value::as_str), Some(A | B)) }'
+            ),
+            {"c-a", "c-b"},
+        )
+        self.assertEqual(self.names('fn f() { matches!(key.as_str(), "cmd" | "id") }'), set())
+        self.assertEqual(self.names('fn f() { match &*cmd { "deref" => 1, _ => 0 } }'), {"deref"})
+        self.assertEqual(
+            self.names('fn f() { match command.as_deref() { Some("opt") => 1, _ => 0 } }'),
+            {"opt"},
+        )
+        self.assertEqual(
+            self.names('fn f() { cmd.eq("by-eq"); command != Some("some-ne"); }'),
+            {"by-eq", "some-ne"},
+        )
+        self.assertEqual(
+            self.names("fn f() { match request.command { Command::List => 1, _ => 0 } }"), set()
+        )
+
+    def test_char_and_raw_string_literals_do_not_hide_names(self) -> None:
+        self.assertEqual(
+            self.names("fn f() { match cmd { \"a\" => c == '}', \"b\" => 1, _ => 0 } }"),
+            {"a", "b"},
+        )
+        self.assertEqual(
+            self.names("fn f() { let q = '\"'; if cmd == \"after-quote\" {} }"), {"after-quote"}
+        )
+        self.assertEqual(
+            self.names('fn f() { let x = r#"x" // "#; if cmd == "after-raw" {} }'), {"after-raw"}
+        )
+        self.assertEqual(self.names('fn f() { if cmd == r"raw-name" {} }'), {"raw-name"})
+        self.assertEqual(
+            self.names("fn f<'a>(x: &'a str) { if cmd == \"after-lifetime\" {} }"),
+            {"after-lifetime"},
+        )
+
+    def test_consts_resolve_locally_or_from_one_other_module(self) -> None:
+        self.assertEqual(
+            self.names("fn f() { if cmd == super::NAME {} }", {"NAME": {"imported"}}),
+            {"imported"},
+        )
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "cannot resolve super::NAME"):
+            self.names("fn f() { if cmd == super::NAME {} }")
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "cannot resolve OTHER"):
+            self.names("fn f() { match cmd { OTHER => 1, _ => 0 } }", {"OTHER": {"x", "y"}})
+        served = self.served(
+            {
+                "parent.rs": (
+                    'pub(super) const PLAN: &str = "child-plan";\n'
+                    'fn try_handle() { if cmd == "parent-own" {} }\n'
+                ),
+                "parent/child.rs": "fn try_handle() { if cmd == super::PLAN {} }\n",
+            },
+        )
+        self.assertEqual(served["child-plan"].module, "parent/child.rs")
+
     def test_tagged_enum_variants_and_submodules_are_served_names(self) -> None:
         served = self.served(
             {
@@ -203,6 +293,63 @@ class SnifferNameTests(unittest.TestCase):
         handler = 'fn try_handle() { if cmd == "same" {} }\n'
         with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "served by both"):
             self.served({"a.rs": handler, "b.rs": handler})
+
+    def test_sniffer_modules_cover_every_intercept(self) -> None:
+        hello = (
+            'const CLIENT_HELLO: &str = "client-hello";\n'
+            "impl HelloGate {\n    fn observe(&mut self) {\n"
+            '        match value.get("cmd").and_then(Value::as_str) {\n'
+            "            Some(CLIENT_HELLO) => 1,\n            _ => 0,\n        };\n    }\n}\n"
+        )
+        served = self.served({"client_hello.rs": hello})
+        self.assertEqual(served["client-hello"].module, "client_hello.rs")
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "has a try_handle; add it"):
+            self.served({"new.rs": 'fn try_handle() { if cmd == "n" {} }\n'}, modules=set())
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "server/gone.rs, which is gone"):
+            self.served({"a.rs": 'fn x() { cmd == "a"; }\n'}, modules={"a.rs", "gone.rs"})
+
+    def test_a_sniffer_module_with_no_name_fails_unless_nameless(self) -> None:
+        router = "fn try_handle() { let route = table::routed(&envelope.operation)?; }\n"
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "serves no name the scan can read"):
+            self.served({"router.rs": router})
+        self.assertEqual(self.served({"router.rs": router}, nameless={"router.rs": "fixture"}), {})
+        handler = 'fn try_handle() { cmd == "a"; }\n'
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "drop it from NAMELESS_SNIFFERS"):
+            self.served({"a.rs": handler}, nameless={"a.rs": "fixture"})
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "not a sniffer module"):
+            self.served({"a.rs": handler}, nameless={"b.rs": "fixture"})
+        # A module that moved off try_handle and lost its readable names.
+        moved = "fn route() { if COMMANDS.contains(&cmd) {} }\n"
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "server/moved.rs serves no name"):
+            self.served({"moved.rs": moved})
+
+    def test_the_module_table_names_are_the_scanned_names(self) -> None:
+        table = "scripts/server-module-commands.json"
+        files = {"apps.rs": self.apps_rs(""), table: self.APPS_TABLE}
+        self.assertEqual(set(self.served(files)), {"apps-list", "cancel-request"})
+        hidden = dict(
+            files,
+            **{"apps.rs": files["apps.rs"].replace('cmd == "cancel-request"', "COMMANDS.contains(&cmd)")},
+        )
+        with self.assertRaisesRegex(
+            SNIFFERS.SnifferNameError, "lists cancel-request for server/apps.rs, which the scan"
+        ):
+            self.served(hidden)
+        extra = dict(
+            files,
+            **{
+                "apps.rs": files["apps.rs"].replace(
+                    'cmd == "cancel-request"', 'cmd == "cancel-request" || cmd == "identify"'
+                )
+            },
+        )
+        with self.assertRaisesRegex(
+            SNIFFERS.SnifferNameError, f"serves identify, which {table} does not list"
+        ):
+            self.served(extra)
+        self.assertIn("identify", self.served(extra, passed_on={"identify"}))
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "add it to SNIFFER_MODULES"):
+            self.served(files, modules=set())
 
     def test_unschemad_apps_variant_fails(self) -> None:
         extra = '    #[serde(rename = "apps-unschemad")]\n    Unschemad,\n'
@@ -223,29 +370,40 @@ class SnifferNameTests(unittest.TestCase):
         with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"x-unschemad": "fixture"}):
             CHECKER.validate_sniffed_coverage(self.ir, served)
 
-    def test_stale_unschemad_entries_fail(self) -> None:
+    def test_stale_unschemad_entries_are_notes_not_failures(self) -> None:
         served = self.served({"apps.rs": self.apps_rs("")})
-        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"apps-list": "fixture"}):
-            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "in sdk-schema.json now"):
-                CHECKER.validate_sniffed_coverage(self.ir, served)
-        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"gone-command": "fixture"}):
-            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "no sniffer module serves"):
-                CHECKER.validate_sniffed_coverage(self.ir, served)
+        stale = {"apps-list": "fixture", "gone-command": "fixture"}
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", stale):
+            with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                notes = CHECKER.validate_sniffed_coverage(self.ir, served)
+        self.assertEqual(
+            notes,
+            [
+                "in sdk-schema.json now, drop from UNSCHEMAD_SNIFFED_COMMANDS: apps-list",
+                "no sniffer module serves these, drop from UNSCHEMAD_SNIFFED_COMMANDS: "
+                "gone-command",
+            ],
+        )
+        self.assertIn("SDK schema note: in sdk-schema.json now", stderr.getvalue())
 
     def test_name_list_module_serves_the_listed_names(self) -> None:
+        lists = {"fs_wire.rs": ("../fs_ops.rs", "FS_COMMANDS")}
         served = self.served(
             {
                 "fs_wire.rs": "fn try_handle() { frame_command(message)?; }\n",
                 "../fs_ops.rs": 'pub const FS_COMMANDS: [&str; 2] = ["fs.stat", "fs.list"];\n',
-            }
+            },
+            name_lists=lists,
         )
         self.assertEqual(set(served), {"fs.stat", "fs.list"})
-        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "has no try_handle"):
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "is in NAME_LISTS; add it"):
             self.served(
                 {
                     "fs_wire.rs": "fn other() {}\n",
                     "../fs_ops.rs": 'pub const FS_COMMANDS: [&str; 1] = ["fs.stat"];\n',
-                }
+                },
+                modules=set(),
+                name_lists=lists,
             )
 
     def test_live_tree_sniffers_are_all_accounted_for(self) -> None:
@@ -258,11 +416,12 @@ class SnifferNameTests(unittest.TestCase):
             "agent-update-plan": "agent_transfer/agent_update.rs",
             "access-request": "agent_transfer/access_requests.rs",
             "machine-catalog-publish": "connection_frame/machine_catalog.rs",
+            "client-hello": "client_hello.rs",
             "fs.read": "fs_wire.rs",
             "oracle-state": "oracle_state_command.rs",
         }.items():
             self.assertEqual(served[name].module, module)
-        CHECKER.validate_sniffed_coverage(self.ir, served)
+        self.assertEqual(CHECKER.validate_sniffed_coverage(self.ir, served), [])
 
 
 class LiveSchemaTests(unittest.TestCase):

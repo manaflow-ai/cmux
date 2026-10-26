@@ -80,8 +80,9 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 
 # Names a sniffer module serves (sniffer_names.py) that sdk-schema.json does
 # not describe yet, each with the task that adds it or why it stays out. Any
-# other unschema'd served name fails, and so does an entry that is in the
-# schema or no longer served.
+# other unschema'd served name fails. An entry that is in the schema or no
+# longer served only prints a note, so the task that schemas a name can land
+# before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
     **dict.fromkeys(
         ("agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"),
@@ -92,6 +93,7 @@ UNSCHEMAD_SNIFFED_COMMANDS = {
             "browser-runtime-start",
             "browser-runtime-status",
             "browser-runtime-stop",
+            "client-hello",
             "loopback-close",
             "loopback-credit",
             "loopback-data",
@@ -685,16 +687,20 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
 
 
 def sniffed_commands() -> dict[str, SniffedName]:
+    # A sniffer module may compare with a name it passes on to the Command
+    # enum (client_hello.rs and identify) without its module table entry.
+    passed_on = set(runtime_command_fields()) - set(module_command_fields())
     try:
-        return sniffer_names(TUI)
+        return sniffer_names(TUI, passed_on)
     except (SnifferNameError, HandlerCommandError, OSError, UnicodeError) as error:
         fail(f"cannot read the sniffer modules: {error}")
     return {}
 
 
-def validate_sniffed_coverage(ir: SdkIR, served: Mapping[str, SniffedName]) -> None:
+def validate_sniffed_coverage(ir: SdkIR, served: Mapping[str, SniffedName]) -> list[str]:
     """Every name a sniffer module serves is a schema command or an
-    UNSCHEMAD_SNIFFED_COMMANDS entry, and every entry is still needed."""
+    UNSCHEMAD_SNIFFED_COMMANDS entry. Returns, and prints, a note for each
+    entry that is no longer needed."""
 
     unschemad = {name for name in served if name not in ir.commands}
     unlisted = sorted(unschemad - set(UNSCHEMAD_SNIFFED_COMMANDS))
@@ -703,15 +709,21 @@ def validate_sniffed_coverage(ir: SdkIR, served: Mapping[str, SniffedName]) -> N
             "served but not in sdk-schema.json: "
             + ", ".join(f"{name} (server/{served[name].module})" for name in unlisted)
         )
+    notes: list[str] = []
     schemad = sorted(name for name in UNSCHEMAD_SNIFFED_COMMANDS if name in ir.commands)
     if schemad:
-        fail(f"in sdk-schema.json now, drop from UNSCHEMAD_SNIFFED_COMMANDS: {', '.join(schemad)}")
-    unserved = sorted(set(UNSCHEMAD_SNIFFED_COMMANDS) - set(served))
+        notes.append(
+            "in sdk-schema.json now, drop from UNSCHEMAD_SNIFFED_COMMANDS: " + ", ".join(schemad)
+        )
+    unserved = sorted(set(UNSCHEMAD_SNIFFED_COMMANDS) - set(served) - set(schemad))
     if unserved:
-        fail(
+        notes.append(
             "no sniffer module serves these, drop from UNSCHEMAD_SNIFFED_COMMANDS: "
             + ", ".join(unserved)
         )
+    for note in notes:
+        print(f"SDK schema note: {note}", file=sys.stderr)
+    return notes
 
 
 def validate_named_request_structs(ir: SdkIR) -> None:
