@@ -706,20 +706,24 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+    // The output loop is echo path: every PTY byte the client sees crosses
+    // it, so it writes its own socket only and blocks on nothing else.
+    crate::echo_thread::with_own_host_stream(&stream, |output| {
+        while let Ok(frame) = receiver.recv() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                break;
+            }
+            let write_result = write_frame(output, &frame);
             tap.release(&frame);
-            break;
+            if write_result.is_err() {
+                break;
+            }
+            if frame.kind == MessageKind::Exit {
+                break;
+            }
         }
-        let write_result = write_frame(&mut stream, &frame);
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
-            break;
-        }
-    }
+    });
     host.remove_client(client);
     Ok(())
 }

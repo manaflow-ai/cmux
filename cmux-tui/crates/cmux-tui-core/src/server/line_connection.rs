@@ -20,6 +20,26 @@ pub(super) fn handle_connection_with_permit(
     );
 }
 
+/// The class of a connection's reader thread (mux-conn, mux-remote-conn)
+/// until its client class is known. It runs request handlers inline, some of
+/// which spawn git, hook and plugin children that inherit its class, and it
+/// serves automation clients too. So it stays at the class those children
+/// start at until children reset their class (p02-threads task 223) and the
+/// app's UI connection is raised after its hello (task 224).
+pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+
+/// Starts connection reader thread `name` at [`CONNECTION_READER_QOS`] with
+/// blocking disallowed (each blocking request site is recorded, MQ-13).
+pub(super) fn spawn_connection_reader(
+    name: &str,
+    serve: impl FnOnce() + Send + 'static,
+) -> std::io::Result<JoinHandle<()>> {
+    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
+        cmux_threads::disallow_blocking();
+        serve();
+    })
+}
+
 /// One JSON line per message. `admission` sees every line before anything
 /// parses or dispatches it, and may answer it instead (the remote entry).
 pub(super) fn serve_line_connection(

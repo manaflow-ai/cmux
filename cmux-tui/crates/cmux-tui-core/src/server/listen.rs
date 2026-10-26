@@ -413,7 +413,7 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = crate::echo_thread::spawn("mux-conn", move || {
+        let _ = super::spawn_connection_reader("mux-conn", move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }

@@ -67,3 +67,27 @@ fn a_host_stream_reader_reads_its_own_descriptor_without_a_violation() {
         blocking::snapshot()
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn an_own_host_stream_scope_writes_its_descriptor_with_blocking_disallowed() {
+    use std::io::{Read as _, Write as _};
+
+    let (mut peer, stream) = crate::terminal_host_runtime::HostStream::pair().unwrap();
+    let disallowed = with_own_host_stream(&stream, |own| {
+        own.write_all(b"echo").unwrap();
+        blocking::is_blocking_disallowed()
+    });
+    assert!(disallowed, "the output loop runs with blocking disallowed");
+    assert!(!blocking::is_blocking_disallowed(), "the scope restores the thread");
+    drop(stream);
+    let mut bytes = Vec::new();
+    peer.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"echo");
+    let own_file = file!().replace("echo_thread_tests.rs", "echo_thread.rs");
+    assert!(
+        blocking::snapshot().sites.iter().all(|site| site.file != own_file),
+        "writes to the thread's own descriptor are allowed: {:?}",
+        blocking::snapshot()
+    );
+}

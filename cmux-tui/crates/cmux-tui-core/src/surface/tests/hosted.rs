@@ -88,6 +88,54 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
+/// p02-threads task 210: a hosted surface's reader and its host-frames
+/// demultiplexer are echo path threads.
+#[cfg(unix)]
+#[test]
+fn hosted_reader_threads_are_echo_path_threads() {
+    let mux = Mux::new_for_test("hosted-echo-rows", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, _host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let id = 9_212;
+    let _surface = Surface::spawn_hosted(
+        id,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+
+    for name in [format!("surface-{id}-host"), format!("surface-{id}-host-frames")] {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == name)
+                .map(|row| row.declared)
+                .collect();
+            if !rows.is_empty() || Instant::now() >= deadline {
+                break rows;
+            }
+            std::thread::yield_now();
+        };
+        assert!(!rows.is_empty(), "{name} is registered while it runs");
+        let echo = crate::echo_thread::ECHO_PATH_QOS;
+        assert!(rows.iter().all(|qos| *qos == echo), "{name}: {rows:?}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {

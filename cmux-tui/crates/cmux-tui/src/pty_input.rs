@@ -1761,6 +1761,21 @@ mod tests {
         same_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
+    /// p02-threads task 210: the input worker is an echo path thread.
+    #[test]
+    fn the_input_worker_is_an_echo_path_thread() {
+        let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let rows: Vec<_> = cmux_threads::snapshot()
+            .into_iter()
+            .filter(|row| row.name == "mux-pty-input")
+            .map(|row| row.declared)
+            .collect();
+        assert!(!rows.is_empty(), "mux-pty-input is registered while it runs");
+        let echo = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
+        assert!(rows.iter().all(|qos| *qos == echo), "{rows:?}");
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+    }
+
     #[test]
     fn replacement_generation_isolates_a_reused_surface_lane() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
