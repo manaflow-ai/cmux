@@ -112,12 +112,15 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                 inner.changed.notify_all();
                 return;
             }
-            let (mut state, _) = inner
-                .changed
-                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
-                    !state.shutdown && state.jobs.is_empty()
-                })
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let idle_until = Instant::now() + DEADLINE_FANOUT_IDLE_TIMEOUT;
+            while !state.shutdown && state.jobs.is_empty() {
+                let Some(remaining) = idle_until.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                state = cmux_threads::checked::sync::wait_timeout(&inner.changed, state, remaining)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0;
+            }
             if state.shutdown || state.jobs.is_empty() {
                 state.worker_count = state.worker_count.saturating_sub(1);
                 inner.changed.notify_all();

@@ -303,6 +303,7 @@ impl Mux {
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
             cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
+            cell_pixel_sets: Arc::default(),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
             #[cfg(test)]
@@ -335,7 +336,7 @@ impl Mux {
             notification_posts: Mutex::new(HashMap::new()),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
-            git_heads: presentation::GitHeads::default(),
+            git_heads: Arc::default(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -483,6 +484,7 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         mux.start_journal_maintenance()?;
         crate::state::project_watch::start(&mux);
+        mux.warm_git_heads();
         Ok(mux)
     }
 

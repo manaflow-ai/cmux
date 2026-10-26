@@ -344,7 +344,8 @@ impl Mux {
     ) -> u64 {
         let mut current = self.journal_event_epoch.lock().unwrap();
         while *current == epoch && !interrupt.is_fired() {
-            current = self.journal_event_changed.wait(current).unwrap();
+            current =
+                cmux_threads::checked::sync::wait(&self.journal_event_changed, current).unwrap();
         }
         *current
     }

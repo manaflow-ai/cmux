@@ -71,13 +71,20 @@ impl ResourceWaitWake {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return false;
                     };
-                    let (next, timeout) = self.changed.wait_timeout(notified, remaining).unwrap();
+                    let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
+                        &self.changed,
+                        notified,
+                        remaining,
+                    )
+                    .unwrap();
                     notified = next;
                     if timeout.timed_out() && !*notified {
                         return false;
                     }
                 }
-                None => notified = self.changed.wait(notified).unwrap(),
+                None => {
+                    notified = cmux_threads::checked::sync::wait(&self.changed, notified).unwrap();
+                }
             }
         }
         true

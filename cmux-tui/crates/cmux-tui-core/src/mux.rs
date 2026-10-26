@@ -611,6 +611,9 @@ pub struct Mux {
     cell_pixels: Mutex<(u16, u16)>,
     pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     cell_pixel_retries: Mutex<CellPixelRetryQueue>,
+    /// `client.cell_pixels.set` and `set-cell-pixels` applies, in request
+    /// order, on the work lanes (cell_pixels.rs).
+    cell_pixel_sets: Arc<mux_work::Sequence>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     #[cfg(test)]
@@ -661,7 +664,7 @@ pub struct Mux {
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     /// Git HEAD of each tab directory, read off request threads.
-    git_heads: presentation::GitHeads,
+    git_heads: Arc<presentation::GitHeads>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,

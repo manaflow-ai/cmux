@@ -1100,11 +1100,13 @@ impl Mux {
             if left.is_zero() {
                 break;
             }
-            adoptions = self
-                .terminal_adoption_ended
-                .wait_timeout(adoptions, left)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            adoptions = cmux_threads::checked::sync::wait_timeout(
+                &self.terminal_adoption_ended,
+                adoptions,
+                left,
+            )
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
         }
         drop(adoptions);
         self.terminal_adoptions_now
@@ -1150,7 +1152,8 @@ impl AdoptionSlot {
     fn take() -> Self {
         let mut in_flight = ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
         while *in_flight >= ADOPTION_SLOTS {
-            in_flight = ADOPTION_SLOT_FREED.wait(in_flight).unwrap_or_else(PoisonError::into_inner);
+            in_flight = cmux_threads::checked::sync::wait(&ADOPTION_SLOT_FREED, in_flight)
+                .unwrap_or_else(PoisonError::into_inner);
         }
         *in_flight += 1;
         AdoptionSlot

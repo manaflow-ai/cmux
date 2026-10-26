@@ -492,14 +492,17 @@ impl Mux {
                 Duration::from_secs(10),
             ) {
                 Ok(Ok(())) => {}
-                Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => mux
-                    .reconcile_failed_surface_size_rollback(
-                        id,
-                        client,
-                        current_size,
-                        current_report_order,
-                        rollback_token,
-                    ),
+                Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.reconcile_failed_surface_size_rollback(
+                            id,
+                            client,
+                            current_size,
+                            current_report_order,
+                            rollback_token,
+                        );
+                    }
+                }
                 // The rolled-back registry remains authoritative while the
                 // compensating browser reservation stays queued: the failed
                 // attach's claim is not reinstalled before the browser worker

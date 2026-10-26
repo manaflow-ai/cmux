@@ -344,7 +344,8 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
 
     let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
     let nested_path = nested.to_string_lossy().into_owned();
-    // The first lookup answers from memory (nothing yet) and reads off thread.
+    // The first lookup of a repository nothing has read answers from memory
+    // (no HEAD yet) and reads off thread; its delta carries the branch.
     let first = mux.resolve_tab_directories(vec![(7, nested_path.clone())], true);
     assert_eq!(first[&7].git_branch, None);
     assert!(mux.git_heads.wait_read_for_test(&nested_path, Duration::from_secs(10)));
@@ -423,6 +424,84 @@ fn a_git_head_read_off_thread_sends_tab_changed_with_the_branch() {
 
     assert_eq!(branch.as_deref(), Some("delta"));
     assert_eq!(tab_json(&mux, tab)["git_branch"], "delta");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A directory not read yet answers its nearest read ancestor's HEAD, so a
+/// `cd` inside a repository keeps the branch chip; its own read then finds
+/// the same HEAD.
+#[test]
+fn a_new_subdirectory_answers_its_repositorys_branch_before_its_read() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-git-head-ancestor-{}", WorkspacePublicId::random().unwrap()));
+    let repo = root.join("repo");
+    let nested = repo.join("src").join("deep");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/ancestor\n").unwrap();
+    let mux = Mux::new_for_test("git-heads-ancestor", SurfaceOptions::default());
+    let repo_path = repo.to_string_lossy().into_owned();
+    mux.resolve_tab_directories(vec![(7, repo_path.clone())], true);
+    assert!(mux.git_heads.wait_read_for_test(&repo_path, Duration::from_secs(10)));
+
+    let nested_path = nested.to_string_lossy().into_owned();
+    let first = mux.resolve_tab_directories(vec![(7, nested_path.clone())], true);
+    assert_eq!(first[&7].git_branch.as_deref(), Some("ancestor"));
+    let src_path = repo.join("src").to_string_lossy().into_owned();
+    let cached = mux.resolve_tab_directories(vec![(8, src_path)], false);
+    assert_eq!(cached[&8].git_branch.as_deref(), Some("ancestor"));
+    assert!(mux.git_heads.wait_read_for_test(&nested_path, Duration::from_secs(10)));
+    let read = mux.resolve_tab_directories(vec![(7, nested_path)], true);
+    assert_eq!(read[&7].git_branch.as_deref(), Some("ancestor"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Reads of many directories that finish together send one `tab-changed`
+/// with the branch per tab.
+#[test]
+fn git_head_reads_of_many_directories_send_one_tab_changed_per_tab() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-git-head-burst-{}", WorkspacePublicId::random().unwrap()));
+    let mux = Mux::new_for_test("git-heads-burst", SurfaceOptions::default());
+    let workspace = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(workspace)).unwrap();
+    let events = mux.subscribe();
+    let mut tabs = HashMap::new();
+    for index in 0..4 {
+        let repo = root.join(format!("repo-{index}"));
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), format!("ref: refs/heads/burst-{index}\n")).unwrap();
+        let cwd = repo.to_string_lossy().into_owned();
+        let tab = mux.new_tab(Some(pane), Some(cwd), None).unwrap().id;
+        tabs.insert(tab, format!("burst-{index}"));
+    }
+    mux.tree_decorations();
+
+    let mut branches: HashMap<SurfaceId, Vec<String>> = HashMap::new();
+    let record = |branches: &mut HashMap<SurfaceId, Vec<String>>, event: MuxEvent| {
+        if let MuxEvent::TreeDelta(delta) = event
+            && delta.kind == TreeDeltaKind::TabChanged
+            && let Some(surface) = delta.surface.filter(|surface| tabs.contains_key(surface))
+            && let Some(branch) = delta.entity["git_branch"].as_str()
+        {
+            branches.entry(surface).or_default().push(branch.to_owned());
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Ok(event) = events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        record(&mut branches, event);
+        if branches.len() == tabs.len() {
+            break;
+        }
+    }
+    // A second delta with a branch for any of these tabs would be uncoalesced.
+    while let Ok(event) = events.recv_timeout(Duration::from_millis(200)) {
+        record(&mut branches, event);
+    }
+
+    for (tab, branch) in &tabs {
+        assert_eq!(branches.get(tab), Some(&vec![branch.clone()]), "tab {tab}");
+    }
     let _ = std::fs::remove_dir_all(&root);
 }
 

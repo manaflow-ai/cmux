@@ -30,6 +30,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::DeleteTerminalCommands(_) | Command::SetCellPixels { .. } => {
+            anyhow::bail!("this command requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -53,9 +56,9 @@ pub(super) fn handle_command_with_cancellation(
             offset,
             data,
         ),
-        command @ (Command::SetTerminalCommandHistory(_)
-        | Command::ListTerminalCommands(_)
-        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
+        command @ (Command::SetTerminalCommandHistory(_) | Command::ListTerminalCommands(_)) => {
+            command_history::handle(mux, client, command)
+        }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify { machine_metadata, revisions } => {
@@ -300,9 +303,6 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
         Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
-        Command::SetCellPixels { width_px, height_px } => {
-            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
-        }
         Command::BrowserFramePresented { surface, frame_seq } => {
             cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }
