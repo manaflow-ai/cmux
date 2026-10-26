@@ -5,8 +5,9 @@ use super::*;
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
 pub(super) struct SteerNow {
-    /// Sent to the agent and not answered yet: it reads them when its current step ends.
-    pub(super) waiting: std::collections::HashSet<String>,
+    /// Sent to the agent and not answered yet: it reads them when its current step ends. Each
+    /// with the person who sent it (`author.rs`), `None` for the owner.
+    pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
 }
@@ -68,6 +69,10 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// The profile env its running agent was started with (`Hub::ensure_child`): its family
+    /// defaults, preset, session env and route included. The read-only shell probe judges a
+    /// command in it (`permissions.rs`); None until this daemon starts an agent for it.
+    pub(super) launch_env: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
@@ -101,6 +106,9 @@ pub struct Session {
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
+    /// How many times the chat was stopped (`kill`). A start reads it when its request came
+    /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
+    pub(super) stops: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -123,6 +131,26 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
+    /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
+    /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`
+    /// from it ends (`stalled_turn.rs`).
+    pub(super) heard_at: std::sync::atomic::AtomicI64,
+    /// The hub clock's time before which a turn held at its stalled deadline is not looked at
+    /// again (`stalled_turn.rs`); 0 for none.
+    pub(super) stalled_recheck: AtomicU64,
+    /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
+    /// inside one gets longer before it counts as stalled.
+    pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
+    /// before that, so a turn whose prompt has not reached its agent is never stalled.
+    pub(super) stalled_counted: StdMutex<Option<String>>,
+    /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
+    /// stalled end decided at one value is not carried out at another.
+    pub(super) stalled_gen: AtomicU64,
+    /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
+    /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
+    pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
@@ -134,6 +162,10 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
+    /// one it started itself for a task notification, which acpmux never prompted and
+    /// `turn` does not show (`subagent_retry.rs` waits for its end).
+    pub(super) harness_turn: AtomicBool,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
@@ -267,6 +299,9 @@ pub(super) struct Applied {
     /// (`opencode_ask.rs`); false for an agent host reached again after a
     /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
     pub opencode_asks: bool,
+    /// The mode acpmux had put the last agent in (`SessionMeta::mode_set_by_cmux`):
+    /// marked again only once acpmux puts this agent in it (`restore_mode_mark`).
+    pub replay_mark: Option<String>,
 }
 
 /// `sessions` newest first. Each session's `updated_at` is read once: other

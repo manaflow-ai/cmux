@@ -973,11 +973,35 @@ FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0}
 
 
 def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
-    """Non-zero when a cmux row's median is worse than the baseline's by more
-    than `tolerance` (relative) and the unit's absolute floor."""
-    results = json.load(open(results_path))["rows"]
-    baseline = json.load(open(baseline_path))["rows"]
+    """Fail on regressions *or incomplete coverage*.
+
+    A missing current cell used to be skipped, which made a timed-out or
+    unsupported bench look like a clean pass. The baseline is the explicit
+    expected row/browser matrix; callers can put a ``row|browser`` key in an
+    ``unsupported`` list when a surface is intentionally unavailable.
+    """
+    with open(results_path) as handle:
+        result_doc = json.load(handle)
+    with open(baseline_path) as handle:
+        baseline_doc = json.load(handle)
+    results = result_doc.get("rows", {})
+    baseline = baseline_doc.get("rows", {})
+    def unsupported_entries(document):
+        entries = {}
+        for item in document.get("unsupported") or []:
+            if isinstance(item, str):
+                entries[item] = "explicitly allowlisted"
+            elif isinstance(item, dict) and item.get("key"):
+                entries[item["key"]] = item.get("reason") or "explicitly allowlisted"
+        return entries
+
+    allowlisted = unsupported_entries(baseline_doc)
+    allowlisted.update(unsupported_entries(result_doc))
     failed = 0
+    incomplete = []
+    expected = measured = unsupported = 0
+    if not baseline:
+        incomplete.append("baseline has no rows")
     for row, per in baseline.items():
         if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
             continue
@@ -985,16 +1009,39 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
             continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
         unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
         for browser in (*CMUX, TAB_SWITCH_BROWSER):
+            # The checked-in baseline is the manifest for each row. Resource
+            # budget and Debug-only surfaces have separate reports and are not
+            # present in the cross-browser baseline.
+            if browser not in per:
+                continue
+            expected += 1
             base = per.get(browser, {}).get("median")
             now = results.get(row, {}).get(browser, {}).get("median")
-            if base is None or now is None:
+            key = f"{row}|{browser}"
+            if key in allowlisted:
+                unsupported += 1
+                print(f"PERF-BENCH-GATE UNSUPPORTED {key}: {allowlisted[key]}")
                 continue
+            if base is None:
+                incomplete.append(f"{key}: missing baseline median")
+                continue
+            if now is None:
+                incomplete.append(f"{key}: missing current median")
+                continue
+            measured += 1
             limit = base + max(base * tolerance, FLOORS[unit])
             verdict = "REGRESSED" if now > limit else "ok"
             failed += verdict != "ok"
             print(f"PERF-BENCH-GATE {verdict} {browser} {row} now={now} baseline={base} limit={round(limit, 3)} {unit}")
-    print(f"PERF-BENCH-GATE {'FAIL' if failed else 'PASS'} regressions={failed}")
-    return 1 if failed else 0
+    # Rows newly emitted by a bench are not expected until a baseline records
+    # them. This keeps an older sparse baseline usable while still failing
+    # closed when one of its recorded cells disappears from the current run.
+    for reason in incomplete:
+        print(f"PERF-BENCH-GATE INCOMPLETE {reason}")
+    verdict = "FAIL" if failed or incomplete else "PASS"
+    print(f"PERF-BENCH-GATE {verdict} regressions={failed} incomplete={len(incomplete)} "
+          f"expected={expected} measured={measured} unsupported={unsupported}")
+    return 1 if failed or incomplete else 0
 
 
 def main():

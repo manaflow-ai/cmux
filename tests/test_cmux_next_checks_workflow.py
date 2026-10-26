@@ -579,6 +579,20 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertFalse([step for step in swift["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
         self.assertIn("SWIFT_FILTER", swift["env"])
 
+    def test_swift_test_prioritizes_changed_suites_before_the_broad_pass(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        route = jobs["path_route"]
+        self.assertIn("swift_priority_filter", route["outputs"])
+        swift = jobs["swift-test"]
+        self.assertIn("SWIFT_PRIORITY_FILTER", swift["env"])
+        run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
+        script = run["run"]
+        self.assertIn("SWIFT_PRIORITY_FILTER", script)
+        self.assertIn("--skip", script)
+        self.assertIn("priority", script.lower())
+        cloud = next(step for step in swift["steps"] if step.get("name") == "Run CloudBringBack cases in fresh processes")
+        self.assertNotIn("!contains(env.SWIFT_PRIORITY_FILTER, 'CloudBringBackTests')", cloud["if"])
+
     def test_generated_files_are_checked_outside_the_package_tests(self):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -668,10 +682,11 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
-        # The Release compile is the base's compile check: a superseded feat-cmux-next push still
-        # compiles (ReleaseCompileOnCmuxNextSwiftPullRequests covers it); its job group keeps one running, the newest waiting.
-        self.assertIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
-                      jobs["release-compile"]["if"])
+        # Superseded pushes skip before queueing; a started compile has its own
+        # run group so a newer push cannot evict it.
+        self.assertNotIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                         jobs["release-compile"]["if"])
+        self.assertIn("needs.push-head-preflight.outputs.current == 'true'", jobs["release-compile"]["if"])
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
@@ -679,12 +694,16 @@ class PathRoutingStructure(unittest.TestCase):
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
-        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
+        # (the fast tier's fast_runner is attempt 1 only, so not counted here).
+        # The Release compile's owned-first PR route reads the placement output
+        # in both `runs-on` and `CMUX_NEXT_RUNNER`.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 11)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
-        self.assertIn("The rescue's first re-run (the bot's attempt\n# 2) is the Blacksmith overflow", text)
-        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and take that Blacksmith overflow", text)
+        # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
+        self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
+        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
 
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -763,11 +782,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
             seen.add(name)
             stack.extend(targets[name]["targets"])
         self.assertIn("CmuxNextApp", seen)
-        # A library under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658) is test support, not production.
+        # Libraries under Tests/ (Tests/Support/CmuxNextTestExitTrace, #23658)
+        # and source-only test support targets are not production.
         outside = {
             n for n, v in targets.items()
             if v["kind"] in {"regular", "executable"} and n not in seen
             and not (v["path"] or "").startswith("Packages/macOS/CmuxNext/Tests/")
+            and not n.endswith("TestSupport")
         }
         step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
                     if s.get("id") == "check")
@@ -1004,7 +1025,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                                   "the step after checkout must drop stale submodule checkouts")
         # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test"])
+                                           "release-compile", "swift-canary", "swift-test",
+                                           "web-bundles"])
 
 
 
@@ -1382,7 +1404,8 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         for job in self.JOBS:
             with self.subTest(job=job):
                 permissions = self.document()["jobs"][job].get("permissions", {})
-                self.assertEqual(permissions.get("actions"), "read")
+                expected_actions = "write" if job == "release-compile" else "read"
+                self.assertEqual(permissions.get("actions"), expected_actions)
                 self.assertEqual(permissions.get("contents"), "read")
 
     def test_a_mini_release_compile_records_only_when_the_cef_checks_ran(self):
@@ -1406,6 +1429,8 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                     "Record this pass for the same inputs", "Save the pass")]
                 for index, step in enumerate(steps[start + 1:], start + 1):
                     if index in records:
+                        continue
+                    if step.get("name") == "Request nightly-next promotion after this gate":
                         continue
                     with self.subTest(step=step.get("name") or step.get("uses")):
                         self.assertIn(REUSE_GUARD, str(step.get("if", "")))
@@ -1829,10 +1854,10 @@ FAST_TIER_FORK_CLAUSE = (
     "&& 'blacksmith-6vcpu-macos-26' || "
 )
 FAST_LANE_CLAUSE = (
-    "vars.CI_FAST_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
-    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || "
+    "needs.macos-placement.outputs.fast_runner != '' && "
+    "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
-# The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
+# The fast tier's runs-on without its fast-lane clause: with no idle fast runner it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
     # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
@@ -1860,13 +1885,13 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
 
 class FastTierRunner(unittest.TestCase):
     def test_the_fast_lane_label_comes_after_the_fork_clause(self):
-        """vars.CI_FAST_LANE_RUNNER gives the fast tier its own owned runner label. A fork pull
-        request must take its hosted label before that variable is read, and with the variable
-        unset the route is the one the job had before it."""
+        """The placement's fast_runner (vars.CI_FAST_LANE_RUNNER while one of its runners is idle)
+        gives the fast tier its own owned runner label. A fork pull request must take its hosted
+        label before it is read, and with it empty the route is the one every cascaded job has."""
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
         runs_on = job["runs-on"]
         self.assertIn(FAST_LANE_CLAUSE, runs_on)
-        self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("vars.CI_FAST_LANE_RUNNER"))
+        self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertEqual(runs_on.replace(FAST_LANE_CLAUSE, "", 1), FAST_TIER_RUNNER_WITHOUT_FAST_LANE)
         # No env value mirrors runs-on with the old route.
@@ -1874,13 +1899,73 @@ class FastTierRunner(unittest.TestCase):
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
 
 
+class ReservedLaneLabels(unittest.TestCase):
+    """No runs-on waits on one small reserved pool with no way off it (rulebook: "No job waits on one
+    reserved machine"; 2026-10-25, 15 runs' fast tiers queued an hour behind the two runners left on
+    glaeda-fast-light-xcode-26.6). A reserved lane's label reaches a runs-on only through a placement
+    output that names it while one of its runners is idle; reading the variable there is refused."""
+
+    # Variables naming one reserved owned lane, and the runs-on still reading one directly, with why.
+    RESERVED = ("CI_FAST_LANE_RUNNER", "CI_SESSION_LANE_RUNNER")
+    DIRECT = {
+        ("generated-files", "CI_SESSION_LANE_RUNNER"): (
+            "unset since it was added; setting it needs the same idle gate the fast tier has "
+            "(side_lane_placement.fast_route()) first"
+        ),
+    }
+
+    def test_no_runs_on_reads_a_reserved_lane_variable(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        found = {(name, variable) for name, job in jobs.items() for variable in self.RESERVED
+                 if f"vars.{variable}" in str(job.get("runs-on") or "")}
+        self.assertEqual(found, set(self.DIRECT))
+
+    def test_the_fast_tier_takes_its_label_only_while_the_placement_saw_it_idle(self):
+        runs_on = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]["runs-on"]
+
+        def context(fast="", side="glaeda-side-std-xcode-26.6", attempt=1, actor="someone", **outputs):
+            values = {
+                "github.repository_owner": "manaflow-ai",
+                "github.repository": "manaflow-ai/cmux",
+                "github.event_name": "pull_request",
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                "github.run_attempt": attempt,
+                "github.triggering_actor": actor,
+                "vars.CI_PR_POOL_OWNED": "1",
+                "vars.CI_FAST_LANE_RUNNER": "glaeda-fast-light-xcode-26.6",
+                "vars.CI_SIDE_LANE_RUNNER": side,
+                "needs.macos-placement.outputs.fast_runner": fast,
+                "needs.macos-placement.outputs.runner": side,
+            }
+            values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
+            return values
+
+        fast = "glaeda-fast-light-xcode-26.6"
+        self.assertEqual(evaluate(runs_on, context(fast)), fast)
+        # Busy or unread: the cascade's slot, else the side route; never the reserved label.
+        self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
+        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")), "macos-26")
+        self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
+        # The rescue's overflow attempt never goes back to the fast label.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
+                                                   retry_runner="blacksmith-6vcpu-macos-26")),
+                         "blacksmith-6vcpu-macos-26")
+        # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
+        # side route, never the reserved label (review of #25158).
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "glaeda-side-std-xcode-26.6")
+
+
+# A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
+# before any other route after the fork's hosted label).
+FREE_ROLE_CLAUSE = "needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.free_gui_runner || "
 SESSION_LANE_CLAUSE = (
     "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
     "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
 GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
     + "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
@@ -1895,13 +1980,15 @@ GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
 class GeneratedFilesRunner(unittest.TestCase):
     def test_the_session_lane_label_comes_after_the_fork_clause(self):
         """vars.CI_SESSION_LANE_RUNNER gives generated files the light minis' session runners. A fork
-        pull request must take its hosted label before that variable is read, and with the variable
-        unset the route is the one the job had before it. CMUX_NEXT_RUNNER restates runs-on."""
+        pull request must take its hosted label before that variable is read, then a free owned Mac the
+        placement found (the queue rescue), and with the variable unset the route is the one the job had
+        before it. CMUX_NEXT_RUNNER restates runs-on."""
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["generated-files"]
         runs_on = job["runs-on"]
         self.assertIn(SESSION_LANE_CLAUSE, runs_on)
-        self.assertEqual(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE),
-                         runs_on.index(SESSION_LANE_CLAUSE))
+        after_fork = runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE)
+        self.assertEqual(after_fork, runs_on.index(FREE_ROLE_CLAUSE))
+        self.assertEqual(after_fork + len(FREE_ROLE_CLAUSE), runs_on.index(SESSION_LANE_CLAUSE))
         self.assertEqual(runs_on.replace(SESSION_LANE_CLAUSE, "", 1), GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE)
         self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], runs_on)
 
@@ -1929,6 +2016,7 @@ def evaluate(expression: str, context: dict):
     text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
     names = {
         "_ctx": _UnsetIsEmpty(context),
+        "always": lambda: True,
         "contains": lambda haystack, needle: needle in haystack,
         "startsWith": lambda value, prefix: str(value).startswith(prefix),
         "fromJSON": json.loads,
@@ -1965,6 +2053,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
             "needs.app-compile-fleet.outputs.verdict": "pass",
             # With macos-placement's outputs empty (it skipped), runs-on takes the shared route.
@@ -1979,15 +2069,15 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     def runs(self, context: dict) -> bool:
         return bool(evaluate(self.job()["if"], context))
 
-    def test_a_superseded_base_push_still_compiles_one_at_a_time(self):
-        """Merges land about once a minute, so nearly every feat-cmux-next push is superseded before its
-        preflight runs; it still compiles, one running and the newest waiting (2026-10-21: 0 of 40 compiled)."""
+    def test_a_superseded_base_push_skips_before_queueing(self):
+        """A superseded push does not occupy the Release compile queue."""
         context = self.context([], event="push")
         context["needs.push-head-preflight.outputs.current"] = "false"
-        self.assertTrue(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        context["github.run_id"] = "7"
+        self.assertFalse(self.runs(context))
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-6vcpu-macos-26")
         group = self.job()["concurrency"]
-        self.assertEqual(evaluate(group["group"], context), "cmux-next-push-refs/heads/feat-cmux-next-release-compile")
+        self.assertEqual(evaluate(group["group"], context), "cmux-next-release-compile-7")
         self.assertIs(group["cancel-in-progress"], False)
         # A superseded pull request run is still skipped (its run is cancelled anyway), and so is a main push.
         for event, ref in (("pull_request", "refs/pull/1/merge"), ("push", "refs/heads/main")):
@@ -2010,6 +2100,88 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # Never the reserved promotion runner on a PR, with macos-placement skipped.
         self.assertEqual(evaluate(self.job()["runs-on"], labeled), "shared-side-route")
         self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], labeled), "shared-side-route")
+
+    def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        fast = jobs["release-compile-fast"]
+        admitted = jobs["release-compile-fast-admission"]
+        self.assertNotEqual(fast["name"], "cmux-next Release compile (Xcode 26)")
+        self.assertEqual(admitted["name"], "cmux-next Release compile (Xcode 26)")
+        # The admission job runs whenever the fast check ran without handing off to the Mac
+        # fallback and is green only on pass, so a fleet error stays red under the gate name;
+        # unavailable, or a fast check refused before a verdict, leaves it to the Mac fallback.
+        for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
+                                      ("fail", "success", True), ("", "failure", False), ("", "success", False),
+                                      ("", "skipped", False), ("", "cancelled", False)):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(bool(evaluate(admitted["if"], context)), runs)
+        self.assertIn('"$VERDICT" == pass && "$RESULT" == success', admitted["steps"][0]["run"])
+        # A compile failure must not fail the fast job: a failed job is the refused case, and
+        # its verdict output is what the admission job turns red.
+        compile_step = next(step for step in fast["steps"] if step.get("id") == "compile")
+        self.assertIs(compile_step.get("continue-on-error"), True)
+        self.assertEqual(fast["runs-on"], "${{ needs.macos-placement.outputs.gateway_runner }}")
+        run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
+        self.assertIn("compile-check --ref", run)
+        self.assertIn("--app", run)
+        for name in ("release-compile-fast", "release-compile"):
+            with self.subTest(job=name):
+                self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
+
+    def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
+        # push attribution and the nightly feed watch read the first job with the gate name, so a
+        # red admission beside a green fallback would report a failure the fallback cleared.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = [job for job in jobs.values() if job.get("name") == "cmux-next Release compile (Xcode 26)"]
+        self.assertEqual(len(gate), 2)
+        for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "success"),
+                                ("", "failure"), ("", "success"), ("", "skipped")):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                           "github.base_ref": "", "github.run_attempt": 1,
+                           "needs.path_route.outputs.native": "true",
+                           "needs.push-head-preflight.outputs.current": "true",
+                           "needs.app-compile-fleet.outputs.verdict": "",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(sum(bool(evaluate(job["if"], context)) for job in gate), 1)
+
+    def test_the_fast_admission_gate_requests_promotion_itself(self):
+        # The fast check's own request reached main's promote job before the admission job
+        # existed; the admission job requests once green, after a checkout of the pushed
+        # commit (request-nightly-next.sh refuses any other HEAD), and the downstream helper
+        # waits for it.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertFalse(any("request-nightly-next.sh" in step.get("run", "")
+                             for step in jobs["release-compile-fast"]["steps"]))
+        admitted = jobs["release-compile-fast-admission"]
+        self.assertEqual(admitted["permissions"]["actions"], "write")
+        steps = admitted["steps"]
+        request = next(i for i, step in enumerate(steps) if "request-nightly-next.sh" in step.get("run", ""))
+        checkout = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertLess(0, checkout)
+        self.assertLess(checkout, request)
+        helper = jobs["request-nightly-next-fast"]
+        self.assertIn("release-compile-fast-admission", helper["needs"])
+        self.assertIn("needs.release-compile-fast-admission.result == 'success'", helper["if"])
+
+    def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = jobs["release-compile"]
+        self.assertEqual(gate["permissions"]["actions"], "write")
+        request = next(step for step in gate["steps"] if step.get("name") == "Request nightly-next promotion after this gate")
+        self.assertIn("github.event_name == 'push'", request["if"])
+        self.assertIn("request-nightly-next.sh", request["run"])
+
+    def test_generated_files_are_not_branch_wide_serialized(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        group = jobs["generated-files"]["concurrency"]["group"]
+        self.assertIn("github.sha", group)
+        self.assertNotIn("github.ref", group)
 
     def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
         # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
@@ -2052,10 +2224,33 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
-    def test_base_pushes_still_run_it_on_the_promotion_runner(self):
+    def test_base_pushes_still_run_it_on_the_blacksmith_fallback(self):
         context = self.context([], event="push")
         self.assertTrue(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-6vcpu-macos-26")
+
+    def test_a_fast_gate_that_died_before_a_verdict_falls_back_to_the_mac_compile(self):
+        # A runner hook refusing the fast gate (disk floor, 2026-10-24) fails it with no
+        # verdict; the fallback must still compile, or no commit can be promoted.
+        context = self.context([], event="push")
+        for result, verdict, runs in (("failure", "", True), ("success", "", True), ("success", "unavailable", True),
+                                      ("success", "fail", False), ("success", "pass", False),
+                                      ("cancelled", "", False)):
+            with self.subTest(result=result, verdict=verdict):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(self.runs(context), runs)
+        # The refused side pool is not asked again: the fallback takes the last-resort
+        # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
+        context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
+        for result, verdict, label in (("failure", "", "blacksmith-6vcpu-macos-26"),
+                                       ("success", "", "glaeda-side-std-xcode-26.6"),
+                                       ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
+            with self.subTest(result=result, verdict=verdict, route=label):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(evaluate(self.job()["runs-on"], context), label)
+                self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), label)
 
 
 class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
@@ -2088,6 +2283,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "needs.web-bundles.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
         }
         for tier in ("macos", "native", "swift_canary", "scheme", "generated", "swift", "daemon"):
             context[f"needs.path_route.outputs.{tier}"] = "true"
@@ -2283,6 +2480,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         context = {
             # The build fleet compiled the PR's head (app-compile-fleet), so no Mac Release compile is needed.
             "needs.app-compile-fleet.outputs.verdict": fleet,
+            "needs.release-compile-fast.result": "skipped",
+            "needs.release-compile-fast.outputs.verdict": "",
             "github.event_name": event, "github.ref": ref,
             "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
             "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
@@ -2342,6 +2541,90 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
                                                      cmuxnext_swift="false")), set())
 
 
+class BuildFleetGatewayJobsFallBack(unittest.TestCase):
+    """No cmux-next job waits on the build-fleet gateway. Every job whose runs-on can name it
+    (vars.CI_COMPILE_CHECK_GATEWAY, a side-light label, or macos-placement's gateway_runner) runs only on
+    a gateway runner macos-placement saw idle in the same attempt; in every other case it skips and its
+    Mac fallback runs, in the cascade (an idle owned mini, then Blacksmith). 2026-10-26 06:00Z: 44 jobs
+    queued on glaeda-side-light-xcode-26.6, the oldest 58 minutes, and PR #24155's app compile queued
+    there three times without running. A new job pinned to the gateway fails here until it is in
+    FALLBACKS, with the guard."""
+
+    LIGHT = "glaeda-side-light-xcode-26.6"
+    STD = "glaeda-side-std-xcode-26.6"
+    # Each gateway job's Mac fallback, which must run when the gateway job does not, and the event it runs on.
+    FALLBACKS = {"app-compile-fleet": ("release-compile", "pull_request"),
+                 "swift-canary-fleet": ("swift-canary", "pull_request"),
+                 "release-compile-fast": ("release-compile", "push")}
+    PINS = ("CI_COMPILE_CHECK_GATEWAY", "side-light", "gateway_runner")
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    @staticmethod
+    def cascade_jobs() -> tuple[str, ...]:
+        """next_macos_cascade.CASCADE_JOBS: the Mac jobs an idle owned mini, then Blacksmith, take."""
+        import importlib.util
+        # Its own module name, registered for the whole process (Python 3.12's @dataclass reads the
+        # module from sys.modules while it executes), so no other test's next_macos_cascade is touched.
+        name = "_cmux_next_gateway_guard_next_macos_cascade"
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, WORKFLOW.parents[2] / "scripts/ci/next_macos_cascade.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
+            spec.loader.exec_module(module)
+        return sys.modules[name].CASCADE_JOBS
+
+    def context(self, event: str, attempt: int, reading: tuple[str, str] | None) -> dict:
+        context = {
+            "github.event_name": event, "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
+            "github.ref": "refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge",
+            "github.run_attempt": attempt, "github.triggering_actor": "someone",
+            "vars.CI_COMPILE_CHECK_GATEWAY": self.LIGHT, "vars.CI_PR_POOL_OWNED": "1",
+            "needs.path_route.outputs.native": "true", "needs.path_route.outputs.swift_canary": "true",
+            "needs.path_route.outputs.macos": "true", "needs.push-head-preflight.outputs.current": "true",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.event.pull_request.labels.*.name": [],
+        }
+        if reading is not None:
+            context["needs.macos-placement.outputs.gateway_attempt"] = reading[0]
+            context["needs.macos-placement.outputs.gateway_runner"] = reading[1]
+        return context
+
+    def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
+        pinned = {name for name, job in self.jobs().items() if any(pin in str(job.get("runs-on", "")) for pin in self.PINS)}
+        self.assertEqual(pinned, set(self.FALLBACKS),
+                         "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
+
+    def test_the_gateway_is_taken_only_on_an_idle_reading_from_the_same_attempt(self):
+        jobs = self.jobs()
+        placement_env = next(step["env"] for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        for name, (fallback, event) in self.FALLBACKS.items():
+            job = jobs[name]
+            self.assertIn("macos-placement", job["needs"])
+            for attempt, reading in ((1, ("1", self.LIGHT)), (1, ("1", self.STD)), (1, ("1", "")), (1, ("", "")),
+                                     (1, None), (2, ("1", self.LIGHT)), (2, ("2", self.LIGHT)), (2, ("2", "")),
+                                     (2, None), (3, ("2", self.STD))):
+                context = self.context(event, attempt, reading)
+                idle = reading is not None and reading[0] == str(attempt) and reading[1] != ""
+                with self.subTest(job=name, attempt=attempt, reading=reading):
+                    self.assertEqual(bool(evaluate(job["if"], context)), idle)
+                    if idle:
+                        self.assertEqual(evaluate(job["runs-on"], context), reading[1])
+                        continue
+                    # Skipped: the Mac fallback runs, and is one of the cascade's jobs on this route.
+                    skipped = {**context, f"needs.{name}.result": "skipped", f"needs.{name}.outputs.verdict": "",
+                               "needs.app-compile-fleet.result": "skipped", "needs.app-compile-fleet.outputs.verdict": "",
+                               "needs.swift-canary-fleet.result": "skipped", "needs.swift-canary-fleet.outputs.verdict": "",
+                               "needs.release-compile-fast.result": "skipped",
+                               "needs.release-compile-fast.outputs.verdict": ""}
+                    self.assertTrue(evaluate(jobs[fallback]["if"], skipped), f"{fallback} must run when {name} skips")
+                    self.assertIn(fallback, self.cascade_jobs())
+                    runs = (evaluate(placement_env["CASCADE_RUNS"], skipped) + " "
+                            + evaluate(placement_env["GATEWAY_CASCADE"], skipped)).split()
+                    self.assertIn(fallback, runs, f"{fallback} must join the cascade when {name} skips")
+
+
 class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     """A same-repository PR's app compile runs on the build fleet (`cmux-ci compile-check --ref <head> --app`,
     about a minute) instead of the Mac Release queue. 2026-10-21: 76 of ~350 queued Mac jobs were Release
@@ -2359,6 +2642,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            "github.run_attempt": 1,
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
@@ -2368,17 +2652,66 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     def test_it_runs_on_a_same_repository_pr_the_native_tier_reaches(self):
         job = self.job()
         self.assertEqual(job["name"], self.NAME)
-        self.assertTrue(evaluate(job["if"], self.context()))
-        self.assertEqual(job["runs-on"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        context = {**self.context(), "needs.macos-placement.outputs.gateway_attempt": "1",
+                   "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
+        self.assertTrue(evaluate(job["if"], context))
+        self.assertEqual(evaluate(job["runs-on"], context), "glaeda-gateway")
+
+    def test_it_takes_only_an_idle_gateway_placement_saw(self):
+        """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
+        compile queued there three times. macos-placement names an idle gateway runner or none."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name in ("app-compile-fleet", "swift-canary-fleet"):
+            job = jobs[name]
+            with self.subTest(job=name):
+                self.assertIn("macos-placement", job["needs"])
+                context = {**self.context(), "needs.path_route.outputs.swift_canary": "true",
+                           "github.run_attempt": 1}
+                idle = {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
+                        "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
+                self.assertTrue(evaluate(job["if"], idle))
+                self.assertEqual(evaluate(job["runs-on"], idle), "glaeda-side-std-xcode-26.6")
+                none_idle = {**idle, "needs.macos-placement.outputs.gateway_runner": ""}
+                self.assertFalse(evaluate(job["if"], none_idle))
+                # Placement skipped, failed, or ran an older base script: no reading, no gateway queue.
+                self.assertFalse(evaluate(job["if"], context))
+                # A re-run trusts only its own attempt's reading: an earlier attempt's idle runner may be busy now.
+                self.assertFalse(evaluate(job["if"], {**idle, "github.run_attempt": 2}))
+                self.assertFalse(evaluate(job["if"], {**context, "github.run_attempt": 2}))
+                self.assertTrue(evaluate(job["if"], {**idle, "github.run_attempt": 2,
+                                                     "needs.macos-placement.outputs.gateway_attempt": "2"}))
+
+    def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        placement = jobs["macos-placement"]
+        for output in ("gateway_runner", "gateway_attempt"):
+            self.assertEqual(placement["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
+        step_env = next(step["env"] for step in placement["steps"] if step.get("id") == "place")
+        self.assertEqual(step_env["GATEWAY_LABEL"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+        for why, context in (("same-repo PR", self.context()), ("fork", self.context(head_repo="someone/cmux")),
+                             ("full-ci", self.context(labels=("full-ci",))), ("push", self.context("push")),
+                             ("no native tier", self.context(native="false"))):
+            with self.subTest(why=why):
+                context = {**context, "needs.path_route.outputs.swift_canary": "false"}
+                app = bool(evaluate(self.job()["if"], {**context, "needs.macos-placement.outputs.gateway_attempt": "1",
+                                                      "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}))
+                # The Mac Release compile runs exactly when the fleet compile is skipped, so it joins the
+                # cascade exactly where the app compile would have run.
+                self.assertEqual(evaluate(step_env["GATEWAY_CASCADE"], context), "release-compile" if app else "")
+                self.assertEqual(evaluate(step_env["GATEWAY_JOBS"], context).split(), ["app-compile-fleet"] if app else [])
+                canary = {**context, "needs.path_route.outputs.swift_canary": "true"}
+                self.assertIn("swift-canary-fleet", evaluate(step_env["GATEWAY_JOBS"], canary).split())
 
     def test_it_does_not_run_where_the_mac_release_compile_does(self):
+        idle = {"needs.macos-placement.outputs.gateway_attempt": "1",
+                "needs.macos-placement.outputs.gateway_runner": "glaeda-gateway"}
         for why, context in (("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))),
                              ("push", self.context("push")),
                              ("no native tier", self.context(native="false")),
                              ("no gateway", self.context(gateway=""))):
             with self.subTest(why=why):
-                self.assertFalse(evaluate(self.job()["if"], context))
+                self.assertFalse(evaluate(self.job()["if"], {**context, **idle}))
 
     def test_release_compile_waits_for_its_verdict(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

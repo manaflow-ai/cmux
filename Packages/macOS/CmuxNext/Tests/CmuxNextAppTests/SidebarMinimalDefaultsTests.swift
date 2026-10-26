@@ -9,8 +9,8 @@ import Testing
 /// next to a busy row's spinner ("that counts as a time"), titles that start at two x's ("weird
 /// spacing") and "Chief • Update available" on a group header. By default a workspace row is its
 /// name and one state mark (the spinner, the unread dot): no running time, no pull request badge,
-/// no agent words, no status or log line; every title starts at one x whether or not the row has
-/// an icon; a machine header never prints "Update available". Each stays a setting.
+/// no agent words, no status or log line; a title without an icon starts at the row inset (Lawrence
+/// 2026-10-23 took back the empty icon slot); a machine header never prints "Update available". Each stays a setting.
 @MainActor @Suite(.serialized) struct SidebarMinimalDefaultsTests {
     private static let busy = WorkspaceID("ws-busy")
     private static let favicon = WorkspaceID("ws-favicon")
@@ -87,12 +87,15 @@ import Testing
 
     // MARK: Alignment
 
-    /// Every row's title starts at one x: a row without an icon keeps the empty icon slot.
+    /// A row without an icon starts its title at the leading inset; a row with one starts it after the icon
+    /// (Lawrence 2026-10-23: "text needs to be as left as possible (how it originally was)").
     @Test(arguments: [false, true])
-    func everyTitleStartsAtOneX(minimal: Bool) throws {
+    func aTitleWithoutAnIconStartsAtTheInset(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
-        let xs = try [Self.busy, Self.favicon, Self.plain, Self.reported].map { try Self.row(sidebar, $0).title.frame.minX }
-        #expect(Set(xs).count == 1, "title x per row: \(xs)")
+        for id in [Self.busy, Self.plain, Self.reported] {
+            let row = try Self.row(sidebar, id)
+            #expect(row.title.frame.minX == SidebarStyle.horizontalInset, "\(id): title at \(row.title.frame.minX) pt")
+        }
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)
     }

@@ -41,6 +41,7 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const START: &str = "_acpmux/subsession/start";
 const SEND: &str = "_acpmux/subsession/send";
+const RETRY: &str = "_acpmux/subsession/retry";
 
 /// The process environment every test here shares: an empty settings file
 /// (sub-sessions on, new chats start in full access where the harness has it).
@@ -487,8 +488,11 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     let mid =
         t.ok(START, json!({"prompt": "echo mid"})).await["sessionId"].as_str().unwrap().to_owned();
     let mut m = Client::as_session(&hub, &mid).await;
-    let low =
-        m.ok(START, json!({"prompt": "echo low"})).await["sessionId"].as_str().unwrap().to_owned();
+    // Its first turn fails, for the retries below.
+    let low = m.ok(START, json!({"prompt": "fail-once: low"})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert_eq!(app.info(&low).await["modes"]["currentModeId"], "full-access");
     // The middle session is moved back to asking (a narrowing needs nobody).
     app.ok("session/set_mode", json!({"sessionId": mid, "modeId": "normal"})).await;
@@ -500,6 +504,12 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
     let e = m.refused(SEND, json!({"sessionId": top, "text": "echo hi"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
+    // Nor retries its child's failed turn (Codex review of #25296); the session in full access
+    // above them does.
+    let e = m.refused(RETRY, json!({"sessionId": low})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
+    let retried = t.ok(RETRY, json!({"sessionId": low})).await;
+    assert_eq!(retried["kind"], "turn", "{retried}");
     // The session in full access still messages it.
     t.ok(SEND, json!({"sessionId": mid, "text": "echo hi"})).await;
 }

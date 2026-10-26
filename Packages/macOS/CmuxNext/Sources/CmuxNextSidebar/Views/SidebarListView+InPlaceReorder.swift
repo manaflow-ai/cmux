@@ -11,6 +11,8 @@ extension SidebarListViewComponents {
     func displayLayout() -> SidebarLayout {
         // Over a row's middle the list keeps the last slot (the row highlights instead).
         let drag = shownDrag // the running drag, or a dropped one still settling
+        // A group drag draws one function of its frozen base and its slot (`SidebarGroupDragPlan.layout`).
+        if let group = drag?.group { return group.layout }
         let shownPosition: DropPosition? = switch drag?.target {
         case let .position(position)?: position
         case .ontoWorkspace?: drag?.lastPosition
@@ -25,7 +27,7 @@ extension SidebarListViewComponents {
         switch drag.payload {
         // A group's index counts member rows. A group the drag empties keeps its header: it is still a drop target.
         case let .workspaces(ids): _ = SidebarEdits.reorder(ids, to: position, in: &sections, prunes: false)
-        case let .group(group): SidebarEdits.apply(.reorderGroup(group, index: position.index), to: &sections)
+        case .group: break // drawn by its plan, above
         case let .item(item): Self.move(item, to: position, in: &sections)
         }
         var o = options(includeGap: false)
