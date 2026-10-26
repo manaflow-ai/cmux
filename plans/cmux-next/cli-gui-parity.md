@@ -40,6 +40,13 @@ messages the chats the person started, a restored chat no tab has shown yet incl
 `window.screenshot` stays person only: a window can show a browser page beside
 anything else.
 
+Code-block reads preserve the normal transcript page and cursor. The extra field is
+`null` when no complete assistant fence exists. Code is secret-masked before it is
+bounded to 8 KiB (less when JSON escaping needs it); cut results carry `truncated: true`.
+The lookup reads backward without attaching to the chat or marking it seen. If its
+20-page / 8 MiB scan cannot establish a result, it refuses with
+`chat.code_block_unavailable` rather than reporting an older block as the latest.
+
 ## Remaining gaps (next steps)
 
 GUI-only actions with no headless equivalent yet, by what they would need:

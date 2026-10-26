@@ -910,3 +910,56 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
         "the resumed agent answered the send: {later:?}"
     );
 }
+
+/// Both entrypoints return the same masked block without changing a saved
+/// transcript cursor. The real daemon also enforces the normal session scope.
+#[test]
+fn latest_code_block_is_available_over_cli_and_mcp() {
+    let daemon = machine("chat-code-block");
+    let workspace = workspace(&daemon);
+    let reader = chat(&daemon, Some(&workspace));
+    let holder = chat(&daemon, Some(&workspace));
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": holder, "prompt": [{"type": "text",
+            "text": format!("echo this:\n```sh\nuse {key}\n```\n")}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+    let before = read_until(&daemon, &reader, json!({"target": holder}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    let cursor = before["next_after"].as_u64().unwrap().to_string();
+    let (status, cli) = agents_chat(
+        &daemon,
+        Some(&reader),
+        &["read", &holder, "--after", &cursor, "--last-code-block"],
+    );
+    assert_eq!(status, Some(0), "{cli}");
+    let (_, replies) = mcp(
+        &daemon,
+        &reader,
+        &[(
+            "agents_chat_read",
+            json!({
+                "target": holder, "after": before["next_after"], "last_code_block": true,
+            }),
+        )],
+    );
+    assert_eq!(replies[0]["isError"], false, "{:?}", replies);
+    for page in [&cli, &replies[0]["structuredContent"]] {
+        assert_eq!(
+            page["last_code_block"],
+            json!({"language": "sh", "code": "use [AWS access key]"}),
+            "{page}"
+        );
+        assert_eq!(page["items"], json!([]), "{page}");
+        assert!(page["next_after"].as_u64() >= before["next_after"].as_u64());
+        assert!(!page.to_string().contains(&key));
+    }
+    let elsewhere = chat(&daemon, None);
+    let (status, outside) =
+        agents_chat(&daemon, Some(&reader), &["read", &elsewhere, "--last-code-block"]);
+    assert_eq!(status, Some(3));
+    assert_eq!(error_of(&outside)["code"], "chat.out_of_scope");
+}

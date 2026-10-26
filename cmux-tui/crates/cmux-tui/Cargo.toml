@@ -77,6 +77,8 @@ serde_json.workspace = true
 cmux-panic-log.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
+# Read fenced code from agent Markdown, including quotes and lists. Already used by acpmux.
+pulldown-cmark = { version = "0.13", default-features = false }
 # `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.
 rquickjs.workspace = true
 toml.workspace = true
