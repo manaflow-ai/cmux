@@ -441,8 +441,11 @@ holds: (`flush` and `merge`) or `trace-pc-guard`, and `use`, `use-weights` and `
 `use`, `use-weights` and the scope paths take the merged flush profile, or the plain `generate` profile
 when the flush API fails, so they test `-profile-use` apart from the flush.
 
-Result: the fleet run of this commit is pending; until its job id, Xcode build number and table are here,
-the table below is what the probe checks, not a measured fact.
+Result: not run. On 2026-10-26 `cmux-ci run` refused the step for 93c63092d71 with "controller HTTP 400:
+invalid ci-step: script is not on the ci-step allowlist". The controller's ci-step allowlist (cmuxterm-hq)
+must list `scripts/cmux-next/pgo/probe-toolchain.sh`; then the command above runs it, and its job id, the
+observed `xcodebuild -version` build number and the PASS/FAIL table replace this paragraph. Until then the
+table is what the probe checks, not a measured fact, and 049 to 054 must not rely on it.
 
 | Path | Command the later tasks use | What the probe checks | Used by |
 | --- | --- | --- | --- |
