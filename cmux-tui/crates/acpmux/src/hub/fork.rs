@@ -312,6 +312,7 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {

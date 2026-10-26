@@ -310,6 +310,11 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// The log holds a subagent entry with a retry waiting or in flight that no later entry
+    /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
+    /// that retry. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent_retry_open: bool,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
