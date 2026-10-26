@@ -487,11 +487,12 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
+    let inputFrameSignposts = InputFrameSignposts()  // the key slots' key.frame; opt-in hang reports read each commit (WatchdogReporting)
     /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface, most specific first;
     /// an agent chat's Chromium page window (`CefNSWindow`) is the agent pane's. Its key and scroll slots carry the
     /// `key.frame` and `key.scroll_frame` intervals.
     private(set) lazy var inputLatency = InputLatencyDispatch(
-        tracker: InputLatencyTracker(presentation: PresentationClock()),
+        tracker: InputLatencyTracker(presentation: PresentationClock(), frameIntervals: inputFrameSignposts),
         classifier: InputTargetClassifier(rules: [
             .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
             .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { [weak self] page in

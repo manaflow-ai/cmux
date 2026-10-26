@@ -444,4 +444,30 @@ struct HangReportWireFormatTests {
         #expect(fitted.launchSections?.map(\.id) == [HangReportBuilder.sectionID("launch-0")])
         #expect(fitted.histograms == report.histograms)
     }
+
+    @Test func aBodyTooLargeCutsTheFieldDataALaterReportCarriesBeforeAnyHang() throws {
+        let names = Array(HangReport.histogramCatalog.sorted().prefix(HangReport.maxFieldHistograms))
+        var stability = HangReport.Stability()
+        stability.launch = 3
+        var report = Self.report(.v3, mainThread: nil)
+        report.histograms = names.map(Self.fullHistogram)
+        report.stability = stability
+        report.launchSections = [HangReport.LaunchSection(
+            id: HangReportBuilder.sectionID("launch-0"),
+            profile: HangReport.LaunchSection.Profile(version: "0.69.0", build: "1", channel: "nightly", os: "15.7.4", buildDay: "2026-10-22"),
+            histograms: names.map(Self.fullHistogram), stability: stability)]
+        report.hangs = (0 ..< HangReport.maxHangs).map { index in
+            HangSample(source: .watchdog, kind: .hang, durationMs: 5_000 - index,
+                       frames: Array(repeating: .other, count: HangSample.maxFrames))
+        }
+        let limit = HangReport.WireSchema.v3.maxBodyBytes
+        #expect(try HangReport.encoder.encode(report).count > limit)
+
+        let fitted = HangReportService.fitted(report)
+        #expect(try HangReport.encoder.encode(fitted).count <= limit)
+        // Drained hangs are gone once cut; a cut section or histogram stays unsent for a later report.
+        #expect(fitted.hangs == report.hangs)
+        #expect(fitted.stability == report.stability)
+        #expect((fitted.launchSections?.count ?? 0) + (fitted.histograms?.count ?? 0) < 1 + names.count)
+    }
 }

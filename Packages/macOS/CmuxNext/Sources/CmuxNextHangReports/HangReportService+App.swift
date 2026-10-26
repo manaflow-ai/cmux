@@ -17,12 +17,17 @@ extension HangReportService {
     ///   - stillAllowed: Whether sending is still allowed (``Environment/stillAllowed``).
     ///   - mainThreadHistograms: Reads the watchdog's cumulative main-turn and input-queueing counts.
     ///   - wireSchema: The schema reports are written in (``HangReport/WireSchema/written(serverAcceptsSchema3:)``).
-    ///   - metricsDirectory: Where this app's metrics store keeps its launch files; nil reads no earlier launch.
+    ///   - metricsDirectory: Where this app's metrics store keeps its launch files (the folder its `adoptFile` uses):
+    ///     the earlier launches are read there.
+    ///   - rings: Where the daemon, the holders and the hosts keep their black boxes.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
                                   mainThreadHistograms: @escaping @Sendable () -> MainThreadReportLedger.Histograms?,
-                                  wireSchema: HangReport.WireSchema = .deployed, metricsDirectory: URL? = nil) -> HangReportService {
+                                  wireSchema: HangReport.WireSchema = .deployed,
+                                  metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
+                                  rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil))
+        -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver(), wireSchema: wireSchema)
         // Blocking sites are kept only when the schema the server accepts carries them.
@@ -34,13 +39,11 @@ extension HangReportService {
             resolveBlocking = { builder.frames(blocking: $0) }
         }
         // The field data and the black box only where the schema carries them: the rings of this app and of the
-        // processes beside it, in the app's trace folder.
+        // processes beside it, where each writes its own.
         var fieldData: HangReportFieldSources?
         var captureBlackBox: HangReportCollector.CaptureBlackBox?
         if builder.wireSchema.carriesFieldData {
-            let sources = HangReportFieldSources(
-                runtime: .shared, metricsDirectory: metricsDirectory,
-                ringDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier))
+            let sources = HangReportFieldSources(runtime: .shared, metricsDirectory: metricsDirectory, rings: rings)
             fieldData = sources
             captureBlackBox = { await sources.captureBlackBox() }
         }

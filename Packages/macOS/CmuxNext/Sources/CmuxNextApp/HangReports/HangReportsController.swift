@@ -3,8 +3,10 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextHangReports
 import CmuxNextInput
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
@@ -94,6 +96,15 @@ final class HangReportsController {
         guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables, work: work, mainWork: mainWork) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
+        // Schema 3's field data: this process's histograms in the metrics folder the next launch folds, and the
+        // black boxes where the daemon (its key-flow folder), the holders and the hosts write them.
+        let bundleID = Bundle.main.bundleIdentifier
+        let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
+        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
+        let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
+        if wireSchema.carriesFieldData {
+            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
+        }
         // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
         // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
         // read in the app's own domain.
@@ -103,7 +114,7 @@ final class HangReportsController {
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-            }, wireSchema: wireSchema)
+            }, wireSchema: wireSchema, metricsDirectory: metricsDirectory, rings: rings)
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }

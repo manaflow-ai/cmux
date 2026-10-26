@@ -13,8 +13,9 @@ import Foundation
 /// reads dyld and the classifier) and kept after that. ``noteBlocking(_:)`` runs on the detector's
 /// drain queue, already off the main thread, and resolves there. Nothing here runs while the app is idle.
 ///
-/// A hang of ``blackBoxHangMs`` or more, or a key frame over ``blackBoxKeyFrameMicros``, takes the merged
-/// black box once per report (schema 3's `blackbox[]`, p09-observability-063): the trigger is one more check
+/// A hang of ``blackBoxHangMs`` or more (at its end in ``noteStall(durationNanos:cpuNanos:addresses:)``, or still
+/// running in ``noteHang(durationNanos:addresses:task:)``), or a key frame over ``blackBoxKeyFrameMicros``, takes the
+/// merged black box once per report (schema 3's `blackbox[]`, p09-observability-063): the trigger is one more check
 /// under the lock, and the rings are read by `captureBlackBox` off the main thread.
 ///
 /// ```swift
@@ -124,13 +125,17 @@ public final class HangReportCollector: Sendable {
             state.aggregate.count(durationMs: ms)
             return !addresses.isEmpty && ms < StallAggregate.hangMs && state.aggregate.wantsStallSample(durationMs: ms)
         }
+        // Every hang ends here with its full length; `noteHang` sees only the ones still running at the watchdog's
+        // threshold, at most one per its report interval.
+        if ms >= Self.blackBoxHangMs { startBlackBoxCapture() }
         guard sample else { return }
         keepLater(HangSample(source: .watchdog, kind: .stall, durationMs: ms, cpuMs: Self.milliseconds(cpuNanos), frames: []),
                   addresses: addresses)
     }
 
     /// One hang still running (watchdog thread, from the watchdog's `onHang`), with the scheduled task it
-    /// caught (``HangSample/MainTask/unattributed`` when none ran; nil when the caller does not know).
+    /// caught (``HangSample/MainTask/unattributed`` when none ran; nil when the caller does not know). A hang that
+    /// never ends takes the black box here.
     public func noteHang(durationNanos: UInt64, addresses: [UInt], task: HangSample.MainTask? = nil) {
         guard isEnabled else { return }
         let ms = Self.milliseconds(durationNanos)
@@ -182,9 +187,27 @@ public final class HangReportCollector: Sendable {
         }
     }
 
-    /// A copy of the black box taken since the last report, for a preview.
+    /// A copy of the black box taken since the last report, for a preview or a report not queued yet.
     public func blackBoxSnapshot() -> [TraceBlackBoxUpload.Record] {
         state.withLock { $0.blackBox ?? [] }
+    }
+
+    /// `sent` (a ``blackBoxSnapshot()``) is in a queued report: the black box is released when it is still that one,
+    /// so the next trigger takes a new one.
+    public func releaseBlackBox(sent: [TraceBlackBoxUpload.Record]) {
+        state.withLock { state in
+            if state.blackBox == sent { state.blackBox = nil }
+        }
+    }
+
+    /// Puts back the black box an earlier launch saved at quit (``HangReportService/saveForNextLaunch()``), unless
+    /// one was taken or is being taken since.
+    public func restoreBlackBox(_ saved: [TraceBlackBoxUpload.Record]) {
+        guard isEnabled, captureBlackBox != nil, !saved.isEmpty else { return }
+        state.withLock { state in
+            guard state.blackBox == nil, !state.capturing else { return }
+            state.blackBox = saved
+        }
     }
 
     /// Takes what was recorded and starts over.
