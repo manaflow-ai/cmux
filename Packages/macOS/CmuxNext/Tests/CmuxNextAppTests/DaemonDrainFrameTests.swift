@@ -82,6 +82,103 @@ import Testing
         #expect(!store.snapshotMemo.untracked)
         #expect(store.agents.bySurface[200]?.state == .idle)
     }
+
+    /// p06-scheduler-032: the drain applies each event with its own cause. In one batch, an agent's
+    /// title (automation) and the echo of the person's own change (person): the view only the agent
+    /// changed flushes as automation, behind a pending key; the person's flushes in the
+    /// input-response pass. Before, the whole batch applied as program and both flushed as visible.
+    @Test func eachEventOfABatchFlushesInTheClassOfItsOwnCause() throws {
+        let harness = CauseHarness()
+        let service = service(tabs: 2, mainWork: harness.work)
+        let store = service.store
+        let driver = try #require(store.driver)
+        let agent = harness.watch("agent") { store.tab(surface: 1)?.title ?? "" }
+        let mine = harness.watch("mine") { store.tab(surface: 2)?.title ?? "" }
+        _ = driver.inbox.append(DaemonEventEnvelope(sequence: 1, event: .titleChanged(surface: 1, title: "agent 2"), cause: .automation))
+        _ = driver.inbox.append(DaemonEventEnvelope(sequence: 2, event: .titleChanged(surface: 2, title: "mine 2"), cause: .person))
+        store.drain()
+        #expect(harness.work.causes.currentCause == .program, "the drain left an event's cause current")
+        #expect(harness.work.causes.flushPersonCaused() == 1, "the person's echo did not reach the input-response pass")
+        #expect(harness.flushes["mine"] == [nil, .frame])
+        #expect(harness.flushes["agent"] == [nil], "the agent's title flushed as person")
+        harness.input.pending = true
+        harness.frame()
+        #expect(harness.flushes["agent"] == [nil], "the agent's title ran ahead of a pending key")
+        harness.input.pending = false
+        harness.frame()
+        #expect(harness.flushes["agent"] == [nil, .automation])
+        #expect(harness.flushes["mine"] == [nil, .frame], "the person's view applied twice")
+        harness.stop(agent, mine)
+    }
+
+    /// p06-scheduler-032: a local intent shows the person's change in the input-response pass; the
+    /// same intent made inside an automation scope (an agent driving the action) stays automation.
+    @Test func aLocalIntentAppliesAsPersonUnlessAutomationMadeIt() throws {
+        let harness = CauseHarness()
+        let service = service(tabs: 2, mainWork: harness.work)
+        let store = service.store
+        let mine = harness.watch("mine") { store.tab(surface: 1)?.name ?? "" }
+        let agent = harness.watch("agent") { store.tab(surface: 2)?.name ?? "" }
+        store.intend(.renameTab(surface: 1, name: "mine"), transaction: ClientTransactionID(rawValue: "rename-mine"))
+        harness.work.causes.withCause(.automation) {
+            store.intend(.renameTab(surface: 2, name: "agent"), transaction: ClientTransactionID(rawValue: "rename-agent"))
+        }
+        #expect(harness.work.causes.flushPersonCaused() == 1, "the person's intent did not reach the input-response pass")
+        #expect(harness.flushes["mine"] == [nil, .frame])
+        #expect(harness.flushes["agent"] == [nil])
+        harness.frame()
+        #expect(harness.flushes["agent"] == [nil, .automation])
+        harness.stop(mine, agent)
+    }
+}
+
+/// A scheduler on a clock the test moves, kept ticking by one frame client, and the work class each
+/// observation's apply ran in (nil: the first apply, in the caller's turn).
+@MainActor
+private final class CauseHarness {
+    let input: TypingInput
+    let work: MainWorkScheduler
+    private(set) var flushes: [String: [MainWorkClass?]] = [:]
+    private let clock: SteppedClock
+    private let keeper: FrameClient
+    private var timestamp: Double = 0
+
+    init() {
+        let input = TypingInput(), clock = SteppedClock()
+        self.input = input
+        self.clock = clock
+        work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in StillFrameLink() }
+        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
+    }
+
+    /// Observes `read` on a visible node; each apply records the class it ran in under `owner`.
+    func watch(_ owner: String, read: @escaping @MainActor () -> String) -> VisibleObservation<String> {
+        VisibleObservation(VisibilityNode(root: "window", own: .visible), owner: "test.\(owner)", on: work, read: read) { [self] _ in
+            flushes[owner, default: []].append(work.budget.board.running?.workClass)
+        }
+    }
+
+    /// One display frame, 17 ms after the last one.
+    func frame() {
+        clock.advance(ms: 17)
+        timestamp += 1
+        work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+    }
+
+    /// Cancels `watches` and stops the frames.
+    func stop(_ watches: VisibleObservation<String>...) {
+        for watch in watches { watch.cancel() }
+        keeper.deactivate()
+    }
+}
+
+/// A clock that moves only when the test moves it.
+@MainActor
+private final class SteppedClock {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in now } }
+    func advance(ms: Double) { now += UInt64((ms * 1_000_000).rounded()) }
 }
 
 /// A clock that moves `stepNanos` at every read, so every budget check sees time spent. `read`

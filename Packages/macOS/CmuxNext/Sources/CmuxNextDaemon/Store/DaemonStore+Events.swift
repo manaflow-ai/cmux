@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 extension DaemonStore {
@@ -57,7 +58,23 @@ extension DaemonStore {
         return updateCycles.run { applyBatch(batch) }
     }
 
+    /// Applies each event with its own cause as the current cause (``ObservationCauses``), so an
+    /// observer that only automation changed flushes as automation while one a person's echo
+    /// changed flushes as person in the same batch. What the batch changes as a whole (the overlay
+    /// restored, the sidebar, the waiters) takes the batch's highest cause, as the inbox keeps the
+    /// highest cause of what it coalesces.
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
+        withEventCause(batch.lazy.map(\.cause).max() ?? .program) { applyBatchInOrder(batch) }
+    }
+
+    /// Runs `body` with `cause` as the current cause, then restores the cause it had; with no
+    /// ``causes`` (tests, fixtures) it only runs `body`.
+    func withEventCause<T>(_ cause: ObservationCause, _ body: () -> T) -> T {
+        guard let causes else { return body() }
+        return causes.withCause(cause) { body() }
+    }
+
+    private func applyBatchInOrder(_ batch: [DaemonEventEnvelope]) -> Followup {
         applyDepth += 1
         defer {
             applyDepth -= 1
@@ -76,7 +93,10 @@ extension DaemonStore {
                 }
                 before = max(before ?? 0, envelope.sequence)
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    let applied = withEventCause(envelope.cause) {
+                        applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope)
+                    }
+                    switch applied {
                     case .resync: followup = .resync
                     case .personal:
                         personalRefetch.saw(envelope.sequence)
@@ -90,9 +110,11 @@ extension DaemonStore {
                     // creation the person closed first keeps hiding (and then
                     // closes) that tab instead of leaving the log with it
                     // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
-                    confirm(transaction)
-                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
-                    settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    withEventCause(envelope.cause) {
+                        confirm(transaction)
+                        ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
+                        settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    }
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The confirmed mirror plus one ordered intent log (plans/cmux-next/
@@ -33,11 +34,15 @@ extension DaemonStore {
         }
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
-        if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
-        recomputeSidebarIfNeeded()
-        publishTabListChange()
-        recordMirror()
-        workspaceListMayHaveChanged()
+        // The intent shows what the person asked for in their input's turn: its observers flush in
+        // the input-response pass (``ObservationCause/localIntent(within:)``).
+        withEventCause(.localIntent(within: causes?.currentCause ?? .program)) {
+            if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+            recomputeSidebarIfNeeded()
+            publishTabListChange()
+            recordMirror()
+            workspaceListMayHaveChanged()
+        }
     }
 
     /// The overlay moved a workspace or changed its group: one sidebar

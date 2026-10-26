@@ -21,6 +21,16 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
 
     public static func < (lhs: ObservationCause, rhs: ObservationCause) -> Bool { lhs.rawValue < rhs.rawValue }
 
+    /// The cause of a local intent applied while `enclosing` is current: the person's, whose input
+    /// made it (an ActionRegistry run, a drag, a rename), unless an automation scope made it (a
+    /// script batch or an agent driving the same action), which stays automation.
+    ///
+    /// - Parameter enclosing: The cause current where the intent is applied.
+    /// - Returns: ``automation`` inside an automation scope, else ``person``.
+    public static func localIntent(within enclosing: ObservationCause) -> ObservationCause {
+        enclosing == .automation ? .automation : .person
+    }
+
     /// The budgeted class a flush of this cause runs in when the input-response pass does not
     /// apply it first (``ObservationCauses/flushPersonCaused()``). Until the userBlocking class
     /// (task 208) exists, a person flush that missed the pass runs as `visible`: capped, ahead of
@@ -48,10 +58,10 @@ public enum ObservationCause: Int, Sendable, Comparable, CaseIterable, CustomStr
 /// scheduler they already get.
 ///
 /// ```swift
-/// // The drain, per envelope:
-/// mainWork.causes.withCause(.automation) { store.apply(event) }
-/// // A local intent apply in the input's turn:
-/// mainWork.causes.withCause(.person) { model.title = newTitle }
+/// // The daemon store's drain, per envelope (`DaemonStore.applyBatch`):
+/// mainWork.causes.withCause(envelope.cause) { store.apply(envelope.event) }
+/// // A local intent apply in the input's turn (`DaemonStore.intend`):
+/// mainWork.causes.withCause(.localIntent(within: mainWork.causes.currentCause)) { model.title = newTitle }
 /// ```
 @MainActor
 public final class ObservationCauses {

@@ -172,6 +172,12 @@ public final class DaemonStore: StateResourceQueries {
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
+    /// The highest cause of the batches that asked for the next snapshot: it applies with that
+    /// cause, so a person's echo that needed a resync still shows in the input-response pass.
+    @ObservationIgnored var resyncCause: ObservationCause = .program
+    /// Where the drain publishes each event's cause (`MainWorkScheduler.causes`); nil (tests,
+    /// fixtures) applies everything with the cause current at the call.
+    @ObservationIgnored let causes: ObservationCauses?
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
@@ -202,10 +208,14 @@ public final class DaemonStore: StateResourceQueries {
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
-    /// - Parameter waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
-    ///   StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
-    ///   (tests, fixtures): a queue of the store's own.
-    public init(waitDeadlines: MainWakeUpQueue? = nil) {
+    /// - Parameters:
+    ///   - waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
+    ///     StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`).
+    ///     nil (tests, fixtures): a queue of the store's own.
+    ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
+    ///     event with its cause, and a local intent with the person's. nil (tests, fixtures): none.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
+        self.causes = causes
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
     }

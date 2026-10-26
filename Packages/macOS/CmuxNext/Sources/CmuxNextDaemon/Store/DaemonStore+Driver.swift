@@ -117,7 +117,7 @@ final class EventInbox: Sendable {
             state.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
-            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
+            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction), cause: envelope.cause))
         }
     }
 
@@ -196,6 +196,7 @@ extension DaemonStore {
         resyncRetry?.cancel()
         resyncRetry = nil
         needsResync = false
+        resyncCause = .program
         resyncPacer.reset()
         personalRefetch = PersonalRefetch()
         self.driver = nil
@@ -216,6 +217,7 @@ extension DaemonStore {
         // next daemon event (something changed), not on a timer.
         let followup = apply(batch: batch)
         if followup == .resync || needsResync {
+            resyncCause = max(resyncCause, batch.lazy.map(\.cause).max() ?? .program)
             resync(seedAgents: connected)
         } else if followup == .personal {
             refetchPersonal()
@@ -268,6 +270,9 @@ extension DaemonStore {
         needsResync = false
         resyncRetry?.cancel()
         resyncRetry = nil
+        // Batches that ask for a resync while this one is in flight raise the next one's cause.
+        let cause = resyncCause
+        resyncCause = .program
         driver.inbox.hold()
         // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
@@ -277,7 +282,7 @@ extension DaemonStore {
                 // The comparison with the last applied snapshot reads the whole tree: off the main
                 // thread. Main applies only what differs (or everything, when the memo cannot vouch).
                 let diff = await snapshotDiff(of: tree)
-                apply(snapshot: tree, diff: diff)
+                withEventCause(cause) { apply(snapshot: tree, diff: diff) }
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 snapshotCoveredPersonal(through: barrier)
                 advanceAppliedSequence(to: barrier)
@@ -289,6 +294,8 @@ extension DaemonStore {
             }
             isResyncing = false
             if failed {
+                // The retry applies what this one would have, with its cause.
+                resyncCause = max(resyncCause, cause)
                 scheduleResyncRetry(seedAgents: seedAgents)
                 // The retry serves them; without one (disconnected or
                 // budget spent) they return now with what the store has.
