@@ -640,20 +640,22 @@ impl Hub {
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
         let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
-        let folder = super::subsession_guard::resolved_folder(&asked)?;
+        let folder = super::subsession_guard::CheckedFolder::resolve(&asked)?;
         // The harness, then the folder: one nobody answered the trust question for waits on a
         // card in the parent's chat instead of failing (`subsession_guard.rs`, `trust_wait.rs`).
         let model = req.model.as_deref();
         let decided =
             self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
-        let mut cwd = folder.clone();
-        let worktree = if req.worktree {
+        // Its worktree is made only while the folder checked is still at its path (git still runs
+        // by path in it), and its harness spawns only in the folder then resolved and pinned.
+        let (cwd, worktree) = if req.worktree {
+            folder.still_here()?;
             let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
-            cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
-            Some(kept)
+            let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
+            (start, Some(kept))
         } else {
-            None
+            (folder, None)
         };
         // The caller's own policy. A caller that names none runs the daemon
         // default, and so does its child: the default as the child's own
@@ -668,7 +670,8 @@ impl Hub {
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
-            cwd: Some(cwd.clone()),
+            cwd: Some(cwd.to_path_buf()),
+            checked_cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
             effort: req.effort.clone(),
@@ -699,7 +702,16 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(parent, &probe, &req.prompt, None, false, false, Some(started))
+            .send_family_prompt(
+                parent,
+                &probe,
+                text_block(&req.prompt),
+                None,
+                false,
+                false,
+                Some(started),
+                None,
+            )
             .await;
         let accepted = match accepted {
             Ok(v) => v,
@@ -768,20 +780,21 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// Sends `blocks` from `from` to `to` as a prompt with the family provenance; answers once it
     /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
     /// `interrupt`: `Hub::interrupt_once_queued`. `accepted` runs at the acceptance, before the
-    /// turn can end.
+    /// turn can end. `saved`: the message's attachments, settled when its turn ends (`attach.rs`).
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
-        text: &str,
+        blocks: Vec<Value>,
         prompt_id: Option<String>,
         steer: bool,
         interrupt: bool,
         accepted: Option<Box<dyn FnOnce() + Send>>,
+        saved: Option<crate::attach::Saved>,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
@@ -802,24 +815,31 @@ impl Hub {
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
         let stop = self.interrupt_once_queued(to, interrupt);
+        let on_accepted: Option<Box<dyn FnOnce(Value) + Send>> = Some(Box::new(move |v| {
+            stop(&v);
+            if let Some(accepted) = accepted {
+                accepted();
+            }
+            let _ = tx.send(v);
+        }));
         let opts = PromptOptions {
             control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
-            on_accepted: Some(Box::new(move |v| {
-                stop(&v);
-                if let Some(accepted) = accepted {
-                    accepted();
-                }
-                let _ = tx.send(v);
-            })),
+            on_accepted: match &saved {
+                Some(saved) => saved.watch(on_accepted),
+                None => on_accepted,
+            },
             provenance: Some(provenance),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, to2) = (self.clone(), to.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
-            hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
+            let answer = hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await;
+            if let Some(saved) = saved {
+                saved.settle(&hub, &answer).await;
+            }
+            answer
         });
         match rx.await {
             Ok(v) => Ok(v),
@@ -1156,4 +1176,9 @@ impl Hub {
         }
         Some(cut)
     }
+}
+
+/// A prompt of `text` alone.
+fn text_block(text: &str) -> Vec<Value> {
+    vec![json!({"type": "text", "text": text})]
 }

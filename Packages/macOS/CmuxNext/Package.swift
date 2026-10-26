@@ -167,8 +167,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-ecdb356418c355bbe8f16f883194748c47c28ebe/CCmuxAppFFI.xcframework.zip",
-    checksum: "77731711f1088f285e168b27f0171363ea5bb619dc7b6e0e56464ff208dd18f4"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-619b1a3c815467557791a743a4f4475e9ab20a23/CCmuxAppFFI.xcframework.zip",
+    checksum: "b68613ebc46fe2fecb2af826fa3c0e4827a245b2c167493ff5f7bcf93f8f1e60"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1358,6 +1358,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
                 .process("BrowserToolbarActions.xcstrings"),
+                .process("CloudPortActions.xcstrings"),
                 .process("DevToolsActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
@@ -1624,6 +1625,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
                 "CmuxNextBrowserTabs",
+                "CmuxNextChiefMemory",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
@@ -1655,6 +1657,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMacScreen",
                 "CmuxNextMobile",
                 "CmuxNextNowPlaying",
+                "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",

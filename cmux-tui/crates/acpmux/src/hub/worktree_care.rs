@@ -7,9 +7,14 @@
 //! idle at a turn's end or closed, the daemon started: `set_status` and
 //! `startup` wake one worker) and the disk says one is due: at
 //! most every 6 hours under 80% used, every hour from 80%, every 10 minutes
-//! from 90%. Nothing runs on a timer. One pass at a time, off the runtime:
-//! the settings, the disk and the session files are read on a blocking
-//! thread too.
+//! from 90%, counted from the end of the machine's last pass. Nothing runs
+//! on a timer. One pass at a time per machine, not per daemon
+//! (`cmux_worktree_care::schedule`: a lock and a stamp in the archive
+//! store): every daemon on the machine (the app's, the nightly's, each
+//! tagged build's) acts on the same worktrees, and a dozen of them each
+//! scanning 800 worktrees kept git running all day. Off the runtime: the
+//! settings, the disk and the session files are read on a blocking thread
+//! too.
 //! The `worktrees.autoCleanup` setting (default on) turns the automatic
 //! passes off; `_acpmux/worktree/clean` (the machine view's Clean up now)
 //! runs one regardless. Either way a worktree goes only after its quiet
@@ -32,6 +37,7 @@ use std::time::Duration;
 use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
+use cmux_worktree_care::schedule::{self, Claim, Refused};
 use cmux_worktree_care::{Store as ArchiveStore, disk};
 
 /// The setting that turns automatic passes off.
@@ -51,10 +57,11 @@ fn spacing(pressure: Pressure) -> u64 {
     }
 }
 
-/// This process's cleanup state: one pass at a time, when the last one
-/// started, its report, and one restore at a time (two sessions in one
-/// reclaimed worktree start together). Per process, not per hub: a pass acts
-/// on the machine's worktrees.
+/// This process's cleanup state: one pass at a time in this process (the
+/// machine-wide claim is `schedule`), when this process last started one (a
+/// floor under the machine's stamp, which a full disk may keep from being
+/// written), its report, and one restore at a time (two sessions in one
+/// reclaimed worktree start together).
 static CARE: LazyLock<CareState> = LazyLock::new(CareState::default);
 
 #[derive(Default)]
@@ -136,27 +143,41 @@ impl Hub {
     }
 
     async fn care_if_due(&self, why: &'static str) {
-        let last = CARE.last_started_ms.load(Ordering::Relaxed);
-        if CARE.running.load(Ordering::SeqCst) {
-            return;
-        }
-        let due = tokio::task::spawn_blocking(move || {
+        let Some(_running) = Running::claim(&CARE.running) else { return };
+        let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
-                return false;
+                return None;
             }
-            let Some(home) = dirs::home_dir() else { return false };
+            let home = dirs::home_dir()?;
             let used = disk::usage(&home).map_or(0.0, |usage| usage.used_fraction());
             let pressure = CareSettings::default().pressure(used);
-            now_ms().saturating_sub(last) >= spacing(pressure)
+            let now = now_ms();
+            let floor = CARE.last_started_ms.load(Ordering::Relaxed);
+            if now.saturating_sub(floor) < spacing(pressure) {
+                return None;
+            }
+            let store = match archive_store() {
+                Ok(store) => store,
+                Err(e) => {
+                    tracing::warn!(why, "worktree cleanup skipped: {}", e.message);
+                    return None;
+                }
+            };
+            match schedule::claim(&store.dir, now, Some(spacing(pressure)), true) {
+                Ok(claim) => Some(claim),
+                Err(Refused::Unavailable(error)) => {
+                    tracing::warn!(why, "worktree cleanup skipped: {error}");
+                    None
+                }
+                Err(Refused::Busy | Refused::NotDue) => None,
+            }
         })
         .await
-        .unwrap_or(false);
-        if !due {
-            return;
-        }
-        let Some(_running) = Running::claim(&CARE.running) else { return };
+        .ok()
+        .flatten();
+        let Some(claim) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
-        match self.care_run(true, Vec::new()).await {
+        match self.care_run(claim, true, Vec::new()).await {
             Ok(report) => tracing::info!(
                 why,
                 freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -173,17 +194,34 @@ impl Hub {
         apply: bool,
         only: Vec<PathBuf>,
     ) -> Result<Value, RpcError> {
-        let Some(_running) = Running::claim(&CARE.running) else {
-            return Err(RpcError::internal("a worktree cleanup pass is already running"));
-        };
-        if apply {
+        let busy = || RpcError::internal("a worktree cleanup pass or report is already running");
+        let Some(_running) = Running::claim(&CARE.running) else { return Err(busy()) };
+        // Asked for: no spacing. Only a pass that acts on every worktree
+        // counts as the machine's last.
+        let record = apply && only.is_empty();
+        if record {
             CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
         }
-        self.care_run(apply, only).await
+        let claim = tokio::task::spawn_blocking(move || {
+            let store = archive_store()?;
+            schedule::claim(&store.dir, now_ms(), None, record).map_err(|refused| match refused {
+                Refused::Busy | Refused::NotDue => busy(),
+                Refused::Unavailable(error) => RpcError::internal(error),
+            })
+        })
+        .await
+        .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))??;
+        self.care_run(claim, apply, only).await
     }
 
-    /// Runs one pass; the caller holds `running`.
-    async fn care_run(&self, apply: bool, only: Vec<PathBuf>) -> Result<Value, RpcError> {
+    /// Runs one pass; the caller holds `running` and the machine's `claim`,
+    /// which ends with the pass.
+    async fn care_run(
+        &self,
+        claim: Claim,
+        apply: bool,
+        only: Vec<PathBuf>,
+    ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
         let live = self.care_sessions();
         let daemon_home = crate::config::home();
@@ -205,7 +243,11 @@ impl Hub {
                 measure: !apply,
             };
             let store = archive_store()?;
-            let report = pass::run(&options, &store).map_err(RpcError::internal)?;
+            let report = pass::run(&options, &store);
+            if let Err(error) = claim.finish(now_ms()) {
+                tracing::warn!("worktree cleanup could not record its pass: {error}");
+            }
+            let report = report.map_err(RpcError::internal)?;
             Ok::<_, RpcError>((report, auto_cleanup_enabled()))
         })
         .await

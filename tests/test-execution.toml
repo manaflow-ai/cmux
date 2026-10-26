@@ -666,6 +666,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
@@ -1253,6 +1257,10 @@ lane = "linux-guard"
 serial = true
 
 [[test]]
+path = "tests/test_cmux_next_dev_release_host_root.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1514,6 +1522,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_point_channel.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1819,6 +1831,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_lane_suite_skips.py"
+lane = "manual"
+reason = "A regression test for package-test-lane.sh suite's skip reporting, run by its author (CLAUDE.md: no new CI tests). Stdlib Python with a fake swift and xcrun; runs anywhere: python3 tests/test_ci_package_lane_suite_skips.py."
 
 [[test]]
 path = "tests/test_cmux_bug_triage.py"

@@ -32,6 +32,7 @@ pub mod pass;
 pub mod policy;
 pub mod procs;
 pub mod restore;
+pub mod schedule;
 pub mod store;
 
 pub use inventory::{Facts, Repo, Worktree};

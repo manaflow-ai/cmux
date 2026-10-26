@@ -128,6 +128,43 @@
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
 }
+/* An attached video (composer/VideoAttachmentTile.tsx): its poster in the image's tile, a small glass
+   play glyph in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
+   (chips/chips.css .cv-media__duration). A click plays it. */
+.acpmux-attachment-video-open {
+  position: relative;
+  cursor: pointer;
+}
+.acpmux-attachment-video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--agent-text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The triangle's visual center is right of its box's. */
+.acpmux-attachment-video-play svg {
+  transform: translateX(1px);
+}
+.acpmux-attachment-video-length {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
 /* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
    never an empty checker that reads like a transparent image. */
 .acpmux-attachment-image-failed {
@@ -465,4 +502,18 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
+}
+/* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
+   nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */
+.acpmux-attachment-slot {
+  display: contents;
+}
+.acpmux-attachments[data-reorder] .acpmux-attachment-slot .acpmux-attachment {
+  cursor: grab;
+}
+.acpmux-attachment-slot[data-dragging] .acpmux-attachment {
+  cursor: grabbing;
+  opacity: 0.85;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
 }
