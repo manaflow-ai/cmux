@@ -10,6 +10,7 @@ extension FileHandle {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingReadToEnd(fileID: StaticString = #fileID, line: UInt = #line) throws -> Data? {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try readToEnd() } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
@@ -24,6 +25,7 @@ extension FileHandle {
     ///   - line: The calling code's `#line`.
     /// - Returns: The bytes read, or nil at the end of the file.
     /// - Throws: What `read(upToCount:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingRead(upToCount count: Int, fileID: StaticString = #fileID, line: UInt = #line) throws -> Data? {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try read(upToCount: count) }
@@ -35,6 +37,7 @@ extension FileHandle {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingAvailableData(fileID: StaticString = #fileID, line: UInt = #line) -> Data {
         return blockingCall(.fileIO, fileID: fileID, line: line) { availableData } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
@@ -46,6 +49,7 @@ extension FileHandle {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingReadDataToEndOfFile(fileID: StaticString = #fileID, line: UInt = #line) -> Data {
         return blockingCall(.fileIO, fileID: fileID, line: line) { readDataToEndOfFile() } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
@@ -57,6 +61,7 @@ extension FileHandle {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWrite(_ data: Data, fileID: StaticString = #fileID, line: UInt = #line) {
         blockingCall(.fileIO, fileID: fileID, line: line) { write(data) }
@@ -70,6 +75,7 @@ extension FileHandle {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `write(contentsOf:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWrite<T: DataProtocol>(contentsOf data: T, fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try write(contentsOf: data) }
@@ -84,6 +90,7 @@ extension FileHandle {
     ///   - line: The calling code's `#line`.
     /// - Returns: The open handle.
     /// - Throws: What `FileHandle(forReadingFrom:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public static func blockingForReading(from url: URL, fileID: StaticString = #fileID, line: UInt = #line) throws -> FileHandle {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try FileHandle(forReadingFrom: url) }
@@ -98,6 +105,7 @@ extension FileHandle {
     ///   - line: The calling code's `#line`.
     /// - Returns: The open handle.
     /// - Throws: What `FileHandle(forWritingTo:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public static func blockingForWriting(to url: URL, fileID: StaticString = #fileID, line: UInt = #line) throws -> FileHandle {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try FileHandle(forWritingTo: url) }
@@ -112,6 +120,7 @@ extension FileHandle {
     ///   - line: The calling code's `#line`.
     /// - Returns: The open handle.
     /// - Throws: What `FileHandle(forUpdating:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public static func blockingForUpdating(_ url: URL, fileID: StaticString = #fileID, line: UInt = #line) throws -> FileHandle {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try FileHandle(forUpdating: url) }
@@ -125,6 +134,7 @@ extension FileHandle {
     ///   - line: The calling code's `#line`.
     /// - Returns: The new offset.
     /// - Throws: What `seekToEnd()` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable @discardableResult
     public func blockingSeekToEnd(fileID: StaticString = #fileID, line: UInt = #line) throws -> UInt64 {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try seekToEnd() }
@@ -137,6 +147,7 @@ extension FileHandle {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `seek(toOffset:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingSeek(toOffset offset: UInt64, fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try seek(toOffset: offset) }
@@ -149,6 +160,7 @@ extension FileHandle {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `synchronize()` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingSynchronize(fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try synchronize() }

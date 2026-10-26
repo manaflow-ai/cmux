@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+import CmuxNextCompat
 public import CmuxNextTrace
 import Darwin
 import Dispatch
@@ -38,7 +38,7 @@ import Dispatch
 ///
 /// ```swift
 /// let data = try await work.run(.userVisible, mayBlock: .files) { permit in try Data(blockingContentsOf: url, permit) }
-/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
+/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { permit in try? data.blockingWrite(to: url, permit, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
 /// let saves = work.sequence("journal")  // in order, one at a time, on any files slot
 /// saves.post(.bestEffort, shutdown: .blockShutdown) { try? journal.append(entry) }
@@ -269,32 +269,6 @@ public final class BackgroundWork: Sendable {
             return abandoned()
         }
         submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
-    }
-
-    /// ``run(_:mayBlock:shutdown:fileID:line:_:)`` whose body gets the lane's ``BlockingPermit``, the only way to
-    /// call a seam overload that takes one (Chrome's `MayBlock()` trait as a type). On ``BlockingLane/cpu`` the
-    /// permit compiles too; the run-time detector records a seam there as ``BlockingKind/wrongLane``.
-    ///
-    /// ```swift
-    /// let bytes = try await work.run(.userVisible, mayBlock: .files) { permit in try Data(blockingContentsOf: url, permit) }
-    /// ```
-    public func run<T: Sendable>(_ priority: WorkPriority, mayBlock lane: BlockingLane,
-                                 shutdown: ShutdownBehavior = .skipOnShutdown,
-                                 fileID: StaticString = #fileID, line: UInt = #line,
-                                 _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
-        try await run(priority, mayBlock: lane, shutdown: shutdown, fileID: fileID, line: line) { () throws -> T in
-            try body(BlockingPermit(issuer: .lane))
-        }
-    }
-
-    /// ``post(_:mayBlock:shutdown:fileID:line:_:)`` whose body gets the lane's ``BlockingPermit``.
-    public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
-                     shutdown: ShutdownBehavior = .skipOnShutdown,
-                     fileID: StaticString = #fileID, line: UInt = #line,
-                     _ body: @escaping @Sendable (borrowing BlockingPermit) -> Void) {
-        post(priority, mayBlock: lane, shutdown: shutdown, fileID: fileID, line: line) { () -> Void in
-            body(BlockingPermit(issuer: .lane))
-        }
     }
 
     /// Holds posted ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items on every lane until the

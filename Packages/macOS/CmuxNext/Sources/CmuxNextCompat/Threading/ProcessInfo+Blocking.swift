@@ -20,6 +20,7 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `sysctl` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSysctl(_ name: UnsafeMutablePointer<Int32>, _ count: u_int, _ old: UnsafeMutableRawPointer?,
                            _ oldLength: UnsafeMutablePointer<Int>?, _ new: UnsafeMutableRawPointer?, _ newLength: Int,
@@ -39,6 +40,7 @@ public func blockingSysctl(_ name: UnsafeMutablePointer<Int32>, _ count: u_int, 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `sysctlbyname` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSysctlByName(_ name: UnsafePointer<CChar>, _ old: UnsafeMutableRawPointer?, _ oldLength: UnsafeMutablePointer<Int>?,
                                  _ new: UnsafeMutableRawPointer?, _ newLength: Int,
@@ -58,6 +60,7 @@ public func blockingSysctlByName(_ name: UnsafePointer<CChar>, _ old: UnsafeMuta
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The bytes written, or 0 or less on an error.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt64, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -74,6 +77,7 @@ public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt6
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The path's length, or 0 or less on an error.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -92,6 +96,7 @@ public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer,
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The bytes written, or 0 or less on an error.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -108,6 +113,7 @@ public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: I
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The bytes written (or needed), or 0 or less on an error.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -124,6 +130,7 @@ public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: U
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: 0, or -1 with `errno` set.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingProcPidRusage(_ pid: pid_t, _ flavor: Int32, _ buffer: UnsafeMutablePointer<rusage_info_t?>,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -138,6 +145,7 @@ public func blockingProcPidRusage(_ pid: pid_t, _ flavor: Int32, _ buffer: Unsaf
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The entry (valid until the next `getpw*` call on any thread), or nil.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingGetpwuid(_ uid: uid_t, fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<passwd>? {
     return blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in getpwuid(uid) }
@@ -151,6 +159,7 @@ public func blockingGetpwuid(_ uid: uid_t, fileID: StaticString = #fileID, line:
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The entry (valid until the next `getpw*` call on any thread), or nil.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingGetpwnam(_ name: UnsafePointer<CChar>,
                              fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<passwd>? {

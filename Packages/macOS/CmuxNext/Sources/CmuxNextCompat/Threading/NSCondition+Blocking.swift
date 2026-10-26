@@ -7,6 +7,7 @@ extension NSCondition {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
         blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
@@ -20,6 +21,7 @@ extension NSCondition {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: Whether a signal came before `limit`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWait(until limit: Date, fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
         return blockingCall(.syncWait, fileID: fileID, line: line) { wait(until: limit) }

@@ -9,9 +9,9 @@ func readInAsyncCode(_ url: URL, _ permit: borrowing BlockingPermit) async throw
     try Data(blockingContentsOf: url, permit)
 }
 
-// expect: is deprecated
-func readWithoutAPermit(_ url: URL) throws -> Data {
-    try Data(blockingContentsOf: url)
+// expect: is deprecated: Pass the BlockingPermit
+func statWithoutAPermit(_ url: URL) -> Bool {
+    FileManager.checked.fileExists(atPath: url.path)
 }
 
 // expect: inaccessible due to 'package' protection level

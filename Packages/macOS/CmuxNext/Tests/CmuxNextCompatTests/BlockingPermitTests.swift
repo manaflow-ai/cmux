@@ -45,6 +45,40 @@ struct BlockingPermitTests {
         #expect(await iterator.next() == .lane)
     }
 
+    /// Every seam family has a permit form that runs the same checked call: in a lane body none of them records.
+    @Test func theSeamFamiliesTakeThePermitAndRecordNothingInALane() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        let url = try permitFixture("permit-seams")
+        let (exists, text, statResult, image) = try await PermitLaneRunner(table: table).runFiles(.userVisible) {
+            permit -> (Bool, String, Int32, Bool) in
+            let exists = FileManager.checked.fileExists(atPath: url.path, permit)
+            let text = try String(blockingContentsOf: url, encoding: .utf8, permit)
+            var info = stat()
+            let statResult = blockingStat(url.path, &info, permit)
+            let image = CheckedImageSource(blockingContentsOf: url, permit) != nil
+            return (exists, text, statResult, image)
+        }
+        await table.flush()
+
+        #expect(exists)
+        #expect(text == "permit-seams")
+        #expect(statResult == 0)
+        #expect(!image)
+        #expect(BlockingDetector(table: table).sites.isEmpty)
+    }
+
+    /// A ``ChildProcessLauncher`` item gets a dedicated permit for the spawn seams.
+    @Test func aLauncherItemGetsADedicatedPermit() async {
+        let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.permit-tests", priority: .bestEffort)
+        let ran = await launcher.run { (permit) throws(Never) -> BlockingPermit.Issuer in permit.issuer }
+        let (posted, report) = AsyncStream.makeStream(of: BlockingPermit.Issuer.self)
+        launcher.post { permit in report.yield(permit.issuer) }
+        var iterator = posted.makeAsyncIterator()
+
+        #expect(ran == .dedicated)
+        #expect(await iterator.next() == .dedicated)
+    }
+
     /// A reviewed allowance gives the permit off the main thread (a registered dedicated thread's path), and its
     /// seams are allowed there.
     @Test func anAllowanceGivesAPermitAndItsReadRecordsNothing() async throws {

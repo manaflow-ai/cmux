@@ -10,6 +10,7 @@ extension String {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `String(contentsOf:encoding:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public init(blockingContentsOf url: URL, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
         self = try blockingCall(.fileIO, fileID: fileID, line: line) { try String(contentsOf: url, encoding: encoding) }
@@ -23,6 +24,7 @@ extension String {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `String(contentsOf:usedEncoding:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public init(blockingContentsOf url: URL, fileID: StaticString = #fileID, line: UInt = #line) throws {
         self = try blockingCall(.fileIO, fileID: fileID, line: line) {
@@ -40,6 +42,7 @@ extension String {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `String(contentsOfFile:encoding:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public init(blockingContentsOfFile path: String, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
         self = try blockingCall(.fileIO, fileID: fileID, line: line) { try String(contentsOfFile: path, encoding: encoding) }
@@ -57,6 +60,7 @@ extension StringProtocol {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `write(to:atomically:encoding:)` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWrite(to url: URL, atomically useAuxiliaryFile: Bool, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try write(to: url, atomically: useAuxiliaryFile, encoding: encoding) }

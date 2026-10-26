@@ -12,7 +12,7 @@ extension Data {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `Data(contentsOf:options:)` throws.
-    @available(*, deprecated, message: "Pass the permit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public init(blockingContentsOf url: URL, options: Data.ReadingOptions = [], fileID: StaticString = #fileID, line: UInt = #line) throws {
         self = try blockingCall(.fileIO, fileID: fileID, line: line) { try Data(contentsOf: url, options: options) }
@@ -28,7 +28,7 @@ extension Data {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `write(to:options:)` throws.
-    @available(*, deprecated, message: "Pass the permit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWrite(to url: URL, options: Data.WritingOptions = [], fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try write(to: url, options: options) }
@@ -48,7 +48,7 @@ extension Data {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `Data(contentsOf:options:)` throws.
-    @available(*, noasync, message: "Read files in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
+    @available(*, noasync, message: "Run blocking work in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public init(blockingContentsOf url: URL, _ permit: borrowing BlockingPermit, options: Data.ReadingOptions = [],
                 fileID: StaticString = #fileID, line: UInt = #line) throws {
@@ -65,7 +65,7 @@ extension Data {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `write(to:options:)` throws.
-    @available(*, noasync, message: "Write files in a lane body: work.post(priority, mayBlock: .files) { permit in ... }")
+    @available(*, noasync, message: "Run blocking work in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWrite(to url: URL, _ permit: borrowing BlockingPermit, options: Data.WritingOptions = [],
                               fileID: StaticString = #fileID, line: UInt = #line) throws {

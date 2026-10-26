@@ -21,10 +21,27 @@ BIN="$(swift build --package-path "$PACKAGE" --show-bin-path)"
 MODULES="$BIN/Modules"
 [ -d "$MODULES" ] || MODULES="$BIN"
 
+# CmuxNextCompat's Swift dependencies are in $MODULES, but a C module under them (swift-atomics' _AtomicsShims)
+# comes only from its module map, which SwiftPM passes as -fmodule-map-file: its generated maps are under
+# $BIN/<target>.build/, a package's own map is in the target's include/ directory.
+shopt -s nullglob
+MODULE_MAPS=()
+for map in "$BIN"/*.build/module.modulemap "$PACKAGE"/.build/checkouts/swift-atomics/Sources/*/include/module.modulemap; do
+  MODULE_MAPS+=(-Xcc "-fmodule-map-file=$map")
+done
+shopt -u nullglob
+
 set +e
-OUTPUT="$(xcrun swiftc -typecheck -swift-version 6 -target "$(uname -m)-apple-macos14.0" -I "$MODULES" "$FIXTURE" 2>&1)"
+OUTPUT="$(xcrun swiftc -typecheck -swift-version 6 -target "$(uname -m)-apple-macos14.0" -I "$MODULES" \
+  ${MODULE_MAPS[@]+"${MODULE_MAPS[@]}"} "$FIXTURE" 2>&1)"
 STATUS=$?
 set -e
+
+if grep -qE "missing required module|no such module" <<<"$OUTPUT"; then
+  echo "error: the fixture could not load CmuxNextCompat or one of its modules; no diagnostic was judged:" >&2
+  grep -E "missing required module|no such module" <<<"$OUTPUT" >&2
+  exit 2
+fi
 
 if [ "$STATUS" -eq 0 ]; then
   echo "error: the fixture type-checked; the permit's compile-time checks are gone" >&2
