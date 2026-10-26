@@ -252,6 +252,7 @@ extension ScreenContentView {
                 // frames come from an empty viewport, and laying every pane out there broke Auto Layout
                 // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
                 // layout pass lays them out once the root has its size.
+                // sync-layout: the strip and content commit with this frame's step, never a pass behind it.
                 if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
                 changed = true
             } else if host.frame.origin != placed.origin {

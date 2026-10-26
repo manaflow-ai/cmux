@@ -160,6 +160,7 @@ final class ExtensionActionToolbar {
             return
         }
         // Start from the frames on screen now.
+        // sync-layout: the pin animation starts from these frames, laid out outside its group.
         container.layoutSubtreeIfNeeded()
         // The toolbar's move token: about 0.2 s, like Chrome's toolbar icon animation.
         Motion.overlays.animateTimed(.move, in: container, { [self] in
@@ -167,6 +168,7 @@ final class ExtensionActionToolbar {
             pendingFinish += update()
             let after = Set(buttons.keys)
             lastPinAnimation = (after.subtracting(before).sorted(), before.subtracting(after).sorted())
+            // sync-layout: inside the animation group, so the neighbours slide to their new frames.
             container.layoutSubtreeIfNeeded()
         }, completion: { [weak self] in self?.finishPinAnimation() })
     }

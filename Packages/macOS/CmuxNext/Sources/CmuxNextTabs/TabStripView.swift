@@ -429,6 +429,7 @@ public final class TabStripView: NSView {
         invalidateIntrinsicContentSize()
         lastViewportWidth = -1
         needsLayout = true // invalidate: every cell takes the new metrics
+        // sync-layout: relayout below reads the viewport the new metrics give (tabsClip, placed in layout()).
         layoutSubtreeIfNeeded()
         relayout(animated: animated && !reduceMotion)
     }
