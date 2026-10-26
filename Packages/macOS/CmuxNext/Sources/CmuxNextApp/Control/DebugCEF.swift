@@ -127,7 +127,7 @@ enum DebugCEF {
     }
 
     /// Pump wakeups per second = the change of `work_runs` over an interval.
-    private static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
+    static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
         .object([
             "work_runs": .number(Double(stats.workRuns)),
             "immediate_requests": .number(Double(stats.immediateRequests)),

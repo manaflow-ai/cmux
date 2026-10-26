@@ -33,8 +33,9 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// its one pass for that frame (`RenderStarvationGuard`); each runs after
     /// the late link's tick.
     public var lateFrameHolds = 0
-    /// Passes that ran while a person's input was pending, by where the input went
-    /// (``CEFPumpInputPolicy``). For other targets this stays 0 but for passes held one refresh.
+    /// Passes that ran while a person's input was pending (``CEFPumpInputPolicy``): by the target of
+    /// the dispatched input that released them, and those the one-refresh bound released. DC2 reads
+    /// every bucket but `chromiumPage` as 0.
     public var passesWhileInputPending = PassesByTarget()
     /// Passes the input policy held until an input's dispatch ended (one per hold).
     public var deferredForInput = 0
@@ -48,25 +49,34 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
 
     public init() {}
 
-    /// Pass counts per input target.
+    /// Pass counts while input was pending, per input target.
     public nonisolated struct PassesByTarget: Equatable, Sendable {
-        /// After input to a Chromium page: expected, Chromium acks input inside the pump.
-        public var chromiumPage = 0
-        /// While input for anything else was pending.
-        public var other = 0
+        /// Indexed by `InputTarget.rawValue`.
+        private var counts = [Int](repeating: 0, count: InputTarget.allCases.count)
+        /// Passes the one-refresh bound released with input still pending: that input was not
+        /// dispatched yet, so its target is unknown.
+        public var boundExpired = 0
 
         public init() {}
 
-        /// The counts by target name (`debug.cef`, `debug.input`).
-        public var byName: [String: UInt64] {
-            ["chromiumPage": UInt64(clamping: chromiumPage), "other": UInt64(clamping: other)]
+        /// Passes released right after an input to `target` was dispatched, with more input pending.
+        /// Only `chromiumPage` is expected: Chromium acks its input inside the pump.
+        public subscript(target: InputTarget) -> Int {
+            counts[Int(target.rawValue)]
         }
 
-        mutating func add(_ target: CEFPumpInputPolicy.Target) {
-            switch target {
-            case .chromiumPage: chromiumPage += 1
-            case .other: other += 1
+        /// The counts by target name (`terminal`, `chromiumPage`, ...) and `boundExpired`
+        /// (`debug.cef`, `debug.input`).
+        public var byName: [String: UInt64] {
+            var names = ["boundExpired": UInt64(clamping: boundExpired)]
+            for target in InputTarget.allCases {
+                names[String(describing: target)] = UInt64(clamping: counts[Int(target.rawValue)])
             }
+            return names
+        }
+
+        mutating func add(_ target: InputTarget) {
+            counts[Int(target.rawValue)] += 1
         }
     }
 }

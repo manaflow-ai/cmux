@@ -136,9 +136,9 @@ final class CEFRuntime {
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
-    /// The app's input tap when the pump holds passes for a person's input (feature
-    /// `cefPumpInputPolicy`, ``CEFPumpInputPolicy``); set before start. Nil: never held.
-    var pumpInputTap: InputEventTap?
+    /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
+    /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
+    var pumpInput: CEFPumpInputSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -419,7 +419,10 @@ final class CEFRuntime {
                 gate: pumpGate
             )
             self.pump = pump
-            if let pumpInputTap { pump.setInputPolicy(.app(tap: pumpInputTap)) }
+            if let pumpInput, let input {
+                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
+                                                       refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
+            }
             pump.start()
         }
 
