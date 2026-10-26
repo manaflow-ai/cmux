@@ -21,7 +21,7 @@ extension AppServices {
     /// a page, so the cache hands it every hide, show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
