@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -44,8 +45,46 @@ final class KeybindingsPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]
-        guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes)) else { return NSView() }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .keybindings, routes: routes,
+                                                             route: restoredRoutes.removeValue(forKey: key)))
+        else { return NSView() }
         provider.pageWindow = { [weak page] in page?.window }
+        tabs[key] = (page, provider)
         return page
+    }
+
+    /// The page and its ops of each tab, by key.
+    private var tabs: [String: (page: PageWebView, provider: KeybindingsPageProvider)] = [:]
+    /// The route a tab whose view was released opens on again.
+    private var restoredRoutes: [String: String] = [:]
+
+    func tabClosed(_ key: String) {
+        restoredRoutes.removeValue(forKey: key)
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        services.webUI.close(tab.page)
+    }
+
+    // MARK: Discard (memory.discard.internalPages)
+
+    /// Every change is written as it is made; a shortcut being recorded is the page's only edit
+    /// not yet written (Chrome's kUserEdits), which a rebuilt page cannot show again.
+    var discardPolicy: InternalPageDiscardPolicy { .standard }
+
+    func keepReasons(for key: String) -> Set<CannotDiscardReason> {
+        tabs[key]?.provider.isRecording == true ? [.unsavedEdits] : []
+    }
+
+    func saveViewState(for key: String) -> InternalPageViewState? {
+        tabs[key].map { InternalPageViewState(route: $0.page.route) }
+    }
+
+    func restoreViewState(_ state: InternalPageViewState, for key: String) {
+        restoredRoutes[key] = state.route
+    }
+
+    /// The tab stays: its page closes and its saved route is kept for the next view.
+    func viewDiscarded(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        services.webUI.close(tab.page)
     }
 }

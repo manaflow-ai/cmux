@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextResources
 import Darwin
 import SwiftUI
@@ -95,24 +96,64 @@ final class TaskManagerPageService: InternalPageProvider {
     var symbol: String { "gauge.with.dots.needle.33percent" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let sampling = self.sampling
-        let model = self.model ?? TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
-            // The row menu and the button run the action, which asks first.
-            _ = services?.registry.perform("taskManager.killProcess",
-                                           invocation: ActionInvocation(arguments: ["process": .string(key.description)]))
-        })
+        let restored = restoredStates.removeValue(forKey: key)
+        let model = self.model ?? makeModel(restoring: restored)
         self.model = model
+        liveViews.insert(key)
         model.start()
         return NSHostingView(rootView: TaskManagerView(model: model))
     }
 
+    /// A new model; a tab whose view was released gets its sort, selection and top row back.
+    private func makeModel(restoring state: InternalPageViewState?) -> TaskManagerModel {
+        let sampling = self.sampling
+        let model = TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
+            // The row menu and the button run the action, which asks first.
+            _ = services?.registry.perform("taskManager.killProcess",
+                                           invocation: ActionInvocation(arguments: ["process": .string(key.description)]))
+        })
+        if let state { model.restoreView(state.fields) }
+        return model
+    }
+
     func tabClosed(_ key: String) {
-        guard services?.pageIsOpen(.taskManager) != true, let model else { return }
+        restoredStates.removeValue(forKey: key)
+        liveViews.remove(key)
+        dropModelWhenUnused()
+    }
+
+    /// No view shows the model: sampling stops (the next view samples again).
+    private func dropModelWhenUnused() {
+        guard liveViews.isEmpty, let model else { return }
         model.stop()
         self.model = nil
         #if DEBUG || CMUX_BENCH_HOOKS
         captureFixture = nil
         #endif
+    }
+
+    // MARK: Discard (memory.discard.internalPages)
+
+    /// The tabs whose view is made and not released or closed.
+    private var liveViews: Set<String> = []
+    /// What a tab whose view was released shows again (``restoreViewState(_:for:)``).
+    private var restoredStates: [String: InternalPageViewState] = [:]
+
+    /// The page samples every process once a second while a view shows it, so a hidden one is
+    /// released after a minute; it saves its sort, selection and top row.
+    var discardPolicy: InternalPageDiscardPolicy { .afterHidden(.seconds(60)) }
+
+    func saveViewState(for key: String) -> InternalPageViewState? {
+        model.map { InternalPageViewState(fields: $0.savedView) }
+    }
+
+    func restoreViewState(_ state: InternalPageViewState, for key: String) {
+        restoredStates[key] = state
+    }
+
+    func viewDiscarded(_ key: String) {
+        liveViews.remove(key)
+        dropModelWhenUnused()
     }
 
     /// What the next page samples, and whether it lists the discarded items: the app's source and

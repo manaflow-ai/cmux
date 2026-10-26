@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
@@ -76,6 +77,19 @@ protocol InternalPageProvider: AnyObject {
     /// A native bar shown above tab `key`'s view (the Markdown omnibar),
     /// asked once right after ``makeView(for:in:)``. Default: none.
     func makeTopBar(for key: String) -> NSView?
+    /// How long a hidden tab keeps its view (`memory.discard.internalPages`). Default:
+    /// ``InternalPageDiscardPolicy/undeclared``.
+    var discardPolicy: InternalPageDiscardPolicy { get }
+    /// Why tab `key` keeps its view now (protected reasons, Chrome's cannot_discard_reason.h);
+    /// empty lets the policy release it. Default: none.
+    func keepReasons(for key: String) -> Set<CannotDiscardReason>
+    /// What tab `key` shows, asked right before its view is released. Default: nil.
+    func saveViewState(for key: String) -> InternalPageViewState?
+    /// The next view of tab `key` shows `state` (its view was released). Default: nothing.
+    func restoreViewState(_ state: InternalPageViewState, for key: String)
+    /// Tab `key`'s view was released while the tab stays: the provider drops what it made for that
+    /// view. Default: ``tabClosed(_:)``.
+    func viewDiscarded(_ key: String)
 }
 
 extension InternalPageProvider {
@@ -87,4 +101,9 @@ extension InternalPageProvider {
     func restore(_ route: String, for key: String) {}
     func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
+    var discardPolicy: InternalPageDiscardPolicy { .undeclared }
+    func keepReasons(for key: String) -> Set<CannotDiscardReason> { [] }
+    func saveViewState(for key: String) -> InternalPageViewState? { nil }
+    func restoreViewState(_ state: InternalPageViewState, for key: String) {}
+    func viewDiscarded(_ key: String) { tabClosed(key) }
 }

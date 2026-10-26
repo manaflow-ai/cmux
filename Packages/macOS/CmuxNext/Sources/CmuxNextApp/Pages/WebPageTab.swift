@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -12,14 +13,18 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
+    /// How long a hidden tab keeps its page; a released tab's next show makes a new one.
+    let discardPolicy: InternalPageDiscardPolicy
     private let make: () -> PageWebView?
     private var pages: [String: PageWebView] = [:]
 
-    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, make: @escaping () -> PageWebView?) {
+    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String,
+         discardPolicy: InternalPageDiscardPolicy = .undeclared, make: @escaping () -> PageWebView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon
         self.title = title
+        self.discardPolicy = discardPolicy
         self.make = make
     }
 

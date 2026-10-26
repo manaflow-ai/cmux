@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 
 /// The Task Manager page's state: the latest ``TaskManagerSnapshot`` and the
@@ -27,6 +27,13 @@ public final class TaskManagerModel {
     public private(set) var snapshot: TaskManagerSnapshot = .empty
     /// The selected rows' processes.
     public var selection: Set<ProcessKey> = []
+    /// The table's sort (its column headers); empty keeps the sampled order.
+    public var sortOrder: [KeyPathComparator<TaskManagerRow>] = []
+    /// A row the table scrolls to the top once a sample lists it (a rebuilt page's saved top row);
+    /// the table clears it when it scrolls.
+    public var scrollTarget: ProcessKey?
+    /// The rows the table draws now (``rowShown(_:)``); not observed, so scrolling redraws nothing.
+    @ObservationIgnored private var shownRows: Set<ProcessKey> = []
     /// Samples taken since the model was made (tests, diagnostics).
     public private(set) var sampleCount = 0
     /// True while the periodic refresh runs.
@@ -112,6 +119,39 @@ public final class TaskManagerModel {
     /// Kill Process for `key` (asks first through the action).
     public func kill(_ key: ProcessKey) {
         killAction(key)
+    }
+
+    /// The rows in the table's order.
+    public var rows: [TaskManagerRow] {
+        sortOrder.isEmpty ? snapshot.rows : snapshot.rows.sorted(using: sortOrder)
+    }
+
+    /// The table draws `key`'s row.
+    public func rowShown(_ key: ProcessKey) { shownRows.insert(key) }
+
+    /// The table no longer draws `key`'s row.
+    public func rowHidden(_ key: ProcessKey) { shownRows.remove(key) }
+
+    /// The first row the table draws: where the page is scrolled to.
+    public var topShownRow: ProcessKey? {
+        rows.first { shownRows.contains($0.id) }?.id
+    }
+
+    /// What a page built again over a new model shows as before: the sort, the selection and the
+    /// top row, as text (``restoreView(_:)`` reads it).
+    public var savedView: [String: String] {
+        var fields = ["sort": TaskManagerSort.text(sortOrder),
+                      "selection": selection.map(\.description).sorted().joined(separator: ",")]
+        fields["topRow"] = topShownRow?.description
+        return fields
+    }
+
+    /// Shows what ``savedView`` saved: the table sorts and selects as before and scrolls back to
+    /// the top row once a sample lists it.
+    public func restoreView(_ fields: [String: String]) {
+        sortOrder = TaskManagerSort.order(fields["sort"] ?? "")
+        selection = Set((fields["selection"] ?? "").split(separator: ",").compactMap { ProcessKey(parsing: String($0)) })
+        scrollTarget = fields["topRow"].flatMap(ProcessKey.init(parsing:))
     }
 
     /// The one selected row, for the Kill Process button.

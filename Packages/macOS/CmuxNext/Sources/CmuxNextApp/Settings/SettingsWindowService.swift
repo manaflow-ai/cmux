@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextServer
@@ -32,6 +33,10 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    /// The page each tab shows (the kept page or a second window's own).
+    private var tabPages: [String: PageWebView] = [:]
+    /// The route a tab whose view was released opens on again (``restoreViewState(_:for:)``).
+    private var restoredRoutes: [String: String] = [:]
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
@@ -157,22 +162,58 @@ final class SettingsWindowService: InternalPageProvider {
     var symbol: String { "gearshape" }
     var icon: IconName? { .settings }
 
-    /// The kept page when no other tab shows it, else a new one (a second window's tab).
+    /// The kept page when no other tab shows it, else a new one (a second window's tab). A tab
+    /// whose view was released opens on its saved route unless a show asks for another.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let route = pendingRoute
+        let restored = restoredRoutes.removeValue(forKey: key)
+        let route = pendingRoute ?? restored
         pendingRoute = nil
         if let webPage, webPage.superview == nil {
             if let route, webPage.route != route { webPage.open(route: route) }
+            tabPages[key] = webPage
             return webPage
         }
         guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
         if webPage == nil { webPage = page }
+        tabPages[key] = page
         return page
     }
 
     func tabClosed(_ key: String) {
+        tabPages.removeValue(forKey: key)
+        restoredRoutes.removeValue(forKey: key)
         // A live preview left by a closed page (mid-drag) must not stay applied.
         services.settings?.endPreview()
+    }
+
+    // MARK: Discard (memory.discard.internalPages)
+
+    /// Settings writes each change as it is made, so a hidden page holds no unwritten edit except a
+    /// live preview.
+    var discardPolicy: InternalPageDiscardPolicy { .standard }
+
+    func keepReasons(for key: String) -> Set<CannotDiscardReason> {
+        Self.keepReasons(previewing: services.settings?.previewingKey)
+    }
+
+    /// A preview (a slider mid-drag, a palette row) is a value the page has not written: kept.
+    static func keepReasons(previewing: String?) -> Set<CannotDiscardReason> {
+        previewing == nil ? [] : [.unsavedEdits]
+    }
+
+    func saveViewState(for key: String) -> InternalPageViewState? {
+        tabPages[key].map { InternalPageViewState(route: $0.route) }
+    }
+
+    func restoreViewState(_ state: InternalPageViewState, for key: String) {
+        restoredRoutes[key] = state.route
+    }
+
+    /// The released view is no longer kept for a reopen: the next show builds a new page.
+    func viewDiscarded(_ key: String) {
+        guard let page = tabPages.removeValue(forKey: key) else { return }
+        if page === webPage { webPage = nil }
+        services.webUI.close(page)
     }
 
     // MARK: Host facts (the page's host lists)

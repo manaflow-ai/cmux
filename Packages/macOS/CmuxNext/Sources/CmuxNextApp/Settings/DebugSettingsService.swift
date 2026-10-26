@@ -11,6 +11,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextIcons
@@ -169,6 +170,9 @@ final class DebugSettingsService: InternalPageProvider {
     var page: InternalPageID { .debugSettings }
     var title: String { DebugSettingsModel.paneTitle }
     var symbol: String { "slider.horizontal.3" }
+    /// The search and selection live in the shared model, which stays while the tab does: a
+    /// released tab's next page opens where the person left it. A tunable is written as it changes.
+    var discardPolicy: InternalPageDiscardPolicy { .standard }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)

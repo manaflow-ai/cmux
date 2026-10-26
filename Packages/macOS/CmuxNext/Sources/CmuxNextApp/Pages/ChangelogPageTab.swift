@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
@@ -26,7 +27,8 @@ final class ChangelogPageTab: InternalPageProvider {
     var icon: IconName? { .fileText }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let route = pendingRoute
+        let restored = restoredRoutes.removeValue(forKey: key)
+        let route = pendingRoute ?? restored
         pendingRoute = nil
         guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
         pages[key] = view
@@ -34,6 +36,28 @@ final class ChangelogPageTab: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        restoredRoutes.removeValue(forKey: key)
+        pages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (memory.discard.internalPages)
+
+    /// The route a tab whose view was released opens on again (its release span).
+    private var restoredRoutes: [String: String] = [:]
+
+    /// Read-only notes: a rebuilt page on the same route shows the same span.
+    var discardPolicy: InternalPageDiscardPolicy { .standard }
+
+    func saveViewState(for key: String) -> InternalPageViewState? {
+        pages[key].map { InternalPageViewState(route: $0.route) }
+    }
+
+    func restoreViewState(_ state: InternalPageViewState, for key: String) {
+        restoredRoutes[key] = state.route
+    }
+
+    /// The tab stays: its page closes and its saved route is kept for the next view.
+    func viewDiscarded(_ key: String) {
         pages.removeValue(forKey: key)?.close()
     }
 
