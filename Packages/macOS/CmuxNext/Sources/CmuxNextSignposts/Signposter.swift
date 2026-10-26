@@ -38,7 +38,8 @@ public import os
 public nonisolated struct Signposter: Sendable {
     /// The category this signposter emits.
     public let category: SignpostCategory
-    private let signposter: OSSignposter
+    /// The log system's handle (the typed emitters in this module's extensions begin and end on it).
+    let signposter: OSSignposter
     /// The MetricKit mirror this signposter repeats intervals to (the app's: ``SignpostMetricKitMirror/shared``).
     let mirror: SignpostMetricKitMirror
     /// The trace runtime whose ring takes this signposter's records (the app's: ``TraceRuntime/shared``).
@@ -266,15 +267,20 @@ public nonisolated struct Signposter: Sendable {
         trace.event(name, arg0: arg0, arg1: arg1)
     }
 
+    /// Now on the clock ``SignpostInterval/beginUptimeNanos`` reads, so an end measures its interval with one read.
+    public func nowNanos() -> UInt64 { clock.nowNanos() }
+
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's
-    /// category is on, the ring's slice with `arg0`.
-    private func openInterval(_ name: SignpostName, arg0: UInt64,
-                              _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
+    /// category is on, the ring's slice with `arg0` (and `arg1`, which only a thread slice has free: an async
+    /// slice's `arg1` is its id).
+    func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0,
+                      _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
+        assert(arg1 == 0 || name.opensThreadSlice, "\(name) is an async slice: its arg1 is the async id")
         let id = signposter.makeSignpostID()
         let beginNanos = clock.nowNanos()
         let state = beginInterval(id)
         return SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos,
-                                ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0))
+                                ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0, arg1: arg1))
     }
 }
