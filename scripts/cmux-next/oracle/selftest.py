@@ -551,6 +551,7 @@ def run_options(tmp: Path, out: Path) -> Any:
         product="daemon", suites=("all",), filters=(), shard=(0, 1), jobs=2, batch_limit=1, repeat=1, retry_limit=0,
         seed=None, platform="linux", build="debug", switch=None, arm=None, switches={}, ref=None, tag=None, binary=None,
         corpus=tmp / "corpus", out=out, state_base=Path("/tmp/o"), run_id="selftest", expectations_root=tmp / "none",
+        isolation="none",  # a fake driver: no case process to isolate, so no host probe
     )
 
 
