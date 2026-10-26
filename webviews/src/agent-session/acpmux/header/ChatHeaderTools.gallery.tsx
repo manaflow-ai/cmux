@@ -3,6 +3,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { avatarRows } from "./avatarRow";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
@@ -481,6 +482,20 @@ export default componentEntry<HeaderToolsProps>({
     "menu-open": {
       note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
       props: base,
+      play: openMenu,
+    },
+    "menu-avatar": {
+      height: 860,
+      note: "A chat with an agent session and an uploaded avatar: Set Avatar… and Remove Avatar end the chat menu's tab rows, before Archive and Close (header/avatarRow.ts).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const avatar = avatarRows({ sessionId: "session-1", hasAvatar: true }, { set: () => undefined, remove: () => undefined });
+          return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
+        },
+      },
       play: openMenu,
     },
     "keyboard-menu": {
