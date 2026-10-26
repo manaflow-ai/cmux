@@ -1,11 +1,13 @@
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum TerminalSettingsSchema {
     /// `terminal.fontFamily` and `terminal.fontSize` (Ghostty overrides,
-    /// `TerminalFontSetting`), and `terminal.linkOpener.*` (`TerminalLinkOpener`).
+    /// `TerminalFontSetting`), `terminal.linkOpener.*` (`TerminalLinkOpener`) and
+    /// `terminal.predictiveEcho` (`TerminalPredictiveEchoSetting`).
     static var descriptors: [SettingDescriptor] {
         let font = SettingsText.keyed("settings.group.terminalFont", "Font")
         let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let links = SettingsText.keyed("settings.group.openingLinks", "Opening Links")
+        let typing = SettingsText.keyed("settings.group.terminalTyping", "Typing")
         return [
             SettingDescriptor(
                 TerminalFontSetting().familyPath, section: .terminal, group: font,
@@ -37,6 +39,20 @@ nonisolated enum TerminalSettingsSchema {
                 summary: SettingsText.keyed("settings.terminal.linkOpener.rules.summary", "Rules for program links"),
                 kind: .stringList, default: .array([]),
                 keywords: ["browser", "rules", "url", "link", "caller", "regex", "profile", "script"]
+            ),
+            SettingDescriptor(
+                TerminalPredictiveEchoSetting.path, section: .terminal, group: typing,
+                title: SettingsText.keyed("settings.terminal.predictiveEcho", "Predictive Echo"),
+                help: SettingsText.keyed("settings.terminal.predictiveEcho.help",
+                                         "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on."),
+                summary: SettingsText.keyed("settings.terminal.predictiveEcho.summary", "Show typing before a slow echo"),
+                kind: .choice([
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice("remote", SettingsText.keyed("settings.choice.predictiveEchoRemote", "Remote and Slow Terminals")),
+                    SettingChoice("always", SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TerminalPredictiveEchoSetting.fallback.rawValue),
+                keywords: ["predictive", "echo", "local echo", "mosh", "latency", "lag", "ssh", "remote", "typing"]
             ),
         ]
     }

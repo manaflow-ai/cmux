@@ -20,7 +20,13 @@ final class CEFHostView: NSView {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
+    }
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane

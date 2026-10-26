@@ -70,6 +70,12 @@ Per mode:
                     (chromium_host_baseline.memory_split).
            with --stress: idle wakes in the same three scenarios, and key and click to paint and the stall in
            both modes, in the STRESS session too (the probe opened in its measured pane).
+  cursor   `--modes cursor` (task 045 of plans/cmux-next/chrome-parity/p01-process.md): a Chromium tab of the app's
+           backend over a page of four bands, text (an input), link, col-resize and a CSS image cursor; the pointer
+           moves over each (`debug.mouse` page `move`, its reply kept per band; a move that errs fails its band) and
+           `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
+           shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
+           pointer route to the host: the row says not_measurable with the reason instead of passing.
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -90,7 +96,7 @@ answers percentiles, not samples, so the story claims no hot path (cef-host-inpu
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
 """
-import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, time
+import argparse, base64, json, os, pathlib, signal, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -180,6 +186,28 @@ report();
 
 # Blink's mojom::kMaxTitleChars: a longer document.title reaches the browser cut, and the probe's JSON with it.
 TITLE_LIMIT = 4096
+
+
+def cursor_png():
+    """A 16 x 16 opaque red PNG (stdlib only): the probe's CSS image cursor."""
+    import zlib
+    rows = b"".join(b"\x00" + b"\xff\x00\x00\xff" * 16 for _ in range(16))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+    header = struct.pack(">IIBBBBB", 16, 16, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+# The cursor row's page: four bands, each a cursor the page view must show (expected CSS names in CURSOR_BANDS).
+CURSOR_BANDS = {"text": "text", "link": "pointer", "resize": "col-resize", "custom": "custom"}
+CURSOR_PAGE = """<!doctype html><meta charset=utf-8><title>cursor probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}div,a,input{position:fixed;left:0;width:100%;height:25%;
+margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
+<input id=text style="top:0" value="text">
+<a id=link href="#link" style="top:25%;background:#cde">link</a>
+<div id=resize style="top:50%;cursor:col-resize;background:#dec">resize</div>
+<div id=custom style="top:75%;cursor:url(data:image/png;base64,PNG) 4 4,auto;background:#ecd">custom</div>""".replace(
+    "PNG", base64.b64encode(cursor_png()).decode())
+
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -468,6 +496,10 @@ def main():
         if opts.baseline:
             # After every light-session row: the census's light workspace is not in their numbers.
             RESULT["baseline"] = {"census_light": census(app, "light", session="light")}
+        if "cursor" in modes:
+            cursor_probe = os.path.join(opts.out, "cursor.html")
+            open(cursor_probe, "w").write(CURSOR_PAGE)
+            ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:
@@ -980,6 +1012,53 @@ def run_helper(rpc, url, inproc_tab):
         added = lambda key: pixels.get(key) is not None and pixels[key] - pixels["before_open"] >= 0.02
         pixels["pass"] = added("shown") and (not after or added("after_restart"))
     row["pixels"] = pixels
+    return True
+
+
+def run_cursor(rpc, url):
+    """The cursor row: the pointer over each band of the cursor probe, then the page view's cursor (debug.cef)."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'cursor probe'"), 60, 0.5):
+        RESULT["modes"]["cursor"] = {"error": f"the cursor probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+
+    def shown_cursor():
+        entries = (rpc("debug.cef") or {}).get("devtools") or []
+        mine = [e for e in entries if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_cursor")
+
+    row = {}
+    for band, expected in CURSOR_BANDS.items():
+        rect = page(f"(() => {{ const r = document.getElementById('{band}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+        if not rect:
+            row[band] = {"error": "no band rect"}
+            continue
+        moved = rpc("debug.mouse", {"action": "move", "target": "page", "x": rect[0], "y": rect[1]})
+        if not isinstance(moved, dict) or moved.get("error"):
+            # The pointer never reached the page: the driver's fault, not the cursor's.
+            error = moved.get("error") if isinstance(moved, dict) else f"no reply: {moved!r}"
+            row[band] = {"expected": expected, "move": moved, "error": f"debug.mouse move: {error}", "pass": False}
+            continue
+        # The renderer sends a changed cursor after the move reaches it; host mode adds the wire hop.
+        shown = wait(lambda: (lambda c: c if c == expected else None)(shown_cursor()), 5, 0.05) or shown_cursor()
+        row[band] = {"expected": expected, "move": moved, "shown": shown, "pass": shown == expected}
+    bands = [row.get(band) or {} for band in CURSOR_BANDS]
+    if all((b.get("move") or {}).get("reason") == "no_host_input_route" for b in bands):
+        row["not_measurable"] = ("no pointer route from the page view to the Chromium Host yet (p01-process-042): "
+                                 "the renderer never sees the pointer, so it computes no cursor")
+    elif all("error" not in b and b.get("shown") is None for b in bands):
+        row["not_measurable"] = "no page view cursor: the tab runs in process, where Chromium's page window shows its own cursor"
+    else:
+        row["pass"] = all(b.get("pass") for b in bands)
+    RESULT["modes"]["cursor"] = row
     return True
 
 

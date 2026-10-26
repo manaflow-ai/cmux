@@ -3,6 +3,7 @@ import CmuxNextCodeRouter
 import CmuxNextControl
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import CmuxNextAccounts
 
@@ -17,6 +18,8 @@ import CmuxNextAccounts
 extension AppControl {
     func registerBillingMethods(_ services: AppServices) {
         let network: ControlMethod.Deadline = .fixed(.seconds(22))
+        // Each method's main-actor reads and the page open are the CLI's work: automation tasks on the one scheduler.
+        let work = mainWork
         service?.router.register([
             ControlMethod.async("billing.checkout") { call in
                 let params = call.params
@@ -28,7 +31,7 @@ extension AppControl {
                     throw ControlError.invalidParams(invalid.description)
                 }
                 let open = try Self.openRequest(params)
-                let client = try await Self.billingClient(services)
+                let client = try await Self.billingClient(services, work: work)
                 let answer = try await Self.webJSON { try await client.request("POST", "/api/billing/checkout", body: request.body) }
                 guard case .object(let object) = answer, let raw = object["url"]?.stringValue, let url = URL(string: raw),
                       url.scheme?.lowercased() == "https" else {
@@ -37,21 +40,21 @@ extension AppControl {
                 if BillingLivePolicy.shipped.refuses(url) { throw ControlError(code: "billing.live_off", message: BillingStrings.liveOff) }
                 var result = object
                 result["mode"] = .string(StripeCheckoutMode(url: url).rawValue)
-                return .object(result.merging(try await Self.openBillingPage(url, open, services)) { _, opened in opened })
+                return .object(result.merging(try await Self.openBillingPage(url, open, services, work: work)) { _, opened in opened })
             }.withDeadline(network),
             ControlMethod.async("billing.portal") { call in
                 let params = call.params
                 let open = try Self.openRequest(params)
-                let base = await MainActor.run { services.cloud.configuration.apiBaseURL }
+                let base = await work.apply(.automation, owner: "billing.portal") { services.cloud.configuration.apiBaseURL }
                 var components = URLComponents(url: base.appending(path: "dashboard/billing"), resolvingAgainstBaseURL: false)
                 if let team = (params["teamId"] ?? params["team_id"])?.stringValue, !team.isEmpty {
                     components?.queryItems = [URLQueryItem(name: "team", value: team)]
                 }
                 guard let url = components?.url else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
-                return .object(["url": .string(url.absoluteString)].merging(try await Self.openBillingPage(url, open, services)) { _, opened in opened })
+                return .object(["url": .string(url.absoluteString)].merging(try await Self.openBillingPage(url, open, services, work: work)) { _, opened in opened })
             }.withDeadline(network),
             ControlMethod.async("billing.status") { call in
-                let client = try await Self.billingClient(services)
+                let client = try await Self.billingClient(services, work: work)
                 var path = "/api/billing/plan"
                 if let team = (call.params["teamId"] ?? call.params["team_id"])?.stringValue, !team.isEmpty,
                    let encoded = team.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
@@ -69,8 +72,8 @@ extension AppControl {
     }
 
     /// The signed-in cmux.com client (``CodeRouterClient`` authenticates any `/api/*` call as the user).
-    nonisolated private static func billingClient(_ services: AppServices) async throws -> CodeRouterClient {
-        try await MainActor.run {
+    nonisolated private static func billingClient(_ services: AppServices, work: MainWorkScheduler) async throws -> CodeRouterClient {
+        try await work.apply(.automation, owner: "billing.client") { () throws -> CodeRouterClient in
             if let refusal = Self.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: BillingStrings.unavailable) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn) }
@@ -97,12 +100,13 @@ extension AppControl {
     /// Opens `url` where ``BillingCheckoutOpener`` says and answers `opened_in`,
     /// `link_session` and the cmux browser `profile` it checked.
     nonisolated private static func openBillingPage(_ url: URL, _ request: BillingOpenRequest,
-                                                    _ services: AppServices) async throws -> [String: JSONValue] {
-        let session = await MainActor.run { BrowserProfileLinkSession(services: services) }
+                                                    _ services: AppServices, work: MainWorkScheduler) async throws -> [String: JSONValue] {
+        let session = await work.apply(.automation, owner: "billing.link_session") { BrowserProfileLinkSession(services: services) }
         let profile = await session.profileForNewTab()
         let link = request == .printOnly ? false : await session.hasSession(profile: profile)
-        return await MainActor.run {
-            let handler = DefaultBrowserLink.handler(url)
+        // The default browser, from Launch Services on the system lane.
+        let handler = try? await DefaultBrowserLink.handler(url, queries: services.workspaceQueries)
+        return await work.apply(.automation, owner: "billing.open") { () -> [String: JSONValue] in
             let opener = BillingCheckoutOpener(defaultBrowserIsCmux: handler?.isCmux ?? false,
                                                cmuxBrowserEnabled: LinkRouter.shared.routing().browserEnabled)
             let target = opener.decide(request, linkSession: link)

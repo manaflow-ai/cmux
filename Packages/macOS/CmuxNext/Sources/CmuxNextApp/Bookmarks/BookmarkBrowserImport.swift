@@ -52,7 +52,7 @@ struct BookmarkBrowserImport {
     }
 
     nonisolated static func liveEnvironment() -> ImportEnvironment {
-        ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        ImportEnvironment.live()
     }
 
     /// The folder title for one source profile.

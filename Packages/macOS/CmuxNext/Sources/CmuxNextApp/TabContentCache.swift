@@ -147,6 +147,8 @@ final class TabContentCache {
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
     /// profiles, p08-startup-028); nil: none.
     var enginesAwait: LaunchReadEvent?
+    /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
+    var launchPictures: BrowserLaunchPictures?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -574,14 +576,18 @@ protocol SurfacePresenter: AnyObject {
     func surfaceWasDisplaced(_ key: String)
     /// The window it presents in, if any.
     var presentingWindow: NSWindow? { get }
+    /// The size a surface it shows is laid out at, if known (the intent prewarm sizes a hidden page to it).
+    var presentedContentSize: CGSize? { get }
 }
 
 extension SurfacePresenter {
     var presentingWindow: NSWindow? { nil }
+    var presentedContentSize: CGSize? { nil }
 }
 
 extension PaneController {
     var presentingWindow: NSWindow? { view.window }
+    var presentedContentSize: CGSize? { view.contentHost.bounds.size }
 }
 
 struct WeakPresenter {

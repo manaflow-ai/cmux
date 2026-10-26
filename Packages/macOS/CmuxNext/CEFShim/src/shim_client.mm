@@ -5,10 +5,12 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
 #include "command_line_switches.h"
+#include "cursor_event.h"
 #include "external_url.h"
 #include "host_key_seqs.h"
 #include "local_file_handoff.h"
@@ -72,6 +74,7 @@
     case CMUX_SHIM_PAGE_RESOURCE:
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
+    case CMUX_SHIM_CURSOR:
       return true;
   }
   return false;
@@ -186,6 +189,44 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
     frame = frame->GetParent();
   }
   return std::string();
+}
+
+// cmux_shim_set_cursor_events: page cursors go to the host (UI thread only).
+bool cursor_events = false;
+
+// A custom cursor's image as base64 PNG, "" when it cannot go on the wire.
+// Chrome's app shim makes an NSImage of the same bitmap
+// (ui/base/cocoa/cursor_utils.mm, CreateCustomCursor).
+std::string CustomCursorPNG(const CefCursorInfo& custom) {
+  const int width = custom.size.width;
+  const int height = custom.size.height;
+  if (!CustomCursorAllowed(width, height, custom.buffer)) return std::string();
+  const float scale = custom.image_scale_factor > 0 ? custom.image_scale_factor : 1;
+  CefRefPtr<CefImage> image = CefImage::CreateImage();
+  if (!image->AddBitmap(scale, width, height, CEF_COLOR_TYPE_BGRA_8888, CEF_ALPHA_TYPE_PREMULTIPLIED, custom.buffer,
+                        static_cast<size_t>(width) * static_cast<size_t>(height) * 4)) {
+    return std::string();
+  }
+  int png_width = 0;
+  int png_height = 0;
+  CefRefPtr<CefBinaryValue> png = image->GetAsPNG(scale, true, png_width, png_height);
+  if (!png || png->GetSize() == 0) return std::string();
+  std::vector<unsigned char> bytes(png->GetSize());
+  png->GetData(bytes.data(), bytes.size(), 0);
+  return CefBase64Encode(bytes.data(), bytes.size()).ToString();
+}
+
+// CURSOR for browser_id (cursor_event.h): the type, and for CT_CUSTOM its
+// image, scale and hotspot. An image that cannot go on the wire shows the arrow.
+void EmitCursor(int browser_id, cef_cursor_type_t type, const CefCursorInfo& custom) {
+  const std::string png = type == CT_CUSTOM ? CustomCursorPNG(custom) : std::string();
+  if (png.empty()) {
+    Emit(CMUX_SHIM_CURSOR, browser_id, 0, type == CT_CUSTOM ? kCursorPointer : static_cast<int64_t>(type));
+    return;
+  }
+  const CustomCursorFields fields = CustomCursorFieldsFor(custom.image_scale_factor, custom.hotspot.x,
+                                                          custom.hotspot.y, custom.size.width, custom.size.height);
+  Emit(CMUX_SHIM_CURSOR, browser_id, fields.scale_milli, kCursorCustom, fields.hotspot, png);
 }
 
 class Client : public CefClient,
@@ -591,6 +632,15 @@ class Client : public CefClient,
     Emit(CMUX_SHIM_PROGRESS, browser->GetIdentifier(), 0, static_cast<int64_t>(progress * 1000));
   }
 
+  // While the host takes cursors (cmux_shim_set_cursor_events), the page's
+  // cursor is CURSOR and Chromium sets no NSCursor of its own (true: handled).
+  bool OnCursorChange(CefRefPtr<CefBrowser> browser, CefCursorHandle, cef_cursor_type_t type,
+                      const CefCursorInfo& custom) override {
+    if (!cursor_events) return false;
+    EmitCursor(browser->GetIdentifier(), type, custom);
+    return true;
+  }
+
   // MARK: Load
 
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {
@@ -795,6 +845,10 @@ int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delaye
   host().schedule_delayed = schedule_delayed;
   api.set_on_schedule_delayed(schedule_delayed ? ScheduleDelayedTrampoline : nullptr, nullptr);
   return 1;
+}
+
+void cmux_shim_set_cursor_events(int enabled) {
+  cursor_events = enabled != 0;
 }
 
 }  // extern "C"

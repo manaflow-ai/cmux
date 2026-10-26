@@ -713,12 +713,14 @@ final class LaneScheduler: Sendable {
     }
 
     /// Runs the started job on its slot's thread at the level the slot runs it at, inside its `task.run` slice when
-    /// it was posted while the trace recorded; its end stamp, or nil when it was abandoned first.
+    /// it was posted while the trace recorded, with the flow-in of its post's `task.post` (``TaskTrace``) first in
+    /// the slice; its end stamp, or nil when it was abandoned first.
     private func run(_ start: Start, startedAt started: UInt64) -> UInt64? {
         guard let tracedPost = start.tracedPost else { return watched(start, startedAt: started) }
         let waitedMicros = (trace.nowNanos() &- tracedPost) / 1_000
         return trace.interval(.taskRun, arg0: Self.traceSite(lane: lane, priority: start.priority), arg1: waitedMicros) {
-            watched(start, startedAt: started)
+            start.job.traceArrival()
+            return watched(start, startedAt: started)
         }
     }
 

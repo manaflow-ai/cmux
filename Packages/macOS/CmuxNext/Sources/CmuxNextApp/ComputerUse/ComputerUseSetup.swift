@@ -65,6 +65,10 @@ final class ComputerUseSetup {
     /// The signed helper the grants belong to (the running one, else the one
     /// that would start). Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// The helper's icon (the drag tiles show it), read on the system lane once the helper is found.
+    private(set) var helperAppIcon: NSImage?
+    /// The app's Launch Services answers, which read the helper's icon; nil (tests) reads none.
+    @ObservationIgnored private let queries: WorkspaceQueries?
 
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
@@ -96,7 +100,8 @@ final class ComputerUseSetup {
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(), queries: WorkspaceQueries? = nil) {
+        self.queries = queries
         self.inputs = inputs
         self.configuration = configuration
         self.read = read
@@ -249,6 +254,12 @@ final class ComputerUseSetup {
             let url = await resolveHelper(running)
             guard let self, resolvedFor == .some(running) else { return }
             helperAppURL = url
+            helperAppIcon = nil
+            guard let url, let queries else { return }
+            queries.value(WorkspaceQuery<NSImage>.fileIcon(atPath: url.path, side: 32), priority: .userVisible) { [weak self] icon in
+                guard let self, helperAppURL == url else { return }
+                helperAppIcon = icon
+            }
         }
     }
 
@@ -309,7 +320,7 @@ extension ComputerUseSetup {
                         setupLogger.error("Computer Use could not be turned on: \(String(describing: error), privacy: .public)")
                     }
                 }
-            })
+            }, queries: services.workspaceQueries)
         setup.start()
         return setup
     }

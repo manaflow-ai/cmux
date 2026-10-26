@@ -117,6 +117,8 @@ final class CEFPaneHost {
     /// (`pageParent`). It names the page's parent view on the wire and shows the Core Animation
     /// context id the host gives for it (``ChromiumHostPageView/show(contextID:)``).
     var hostedPageView: ChromiumHostPageView?
+    /// Host mode: each browser's last page cursor (`CEFPaneHost+Cursor`).
+    var pageCursors: [Int32: CEFPageCursor] = [:]
     /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
     /// (`createAfterMachineProxy`).
     var machineProxyWaits: Set<ObjectIdentifier> = []
