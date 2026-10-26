@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// URL and its name at once, and for an image its bytes (and a TIFF) through a data provider, so the drag
 /// starts in the event's turn with no read.
 ///
-/// The bytes and the TIFF come from the drag's off-main read (``AgentPaneFileDrag/contents(of:)``) once it ends
+/// The bytes and the TIFF come from the drag's lane read (``AgentPaneFileDrag/contents(of:)``) once it ends
 /// (``image``). A drop target that asks for an image type before that read ends gets no data for it (the
 /// main thread never reads, decodes or encodes the file); it still has the file URL, which Finder and most apps
 /// take.
@@ -14,7 +14,7 @@ nonisolated final class AgentPaneFileDragPasteboard: NSObject, NSPasteboardItemD
     let file: URL
     // Lock carve-out: one value set once by the drag's read and read synchronously by AppKit's data callback.
     private let stored = Mutex<AgentPanePasteboardImage?>(nil)
-    /// The image's bytes and TIFF, from the off-main read; nil until it ends (or for another file).
+    /// The image's bytes and TIFF, from the drag's lane read; nil until it ends (or for another file).
     var image: AgentPanePasteboardImage? {
         get { stored.withLock { $0 } }
         set { stored.withLock { $0 = newValue } }
@@ -40,7 +40,7 @@ nonisolated final class AgentPaneFileDragPasteboard: NSObject, NSPasteboardItemD
         return item
     }
 
-    /// The bytes for `type` from ``image``; nil before the off-main read ended (no read or decode here).
+    /// The bytes for `type` from ``image``; nil before the lane read ended (no read or decode here).
     func data(for type: NSPasteboard.PasteboardType) -> Data? {
         guard imageTypes.contains(type), let image else { return nil }
         return type == .tiff && imageTypes.first != .tiff ? image.tiff : image.data
