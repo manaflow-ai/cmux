@@ -12,6 +12,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::server::EchoWatch;
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
@@ -332,6 +333,9 @@ struct InFlightInput {
 struct SharedQueue {
     state: Mutex<QueueState>,
     changed: Condvar,
+    /// Watches each local input write at 100 ms (the owner mux's request
+    /// watchdog); `None` with no local mux.
+    hangs: Option<EchoWatch>,
     #[cfg(test)]
     after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -371,10 +375,21 @@ struct PtyMutationIdentity {
 }
 
 impl PtyInputDispatcher {
+    #[cfg(test)]
     pub fn spawn(
         on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let queue = Arc::new(SharedQueue::default());
+        Self::spawn_watched(on_failure, None)
+    }
+
+    /// [`Self::spawn`], with each local input write a hang scope of `hangs`
+    /// (the write only: never the wait for the next event, a remote send or
+    /// a mutation).
+    pub fn spawn_watched(
+        on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
+        hangs: Option<EchoWatch>,
+    ) -> anyhow::Result<Self> {
+        let queue = Arc::new(SharedQueue { hangs, ..SharedQueue::default() });
         let worker_queue = queue.clone();
         let on_failure = Arc::new(on_failure);
         let worker_failure = on_failure.clone();
@@ -1033,6 +1048,7 @@ fn process_event(
     } else if let Some(operation) = event.mutation.take() {
         operation()
     } else {
+        let _write = queue.hangs.as_ref().filter(|_| !remote).and_then(EchoWatch::pty_input_write);
         event.surface.write_bytes(&event.bytes)
     };
     #[cfg(test)]
@@ -2803,5 +2819,37 @@ mod tests {
         oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1].into();
 
         assert_eq!(dispatcher.enqueue(oversized), PtyInputEnqueueResult::Oversized);
+    }
+
+    /// p02-threads task 232: a dispatcher whose local writes are hang
+    /// scopes of the owner mux's watchdog still delivers every write in
+    /// order (the scope is the write only; the core watchdog tests check a
+    /// stalled write is one `mux-pty-input` row).
+    #[test]
+    fn a_watched_dispatcher_delivers_local_writes_in_order() {
+        let mux = TestMux::new("watched-pty-input-test", TestSurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut dispatcher =
+            PtyInputDispatcher::spawn_watched(|_| {}, Some(mux.echo_watch())).unwrap();
+        let (delivered_tx, delivered) = std::sync::mpsc::channel();
+        dispatcher.set_delivered_write_observer(Some(Arc::new(move |_, bytes: &[u8]| {
+            let _ = delivered_tx.send(bytes.to_vec());
+        })));
+        for byte in [b'a', b'b'] {
+            let event = PtyInputEvent::input(
+                surface.id,
+                SurfaceHandle::Local(surface.clone(), mux.clone()),
+                PtyInputBytes::from_slice(&[byte]),
+                PtyInputKind::Ordered,
+            );
+            assert_eq!(dispatcher.enqueue(event), PtyInputEnqueueResult::Accepted);
+        }
+        let mut written = Vec::new();
+        while written.len() < 2 {
+            written.extend(delivered.recv_timeout(Duration::from_secs(5)).unwrap());
+        }
+        assert_eq!(written, b"ab");
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        mux.shutdown();
     }
 }

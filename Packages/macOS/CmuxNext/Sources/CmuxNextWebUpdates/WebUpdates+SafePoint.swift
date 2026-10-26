@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextPages
 import CmuxNextUpdater
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CoreGraphics
 import WebKit
 
@@ -97,7 +100,9 @@ extension WebUpdates {
         const held = await swap.hold();
         return typeof held === "string" && held ? held : null;
         """
-        return await withCheckedContinuation { (done: CheckedContinuation<[String?], Never>) in
+        // Answers dropped before they resumed read as no page answering.
+        let unanswered = [String?](repeating: "page.no-answer", count: views.count)
+        return (try? await withOnceContinuation { (done: OnceContinuation<[String?], OnceContinuationError>) in
             let answers = Answers(count: views.count, done)
             let deadline = DemandTimer(owner: "web-updates.page-answer")
             answers.deadline = deadline
@@ -114,7 +119,7 @@ extension WebUpdates {
                     }
                 }
             }
-        }
+        }) ?? unanswered
     }
 
     /// The pages' answers for one ask: resumes once, when every page answered or at the deadline
@@ -122,10 +127,10 @@ extension WebUpdates {
     @MainActor private final class Answers {
         private var values: [String??]
         private var left: Int
-        private var done: CheckedContinuation<[String?], Never>?
+        private var done: OnceContinuation<[String?], OnceContinuationError>?
         var deadline: DemandTimer?
 
-        init(count: Int, _ done: CheckedContinuation<[String?], Never>) {
+        init(count: Int, _ done: OnceContinuation<[String?], OnceContinuationError>) {
             values = Array(repeating: nil, count: count)
             left = count
             self.done = done

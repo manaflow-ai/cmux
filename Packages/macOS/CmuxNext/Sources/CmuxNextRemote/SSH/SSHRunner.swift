@@ -1,6 +1,9 @@
 import CmuxNextCloud
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextWakeups
 
 /// The outcome of one finished ssh (or curl) run.
@@ -128,13 +131,13 @@ public struct SSHProcessRunner {
 final class ExitLatch: Sendable {
     private struct State {
         var status: Int32?
-        var waiters: [CheckedContinuation<Int32, Never>] = []
+        var waiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
     private let state = Mutex(State())
 
     func finish(_ status: Int32) {
-        let waiters = state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Int32, OnceContinuationError>] in
             state.status = status
             defer { state.waiters.removeAll() }
             return state.waiters
@@ -142,14 +145,15 @@ final class ExitLatch: Sendable {
         for waiter in waiters { waiter.resume(returning: status) }
     }
 
+    /// The exit status; -1 ("status unknown") when the wait was dropped without one.
     func awaitValue() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.status { return status }
                 state.waiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? -1
     }
 }

@@ -390,6 +390,11 @@ pub(crate) fn note_long_lock_wait(location: &'static Location<'static>) {
     }
 }
 
+#[cfg(debug_assertions)]
+mod long_wait;
+#[cfg(debug_assertions)]
+pub(crate) use long_wait::{denies, note_long_wait};
+
 #[cfg(unix)]
 const NO_OWN_FD: std::os::fd::RawFd = -1;
 

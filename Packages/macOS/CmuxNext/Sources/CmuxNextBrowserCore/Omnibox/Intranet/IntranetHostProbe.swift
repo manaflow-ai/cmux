@@ -1,5 +1,8 @@
 package import CmuxNextCompat
 package import CmuxNextWakeups
+package import class CmuxSafeConcurrency.OnceContinuation
+package import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// Checks whether a bare typed word is an intranet host (`wiki` at a company
@@ -89,13 +92,14 @@ public actor IntranetHostProbe {
         let lookup = self.lookup, timeout = self.timeout
         let deadline = DemandTimer(owner: "omnibar.intranetProbe", clock: clock)
         let answer = OneShotAnswer()
-        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        // A dropped answer is no host, as the deadline answers.
+        let result = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             answer.begin(continuation)
             let work = Task { answer.finish(await lookup.resolves(host)) }
             deadline.schedule(after: timeout) {
                 if answer.finish(false) { work.cancel() }
             }
-        }
+        }) ?? false
         deadline.cancel()
         return result
     }
@@ -112,9 +116,9 @@ public actor IntranetHostProbe {
 private nonisolated final class OneShotAnswer: Sendable {
     // Synchronous compare-and-set from a lookup task and a timer callback
     // racing to resume one continuation (the lock carve-out).
-    private let state = Mutex<(continuation: CheckedContinuation<Bool, Never>?, answer: Bool?)>((nil, nil))
+    private let state = Mutex<(continuation: OnceContinuation<Bool, OnceContinuationError>?, answer: Bool?)>((nil, nil))
 
-    package func begin(_ continuation: CheckedContinuation<Bool, Never>) {
+    package func begin(_ continuation: OnceContinuation<Bool, OnceContinuationError>) {
         let answered = state.withLock { state -> Bool? in
             if state.answer == nil { state.continuation = continuation }
             return state.answer
@@ -125,7 +129,7 @@ private nonisolated final class OneShotAnswer: Sendable {
     /// True for the first caller, whose value resumes the waiter.
     @discardableResult
     package func finish(_ value: Bool) -> Bool {
-        let (first, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Bool, Never>?) in
+        let (first, continuation) = state.withLock { state -> (Bool, OnceContinuation<Bool, OnceContinuationError>?) in
             guard state.answer == nil else { return (false, nil) }
             state.answer = value
             defer { state.continuation = nil }
