@@ -48,7 +48,7 @@ ALLOWED: dict[str, str] = {
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
     'cmux-next.yml: Probe the same-tree cmux-tui':
-        'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks, pushes and DEV dispatches look once',
+        'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks look once; pushes and DEV dispatches look once, then re-check once after 20 s',
     'cmux-tui-artifacts.yml: Re-check the owner after leaving the marker':
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
@@ -224,6 +224,29 @@ class TokenTests(unittest.TestCase):
             self.assertIn("scripts/wait.py", step_polls({"run": "python3 scripts/wait.py\n", "env": own}, {}, {}, scripts))
             app = {"GH_TOKEN": "${{ steps.app.outputs.token }}"}
             self.assertIsNone(step_polls({"run": calls, "env": app}, {}, {}, scripts))
+
+    def test_a_followed_script_sees_the_callers_api_url(self) -> None:
+        import tempfile
+        from github_token_polling import Scripts
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            (root / "scripts" / "api.sh").write_text('curl -H "Authorization: Bearer $GH_TOKEN" "$API_URL/repos/x"\n')
+            step = {"run": "for _ in 1 2; do scripts/api.sh; sleep 5; done\n",
+                    "env": {"GH_TOKEN": "${{ github.token }}", "API_URL": "${{ github.api_url }}"}}
+            self.assertTrue(step_polls(step, {}, {}, Scripts(root)))
+            step["env"]["API_URL"] = "https://files.cmux.com"
+            self.assertIsNone(step_polls(step, {}, {}, Scripts(root)))
+
+    def test_a_heredoc_inside_a_shell_loop_is_part_of_the_loop(self) -> None:
+        own = {"GH_TOKEN": "${{ github.token }}"}
+        py = ("for _ in 1 2 3; do\n  python3 - <<'PY'\nimport urllib.request\n"
+              "urllib.request.urlopen('https://api.github.com/repos/x')\nPY\n  sleep 5\ndone\n")
+        self.assertTrue(step_polls({"run": py, "env": own}, {}, {}))
+        js = ("for _ in 1 2 3; do\n  node <<'JS'\nawait github.rest.repos.get({})\nJS\n  sleep 5\ndone\n")
+        self.assertTrue(step_polls({"run": js, "env": own}, {}, {}))
+        text = "for _ in 1 2 3; do\n  cat > f <<'EOF'\ncurl https://api.github.com\nEOF\n  sleep 5\ndone\n"
+        self.assertIsNone(step_polls({"run": text, "env": own}, {}, {}))
 
     def test_the_innermost_token_wins(self) -> None:
         job = {"env": {"GH_TOKEN": "${{ github.token }}"}}

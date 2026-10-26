@@ -87,7 +87,7 @@ def shell_words(text: str) -> list[tuple[str, int]]:
     words: list[tuple[str, int]] = []
     i, n = 0, len(text)
     current, start, quoted = "", -1, False
-    pending_heredocs: list[tuple[str, bool]] = []
+    pending_heredocs: list[tuple[str, bool, int]] = []
 
     def flush() -> None:
         nonlocal current, start, quoted
@@ -101,15 +101,19 @@ def shell_words(text: str) -> list[tuple[str, int]]:
             flush()
             words.append((";", i))
             i += 1
-            for delimiter, strip in pending_heredocs:
+            for delimiter, strip, index in pending_heredocs:
                 end = text.find("\n", i)
+                body: list[str] = []
                 while True:
                     line_end = n if end < 0 else end
                     line = text[i:line_end]
                     i = line_end + 1
                     if (line.lstrip("\t") if strip else line) == delimiter or line_end >= n:
                         break
+                    body.append(line)
                     end = text.find("\n", i)
+                word, offset = words[index]
+                words[index] = (word + "\0" + "\n".join(body), offset)
             pending_heredocs = []
             continue
         if c in " \t":
@@ -157,7 +161,7 @@ def shell_words(text: str) -> list[tuple[str, int]]:
             flush()
             m = re.match(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w]*)\2", text[i:])
             if m:
-                pending_heredocs.append((m.group(3), m.group(1) == "-"))
+                pending_heredocs.append((m.group(3), m.group(1) == "-", len(words)))
                 words.append(("<<" + m.group(3), i))
                 i += m.end()
                 continue
@@ -283,9 +287,33 @@ def shell_api(block: list[str], api_url: re.Pattern[str] = API_TEXT) -> bool:
     for index, (word, start) in enumerate(zip(block, starts)):
         if start and word == "gh" and index + 1 < len(block) and block[index + 1] in GH_VERBS:
             return True
-        if start and word == "curl" and any(api_url.search(w) for w in block[index + 1:index + 30]):
+        if start and word == "curl" and any(api_url.search(w) for w in block[index + 1:index + 30]
+                                            if not w.startswith("<<")):
             return True
     return False
+
+
+def heredoc_effects(block: list[str]) -> tuple[bool, bool]:
+    """Whether a Python, node or bun heredoc fed by a command in the block calls the API, and whether one sleeps."""
+    starts = command_positions([(w, 0) for w in block])
+    calls = sleeps = False
+    command = ""
+    for word, start in zip(block, starts):
+        if start:
+            command = word.lstrip("\0")
+        if not (word.startswith("<<") and "\0" in word):
+            continue
+        body = word.split("\0", 1)[1]
+        name = command.rsplit("/", 1)[-1]
+        if name.startswith("python"):
+            c, z, _ = python_effects(body)
+        elif name in ("node", "bun"):
+            code = js_code(body)
+            c, z = bool(JS_API.search(code)), bool(JS_SLEEP.search(code))
+        else:
+            continue
+        calls, sleeps = calls or c, sleeps or z
+    return calls, sleeps
 
 
 def script_paths(block: list[str]) -> list[str]:
@@ -310,16 +338,19 @@ class Scripts:
 
     def __init__(self, root: Path | None) -> None:
         self.root = root
-        self.cache: dict[str, tuple[bool, bool, list[str], str]] = {}
+        self.cache: dict[tuple[str, frozenset[str]], tuple[bool, bool, list[str], str]] = {}
 
-    def read(self, path: str) -> tuple[bool, bool, list[str], str]:
-        """(calls the API, sleeps, scripts it runs, text) for one file, without following those scripts."""
-        if path in self.cache:
-            return self.cache[path]
+    def read(self, path: str, names: Iterable[str] = ()) -> tuple[bool, bool, list[str], str]:
+        """(calls the API, sleeps, scripts it runs, text) for one file, without following those scripts.
+
+        `names` are the variables the caller's environment sets to the API URL (api_url_names)."""
+        key = (path, frozenset(names))
+        if key in self.cache:
+            return self.cache[key]
         file = self.root / path if self.root else None
         if not file or not file.is_file():
-            self.cache[path] = (False, False, [], "")
-            return self.cache[path]
+            self.cache[key] = (False, False, [], "")
+            return self.cache[key]
         text = file.read_text(encoding="utf-8", errors="replace")
         if path.endswith(".py"):
             calls, sleeps, runs = python_effects(text)
@@ -328,12 +359,14 @@ class Scripts:
             calls, sleeps, runs = bool(JS_API.search(code)), bool(JS_SLEEP.search(code)), []
         else:
             words = [w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(text)]
-            url = api_url_pattern(api_url_names(text))
-            calls, sleeps, runs = shell_api(words, url), shell_sleeps(words), script_paths(words)
-        self.cache[path] = (calls, sleeps, runs, text)
-        return self.cache[path]
+            url = api_url_pattern(api_url_names(text) | set(names))
+            here_calls, here_sleeps = heredoc_effects(words)
+            calls = shell_api(words, url) or here_calls
+            sleeps, runs = shell_sleeps(words) or here_sleeps, script_paths(words)
+        self.cache[key] = (calls, sleeps, runs, text)
+        return self.cache[key]
 
-    def effects(self, paths: Iterable[str]) -> tuple[bool, bool]:
+    def effects(self, paths: Iterable[str], names: Iterable[str] = ()) -> tuple[bool, bool]:
         """Whether running these scripts calls the API, and whether it sleeps, scripts they run included."""
         calls = sleeps = False
         seen: set[str] = set()
@@ -343,7 +376,7 @@ class Scripts:
             if path in seen:
                 continue
             seen.add(path)
-            c, z, runs, _ = self.read(path)
+            c, z, runs, _ = self.read(path, names)
             calls, sleeps = calls or c, sleeps or z
             todo.extend(runs)
         return calls, sleeps
@@ -398,16 +431,21 @@ def heredoc_programs(text: str) -> Iterator[tuple[str, str]]:
 def shell_polls(text: str, env_scopes: Iterable[dict] = (), scripts: Scripts | None = None) -> str | None:
     words = shell_words(text)
     loops, functions = shell_blocks(words)
-    url = api_url_pattern(api_url_names(text, env_scopes))
+    env_scopes = list(env_scopes)
+    names = api_url_names(text, env_scopes)
+    url = api_url_pattern(names)
     scripts = scripts or Scripts(None)
+    env_names = api_url_names("", env_scopes)
     for loop in loops:
         seen, todo, calls_api, sleeps = set(), [loop], False, False
         while todo:
             block = todo.pop()
             calls_api = calls_api or shell_api(block, url)
             sleeps = sleeps or shell_sleeps(block)
-            script_calls, script_sleeps = scripts.effects(script_paths(block))
-            calls_api, sleeps = calls_api or script_calls, sleeps or script_sleeps
+            script_calls, script_sleeps = scripts.effects(script_paths(block), env_names)
+            here_calls, here_sleeps = heredoc_effects(block)
+            calls_api = calls_api or script_calls or here_calls
+            sleeps = sleeps or script_sleeps or here_sleeps
             for name in shell_calls(block, functions) - seen:
                 seen.add(name)
                 todo.append(functions[name])
