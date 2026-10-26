@@ -286,6 +286,117 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
 }
 
+/// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
+/// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
+/// participants, and typing through the link is refused `presence.peer_unsupported`.
+#[tokio::test]
+async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "presence").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached =
+        ca.call("_acpmux/attach", json!({"sessionId": "b/shared", "limit": 0})).await.unwrap();
+    assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
+    let author =
+        json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
+    let mut params = json!({"sessionId": "b/shared", "on": true});
+    params["_meta"] = author["_meta"].clone();
+    let refused = ca.call("_acpmux/typing", params).await.unwrap_err();
+    assert!(refused.contains("a peer daemon's link carries none"), "{refused}");
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+}
+
+/// A peer added with the dashboard token only serves this daemon's link as Web, not Peer:
+/// typing in that peer's chat is still refused here, before it is forwarded, so no entry there
+/// stands for every client of this daemon (`hub/presence.rs`).
+#[tokio::test]
+async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, _) = listen_with_peer_token(b.clone(), "presence-web").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "web-shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
+    let refused = ca.call("_acpmux/typing", json!({"sessionId": "b/web-shared", "on": true})).await;
+    assert!(refused.unwrap_err().contains("a peer daemon's link carries none"));
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+}
+
+/// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
+/// peer's chat never hears this daemon's presence for its own chat of that id.
+#[tokio::test]
+async fn a_peer_chat_sharing_a_local_id_never_hears_local_presence() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut local = client(a.clone()).await;
+    let own = local
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let own = own["sessionId"].as_str().unwrap().to_owned();
+    let sessions = vec![json!({"sessionId": own, "name": "twin"})];
+    let says = Lying { instance: json!("l-run"), sessions, ..Lying::default() };
+    let port = lying_peer(says).await;
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // The peer's chat, once this daemon has its list.
+    let mut far = client(a.clone()).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let reply = loop {
+        match far.call("_acpmux/attach", json!({"sessionId": "l/twin", "limit": 0})).await {
+            Ok(reply) => break reply,
+            Err(e) => assert!(tokio::time::Instant::now() < deadline, "never listed: {e}"),
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(reply["presence"]["participants"], json!([]), "{reply}");
+    local
+        .call("_acpmux/attach", json!({"sessionId": own, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    let ana = json!({"id": "tailnet:ana", "name": "Ana"});
+    local
+        .call(
+            "_acpmux/typing",
+            json!({"sessionId": own, "on": true, "_meta": {"acpmux": {"author": ana}}}),
+        )
+        .await
+        .unwrap();
+    local.wait("_acpmux/presence", |p| p["sessionId"] == own).await;
+    // Every line `far` gets up to a later reply: none is this daemon's presence.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    far.next += 1;
+    far.tx.send(Message::request(far.next, method::MUX_STATUS, json!({})).to_line()).await.unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), far.rx.recv()).await.unwrap().unwrap();
+        assert!(!line.contains("_acpmux/presence"), "{line}");
+        if matches!(Message::parse(&line), Ok(Message::Response { id, .. }) if id == far.next) {
+            break;
+        }
+    }
+}
+
 /// Two daemons peered both ways (a real pair on 10-14 grew names
 /// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
 /// sessions to a peer, both in the watch snapshot and in later changes, so a

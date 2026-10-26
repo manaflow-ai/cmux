@@ -13,6 +13,7 @@ pub mod events;
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod presence;
 pub mod process;
 pub mod session;
 #[cfg(test)]
@@ -154,6 +155,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -344,6 +346,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
+        notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
