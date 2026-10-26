@@ -6,6 +6,10 @@ public import CoreGraphics
 /// slot, spring back, drop) animates: the presented rect is the target plus
 /// an offset that springs to zero, so a jump never teleports the ghost and
 /// pointer motion is never smoothed away.
+///
+/// With `motion.renderServer` on nothing steps this model: the ghost lays out at ``rest`` once per
+/// change and Core Animation runs the same springs from what showed (`TabDragGhostPanel.present`),
+/// so a jump is ``jumpCount`` changing, with ``jumpVelocity``.
 public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     /// The tab image's screen rect the ghost is heading to.
     public private(set) var targetRect: CGRect
@@ -31,6 +35,12 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     }
     /// The cardness the last target asked for, preview or not.
     private var requestedCardness: CGFloat
+    /// The jumps so far (``setTarget(_:cardness:opacity:scale:jump:velocity:)`` with `jump`): a
+    /// render-server presenter springs the ghost's place when it changes, and follows the target
+    /// otherwise.
+    public private(set) var jumpCount = 0
+    /// The velocity the last jump left with, in points per second (zero when it had none).
+    public private(set) var jumpVelocity = CGVector.zero
 
     /// Spring for jumps between targets (`Motion` `.track`; `.settle` for a landing).
     public var rectSpring: SpringParameters
@@ -64,6 +74,8 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     public mutating func setTarget(_ rect: CGRect, cardness: CGFloat, opacity: CGFloat = 1, scale: CGFloat = 1, jump: Bool,
                                    velocity: CGVector = .zero) {
         if jump {
+            jumpCount &+= 1
+            jumpVelocity = velocity
             let presented = presentedRect
             dx.value = presented.minX - rect.minX
             dy.value = presented.minY - rect.minY
@@ -101,6 +113,13 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     public var isSettled: Bool {
         let springs: [SpringValue] = [dx, dy, dw, dh, cardness, opacity, scale]
         return springs.allSatisfy { (spring: SpringValue) -> Bool in spring.value == spring.target && spring.velocity == 0 }
+    }
+
+    /// This motion with every spring at its target: what the ghost shows once it settles.
+    public var rest: TabDragGhostMotion {
+        var settled = self
+        settled.snap()
+        return settled
     }
 
     public mutating func snap() {

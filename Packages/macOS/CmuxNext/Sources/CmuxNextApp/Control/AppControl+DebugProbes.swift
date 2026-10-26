@@ -9,6 +9,7 @@ import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
 import CmuxNextInputDiagnostics
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -87,8 +88,7 @@ extension AppControl {
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
-                DebugHints.watchMenus()
-                return .value(DebugHints.report(services.windowHints, params: call.params))
+                return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
@@ -185,6 +185,16 @@ extension AppControl {
                 return .value(DebugCrashes.report(services))
             },
         ])
+        #if CMUX_PGO_PROFILE
+        // The profile build only (p08-startup-103): rest.profraw before quit, on the files lane; launch.profraw
+        // was written at startup complete.
+        if let flush = profileFlush {
+            router.register([.async("debug.pgo_flush") { _ in
+                let rest = try await flush.writeRestProfile()
+                return ["rest": .string(rest.file.path), "rest_bytes": .number(Double(rest.bytes)), "launch": .string(flush.files.launch.path)]
+            }.withDeadline(.fixed(.seconds(30)))])
+        }
+        #endif
     }
 }
 #endif

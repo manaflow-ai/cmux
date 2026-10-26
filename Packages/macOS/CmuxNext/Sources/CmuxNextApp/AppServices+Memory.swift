@@ -8,6 +8,7 @@
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -15,10 +16,12 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFavicons
 import CmuxNextFeatures
+import CmuxNextFileGrid
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextResources
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -146,6 +149,36 @@ struct AppMemoryConsumers {
         hibernation.snapshots.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
+    /// `memoryFileHomeCaches` (default off): the registry the Files, Screenshots and app bundle image
+    /// caches register with, nil while the feature is off (p07-memory-059). Lazy services (the Files
+    /// pane, the Screenshots pages) take it when they are made.
+    var fileCacheRegistry: (any MemoryConsumerRegistry)? {
+        services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
+    }
+
+    /// The Files pane's thumbnail pixel bytes, a quarter of the Mac's image cache budget (32 MiB at
+    /// 16 GB), whatever the feature state: only the registration waits for `memoryFileHomeCaches`.
+    var filesThumbnailBytes: Int {
+        SubsystemBudget.forThisMac(gpuResidentAvailable: false).imageCacheBytes / 4
+    }
+
+    /// `memoryFileHomeCaches`: the grid thumbnail cache of the Screenshots pages as an asynchronous
+    /// consumer (its state stays on its actor); its owner keeps the registration. Nil while the
+    /// feature is off.
+    func registerFileGridThumbnails(_ cache: ThumbnailCache) -> AsyncMemoryConsumerRegistration? {
+        fileCacheRegistry.map {
+            AsyncMemoryConsumerRegistration(name: ThumbnailCache.memoryConsumerName, traits: ThumbnailCache.memoryTraits,
+                                            consumer: cache, registry: $0)
+        }
+    }
+
+    /// `memoryFileHomeCaches`: the apps client's decoded bundle images are one lossless consumer;
+    /// their owner, the apps service, calls this when it makes them.
+    func registerAppBundleImages(_ cache: AppBundleImageCache) {
+        guard let registry = fileCacheRegistry else { return }
+        cache.registerMemoryConsumer(with: registry)
+    }
+
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
     /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
     private func registerTerminalLastFrames() {
@@ -194,6 +227,11 @@ struct AppMemoryConsumers {
             (pages?.existingView(key)?.content as? PageWebView).map { PageWebViewLifecycle($0, encoder: encoder) }
         }
         services.webUI.lifecycle = lifecycle
+        // Crash budgets per renderer: Chromium groups pages only with `pageProcessGroups` (FirstPartyPageSchemes).
+        services.webUI.crashGroups = PageCrashGroups(chromiumSharesByGroup: services.features.isEnabled(.pageProcessGroups)) { page in
+            guard let chromium = page.chromiumPage else { return WebContentProcess.identifier(of: page.webKitView).map { .webKit(pid: $0) } }
+            return (chromium as? CEFPageChromiumPage)?.soleRendererClientID.map { .chromium(client: $0) }
+        }
         services.cache.pageLifecycle = lifecycle
     }
 

@@ -54,7 +54,7 @@ final class WindowRecordSaver {
     /// A frame change: save once it has settled for 500 ms.
     func geometryDidChange(_ state: WindowState) {
         guard manager.restored, !manager.isTerminating else { return }
-        geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
+        geometryTimer.scheduleOnMain(after: .milliseconds(500)) { [weak self] in self?.requestSave() }
     }
 
     func scheduleSave() {
@@ -78,7 +78,7 @@ final class WindowRecordSaver {
         afterCommit = probe
         probe.mark(in: host)
         // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
-        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedFocus() }
+        afterCommitTimer.scheduleOnMain(after: Self.afterCommitDeadline) { [weak self] in self?.commitShowedFocus() }
     }
 
     /// The commit that shows a focus move ran (or its deadline passed): the save it waited for starts.

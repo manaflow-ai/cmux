@@ -15,8 +15,9 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Timer fires that arrived while `CefDoMessageLoopWork` was already
     /// running (a nested run loop) and were deferred.
     public var reentrantFires = 0
-    /// `CefDoMessageLoopWork` calls that used CEF's whole 10 ms time slice
-    /// (the fork asks for "now" itself when work remains).
+    /// `CefDoMessageLoopWork` calls that used the fork's whole time slice
+    /// (``CEFPumpSchedule/timeSlice(forkAPI:)``: 2 ms from fork API 26,
+    /// else 10 ms; the fork asks for "now" itself when work remains).
     public var longWorkRuns = 0
     /// Total time inside `CefDoMessageLoopWork`, in seconds.
     public var workSeconds: Double = 0
@@ -53,8 +54,8 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds.
     ///
     /// - Returns: Whether it used CEF's whole time slice (a ``longWorkRuns`` pass; `cef.pump` end `arg0` 1).
-    mutating func recordWorkRun(elapsed: TimeInterval) -> Bool {
-        let longRun = elapsed >= CEFPumpSchedule.timeSlice
+    mutating func recordWorkRun(elapsed: TimeInterval, timeSlice: TimeInterval = CEFPumpSchedule.timeSlice) -> Bool {
+        let longRun = elapsed >= timeSlice
         workRuns += 1
         workSeconds += elapsed
         if longRun { longWorkRuns += 1 }
