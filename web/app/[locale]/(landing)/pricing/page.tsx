@@ -716,4 +716,3 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     currentPrice,
   };
 }
-
