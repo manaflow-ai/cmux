@@ -6,7 +6,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
-use cmux_trace::{CatalogName, InternedName, NameKind, Phase, Role, category, decode};
+use cmux_trace::names::catalog_id;
+use cmux_trace::{InternedName, Phase, Role, category, decode};
 
 struct Counting;
 
@@ -36,10 +37,9 @@ fn allocations() -> usize {
     ALLOCATIONS.with(Cell::get)
 }
 
-static CATALOG: [CatalogName; 2] = [
-    CatalogName { id: 1, kind: NameKind::Catalog, category: 0, text: "action.dispatch" },
-    CatalogName { id: 2, kind: NameKind::Catalog, category: 9, text: "motion.frame" },
-];
+/// Two names of the shared catalog every process ring starts with.
+const ACTION: u16 = catalog_id("action.perform");
+const MOTION: u16 = catalog_id("motion.frame");
 
 static READ: InternedName = InternedName::new("cmux.io.read", 6);
 
@@ -100,7 +100,7 @@ fn a_trace_point_that_is_off_allocates_nothing() {
     assert!(!cmux_trace::enabled(category::ALL));
     let before = allocations();
     for index in 0..10_000 {
-        cmux_trace::write(category::KEY, 1, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::KEY, ACTION, Phase::Instant, 0, index, 0);
         cmux_trace::write_at(category::FRAME, index, 2, Phase::Begin, 0, 0, 0);
         cmux_trace::write_interned(category::DAEMON, &READ, Phase::Instant, 0, index, 0);
     }
@@ -108,17 +108,17 @@ fn a_trace_point_that_is_off_allocates_nothing() {
 }
 
 fn child_abort(dir: &Path) {
-    let open = cmux_trace::init_blackbox(dir, Role::Daemon, &CATALOG).expect("first init");
+    let open = cmux_trace::init_blackbox(dir, Role::Daemon).expect("first init");
     for index in 0..1_000 {
-        cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, index, 0);
     }
     open.wait().expect("the black box moved into its file");
     for index in 1_000..2_000 {
-        cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, index, 0);
     }
     cmux_trace::start_recording(category::ALL).expect("starts");
     for index in 0..5_000 {
-        cmux_trace::write(category::MOTION, 2, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::MOTION, MOTION, Phase::Instant, 0, index, 0);
     }
     std::process::abort();
 }
@@ -147,44 +147,44 @@ fn a_child_that_aborts_leaves_rings_that_decode() {
     let decoded = read(&recording);
     let indices: Vec<u64> = decoded.records.iter().map(|record| record.arg0).collect();
     assert!(indices.iter().copied().eq(0..5_000), "the recording lost or reordered records");
-    assert!(decoded.records.iter().all(|record| record.name == 2));
+    assert!(decoded.records.iter().all(|record| record.name == MOTION));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn child_lifecycle(dir: &Path) {
     assert_eq!(cmux_trace::start_recording(0), Err(cmux_trace::TraceError::NotInitialized));
     assert!(cmux_trace::status().is_none());
-    let open = cmux_trace::init_blackbox(dir, Role::Daemon, &CATALOG).expect("first init");
+    let open = cmux_trace::init_blackbox(dir, Role::Daemon).expect("first init");
     assert!(
-        cmux_trace::init_blackbox(dir, Role::App, &[]).is_none(),
+        cmux_trace::init_blackbox(dir, Role::App).is_none(),
         "a second init replaced the black box"
     );
     let blackbox = open.wait().expect("adopts");
     assert!(cmux_trace::enabled(category::ACTION) && !cmux_trace::enabled(category::MOTION));
-    cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, 1, 0);
-    cmux_trace::write(category::MOTION, 2, Phase::Instant, 0, 2, 0);
+    cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, 1, 0);
+    cmux_trace::write(category::MOTION, MOTION, Phase::Instant, 0, 2, 0);
 
     let status = cmux_trace::start_recording(category::MOTION).expect("starts");
     assert!(status.recording && status.recording_file_backed);
     let recording = status.recording_path.expect("recording path");
-    cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, 3, 0);
-    cmux_trace::write(category::MOTION, 2, Phase::Instant, 0, 4, 0);
+    cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, 3, 0);
+    cmux_trace::write(category::MOTION, MOTION, Phase::Instant, 0, 4, 0);
     cmux_trace::write_interned(category::DAEMON, &READ, Phase::Instant, 0, 5, 0);
     cmux_trace::stop().expect("stops");
     assert!(!cmux_trace::enabled(category::MOTION));
-    cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, 6, 0);
-    cmux_trace::write(category::MOTION, 2, Phase::Instant, 0, 7, 0);
+    cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, 6, 0);
+    cmux_trace::write(category::MOTION, MOTION, Phase::Instant, 0, 7, 0);
 
     let pairs = |decoded: &cmux_trace::Decoded| -> Vec<(Option<String>, u64)> {
         decoded.records.iter().map(|r| (decoded.name(r.name).map(str::to_owned), r.arg0)).collect()
     };
     let named = |text: &str, arg0| (Some(text.to_owned()), arg0);
     let decoded = read(&blackbox);
-    assert_eq!(pairs(&decoded), [named("action.dispatch", 1), named("action.dispatch", 6)]);
+    assert_eq!(pairs(&decoded), [named("action.perform", 1), named("action.perform", 6)]);
     let decoded = read(&recording);
     assert_eq!(
         pairs(&decoded),
-        [named("action.dispatch", 3), named("motion.frame", 4), named("cmux.io.read", 5)],
+        [named("action.perform", 3), named("motion.frame", 4), named("cmux.io.read", 5)],
         "the recording's own table must name every record"
     );
     assert_eq!(decoded.threads.len(), 1, "one writer thread, one entry");
@@ -202,13 +202,13 @@ fn start_record_stop_through_the_process_api() {
 }
 
 fn child_alloc(dir: &Path) {
-    cmux_trace::init_blackbox(dir, Role::Holder, &CATALOG).expect("first init").wait().ok();
-    cmux_trace::write(category::KEY, 1, Phase::Instant, 0, 0, 0);
+    cmux_trace::init_blackbox(dir, Role::Holder).expect("first init").wait().ok();
+    cmux_trace::write(category::KEY, ACTION, Phase::Instant, 0, 0, 0);
     cmux_trace::write_interned(category::DAEMON, &READ, Phase::Instant, 0, 0, 0);
     let before = allocations();
     for index in 0..10_000 {
-        cmux_trace::write(category::KEY, 1, Phase::Instant, 0, index, 0);
-        cmux_trace::write(category::FRAME, 2, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::KEY, ACTION, Phase::Instant, 0, index, 0);
+        cmux_trace::write(category::FRAME, MOTION, Phase::Instant, 0, index, 0);
         cmux_trace::write_interned(category::DAEMON, &READ, Phase::Instant, 0, index, 0);
     }
     assert_eq!(allocations() - before, 0, "a recorded trace point allocated");
@@ -227,14 +227,14 @@ fn a_recorded_trace_point_allocates_nothing() {
 /// 1000 threads write once each and exit in a terminal host (256 thread entries): the TLS
 /// destructor frees each entry, so none is unknown and the last thread is attributed.
 fn child_threads(dir: &Path) {
-    let blackbox = cmux_trace::init_blackbox(dir, Role::TerminalHost, &CATALOG)
+    let blackbox = cmux_trace::init_blackbox(dir, Role::TerminalHost)
         .expect("first init")
         .wait()
         .expect("adopts");
     for index in 0..1_000u64 {
         std::thread::Builder::new()
             .name(format!("short-{index}"))
-            .spawn(move || cmux_trace::write(category::ACTION, 1, Phase::Instant, 0, index, 0))
+            .spawn(move || cmux_trace::write(category::ACTION, ACTION, Phase::Instant, 0, index, 0))
             .expect("spawns")
             .join()
             .expect("joins");
