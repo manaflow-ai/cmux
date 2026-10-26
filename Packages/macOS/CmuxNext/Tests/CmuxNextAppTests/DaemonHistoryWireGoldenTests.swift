@@ -1,6 +1,8 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHome
+@testable import CmuxNextHomeEngine
 import CmuxNextIPC
 import Foundation
 import Testing
@@ -134,6 +136,33 @@ struct DaemonHistoryWireGoldenTests {
             ], keyed: false))
     }
 
+    /// DaemonChiefAvatarRegistry's three calls (it added `machine` and `session` itself) and
+    /// HomeLocalChiefCreator's create (its params named no selector).
+    @Test func chiefAvatarAndCreateCalls() throws {
+        let current: [String: JSONValue] = ["machine": .string("current"), "session": .string("current")]
+        var get = current
+        get["chief"] = .string("agent_01HZX")
+        #expect(try Self.generated(V2ChiefProfileAvatarGetRequest(chief: "agent_01HZX"))
+            == Self.handBuilt("chief.profile.avatar.get", get, keyed: false))
+        // Bytes whose base64 has `/` (`iVBOR//77w==`), which the line must not escape.
+        let picture = ChiefAvatarPicture(mediaType: "image/png", data: Data([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFB, 0xEF]))
+        var set = current
+        set["chief"] = .string("agent_01HZX")
+        set["media_type"] = .string("image/png")
+        set["data"] = .string(picture.data.base64EncodedString())
+        #expect(try Self.generated(DaemonChiefAvatarRegistry.setRequest(picture, of: "agent_01HZX"))
+            == Self.handBuilt("chief.profile.avatar.set", set))
+        var clear = current
+        clear["chief"] = .string("agent_01HZX")
+        clear["clear"] = .bool(true)
+        #expect(try Self.generated(DaemonChiefAvatarRegistry.clearRequest(of: "agent_01HZX"))
+            == Self.handBuilt("chief.profile.avatar.set", clear))
+        #expect(try Self.generated(HomeLocalChiefCreator.request(name: "Scout", backend: .unii))
+            == Self.handBuilt("chief.profile.create", ["display_name": .string("Scout"), "harness": .string("unii")]))
+        #expect(try Self.generated(HomeLocalChiefCreator.request(name: "Scout", backend: .claude))
+            == Self.handBuilt("chief.profile.create", ["display_name": .string("Scout")]))
+    }
+
     /// The replies the migrated calls read decode as the daemon writes them (history_ops,
     /// origin_gate.rs): a mutation's `value`, the trail step and the confirmation token.
     @Test func repliesDecode() throws {
@@ -150,5 +179,33 @@ struct DaemonHistoryWireGoldenTests {
         let token = try result(V2OriginConfirmation.self,
                                #"{"id":"1","ok":true,"result":{"token":"t","expires_at":"1700000060000"}}"#)
         #expect(token.token == "t")
+    }
+
+    /// The Chief registry's replies as the owner writes them (chief_registry_resource.rs): the list
+    /// with one pictured and one bare record, and the picture page with and without a picture.
+    @Test func chiefRegistryRepliesDecode() throws {
+        func result<T: Decodable>(_ type: T.Type, _ line: String) throws -> T {
+            try ResourceRequestEnvelope.decodeResult(T.self, from: Data(line.utf8))
+        }
+        let sha = String(repeating: "a", count: 64)
+        let record = #""role":"","personality":"","instructions":"","tools":["spawn"],"harnesses":[],"engine":{},"#
+            + #""self_edit":["avatar"],"locked":false,"rev":2,"created_at":"2026-10-26T00:00:00.000Z","#
+            + #""updated_at":"2026-10-26T00:00:00.000Z""#
+        let list = try result(V2ChiefProfileListRequest.Result.self, #"{"id":"1","ok":true,"result":{"chiefs":["#
+            + #"{"id":"agent_mux","display_name":"Chief","is_default":true,"avatar":{"sha256":""# + sha
+            + #"","media_type":"image/png","bytes":7},"# + record + "},"
+            + #"{"id":"agent_scout01","display_name":"Scout","is_default":false,"avatar":null,"# + record
+            + #"}],"deleted":["agent_gone01"]}}"#)
+        #expect(list.chiefs.map(\.id) == ["agent_mux", "agent_scout01"])
+        #expect(list.chiefs.map(\.avatar?.sha256) == [sha, nil])
+        let page = try result(V2ChiefProfileAvatarGetRequest.Result.self, #"{"id":"1","ok":true,"result":{"#
+            + #""chief":"agent_mux","avatar":{"sha256":""# + sha + #"","media_type":"image/png","bytes":7,"#
+            + #""data":"iVBOR//77w=="}}}"#)
+        #expect(page.avatar?.mediaType.rawValue == "image/png")
+        #expect(page.avatar.flatMap { Data(base64Encoded: $0.data) }
+            == Data([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFB, 0xEF]))
+        let bare = try result(V2ChiefProfileAvatarGetRequest.Result.self,
+                              #"{"id":"1","ok":true,"result":{"chief":"agent_scout01","avatar":null}}"#)
+        #expect(bare.avatar == nil)
     }
 }
