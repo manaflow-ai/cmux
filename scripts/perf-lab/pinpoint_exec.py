@@ -1,42 +1,53 @@
 #!/usr/bin/env python3
 """Pinpoint's executor: carries out the pure core's actions (pinpoint.py, task 015) on the lab.
 
-labd (task 012) calls `Executor.tick()` every scheduler poll and on controller callbacks. One tick:
+labd (task 012) runs one executor tick before each scheduler plan (scheduler.py, task 011):
 
-1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet), pinned to
-   the group's largest regression: its story, metric, build config and host class, over the commits between
-   the last waterfall point before the alert and the first one at its end. Magnitude = the alert's delta
-   (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6).
-2. for each running bisect job: reads the answers to its outstanding actions, steps the core until it waits,
-   persists the job state, and submits the new actions:
-   - Build(change): no stored build, so a perf-lab-build request (scripts/measure/perf-lab-build.sh, task
-     009) for (sha, config). The build ledger (builds.py) answers it: ok -> built, failed -> unbuildable
-     (the core skips that commit). A builder job that ends with no ledger record failed for a reason the
-     commit did not cause and is requested again, at most BUILD_RETRIES more times.
-   - Run(change, start, count): one story job (scripts/measure/perf-lab.sh, task 008) of `--repeats count`
-     on one host of the job's class: an idle pinpoint host, preferably the one the job used before, else a
-     waterfall host of the class that is idle with its next T0 more than BORROW_LEAD away and that the run
-     ends before (3.1). Never a host of another class, never a busy or down one.
+    report = executor.tick()
+    driver.tick(hosts, builds, submit=submit, pinpoint=executor.pinpoint_work())
+
+and its submit callback starts each plan job whose `work_id` names a story request with
+`executor.story_request(work_id)` (scripts/measure/perf-lab.sh, task 008, on the plan job's host). The executor never
+picks a host and never sends a request to the controller: the scheduler alone places work (one job per host, the
+T0 > bisect > verify > T1 order, borrowing a waterfall host only far from its next T0) and orders builds (batch tips,
+then tiers, then Pinpoint). One tick:
+
+1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet), pinned to the
+   group's largest regression (alerts.group_alerts): its story, metric, build config and host class, over the
+   commits between the range ends that the group's issue links (alerts.waterfall_sha). Magnitude = the alert's
+   delta (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6). The group
+   moves new -> triaged -> bisecting through sheriff.Sheriff.apply_state with ACTOR as the session, in the same
+   transaction as the job row, so the sheriff's transitions, reasons and claims hold for the executor too.
+2. for each running bisect: stops it when its group is no longer bisecting (catapult cancels a Pinpoint job whose
+   alert was triaged away), else reads the answers to its outstanding actions, steps the core until it waits and
+   persists the job state:
+   - Build(change): the build ledger (builds.py, task 009) answers it. Until it does, the Build is published as
+     `PinpointWork(build_only=True)`, so the scheduler requests (sha, config) once. Only a `failed` ledger record
+     makes the commit unbuildable; a build with no record stays outstanding and is reported after BUILD_WAIT,
+     because a builder that recorded nothing failed for a reason the commit did not cause.
+   - Run(change, start, count): one story job of `--repeats count`, published as PinpointWork with a key that
+     changes per try (`perf-lab-pinpoint:<job>:<action>:<try>`, the work id) and the job's last host as
+     `prefer_host`. `Controller.find(key)` reports the controller job once labd started it. When it ends, the
+     executor ingests its artifact (ControllerJob.artifact) with ingest.ingest_paths(kind="bisect",
+     job_id=<the story job's row>) and reads the runs back by that id: repeat i is the i-th run by start time; a
+     repeat with no run, or a run without the metric, is a failed attempt. A job that measured nothing (another
+     exit code, an exit-0 artifact that stored no run, or no artifact RESULT_WAIT after the end) is run again with
+     a new key, at most RUN_RETRIES more times, then its attempts are failed.
    - Done(result): stores the result on the job and moves the group: a culprit -> `culprit` (unverified;
-     verify.py, task 017, decides), no culprit -> back to `triaged` with the outcome as the reason.
+     verify.py, task 017, decides), no culprit -> back to `triaged` with the outcome as the reason. A move the
+     sheriff rules refuse (a claim) rolls the whole write back; the job stays running and is tried next tick.
 
-Results come from the lab store. Each story job has its own jobs row (kind bisect, alert_group_id NULL,
-params_json.bisect_job = the bisect's row, controller_job_id = the controller's id). labd's job-finished
-hook (task 012) ingests the job's artifact with Run.job_id = that row and sets the row's state to `ingested`;
-repeat i of the job is the i-th of its runs by start time. A repeat with no run, or a run without the metric,
-is a failed attempt.
+Restart. Catapult stores a Pinpoint job after every pass of Job.Run (dashboard/dashboard/pinpoint/models/job.py:
+explore, schedule, put()). Here the job state is a journal in STATE_DIR/bisect-<id>.json, replaced atomically after
+every step: every step() call with the actions it returned, and every result in the order it was recorded. A restart
+replays the journal through a fresh pinpoint.JobState; step() is deterministic, so the replay reproduces the same
+state, and a replayed step that returns other actions is refused. A story job's key is on disk before it is
+published, so a job the controller started before a crash is found by its key, never started again.
 
-Restart. Catapult stores a Pinpoint job after every pass of Job.Run (dashboard/dashboard/pinpoint/models/
-job.py: explore, schedule, put()). Here the job state is a journal in STATE_DIR/bisect-<id>.json, replaced
-atomically after every step: every step() call with the actions it returned, and every result in the order it
-was recorded. A restart replays the journal through a fresh pinpoint.JobState; step() is deterministic, so the
-replay reproduces the same state, and a replayed step that returns other actions is refused. Each controller
-request carries a key derived from the job, the action and its try; the key is saved before the request and
-`Controller.find(key)` is asked first after a restart, so a request that was sent before a crash is adopted,
-never sent again.
+Failures stay with their job: a controller, ledger, ingest, journal or core error becomes an ExecError on that job's
+line of TickReport.problems, and every other job still advances in the same tick.
 
-The controller (task 010: the perf-lab label, host roles, affinity) is the injected `Controller`; labd
-provides the client. Stdlib only; loads its siblings by file path, so it runs under `python3 -I`.
+Stdlib only; loads its siblings by file path, so it runs under `python3 -I`.
 """
 from __future__ import annotations
 
@@ -49,7 +60,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -70,121 +81,77 @@ def _load_sibling(module_name: str, filename: str):
     return module
 
 
+store = _load_sibling("perf_lab_store", "store.py")
 pinpoint = _load_sibling("perf_lab_pinpoint", "pinpoint.py")
 builds = _load_sibling("perf_lab_builds", "builds.py")
+ingest = _load_sibling("perf_lab_ingest", "ingest.py")
+alerts = _load_sibling("perf_lab_alerts", "alerts.py")
+sheriff = _load_sibling("perf_lab_sheriff", "sheriff.py")
+scheduler = _load_sibling("perf_lab_scheduler", "scheduler.py")
 
-CHECKPOINT_SCHEMA = "cmux-perf-pinpoint-exec/v1"
+CHECKPOINT_SCHEMA = "cmux-perf-pinpoint-exec/v2"
 JOB_KIND = "bisect"
-ACTOR = "perf-lab-pinpoint"
-BORROW_LEAD = timedelta(minutes=10)  # the scheduler's rule (task 011): a borrowed waterfall host keeps its T0
-BUILD_RETRIES = 2  # a builder job that recorded nothing is requested again this many times
-RUN_RETRIES = 3  # a story job refused by its host (env-invalid, no artifact, a signal) is run again this often
-WATERFALL, PINPOINT = "waterfall", "pinpoint"
+ACTOR = "perf-lab-pinpoint"  # the sheriff session the executor's group moves are recorded under
+RUN_RETRIES = 3  # a story job that measured nothing (env-invalid, no artifact, a signal) is run again this often
+RESULT_WAIT = timedelta(minutes=30)  # a finished story job's artifact must reach the executor within this
+BUILD_WAIT = timedelta(hours=2)  # a requested build with no ledger record after this is reported each tick
+UNKNOWN_RUN_SECONDS = 6 * 3600  # a story job of unknown length borrows only a waterfall host with no T0 due
 START_STATES = ("new", "triaged")
 # run_story.py exit codes (task 008): 0 every repeat wrote results, 1 a repeat failed; anything else measured nothing.
 MEASURED_EXITS = (0, 1)
 
-# Journal and action states.
-PENDING, SUBMITTING, SUBMITTED, DONE = "pending", "submitting", "submitted", "done"
+# Action states: PENDING (a story job without its row yet), QUEUED (published to the scheduler),
+# SUBMITTED (the controller has it), DONE (its answer is in the journal).
+PENDING, QUEUED, SUBMITTED, DONE = "pending", "queued", "submitted", "done"
 
 
 class ExecError(RuntimeError):
-    """A job the executor cannot carry on: a journal that does not replay, or a store it cannot use."""
+    """A bisect the executor cannot advance this tick: a journal that does not replay, a store it cannot use, or a
+    failure of one of its seams. It is reported on the job's line; other jobs go on."""
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+class ControllerError(ExecError):
+    """The controller client failed (network, a refused request, an unknown id)."""
 
 
-def _stamp(moment: datetime) -> str:
-    """The lab store's stamp: fixed-width UTC ISO-8601 (store.py _stamp)."""
-    if moment.tzinfo is None or moment.utcoffset() is None:
-        raise ExecError(f"{moment.isoformat()}: a stored time needs a timezone")
-    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
-
-
-# ---------- the controller seam ----------
-
-@dataclass(frozen=True)
-class LabHost:
-    """A lab host as the controller's status shows it. next_t0_at: the scheduler's next T0 start for a
-    waterfall host; None means unknown, and an unknown host is never borrowed."""
-
-    name: str
-    role: str  # WATERFALL or PINPOINT
-    host_class: str
-    up: bool = True
-    busy: bool = False
-    next_t0_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class BuildRequest:
-    key: str
-    sha: str
-    config: str
-
+# ---------- seams ----------
 
 @dataclass(frozen=True)
 class StoryRequest:
+    """What labd's submit callback starts for a plan job whose work_id is `key` (perf-lab.sh, task 008)."""
+
     key: str
-    host: str
     story: str
     sha: str
     config: str
     digest: str  # "sha256:<64 hex>", perf-lab.sh --digest
     repeats: int
-    lab_job_id: int  # the story job's row in the lab store; the ingest links its runs to it
+    lab_job_id: int  # the story job's row in the lab store; its runs are ingested with Run.job_id = this
 
 
 @dataclass(frozen=True)
 class ControllerJob:
     """finished: the job ended; exit_code: the entry's exit status (None for a job that never ran).
-    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check)."""
+    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check).
+    host: the lab host it runs on. artifact: the job's result folder (`*.ndjson`) on labd's disk, once fetched."""
 
     finished: bool
     exit_code: int | None = None
     not_measurable: bool = False
+    host: str | None = None
+    artifact: Path | None = None
 
 
 class Controller(Protocol):
-    def hosts(self) -> Sequence[LabHost]: ...
-
     def find(self, key: str) -> str | None: ...
 
-    def submit_build(self, request: BuildRequest) -> str: ...
-
-    def submit_story(self, request: StoryRequest) -> str: ...
-
     def status(self, controller_job_id: str) -> ControllerJob: ...
+
+    def cancel(self, controller_job_id: str) -> None: ...
 
 
 class Ledger(Protocol):
     def get(self, sha: str, config: str): ...  # builds.BuildRecord | None
-
-
-def pick_host(hosts: Sequence[LabHost], host_class: str, *, now: datetime, seconds: float | None,
-              taken: set[str], prefer: str | None = None) -> LabHost | None:
-    """The host for one story job of `host_class`, or None to wait.
-
-    An idle pinpoint host of the class first (`prefer` before the others). A waterfall host of the class only
-    when it is idle, its next T0 is known and more than BORROW_LEAD away, and the run's known length ends
-    before it. A host of another class is never a candidate."""
-    def idle(host: LabHost) -> bool:
-        return host.up and not host.busy and host.name not in taken
-
-    same = sorted((h for h in hosts if h.host_class == host_class and idle(h)), key=lambda h: h.name)
-    own = [h for h in same if h.role == PINPOINT]
-    if own:
-        return next((h for h in own if h.name == prefer), own[0])
-    if seconds is None:
-        return None
-    for host in same:
-        if host.role != WATERFALL or host.next_t0_at is None:
-            continue
-        if host.next_t0_at - now > BORROW_LEAD and now + timedelta(seconds=seconds) <= host.next_t0_at:
-            return host
-    return None
 
 
 # ---------- serialization ----------
@@ -237,12 +204,12 @@ def job_of(doc: Mapping) -> object:
 
 @dataclass
 class Checkpoint:
-    """A bisect's persisted progress: the journal (steps and results, in order) and its controller requests."""
+    """A bisect's persisted progress: the journal (steps and results, in order) and its actions."""
 
     job_id: int
     events: list[dict] = field(default_factory=list)
     actions: list[dict] = field(default_factory=list)
-    host: str | None = None  # the host the job ran on last; its next story job prefers it
+    host: str | None = None  # the host its last story job ran on; the next one prefers it
 
     def dirty(self) -> bool:
         """A result was recorded since the last step, or the job never stepped."""
@@ -261,12 +228,15 @@ class Checkpoint:
 
 def record(state, event: Mapping) -> None:
     """Applies one journaled result (a build answer or an attempt) to the job state."""
-    if event["t"] == "build":
-        state.record_build(change_of(event["change"]), bool(event["ok"]))
-    elif event["t"] == "attempt":
-        state.record_attempt(attempt_of(event["attempt"]))
-    else:
-        raise ExecError(f"journal event kind {event['t']!r} is not a result")
+    try:
+        if event["t"] == "build":
+            state.record_build(change_of(event["change"]), bool(event["ok"]))
+        elif event["t"] == "attempt":
+            state.record_attempt(attempt_of(event["attempt"]))
+        else:
+            raise ExecError(f"journal event kind {event['t']!r} is not a result")
+    except pinpoint.PinpointError as error:
+        raise ExecError(f"journal result {dict(event)}: {error}") from error
 
 
 def replay(job, events: Sequence[Mapping]):
@@ -289,79 +259,92 @@ def replay(job, events: Sequence[Mapping]):
 class TickReport:
     started: list[int] = field(default_factory=list)  # new bisect job ids
     finished: list[int] = field(default_factory=list)
-    builds_requested: int = 0
-    stories_requested: int = 0
+    cancelled: list[int] = field(default_factory=list)
+    work: int = 0  # PinpointWork items published for the next plan
     problems: list[str] = field(default_factory=list)
 
 
 FirstParent = Callable[[str, str], Sequence[str] | None]
 
 
+def _seam(what: str, call: Callable, *args, error: type[ExecError] = ExecError):
+    """Calls an injected client. Its own failures (network, a refused request, a bad file) become a typed error
+    naming the call, so they stop only the job that made it."""
+    try:
+        return call(*args)
+    except ExecError:
+        raise
+    except Exception as failure:  # the client's exception types are its own; this is the typed boundary
+        raise error(f"{what}: {type(failure).__name__}: {failure}") from failure
+
+
 class Executor:
-    """Drives every running bisect of a migrated lab store (store.py schema >= 1).
+    """Drives every running bisect of a lab store at the current schema (store.MIGRATIONS).
 
     first_parent(good, bad): the first-parent commits after good up to bad, oldest first (None: unknown now).
-    repeat_seconds(story): one repeat's wall time, or None; a waterfall host is borrowed only for a known length.
-    One sqlite connection, owned by the opening thread like store.Store; every write is BEGIN IMMEDIATE."""
+    commit_positions: ingest.CommitPositions for the story jobs' commits (labd's GitCommitPositions).
+    repeat_seconds(story): one repeat's wall time, or None (UNKNOWN_RUN_SECONDS per job).
+    One store.Store connection, owned by the opening thread; every write is the store's BEGIN IMMEDIATE."""
 
     def __init__(self, db_path: Path | str, state_dir: Path | str, *, controller: Controller, ledger: Ledger,
-                 first_parent: FirstParent, repeat_seconds: Callable[[str], float | None] = lambda story: None,
-                 clock: Callable[[], datetime] = utc_now, busy_timeout_ms: int = 5000) -> None:
+                 first_parent: FirstParent, commit_positions: Callable[[str], object],
+                 repeat_seconds: Callable[[str], float | None] = lambda story: None,
+                 clock: Callable[[], datetime] = store.utc_now) -> None:
         self._controller = controller
         self._ledger = ledger
         self._first_parent = first_parent
+        self._commit_positions = commit_positions
         self._repeat_seconds = repeat_seconds
         self._clock = clock
         self._state_dir = Path(state_dir)
-        self._db = sqlite3.connect(str(db_path), isolation_level=None, timeout=busy_timeout_ms / 1000)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA foreign_keys=ON")
-        if self._db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs'").fetchone() is None:
-            self._db.close()
-            raise ExecError(f"{db_path}: not a migrated lab store")
+        self._lab = store.Store(db_path, clock=clock)
+        version, known = self._lab.schema_version(), len(store.MIGRATIONS)
+        if version != known:
+            self._lab.close()
+            raise ExecError(f"{db_path}: schema {version}, this checkout needs {known} (labd migrates the store)")
+        self._db = self._lab._db
+        self._sheriff = sheriff.Sheriff(self._lab, session=ACTOR, lead_session=None, clock=clock)
+        self._work: tuple = ()
+        self._requests: dict[str, StoryRequest] = {}
 
     def close(self) -> None:
-        self._db.close()
+        self._lab.close()
 
     def _write(self, statements: Callable[[], object]) -> object:
-        self._db.execute("BEGIN IMMEDIATE")
-        try:
-            result = statements()
-        except BaseException:
-            self._db.execute("ROLLBACK")
-            raise
-        self._db.execute("COMMIT")
-        return result
+        return self._lab._write(statements)
 
     def _now(self) -> str:
-        return _stamp(self._clock())
+        return store._stamp(self._clock())
+
+    # --- what labd hands the scheduler ---
+
+    def pinpoint_work(self) -> tuple:
+        """The last tick's outstanding Build and Run actions as scheduler.PinpointWork, in job order."""
+        return self._work
+
+    def story_request(self, work_id: str) -> StoryRequest | None:
+        """The story job a plan job of this work id starts; None for a build-only or unknown id."""
+        return self._requests.get(work_id)
 
     # --- tick ---
 
     def tick(self) -> TickReport:
         report = TickReport()
         self.start_bisects(report)
-        hosts = tuple(self._controller.hosts())
-        taken: set[str] = set()
-        jobs = self._db.execute(
-            "SELECT * FROM jobs WHERE kind = ? AND alert_group_id IS NOT NULL AND state = 'running' ORDER BY id",
-            (JOB_KIND,)).fetchall()
-        checkpoints: dict[int, Checkpoint] = {}
-        for row in jobs:
-            try:
-                checkpoints[row["id"]] = self._load(row["id"])
-            except ExecError as error:
+        rows = self._db.execute(
+            """SELECT j.*, g.state AS group_state FROM jobs j JOIN alert_groups g ON g.id = j.alert_group_id
+               WHERE j.kind = ? AND j.state = 'running' ORDER BY j.id""", (JOB_KIND,)).fetchall()
+        work: list = []
+        requests: dict[str, StoryRequest] = {}
+        for row in rows:
+            try:  # one job that fails holds up no other; its work waits for a tick it advances in
+                checkpoint = self._advance(row, report)
+                if checkpoint is not None:
+                    self._publish(row, checkpoint, work, requests)
+            except (ExecError, sqlite3.Error) as error:
                 report.problems.append(f"bisect {row['id']}: {error}")
-        for checkpoint in checkpoints.values():  # hosts our submitted story jobs hold, whatever the controller says
-            taken.update(a["host"] for a in checkpoint.actions
-                         if a["type"] == "run" and a["status"] == SUBMITTED and not a.get("ended"))
-        for row in jobs:
-            if row["id"] not in checkpoints:
-                continue
-            try:  # one job that cannot resume holds up no other
-                self._advance(row, checkpoints[row["id"]], hosts, taken, report)
-            except ExecError as error:
-                report.problems.append(f"bisect {row['id']}: {error}")
+        self._work, self._requests = tuple(work), requests
+        report.work = len(work)
         return report
 
     # --- starting bisects ---
@@ -377,7 +360,7 @@ class Executor:
         for group in groups:
             try:
                 job_id = self._start(group)
-            except pinpoint.PinpointError as error:
+            except (ExecError, pinpoint.PinpointError, sqlite3.Error) as error:
                 report.problems.append(f"group {group['id']}: {error}")
                 continue
             if isinstance(job_id, str):
@@ -386,69 +369,36 @@ class Executor:
                 report.started.append(job_id)
         return report.started
 
-    def _top_alert(self, group_id: int) -> sqlite3.Row | None:
-        """The group's largest relative regression (alerts.group_alerts' order)."""
-        rows = self._db.execute(
-            """SELECT a.median_before, a.median_after, a.start_pos, a.end_pos, s.story, s.metric, s.host_class,
-                      s.build_config, s.better
-               FROM alerts a JOIN series s ON s.id = a.series_id
-               WHERE a.group_id = ? AND a.rule = 'edivisive' AND a.is_improvement = 0
-                 AND a.median_before IS NOT NULL AND a.median_after IS NOT NULL ORDER BY a.id""",
-            (group_id,)).fetchall()
-
-        def change(row: sqlite3.Row) -> float:
-            before, after = row["median_before"], row["median_after"]
-            return math.inf if before == 0 else abs(after - before) / abs(before)
-
-        return max(rows, key=change, default=None)
-
-    def _waterfall_sha(self, config: str, pos: int, *, before: bool) -> str | None:
-        query = ("""SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos < ? AND EXISTS
-                    (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
-                    ORDER BY b.commit_pos DESC LIMIT 1""" if before else
-                 """SELECT b.sha FROM builds b WHERE b.config = ? AND b.commit_pos >= ? AND EXISTS
-                    (SELECT 1 FROM runs u WHERE u.build_id = b.id AND u.kind = 'waterfall')
-                    ORDER BY b.commit_pos LIMIT 1""")
-        row = self._db.execute(query, (config, pos)).fetchone()
-        return None if row is None else row["sha"]
-
-    def _batch_tips(self, config: str, shas: Sequence[str]) -> set[str]:
-        """The commits the waterfall measured: batch tips, whose builds exist (3.6: bisect at batch granularity)."""
-        if not shas:
-            return set()
-        marks = ",".join("?" * len(shas))
-        rows = self._db.execute(
-            f"""SELECT DISTINCT b.sha FROM builds b JOIN runs u ON u.build_id = b.id
-                WHERE b.config = ? AND u.kind = 'waterfall' AND b.sha IN ({marks})""", (config, *shas)).fetchall()
-        return {row["sha"] for row in rows}
-
-    def _stored(self, sha: str, config: str) -> bool:
-        record = self._ledger.get(sha, config)
-        return record is not None and record.status == "ok"
+    def _ledger_get(self, sha: str, config: str):
+        return _seam(f"build ledger {sha[:12]} ({config})", self._ledger.get, sha, config)
 
     def _start(self, group: sqlite3.Row) -> int | str:
         """The new bisect's job id, or why the group cannot start yet."""
-        alert = self._top_alert(group["id"])
-        if alert is None:
-            return "no regression alert with medians"
-        config = alert["build_config"]
-        good = self._waterfall_sha(config, group["start_pos"], before=True)
-        bad = self._waterfall_sha(config, group["end_pos"], before=False)
+        top = next(iter(alerts.group_alerts(self._lab, group["id"])), None)
+        if top is None:
+            return "no regression alert"
+        series = top.series
+        config = series.build_config
+        good = alerts.waterfall_sha(self._lab, config, group["start_pos"], before=True)
+        bad = alerts.waterfall_sha(self._lab, config, group["end_pos"], before=False)
         if good is None or bad is None:
             return f"no waterfall point {'before' if good is None else 'at the end of'} the range"
-        listed = self._first_parent(good, bad)
+        listed = _seam(f"first-parent {good[:12]}..{bad[:12]}", self._first_parent, good, bad)
         if listed is None:
             return f"first-parent commits {good[:12]}..{bad[:12]} are not known yet"
         shas = [good, *listed]
         if len(shas) < 2 or shas[-1] != bad or len(set(shas)) != len(shas):
             return f"first-parent commits {good[:12]}..{bad[:12]} do not end at {bad[:12]}"
         tips = self._batch_tips(config, shas)
-        commits = tuple(pinpoint.Commit(sha, batch_tip=sha in tips, stored_build=self._stored(sha, config))
-                        for sha in shas)
-        job = pinpoint.Job(kind=pinpoint.BISECT, mode=pinpoint.PERFORMANCE, story=alert["story"],
-                           metric=alert["metric"], host_class=alert["host_class"], good=commits[0].change,
-                           bad=commits[-1].change, magnitude=alert["median_after"] - alert["median_before"],
-                           better=alert["better"], commits=commits)
+        commits = []
+        for sha in shas:
+            stored = self._ledger_get(sha, config)
+            commits.append(pinpoint.Commit(sha, batch_tip=sha in tips,
+                                           stored_build=stored is not None and stored.status == "ok"))
+        job = pinpoint.Job(kind=pinpoint.BISECT, mode=pinpoint.PERFORMANCE, story=series.story,
+                           metric=series.metric, host_class=series.host_class, good=commits[0].change,
+                           bad=commits[-1].change, magnitude=top.median_after - top.median_before,
+                           better=series.better, commits=tuple(commits))
         params = json.dumps({"role": "bisect", "job": job_doc(job, config=config)}, sort_keys=True)
 
         def write() -> int:
@@ -461,29 +411,31 @@ class Executor:
                 """INSERT INTO jobs (kind, state, story, host_class, base_sha, head_sha, alert_group_id, params_json,
                                      created_at, updated_at) VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (JOB_KIND, job.story, job.host_class, good, bad, group["id"], params, now, now)).lastrowid
-            # catapult alert_group_workflow.py triages an untriaged group and bisects it; the legal path is
-            # new -> triaged -> bisecting (sheriff.py TRANSITIONS), so an automatic start records both moves.
-            moves = ([("new", "triaged", "monitored regression; automatic bisect")] if current["state"] == "new"
-                     else [])
-            moves.append(("triaged", "bisecting",
-                          f"bisect job {job_id}: {job.story} {job.metric} on {job.host_class}, "
-                          f"{len(commits) - 1} commits {good[:12]}..{bad[:12]}, delta {job.magnitude:+.4g}"))
-            for from_state, to_state, reason in moves:
-                self._history(group["id"], from_state, to_state, reason, now)
-            self._db.execute("UPDATE alert_groups SET state = 'bisecting', updated_at = ? WHERE id = ?",
-                             (now, group["id"]))
+            # catapult alert_group_workflow.py triages an untriaged group and bisects it: new -> triaged -> bisecting.
+            if current["state"] == "new":
+                self._sheriff.apply_state(group["id"], "triaged", reason="monitored regression; automatic bisect")
+            self._sheriff.apply_state(
+                group["id"], "bisecting",
+                reason=f"bisect job {job_id}: {job.story} {job.metric} on {job.host_class}, "
+                       f"{len(commits) - 1} commits {good[:12]}..{bad[:12]}, delta {job.magnitude:+.4g}")
             return job_id
 
-        job_id = self._write(write)
+        try:
+            job_id = self._write(write)
+        except sheriff.SheriffError as error:
+            return f"cannot move to bisecting: {error}"
         if not job_id:
             return "started elsewhere or closed"
         self._save(Checkpoint(job_id))
         return job_id
 
-    def _history(self, group_id: int, from_state: str, to_state: str, reason: str, now: str) -> None:
-        self._db.execute(
-            "INSERT INTO sheriff_history (group_id, from_state, to_state, actor, reason, at) VALUES (?, ?, ?, ?, ?, ?)",
-            (group_id, from_state, to_state, ACTOR, reason, now))
+    def _batch_tips(self, config: str, shas: Sequence[str]) -> set[str]:
+        """The commits the waterfall measured: batch tips, whose builds exist (3.6: bisect at batch granularity)."""
+        marks = ",".join("?" * len(shas))
+        rows = self._db.execute(
+            f"""SELECT DISTINCT b.sha FROM builds b JOIN runs u ON u.build_id = b.id
+                WHERE b.config = ? AND u.kind = 'waterfall' AND b.sha IN ({marks})""", (config, *shas)).fetchall()
+        return {row["sha"] for row in rows}
 
     # --- one job ---
 
@@ -496,35 +448,52 @@ class Executor:
             return Checkpoint.from_document(json.loads(self._path(job_id).read_text(encoding="utf-8")))
         except FileNotFoundError:
             return Checkpoint(job_id)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             raise ExecError(f"{self._path(job_id)}: {error}") from error
 
     def _save(self, checkpoint: Checkpoint) -> None:
-        self._state_dir.mkdir(parents=True, exist_ok=True)
-        handle, temp = tempfile.mkstemp(dir=self._state_dir, prefix=".bisect-", suffix=".json")
         try:
-            with os.fdopen(handle, "w", encoding="utf-8") as out:
-                json.dump(checkpoint.to_document(), out, sort_keys=True)
-                out.flush()
-                os.fsync(out.fileno())
-            os.replace(temp, self._path(checkpoint.job_id))
-        finally:
-            if os.path.exists(temp):
-                os.unlink(temp)
+            self._state_dir.mkdir(parents=True, exist_ok=True)
+            handle, temp = tempfile.mkstemp(dir=self._state_dir, prefix=".bisect-", suffix=".json")
+            try:
+                with os.fdopen(handle, "w", encoding="utf-8") as out:
+                    json.dump(checkpoint.to_document(), out, sort_keys=True)
+                    out.flush()
+                    os.fsync(out.fileno())
+                os.replace(temp, self._path(checkpoint.job_id))
+            finally:
+                if os.path.exists(temp):
+                    os.unlink(temp)
+        except OSError as error:
+            raise ExecError(f"{self._path(checkpoint.job_id)}: {error}") from error
 
-    def _advance(self, row: sqlite3.Row, checkpoint: Checkpoint, hosts: Sequence[LabHost], taken: set[str],
-                 report: TickReport) -> None:
-        params = json.loads(row["params_json"])["job"]
-        job, config = job_of(params), params["config"]
+    @staticmethod
+    def _job(row: sqlite3.Row) -> tuple[object, str]:
+        try:
+            params = json.loads(row["params_json"])["job"]
+            return job_of(params), params["config"]
+        except (ValueError, KeyError, TypeError, pinpoint.PinpointError) as error:
+            raise ExecError(f"params_json is not a bisect job: {error!r}") from error
+
+    def _advance(self, row: sqlite3.Row, report: TickReport) -> Checkpoint | None:
+        """Steps one bisect; returns its checkpoint while it runs, None once it finished or was cancelled."""
+        job, config = self._job(row)
+        checkpoint = self._load(row["id"])
         state = replay(job, checkpoint.events)
+        if state.result is None and row["group_state"] != "bisecting":
+            self._cancel(row, checkpoint, report)
+            return None
         if state.result is None:
             seen = len(checkpoint.events)
-            self._collect(job, config, checkpoint, taken, report)
+            self._collect(job, config, checkpoint, report)
             for event in checkpoint.events[seen:]:
                 record(state, event)
             self._save(checkpoint)
             while checkpoint.dirty() and state.result is None:
-                actions = pinpoint.step(state)
+                try:
+                    actions = pinpoint.step(state)
+                except pinpoint.PinpointError as error:
+                    raise ExecError(f"step(): {error}") from error
                 checkpoint.events.append({"t": "step", "actions": [action_doc(a) for a in actions]})
                 seen = len(checkpoint.events)
                 for action in actions:
@@ -536,18 +505,20 @@ class Executor:
         if state.result is not None:
             self._finish(row, state.result)
             report.finished.append(row["id"])
-            return
-        self._submit(row, job, config, checkpoint, hosts, taken, report)
+            return None
+        self._prepare(row, job, checkpoint)
+        return checkpoint
 
     def _add_action(self, checkpoint: Checkpoint, action, config: str) -> None:
         """A new action; a Build the ledger already answers is recorded at once, so the next step sees it."""
         seq = len(checkpoint.actions)
         if isinstance(action, pinpoint.Build):
-            entry = {"seq": seq, "type": "build", "change": change_doc(action.change), "status": PENDING, "tries": 0}
-            record = self._ledger.get(action.change.sha, config)
-            if record is not None:
+            entry = {"seq": seq, "type": "build", "change": change_doc(action.change), "status": QUEUED,
+                     "tries": 0, "queued_at": self._now()}
+            answer = self._ledger_get(action.change.sha, config)
+            if answer is not None:
                 entry["status"] = DONE
-                checkpoint.events.append({"t": "build", "change": entry["change"], "ok": record.status == "ok"})
+                checkpoint.events.append({"t": "build", "change": entry["change"], "ok": answer.status == "ok"})
         else:
             entry = {"seq": seq, "type": "run", "change": change_doc(action.change), "start": action.start,
                      "count": action.count, "status": PENDING, "tries": 0}
@@ -559,160 +530,194 @@ class Executor:
 
     # --- reading answers ---
 
-    def _collect(self, job, config: str, checkpoint: Checkpoint, taken: set[str], report: TickReport) -> None:
+    def _collect(self, job, config: str, checkpoint: Checkpoint, report: TickReport) -> None:
         for entry in checkpoint.actions:
-            if entry["status"] != SUBMITTED:
-                continue
-            if entry["type"] == "build":
-                self._collect_build(config, checkpoint, entry)
-            else:
-                self._collect_run(job, checkpoint, entry, taken, report)
+            if entry["type"] == "build" and entry["status"] == QUEUED:
+                self._collect_build(config, checkpoint, entry, report)
+            elif entry["type"] == "run" and entry["status"] in (QUEUED, SUBMITTED):
+                self._collect_run(job, checkpoint, entry, report)
 
-    def _collect_build(self, config: str, checkpoint: Checkpoint, entry: dict) -> None:
-        change = change_of(entry["change"])
-        record = self._ledger.get(change.sha, config)
-        if record is None:  # another builder may record it before ours finishes; the ledger is the answer
-            if not self._controller.status(entry["controller_id"]).finished:
-                return
-            if entry["tries"] < BUILD_RETRIES:
-                entry.update(status=PENDING, tries=entry["tries"] + 1, controller_id=None)
-                return
+    def _collect_build(self, config: str, checkpoint: Checkpoint, entry: dict, report: TickReport) -> None:
+        sha = change_of(entry["change"]).sha
+        answer = self._ledger_get(sha, config)
+        if answer is None:
+            waited = self._clock() - datetime.fromisoformat(entry["queued_at"])
+            if waited > BUILD_WAIT:
+                report.problems.append(
+                    f"bisect {checkpoint.job_id}: {sha[:12]} ({config}) has no build ledger record after "
+                    f"{waited.total_seconds() / 3600:.1f} h; a builder that records nothing needs the operator")
+            return
         entry["status"] = DONE
-        checkpoint.events.append({"t": "build", "change": entry["change"],
-                                  "ok": record is not None and record.status == "ok"})
+        checkpoint.events.append({"t": "build", "change": entry["change"], "ok": answer.status == "ok"})
 
-    def _collect_run(self, job, checkpoint: Checkpoint, entry: dict, taken: set[str], report: TickReport) -> None:
-        status = self._controller.status(entry["controller_id"])
+    def _collect_run(self, job, checkpoint: Checkpoint, entry: dict, report: TickReport) -> None:
+        if entry["status"] == QUEUED:
+            controller_id = _seam(f"controller find {self._key(checkpoint, entry)}", self._controller.find,
+                                  self._key(checkpoint, entry), error=ControllerError)
+            if controller_id is None:
+                return  # the scheduler has not placed it yet
+            self._update("UPDATE jobs SET controller_job_id = ?, state = 'running', updated_at = ? WHERE id = ?",
+                         (controller_id, self._now(), entry["row_id"]))
+            entry.update(status=SUBMITTED, controller_id=controller_id)
+        status = _seam(f"controller status {entry['controller_id']}", self._controller.status,
+                       entry["controller_id"], error=ControllerError)
+        if status.host:
+            entry["host"] = checkpoint.host = status.host
         if not status.finished:
             return
-        entry["ended"] = True  # the host is free again even while labd's ingest is due
-        taken.discard(entry["host"])
         change = change_of(entry["change"])
         indexes = range(entry["start"], entry["start"] + entry["count"])
         if status.not_measurable:
             attempts = [pinpoint.Attempt(change, i, measurable=False) for i in indexes]
-        elif status.exit_code in MEASURED_EXITS:
-            values = self._results(entry["row_id"], job, entry["count"], complete=status.exit_code == 0)
-            if values is None:
-                return  # labd has not ingested the job's artifact yet
-            attempts = [pinpoint.Attempt(change, i, values=v, failed=not v) for i, v in zip(indexes, values)]
-        elif entry["tries"] < RUN_RETRIES:
-            report.problems.append(f"bisect {checkpoint.job_id}: story job {entry['controller_id']} on {entry['host']} "
-                                   f"exited {status.exit_code}; running it again")
-            self._set_row_state(entry["row_id"], "failed")
-            entry.update(status=PENDING, tries=entry["tries"] + 1, controller_id=None, row_id=None, host=None,
-                         ended=False)
+        elif status.exit_code not in MEASURED_EXITS:
+            self._failed_try(checkpoint, entry, f"exited {status.exit_code}", report)
+            return
+        elif status.artifact is None:
+            ended = entry.setdefault("ended_at", self._now())
+            if self._clock() - datetime.fromisoformat(ended) < RESULT_WAIT:
+                return  # the controller has not handed over the artifact yet
+            self._failed_try(checkpoint, entry, f"no artifact {RESULT_WAIT} after it ended", report)
             return
         else:
-            attempts = [pinpoint.Attempt(change, i, failed=True) for i in indexes]
+            values = self._ingest(job, checkpoint, entry, status, report)
+            if values is None:
+                self._failed_try(checkpoint, entry, f"exited 0 but its artifact stored no run of {job.story}",
+                                 report)
+                return
+            attempts = [pinpoint.Attempt(change, i, values=v, failed=not v) for i, v in zip(indexes, values)]
         self._set_row_state(entry["row_id"], "done")
         entry["status"] = DONE
         checkpoint.events.extend({"t": "attempt", "attempt": attempt_doc(a)} for a in attempts)
 
-    def _results(self, row_id: int, job, count: int, *, complete: bool) -> list[tuple[float, ...]] | None:
-        """The metric's samples per repeat of a story job, `count` long (empty: a failed repeat), or None while
-        labd's ingest is still due: a full job is ready at `count` runs, a partial one when its row is ingested."""
-        row = self._db.execute("SELECT state FROM jobs WHERE id = ?", (row_id,)).fetchone()
+    def _failed_try(self, checkpoint: Checkpoint, entry: dict, why: str, report: TickReport) -> None:
+        """A story job that measured nothing: run it again under a new key, or fail its attempts after RUN_RETRIES."""
+        self._set_row_state(entry["row_id"], "failed")
+        retry = entry["tries"] < RUN_RETRIES
+        report.problems.append(f"bisect {checkpoint.job_id}: story job {entry['controller_id']} on {entry.get('host')} "
+                               f"{why}; " + ("running it again" if retry else "its attempts failed"))
+        if retry:
+            entry.update(status=PENDING, tries=entry["tries"] + 1, controller_id=None, row_id=None)
+            entry.pop("ended_at", None)
+            return
+        change = change_of(entry["change"])
+        entry["status"] = DONE
+        checkpoint.events.extend({"t": "attempt", "attempt": attempt_doc(pinpoint.Attempt(change, i, failed=True))}
+                                 for i in range(entry["start"], entry["start"] + entry["count"]))
+
+    def _ingest(self, job, checkpoint: Checkpoint, entry: dict, status: ControllerJob,
+                report: TickReport) -> list[tuple[float, ...]] | None:
+        """Ingests a finished story job's artifact linked to its row; the metric's samples per repeat, `count` long
+        (empty: a failed repeat), or None when an exit-0 job stored no run."""
+        try:
+            stored = ingest.ingest_paths(self._lab, [status.artifact], commit_positions=self._commit_positions,
+                                         host_name=entry.get("host"), kind=JOB_KIND, job_id=entry["row_id"])
+        except ingest.IngestError as error:
+            raise ExecError(f"ingest of {status.artifact}: {error}") from error
+        for rejection in stored.rejected:
+            report.problems.append(f"bisect {checkpoint.job_id}: ingest rejected {rejection.line()}")
         runs = self._db.execute(
             """SELECT u.id, (SELECT r.samples_json FROM results r JOIN series s ON s.id = r.series_id
                              WHERE r.run_id = u.id AND s.metric = ? ORDER BY r.id LIMIT 1) AS samples
                FROM runs u WHERE u.job_id = ? AND u.story = ? ORDER BY u.started_at, u.id""",
-            (job.metric, row_id, job.story)).fetchall()
-        if row is None:
-            raise ExecError(f"story job row {row_id} is gone")
-        if row["state"] != "ingested" and not (complete and len(runs) >= count):
+            (job.metric, entry["row_id"], job.story)).fetchall()
+        if not runs and status.exit_code == 0:
             return None
         values = [tuple(float(v) for v in json.loads(run["samples"])) if run["samples"] else () for run in runs]
-        return (values + [()] * count)[:count]
+        return (values + [()] * entry["count"])[:entry["count"]]
 
     def _update(self, sql: str, args: Sequence[object]) -> None:
-        def write() -> None:
-            self._db.execute(sql, tuple(args))
-
-        self._write(write)
+        self._write(lambda: self._db.execute(sql, tuple(args)))
 
     def _set_row_state(self, row_id: int | None, state: str) -> None:
         if row_id is not None:
-            self._update("UPDATE jobs SET state = ?, updated_at = ? WHERE id = ? AND state != 'ingested'",
-                         (state, self._now(), row_id))
+            self._update("UPDATE jobs SET state = ?, updated_at = ? WHERE id = ?", (state, self._now(), row_id))
 
-    # --- sending requests ---
+    # --- publishing work ---
 
-    def _submit(self, row: sqlite3.Row, job, config: str, checkpoint: Checkpoint, hosts: Sequence[LabHost],
-                taken: set[str], report: TickReport) -> None:
+    def _prepare(self, row: sqlite3.Row, job, checkpoint: Checkpoint) -> None:
+        """Gives each new story job its row (the ingest links its runs to it) and queues it under its key."""
+        changed = False
         for entry in checkpoint.actions:
-            if entry["status"] not in (PENDING, SUBMITTING):
-                continue
-            if entry["type"] == "build":
-                self._submit_build(config, checkpoint, entry, report)
-            else:
-                self._submit_run(row, job, config, checkpoint, entry, hosts, taken, report)
-
-    def _submit_build(self, config: str, checkpoint: Checkpoint, entry: dict, report: TickReport) -> None:
-        key = self._key(checkpoint, entry)
-        if entry["status"] == PENDING:
-            entry["status"] = SUBMITTING
-            self._save(checkpoint)  # the key is on disk before the request, so a restart asks for it first
-        controller_id = self._controller.find(key)
-        if controller_id is None:
-            sha = change_of(entry["change"]).sha
-            controller_id = self._controller.submit_build(BuildRequest(key, sha, config))
-            report.builds_requested += 1
-        entry.update(status=SUBMITTED, controller_id=controller_id)
-        self._save(checkpoint)
-
-    def _submit_run(self, row: sqlite3.Row, job, config: str, checkpoint: Checkpoint, entry: dict,
-                    hosts: Sequence[LabHost], taken: set[str], report: TickReport) -> None:
-        key = self._key(checkpoint, entry)
-        change = change_of(entry["change"])
-        controller_id = self._controller.find(key) if entry["status"] == SUBMITTING else None
-        if controller_id is None:
-            record = self._ledger.get(change.sha, config)
-            if record is None or record.status != "ok":
-                report.problems.append(f"bisect {checkpoint.job_id}: {change.sha[:12]} ({config}) has no ok build "
-                                       "in the ledger; its story job waits")
-                return
-            seconds = self._repeat_seconds(job.story)
-            host = pick_host(hosts, job.host_class, now=self._clock(), taken=taken, prefer=checkpoint.host,
-                             seconds=None if seconds is None else seconds * entry["count"])
-            if host is None:
-                return
-            entry.update(status=SUBMITTING, host=host.name, row_id=self._story_row(row, entry, key, change, host))
-            taken.add(host.name)
+            if entry["type"] == "run" and entry["status"] == PENDING:
+                key = self._key(checkpoint, entry)
+                entry.update(status=QUEUED, row_id=self._story_row(row, job, entry, key))
+                changed = True
+        if changed:
             self._save(checkpoint)
-            controller_id = self._controller.submit_story(StoryRequest(
-                key=key, host=host.name, story=job.story, sha=change.sha, config=config,
-                digest=f"sha256:{record.digest}", repeats=entry["count"], lab_job_id=entry["row_id"]))
-            report.stories_requested += 1
-        taken.add(entry["host"])
-        self._update("UPDATE jobs SET controller_job_id = ?, state = 'running', updated_at = ? WHERE id = ?",
-                     (controller_id, self._now(), entry["row_id"]))
-        entry.update(status=SUBMITTED, controller_id=controller_id)
-        checkpoint.host = entry["host"]
-        self._save(checkpoint)
 
-    def _story_row(self, bisect: sqlite3.Row, entry: Mapping, key: str, change, host: LabHost) -> int:
-        """The story job's row (one per request key), which the ingest links its runs to."""
+    def _story_row(self, bisect: sqlite3.Row, job, entry: Mapping, key: str) -> int:
+        """The story job's row, one per key."""
+        sha = change_of(entry["change"]).sha
         params = json.dumps({"role": "story", "bisect_job": bisect["id"], "key": key, "start": entry["start"],
-                             "count": entry["count"], "host": host.name}, sort_keys=True)
+                             "count": entry["count"]}, sort_keys=True)
 
         def write() -> int:
             existing = self._db.execute(
                 """SELECT id FROM jobs WHERE kind = ? AND alert_group_id IS NULL
                    AND json_extract(params_json, '$.key') = ?""", (JOB_KIND, key)).fetchone()
-            now = self._now()
             if existing is not None:
-                self._db.execute("UPDATE jobs SET params_json = ?, updated_at = ? WHERE id = ?",
-                                 (params, now, existing["id"]))
                 return existing["id"]
+            now = self._now()
             return self._db.execute(
                 """INSERT INTO jobs (kind, state, story, host_class, base_sha, head_sha, params_json, created_at,
                                      updated_at) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?)""",
-                (JOB_KIND, bisect["story"], host.host_class, change.sha, change.sha, params, now, now)).lastrowid
+                (JOB_KIND, job.story, job.host_class, sha, sha, params, now, now)).lastrowid
 
         return self._write(write)
 
+    def _publish(self, row: sqlite3.Row, checkpoint: Checkpoint, work: list, requests: dict) -> None:
+        """The job's queued actions as scheduler.PinpointWork; a Run's story request is kept for labd's submit."""
+        job, config = self._job(row)
+        for entry in checkpoint.actions:
+            if entry["status"] != QUEUED:
+                continue
+            key = self._key(checkpoint, entry)
+            sha = change_of(entry["change"]).sha
+            if entry["type"] == "build":
+                work.append(scheduler.PinpointWork(id=key, kind=scheduler.BISECT, host_class=job.host_class,
+                                                   story=job.story, seconds=0, builds=((sha, config),),
+                                                   build_only=True))
+                continue
+            answer = self._ledger_get(sha, config)
+            if answer is None or answer.status != "ok":
+                raise ExecError(f"{sha[:12]} ({config}) has a story job but no ok build in the ledger")
+            each = self._repeat_seconds(job.story)
+            seconds = UNKNOWN_RUN_SECONDS if each is None else math.ceil(each * entry["count"])
+            work.append(scheduler.PinpointWork(id=key, kind=scheduler.BISECT, host_class=job.host_class,
+                                               story=job.story, seconds=seconds, builds=((sha, config),),
+                                               prefer_host=checkpoint.host))
+            requests[key] = StoryRequest(key=key, story=job.story, sha=sha, config=config,
+                                         digest=f"sha256:{answer.digest}", repeats=entry["count"],
+                                         lab_job_id=entry["row_id"])
+
     # --- the end ---
+
+    def _cancel(self, row: sqlite3.Row, checkpoint: Checkpoint, report: TickReport) -> None:
+        """The group left bisecting: cancel the controller jobs still running, then the job and its story rows."""
+        for entry in checkpoint.actions:
+            if entry["type"] != "run" or entry["status"] not in (QUEUED, SUBMITTED):
+                continue
+            controller_id = entry.get("controller_id") or _seam(
+                "controller find", self._controller.find, self._key(checkpoint, entry), error=ControllerError)
+            if controller_id is None:
+                continue  # never placed; it is no longer published
+            if not _seam(f"controller status {controller_id}", self._controller.status, controller_id,
+                         error=ControllerError).finished:
+                _seam(f"controller cancel {controller_id}", self._controller.cancel, controller_id,
+                      error=ControllerError)
+        reason = json.dumps({"cancelled": f"group {row['alert_group_id']} is {row['group_state']}"})
+
+        def write() -> None:
+            now = self._now()
+            self._db.execute("UPDATE jobs SET state = 'cancelled', result_json = ?, updated_at = ? WHERE id = ?",
+                             (reason, now, row["id"]))
+            self._db.execute(
+                """UPDATE jobs SET state = 'cancelled', updated_at = ? WHERE kind = ? AND alert_group_id IS NULL
+                   AND json_extract(params_json, '$.bisect_job') = ? AND state IN ('queued', 'running')""",
+                (now, JOB_KIND, row["id"]))
+
+        self._write(write)
+        report.cancelled.append(row["id"])
 
     def _finish(self, row: sqlite3.Row, result) -> None:
         """Stores the result; a group still bisecting moves to culprit (unverified) or back to triaged."""
@@ -721,31 +726,30 @@ class Executor:
 
         def write() -> None:
             current = self._db.execute("SELECT state FROM jobs WHERE id = ?", (row["id"],)).fetchone()
-            if current["state"] == "done":
+            if current["state"] != "running":
                 return
-            now = self._now()
             self._db.execute("UPDATE jobs SET state = 'done', result_json = ?, updated_at = ? WHERE id = ?",
-                             (result.to_json(), now, row["id"]))
-            group = self._db.execute("SELECT * FROM alert_groups WHERE id = ?", (row["alert_group_id"],)).fetchone()
+                             (result.to_json(), self._now(), row["id"]))
+            group = self._db.execute("SELECT state FROM alert_groups WHERE id = ?", (row["alert_group_id"],)).fetchone()
             if group["state"] != "bisecting":
-                return  # a sheriff moved it meanwhile (invalid, lab-drift); the job's result stays for the record
+                return  # a sheriff moved it after this tick read it; the job's result stays for the record
             if culprit is not None:
                 others = len(result.culprits) - 1
                 reason = (f"bisect job {row['id']}: culprit {culprit.change.sha[:12]} "
                           f"({len(culprit.commits)} commit{'s' if len(culprit.commits) != 1 else ''}, "
                           f"{culprit.comparison.verdict} p={culprit.comparison.p_value:.4g})"
                           + (f", {others} more" if others else "") + "; unverified until verify.py")
-                self._db.execute("UPDATE alert_groups SET state = 'culprit', culprit_sha = ?, culprit_verified = 0, "
-                                 "updated_at = ? WHERE id = ?", (culprit.change.sha, now, group["id"]))
-                self._history(group["id"], "bisecting", "culprit", reason, now)
+                self._sheriff.apply_state(row["alert_group_id"], "culprit", reason=reason,
+                                          culprit_sha=culprit.change.sha)
             else:
                 skipped = f", {len(result.skipped)} commits skipped" if result.skipped else ""
-                self._db.execute("UPDATE alert_groups SET state = 'triaged', updated_at = ? WHERE id = ?",
-                                 (now, group["id"]))
-                self._history(group["id"], "bisecting", "triaged",
-                              f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}", now)
+                self._sheriff.apply_state(row["alert_group_id"], "triaged",
+                                          reason=f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}")
 
-        self._write(write)
+        try:
+            self._write(write)
+        except sheriff.SheriffError as error:
+            raise ExecError(f"result ready, but the group move was refused: {error}") from error
 
 
 def catalog_repeat_seconds(root: Path | str = HERE.parents[1]) -> Callable[[str], float | None]:
