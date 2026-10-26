@@ -2455,6 +2455,8 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
     let session = new_session(&daemon).await;
     let first = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
     rpc.call("session/prompt", first).await;
+    // An asking mode: only the host's replayed update puts the agent in full access.
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     let later = json!({"sessionId": session,
                        "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
