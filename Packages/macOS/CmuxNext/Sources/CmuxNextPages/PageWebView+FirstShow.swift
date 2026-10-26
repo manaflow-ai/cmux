@@ -75,9 +75,7 @@ extension PageWebView {
         if engineDecision.engine == .cef, let hosting = start.chromium {
             startChromium(hosting: hosting)
         } else {
-            #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.navigationStart)
-            #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
     }

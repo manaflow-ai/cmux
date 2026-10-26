@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSignposts
+import CmuxNextWakeups
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -26,11 +27,13 @@ extension AgentTabStore {
     ///   - idempotencyKey: The creation's key; a retry with it returns the same tab. Fresh by default.
     ///   - split: The tab opens in a new pane on that side of `pane` (`conversation-tab-split-v1`): one daemon
     ///     commit, shown at once in a provisional pane, never in `pane`'s strip.
+    ///   - timing: The open's `create.tab` interval: the tab waits for its first frame from before the intent, so its
+    ///     pane and page are made with the open's stages (``ChatOpenStages``).
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
-              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
+              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, timing: CreateTabInterval? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
@@ -84,6 +87,7 @@ extension AgentTabStore {
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
         let transaction = ClientTransactionID.generate()
+        if let timing { createTabs?.expect(timing, tab: key, standIn: true) } // before the intent: the tab's view may come in its turn
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
                      transaction: transaction)
         if let session { sessions[key] = session }
@@ -147,7 +151,7 @@ extension AgentTabStore {
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
-                               spare: spare, linked: linked, split: split)
+                               spare: spare, linked: linked, split: split, timing: timing)
         } catch {
             timing?.end(.closed) // refused: no tab was made
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
@@ -157,7 +161,6 @@ extension AgentTabStore {
         // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
         let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
-        if let timing { pane.services.cache.createTabs.expect(timing, tab: pending.key, standIn: true) }
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
@@ -231,6 +234,7 @@ extension AgentTabStore {
         pageShown()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
+        if let chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) { spare.join(chatOpen) }
         wire(spare.model, key: key)
         spare.adoptNewTab(page)
     }

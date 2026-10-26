@@ -1,7 +1,82 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxNextTrace
+#endif
+public import CmuxNextSignposts
 
+/// One stage of an agent chat open, from the action to the chat's content on screen, in either engine: a
+/// ``ChatOpenStages`` instant in every build, and a mark of `debug.chat_open_trace` (``ChatOpenTrace``) in DEBUG
+/// and bench builds.
+public nonisolated enum ChatOpenStage: Int, CaseIterable, Sendable {
+    case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
+         setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
+         loadingLeave, loadingLeft, holdEnd
+
+    /// The stage's name in `debug.chat_open_trace` results and in its instant's log message.
+    public var name: String {
+        switch self {
+        case .action: "action"
+        case .paneMade: "pane_made"
+        case .holdBegin: "hold_begin"
+        case .chromiumStart: "chromium_start"
+        case .cefWindowCreate: "cef_window_create"
+        case .cefWindowCreated: "cef_window_created"
+        case .browserCreated: "browser_created"
+        case .setupDone: "setup_done"
+        case .navigationStart: "navigation_start"
+        case .committed: "committed"
+        case .firstContentfulPaint: "first_contentful_paint"
+        case .pagePainted: "page_painted"
+        case .panePainted: "pane_painted"
+        case .loadingLeave: "loading_leave"
+        case .loadingLeft: "loading_left"
+        case .holdEnd: "hold_end"
+        }
+    }
+
+    /// The stage's number in bits 8-15 of its ``SignpostName/createTab`` instant's `arg0`: its position + 1, so 0
+    /// stays the stand-in commit's. Fixed: a new stage goes at the end, so older rings decode.
+    public var traceCode: UInt64 { UInt64(rawValue) + 1 }
+}
+
+/// The stages of one chat open, in every build: each is a ``SignpostName/createTab`` instant on the open's scope
+/// (``CreateTabInterval/Scope``), so a recording groups them with the open's `create.tab` pair by its intent id.
+///
+/// The chat's tab store makes one from the open's interval, which waits for the tab's first frame from before the
+/// tab's view exists (`CreateTabTimings.interval(ofTab:)`), and hands it to the pane and its page before the page
+/// loads (`AgentPaneModel.chatOpen`, `PageOpenRequest.chatOpen`); the Chromium page host passes it on to the CEF
+/// window that page gets (`CEFEngine.pagesTabConfiguration(chatOpen:)`). A page or pane made with no open (the prewarmed New Tab page, a restored pane) has none
+/// and writes nothing. The `action` stage is the pair's own begin (the open's intent turn), so no instant repeats it.
+/// Each stage costs one log event (message `kind=chat stage=<name>`) and, while the `create`
+/// category records, one ring record: `arg0` the chat kind's code with the stage's code in bits 8-15, `arg1` the
+/// intent id. A few per open, never per frame.
+public nonisolated struct ChatOpenStages: Sendable {
+    private let scope: CreateTabInterval.Scope
+
+    /// The stages of the open `interval` times.
+    @MainActor
+    public init(_ interval: CreateTabInterval) {
+        scope = interval.scope
+    }
+
+    /// The stages of `interval` when it times a chat open; nil for another kind's open, or none.
+    @MainActor
+    public init?(chat interval: CreateTabInterval?) {
+        guard let interval, interval.kind == .chat else { return nil }
+        self.init(interval)
+    }
+
+    /// The open's intent id (its `create.tab` pair's async id).
+    public var intentID: UInt64 { scope.intentID }
+
+    /// Writes `stage`'s instant, every time it happens.
+    public func mark(_ stage: ChatOpenStage) {
+        let arg0 = CreateTabInterval.Kind.chat.traceCode | stage.traceCode << 8
+        scope.event(.createTab, "kind=chat stage=\(stage.name)", arg0: arg0)
+    }
+}
+
+#if DEBUG || CMUX_BENCH_HOOKS
 /// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by
 /// stage, in either engine (`debug.chat_open_trace`; Leo 2026-10-22: "flickers the initial thing
 /// ... then it just goes to black screen for a while").
@@ -34,33 +109,8 @@ public final class ChatOpenTrace {
     /// The frame sampler stops by itself after this, whether or not the trace finished.
     public static let frameCap: TimeInterval = 15
 
-    public enum Mark: Int, CaseIterable, Sendable {
-        case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
-             setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
-             loadingLeave, loadingLeft, holdEnd
-
-        /// The mark's name in `debug.chat_open_trace` results.
-        public var name: String {
-            switch self {
-            case .action: "action"
-            case .paneMade: "pane_made"
-            case .holdBegin: "hold_begin"
-            case .chromiumStart: "chromium_start"
-            case .cefWindowCreate: "cef_window_create"
-            case .cefWindowCreated: "cef_window_created"
-            case .browserCreated: "browser_created"
-            case .setupDone: "setup_done"
-            case .navigationStart: "navigation_start"
-            case .committed: "committed"
-            case .firstContentfulPaint: "first_contentful_paint"
-            case .pagePainted: "page_painted"
-            case .panePainted: "pane_painted"
-            case .loadingLeave: "loading_leave"
-            case .loadingLeft: "loading_left"
-            case .holdEnd: "hold_end"
-            }
-        }
-    }
+    /// A stage of the traced open (``ChatOpenStage``).
+    public typealias Mark = ChatOpenStage
 
     /// What the bound pane shows in one frame.
     public enum Surface: String, Sendable {
