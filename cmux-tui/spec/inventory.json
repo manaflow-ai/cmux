@@ -610,7 +610,21 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "apps-list",
+      "apps-set",
+      "apps-store",
+      "apps-mount",
+      "apps-unmount",
+      "apps-dispatch",
+      "apps-run",
+      "apps-terminal-links",
+      "apps-logs",
+      "apps-link-changed",
+      "apps-provider-register",
+      "apps-agent-inventory-changed",
+      "apps-provider-result",
+      "cancel-request"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

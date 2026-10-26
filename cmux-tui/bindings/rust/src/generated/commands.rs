@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
+// cmux-tui mux protocol 12, IR a397c76f15d1266839d57bdd5f20abf0ef06663c69c4dbc5f14725cdb85f04c6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -55,6 +55,163 @@ pub struct ApplyLayoutRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsAgentInventoryChangedRequest {
+    pub demand_sequence: u64,
+}
+
+#[rustfmt::skip]
+pub type AppsAgentInventoryChangedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsDispatchRequest {
+    pub event: String,
+    pub mount_id: String,
+    pub node: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub payload: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type AppsDispatchResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsLinkChangedRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsListRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLogsRequest {
+    pub app: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub follow: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsMountRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub context: Optional<T::JsonValue>,
+    pub interface: String,
+    pub mount_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsMountResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderRegisterRequest {
+    pub families: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub inventory_watch: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderResultRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub body: Optional<T::JsonValue>,
+    pub ok: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    pub request_id: u64,
+}
+
+#[rustfmt::skip]
+pub type AppsProviderResultResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsRunRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub gesture: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
+    pub op: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsSetRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub enabled: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub grant: Optional<T::AppGrant>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hidden: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hidden_access: Optional<T::AppHiddenAccess>,
+    pub idempotency_key: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub installed: Optional<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sandboxed: Optional<bool>,
+}
+
+#[rustfmt::skip]
+pub type AppsSetResult = T::AppRecord;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsStoreRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    pub op: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsStoreResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsTerminalLinksRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsUnmountRequest {
+    pub mount_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsUnmountResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +466,15 @@ pub struct BrowserWheelGuardedRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelGuardedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelRequestRequest {
+    pub target: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CancelRequestResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4159,6 +4325,58 @@ impl CmuxClient {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
     }
 
+    pub fn apps_agent_inventory_changed(&mut self, request: AppsAgentInventoryChangedRequest) -> Result<AppsAgentInventoryChangedResult> {
+        self.execute(&APPS_AGENT_INVENTORY_CHANGED_METADATA, &request)
+    }
+
+    pub fn apps_dispatch(&mut self, request: AppsDispatchRequest) -> Result<AppsDispatchResult> {
+        self.execute(&APPS_DISPATCH_METADATA, &request)
+    }
+
+    pub fn apps_link_changed(&mut self, request: AppsLinkChangedRequest) -> Result<T::AppsLinkChangedResult> {
+        self.execute(&APPS_LINK_CHANGED_METADATA, &request)
+    }
+
+    pub fn apps_list(&mut self, request: AppsListRequest) -> Result<T::AppsListResult> {
+        self.execute(&APPS_LIST_METADATA, &request)
+    }
+
+    pub fn apps_logs(&mut self, request: AppsLogsRequest) -> Result<T::AppsLogsResult> {
+        self.execute(&APPS_LOGS_METADATA, &request)
+    }
+
+    pub fn apps_mount(&mut self, request: AppsMountRequest) -> Result<AppsMountResult> {
+        self.execute(&APPS_MOUNT_METADATA, &request)
+    }
+
+    pub fn apps_provider_register(&mut self, request: AppsProviderRegisterRequest) -> Result<T::AppsProviderRegisterResult> {
+        self.execute(&APPS_PROVIDER_REGISTER_METADATA, &request)
+    }
+
+    pub fn apps_provider_result(&mut self, request: AppsProviderResultRequest) -> Result<AppsProviderResultResult> {
+        self.execute(&APPS_PROVIDER_RESULT_METADATA, &request)
+    }
+
+    pub fn apps_run(&mut self, request: AppsRunRequest) -> Result<T::AppsRunResult> {
+        self.execute(&APPS_RUN_METADATA, &request)
+    }
+
+    pub fn apps_set(&mut self, request: AppsSetRequest) -> Result<AppsSetResult> {
+        self.execute(&APPS_SET_METADATA, &request)
+    }
+
+    pub fn apps_store(&mut self, request: AppsStoreRequest) -> Result<AppsStoreResult> {
+        self.execute(&APPS_STORE_METADATA, &request)
+    }
+
+    pub fn apps_terminal_links(&mut self, request: AppsTerminalLinksRequest) -> Result<T::AppsTerminalLinksResult> {
+        self.execute(&APPS_TERMINAL_LINKS_METADATA, &request)
+    }
+
+    pub fn apps_unmount(&mut self, request: AppsUnmountRequest) -> Result<AppsUnmountResult> {
+        self.execute(&APPS_UNMOUNT_METADATA, &request)
+    }
+
     pub fn attach_surface(&mut self, request: AttachSurfaceRequest) -> Result<CmuxStream> {
         if !request.cols.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
@@ -4251,6 +4469,10 @@ impl CmuxClient {
 
     pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
+    }
+
+    pub fn cancel_request(&mut self, request: CancelRequestRequest) -> Result<CancelRequestResult> {
+        self.execute(&CANCEL_REQUEST_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {

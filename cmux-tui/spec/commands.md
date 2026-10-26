@@ -10318,3 +10318,104 @@ read itself (its 60-second timeout or the terminal's end), or a newer read
 from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
 These operations are exposed only in the SDKs' private `raw` namespace.
+
+## App supervisor (apps-v1)
+
+`identify` advertises `apps-v1` and `cancel-request-v1` when the daemon has an
+app host (plans/cmux-next/app-platform.md section 13.2). `server/apps.rs` serves
+these commands before the daemon's `Command` enum sees the line; `sdk-schema.json`
+lists their fields, results and framed-IPC attributes (family `apps`, `0x12`).
+All of them are `local-admin`: a WebSocket or remote connection gets
+`apps.local`, and a daemon without an app host gets `apps.unavailable`. Errors
+use the normal envelope plus `retryable` and, when the owner gives them,
+`error_details`. Request decoding errors are `bad-request`.
+
+Every request except `apps-agent-inventory-changed` and `cancel-request` takes
+an optional `origin` (`user`, `cli`, `mcp`, `script` or `remote`; absent is
+`cli`). Origin `user` needs the verified cmux app connection (Gate A2,
+`origin.forbidden`) that is not bound to an agent (`apps.origin_forbidden`).
+The first apps command subscribes the connection to `apps-changed` and
+`apps-host` events; mount events go to the mounting connection only.
+
+### apps-list
+
+`{}` answers `{revision, apps:[AppRecord]}`: every catalog app and every
+installed app. `AppRecord` is `{id, version, tier, installed, enabled, hidden,
+hidden_access:{cli,mcp,automations}, source, grants, scope_classes, sandboxed,
+hide_only, available, bundle_dir, commands, manifest}`.
+
+### apps-set
+
+`{idempotency_key, app, installed?, enabled?, hidden?, hidden_access?,
+sandboxed?, grant?:{scope, granted}}` is one validated commit of the install
+mirror and answers the app's `AppRecord` with the commit's `revision`. Every
+change needs the verified cmux app connection, whatever `origin` says. A replay
+of a key changes nothing. `apps.json` is written before the change applies
+(`apps.persist` when the write fails). The caller receives `request-settled`
+for every request, rejects and no-ops included.
+
+### apps-store
+
+`{op, args?}` runs one App Store op (`cmux.apps.*`, page-router.md) and answers
+its result. `apps.set`, `apps.install`, `apps.uninstall`, `apps.hidden.set`,
+`apps.grant.set` and `apps.grant.revoke` change apps and need the verified cmux
+app connection.
+
+### apps-mount / apps-unmount / apps-dispatch
+
+`apps-mount {app, interface, mount_id, context?}` mounts an app interface for
+this connection; `apps-unmount {mount_id}` ends it; `apps-dispatch {mount_id,
+node, event, payload?}` sends a UI event to it. A `gesture` member of `payload`
+is dropped; origin `user` gets a fresh gesture token. An unknown mount is
+`apps.mount.unknown`. Each answers `{}`. Closing the connection unmounts its
+mounts.
+
+### apps-run
+
+`{app, op, args?, idempotency_key?, gesture?}` runs one catalog op on the app's
+host or server and answers `{value}`. A keyed run runs once: a retry with the
+same key gets the stored answer. `gesture` is a palette or keybinding token
+(origin `user` only). `cancel-request` with this request's `id` cancels it.
+
+### apps-terminal-links
+
+`{}` answers `{links:[{channel, app, id, target, socket}]}`: every open terminal
+connector link and its local socket (`null` when it has none).
+
+### apps-logs
+
+`{app, follow?}` answers `{lines:[{level, message, ts_ms}]}`, the app's log
+ring. `follow:true` also streams `apps-log` events to this connection.
+
+### apps-link-changed
+
+`{}` tells every app server that reads the `cmux link` registration that it
+changed and answers `{servers}`. Only the verified cmux app connection that is
+not bound to an agent.
+
+### apps-provider-register
+
+`{families, inventory_watch?}`: the Mac app serves the listed provider
+families (app-op-routing.md). Only the verified cmux app connection that is not
+bound to an agent (`apps.provider.forbidden`). A family another live connection
+holds is `apps.provider.taken`. Answers `{families}`, plus
+`inventory_demand:{sequence, enabled}` with `inventory_watch:true`, which needs
+the `agent_cli` family.
+
+### apps-agent-inventory-changed
+
+`{demand_sequence}` and no other member: the current verified `agent_cli`
+provider invalidates the agent inventory. Answers `{}`. A stale sequence is
+`apps.provider.stale_demand`.
+
+### apps-provider-result
+
+`{request_id, ok, body?}` answers one provider call. Only the connection the
+call went to may answer (`apps.provider.unknown`). Answers `{}`.
+
+### cancel-request
+
+`{target}` cancels this connection's own `apps-run` request or script cell
+whose `id` is `target` (it answers `cmux.op.cancelled`). An unknown, answered
+or another connection's request changes nothing. Answers `{}`. Local
+connections only.

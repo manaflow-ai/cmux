@@ -739,6 +739,45 @@ mod tests {
         assert_eq!(crate::apps::CANCEL_REQUEST_CAPABILITY, "cancel-request-v1");
     }
 
+    /// Every serde name of this module's `Command` enum, from serde's own
+    /// list of expected variants, so a new variant is checked at once.
+    fn apps_command_names() -> Vec<String> {
+        let error = serde_json::from_value::<Command>(json!({"cmd": "__no_such_command__"}))
+            .err()
+            .expect("an unknown command is refused")
+            .to_string();
+        let list = error.split("expected one of ").nth(1).expect("serde lists the variants");
+        list.split(", ").map(|name| name.trim().trim_matches('`').to_string()).collect()
+    }
+
+    /// The SDK schema (spec/sdk-schema.json, p05-ipc-013) describes every
+    /// command this door serves: local-admin (the door refuses non-Unix
+    /// connections), the capability `identify` advertises, and a method id
+    /// in the `apps` family.
+    #[test]
+    fn every_apps_command_is_in_the_sdk_schema() {
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
+        let family = schema["families"]["apps"]["id"].as_u64().expect("the apps family");
+        let mut names = apps_command_names();
+        assert_eq!(names.len(), 13, "{names:?}");
+        let capability = |name: &str| {
+            if name == "cancel-request" {
+                crate::apps::CANCEL_REQUEST_CAPABILITY
+            } else {
+                crate::apps::CAPABILITY
+            }
+        };
+        names.push("cancel-request".to_string());
+        for name in &names {
+            let command = &schema["commands"][name.as_str()];
+            assert_eq!(command["authority"], "local-admin", "{name}");
+            assert_eq!(command["capability"], capability(name), "{name}");
+            let method_id = command["method_id"].as_u64().expect("a method id");
+            assert_eq!(method_id >> 8, family, "{name}");
+        }
+    }
+
     #[test]
     fn a_client_open_token_is_not_part_of_an_apps_run_request() {
         // The supervisor alone mints open tokens; a client's top-level one is
