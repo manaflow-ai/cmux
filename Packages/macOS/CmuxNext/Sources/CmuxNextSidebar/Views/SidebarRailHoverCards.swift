@@ -34,7 +34,7 @@ final class SidebarRailHoverCards: HoverCardSource {
     var hoverCardWindow: NSWindow? { rail?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil }
+        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil } // visibility-walk-allow: a hover card hit test at the pointer
         let point = rail.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         guard let tick = rail.tick(at: point), case let .workspace(id) = tick.mark.target,
               let anchor = rail.cardAnchor(tick) else { return nil }
@@ -45,7 +45,7 @@ final class SidebarRailHoverCards: HoverCardSource {
 
     /// Between two rows of the rail (a group gap): the card waits for the next row.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor,
+        guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor, // visibility-walk-allow: a hover card hit test at the pointer
               let first = rail.railLayout.ticks.first, let last = rail.railLayout.ticks.last else { return false }
         let point = rail.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         return rail.bounds.contains(point) && point.y >= first.rowY && point.y < last.rowY + rail.railLayout.pitch

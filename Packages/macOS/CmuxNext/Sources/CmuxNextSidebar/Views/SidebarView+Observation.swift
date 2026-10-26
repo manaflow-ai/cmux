@@ -86,6 +86,7 @@ extension SidebarViewComponents {
         let model = model, design = design
         observation = Task { [weak self] in
             // A trigger: `renderNow` draws outside the stream; `render` compares with what it drew.
+            // view-observation-allow: SidebarView gets no MainWorkScheduler yet; the person's change renders in its turn (renderNow)
             for await state in ObservationStream({ ObservationTrigger(RenderState(model, design)) }) { self?.render(state.value) }
         }
     }

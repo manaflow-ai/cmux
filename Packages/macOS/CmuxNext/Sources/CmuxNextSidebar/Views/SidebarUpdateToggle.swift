@@ -90,7 +90,7 @@ final class SidebarUpdateToggle: NSView {
     private(set) var hasLaidOutSwitch = false
     /// A state change animates: the switch has been laid out and is visible in a window. Before
     /// its first layout the track has no frame, so a slide would start from the row's corner.
-    var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor }
+    var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor } // visibility-walk-allow: read once per state change to pick a slide or a jump; a hidden switch jumps
 
     /// The switch follows a new state: the knob slides and the track fills on the sidebar's
     /// selection spring (`Motion.sidebar`); with animation off it lands in one frame. Layout and
@@ -199,7 +199,7 @@ final class SidebarUpdateToggle: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
@@ -218,7 +218,7 @@ final class SidebarUpdateToggle: NSView {
     }
 
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor } // visibility-walk-allow: AppKit's key-view loop asks it (Full Keyboard Access), an accessibility read
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyRepaint.track()

@@ -26,7 +26,7 @@ public struct SidebarRowAnchor {
     public static func layoutItem(_ ref: LayoutItemRef, in sidebar: SidebarView) -> CGRect? {
         guard let item = sidebar.model.layout.firstItem(with: ref) else { return nil }
         for region in sidebar.bandRegions {
-            guard let view = region.itemView(item.id), !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0 else { continue }
+            guard let view = region.itemView(item.id), !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0 else { continue } // visibility-walk-allow: an anchor geometry read on request, as a hit test
             return view.convert(view.bounds, to: sidebar)
         }
         return nil

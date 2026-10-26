@@ -60,7 +60,8 @@ public final class SidebarRailView: NSView {
         marks = Self.marks(model)
         relayout()
         observation?.cancel()
-        observation = Task { [weak self] in
+        // main-hop-allow: the carrier of the stream below; both go with it to a VisibleObservation on the rail's node.
+        observation = Task { [weak self] in // view-observation-allow: no MainWorkScheduler reaches the rail yet (the container binds it)
             for await marks in ObservationStream({ Self.marks(model) }) {
                 guard let self, marks != self.marks else { continue }
                 self.marks = marks
@@ -185,7 +186,7 @@ public final class SidebarRailView: NSView {
     /// (`debug.pointer_hover {rail: "top" | "middle" | "bottom" | index}`); nil while the rail is hidden.
     public func rowCenterInWindow(_ which: String) -> CGPoint? {
         let ticks = railLayout.ticks
-        guard !isHiddenOrHasHiddenAncestor, !ticks.isEmpty else { return nil }
+        guard !isHiddenOrHasHiddenAncestor, !ticks.isEmpty else { return nil } // visibility-walk-allow: a debug.pointer_hover proof's target
         let index = switch which {
         case "top": 0
         case "middle": ticks.count / 2
@@ -214,7 +215,7 @@ public final class SidebarRailView: NSView {
     /// Each tick's hint target in this view's coordinates: as tall as a chip and wide enough
     /// that the chip sits just past the rail, over the content's edge.
     public var shortcutHintItemFrames: [SidebarItem: CGRect] {
-        guard !isHiddenOrHasHiddenAncestor, bounds.width > 0 else { return [:] }
+        guard !isHiddenOrHasHiddenAncestor, bounds.width > 0 else { return [:] } // visibility-walk-allow: the hint overlay's geometry read while the modifier is held, as a hit test
         var result: [SidebarItem: CGRect] = [:]
         for tick in railLayout.ticks {
             let item: SidebarItem = switch tick.mark.target {

@@ -24,7 +24,7 @@ extension SidebarUpdateCardView {
     /// closing (the pointer left and came back) opens again.
     func showNotes() {
         cancelNotesClose()
-        guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
+        guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor, // visibility-walk-allow: the popup's anchor check when a hover opens it, as a hit test
               let cards = hoverCards() else { return }
         let host = notesHost
         wireNotes(highlights)
@@ -135,7 +135,7 @@ extension SidebarUpdateCardView {
 
     /// Whether `point` (screen, default the pointer now) is over the card.
     func pointerIsOverCard(_ point: CGPoint? = nil) -> Bool {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false } // visibility-walk-allow: a hit test at the pointer
         return cardScreenFrame?.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point ?? screenPointer()) ?? false
     }
 
@@ -175,7 +175,7 @@ extension SidebarUpdateCardView {
         notesCloseChecks &+= 1
         if notesPinned { return }
         notesCloseWaited += Self.notesCloseDelay
-        if isHovered && !isHiddenOrHasHiddenAncestor { return }
+        if isHovered && !isHiddenOrHasHiddenAncestor { return } // visibility-walk-allow: the close check's hit test at the pointer
         if let notes = notesFrame, notes.contains(screenPointer()) { return }
         let onTheWay = pointerIsInNotesCorridor() || pointerIsOverCard() || pointerIsOverNotes()
         if onTheWay, notesCloseWaited < Self.notesCorridorLimit { return armNotesClose() }

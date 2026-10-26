@@ -89,7 +89,6 @@ public final class SidebarView: NSView {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
     var observation: Task<Void, Never>?
-    private var clipObservers: [any NSObjectProtocol] = []
     /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
     var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
@@ -152,7 +151,6 @@ public final class SidebarView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
-            for token in clipObservers { NotificationCenter.default.removeObserver(token) }
         }
     }
     nonisolated override public var isFlipped: Bool { true }
@@ -224,7 +222,7 @@ public final class SidebarView: NSView {
     /// The Search button while it is on screen (shown, in a window, not inside a collapsed
     /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
     public var searchAnchor: NSView? {
-        let button = searchButton
+        let button = searchButton // visibility-walk-allow: a popover anchor read once per Search open, as a hit test
         guard button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty else { return nil }
         return button
     }
@@ -275,9 +273,8 @@ public final class SidebarView: NSView {
         ScrollGeometryClipView.install(in: scrollView).addClient(self)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
-        clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
-            NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
-        ]
+        // The app's one scroll-bar setting observer: it restyles the scroller (followThin), then the list fits the clip.
+        SystemScrollers.observe(self) { [weak self] _ in self?.syncListSize() }
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -295,11 +292,6 @@ public final class SidebarView: NSView {
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
-    }
-
-    private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.nativeStyle
-        syncListSize()
     }
 
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
