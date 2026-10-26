@@ -92,6 +92,25 @@ async fn send_delivers_to_the_named_session_and_returns_its_prompt_id() {
     assert!(seen, "the lane never got the message");
 }
 
+/// Codex review: a send goes through this daemon's outbox (`_acpmux/send_queue`), as
+/// `acpmux send --no-wait` does, so a peer that is down or a slow target is retried and survives a
+/// restart; the result names the delivery, and `send_status` knows it.
+#[tokio::test]
+async fn send_goes_through_the_outbox_and_names_its_delivery() {
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "lane-c").await;
+    let r = call(&client, &tool("send", json!({"to": "lane-c", "text": "status?"}))).await;
+    assert_eq!(r["isError"], false, "{r}");
+    let delivery = r["structuredContent"]["deliveryId"].as_str().unwrap_or_default().to_owned();
+    assert!(!delivery.is_empty(), "no delivery id: {r}");
+    let status = client
+        .request(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000}))
+        .await
+        .unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    assert_eq!(status["promptId"], r["structuredContent"]["promptId"], "{status} {r}");
+}
+
 #[tokio::test]
 async fn ls_last_and_info_read_the_sessions() {
     let (_hub, client, _dir) = daemon().await;
