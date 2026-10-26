@@ -50,9 +50,15 @@ import Testing
         try body()
     }
 
-    @Test func aWorkingRowKnowsWhatItsAgentDoesByDefault() throws {
+    /// Off by default since Lawrence 2026-10-21 (minimal rows).
+    @Test func offByDefault() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        Self.withNowLine(nil) { #expect(fixture.rows().values.allSatisfy { $0.agentStep == nil }) }
+    }
+
+    @Test func aWorkingRowKnowsWhatItsAgentDoesWhenOn() throws {
+        let fixture = try Fixture()
+        try Self.withNowLine(true) {
             let rows = fixture.rows()
             #expect(rows["working"]?.agentStep == "Running the test suite")
             #expect(rows["idle"]?.agentStep == nil, "an idle chat's last step is not what it does now")
@@ -61,7 +67,7 @@ import Testing
 
     @Test func aRowWithASecondLineSaysItThere() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        try Self.withNowLine(true) {
             var working = try #require(fixture.rows()["working"])
             working.lastMessage = "Earlier reply"
             var options = SidebarLayoutOptions()
@@ -74,7 +80,7 @@ import Testing
 
     @Test func aOneLineRowStaysOneLine() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        try Self.withNowLine(true) {
             let content = SidebarLayoutOptions().rowContent(try #require(fixture.rows()["working"]), machine: nil)
             #expect(content.now == nil)
             #expect(content.detail == nil)

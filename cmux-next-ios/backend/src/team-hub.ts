@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
+import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -20,6 +21,22 @@ export interface Attachment {
   replaced?: boolean
 }
 
+/** A sealed reply for a Mac (PROTOCOL.md "Reply mailbox"): the hub never holds a key that opens it. */
+export interface MailboxItem {
+  id: string
+  mac: string
+  from: string
+  sealed: string
+}
+
+export type MailboxPost = { queued: true; delivered: boolean } | { error: "conflict" | "full" }
+/** `sig`: the Mac's identity signature over the outcome (PROTOCOL.md), which the phone checks; absent from an older Mac. */
+export type MailboxState = { state: "queued" | "expired" } | { state: "applied"; sig?: string } | { state: "rejected"; reason: string; sig?: string }
+
+const MAX_ACK_RESULTS = 64
+const ACK_REASON = /^[a-z_]{1,32}$/
+const ACK_SIG = /^[0-9a-f]{128}$/
+
 export interface MacPresence {
   deviceId: string
   name: string
@@ -27,6 +44,8 @@ export interface MacPresence {
   online: boolean
   lastSeenAt: string | null
   ownerUserId: string
+  /** Which computer the Mac runs on (PROTOCOL.md "Devices"); null when it never said. */
+  machineId: string | null
 }
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
@@ -39,6 +58,10 @@ export interface HubDevice {
   teamId: string
   userId: string
   projectId: string
+  /** The Mac's machine id after the registration (null: none). */
+  machineId?: string | null
+  /** Other builds on the same Mac that have its machine id in the database (claimed now or earlier). */
+  claimed?: ReadonlyArray<string>
 }
 
 /** A Mac from the database, to seed a new hub's presence list (offline until it connects). */
@@ -47,6 +70,7 @@ export interface SeedMac {
   name: string
   teamId: string
   lastSeenAt: string | null
+  machineId?: string | null
 }
 
 const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
@@ -128,10 +152,18 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("macs", "owner_project_id")
     addColumn("macs", "team_id")
     addColumn("devices", "team_id")
+    addColumn("macs", "machine_id")
     // Devices deleted here, so a database read that raced the deletion cannot seed them back.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
     // The last turn-ending push per Mac and session (`turnPushAllowed`); rows older than the window go.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS turn_pushes (key TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
+    // Sealed replies for a Mac (`mailboxPost`): queued until the Mac acknowledges one or it expires; a settled
+    // row keeps only its state (the blob is cleared) until `keep_until`, so the phone can read the outcome.
+    this.sql.exec(
+      `CREATE TABLE IF NOT EXISTS mailbox (id TEXT PRIMARY KEY, mac TEXT NOT NULL, from_device TEXT NOT NULL, sealed TEXT NOT NULL,
+        at INTEGER NOT NULL, expires_at INTEGER NOT NULL, keep_until INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT)`
+    )
+    addColumn("mailbox", "sig")
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
@@ -185,17 +217,27 @@ export class TeamHub extends DurableObject<Env> {
       if (prevMac) this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, d.deviceId)
       return
     }
+    const machineId = d.machineId ?? null
     this.sql.exec(
-      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, NULL)
-       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id`,
+      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id) VALUES (?, ?, ?, ?, ?, NULL, ?)
+       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, machine_id = excluded.machine_id`,
       d.deviceId,
       d.name,
       d.userId,
       d.projectId,
-      d.teamId
+      d.teamId,
+      machineId
     )
-    if (!prevMac || prevMac.name !== d.name || moved || prevMac.team_id !== d.teamId)
+    if (!prevMac || prevMac.name !== d.name || moved || prevMac.team_id !== d.teamId || (prevMac.machine_id ?? null) !== machineId)
       this.broadcast(d.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(d.deviceId) }))
+    // Older builds on the same Mac now listed as that computer's: their sockets' phones hear it.
+    for (const id of d.claimed ?? []) {
+      const sibling = this.macRow(id)
+      // A row that has a machine id keeps it (the database never replaces one either).
+      if (!sibling || sibling.machine_id) continue
+      this.sql.exec(`UPDATE macs SET machine_id = ? WHERE device_id = ?`, machineId, id)
+      this.broadcast(sibling.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(id) }))
+    }
   }
 
   /**
@@ -208,14 +250,15 @@ export class TeamHub extends DurableObject<Env> {
     if (this.seeded()) return
     for (const m of macs)
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at)
-         SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id)
+         SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
         m.deviceId,
         m.name,
         owner.userId,
         owner.projectId,
         m.teamId,
         m.lastSeenAt ? Date.parse(m.lastSeenAt) : null,
+        m.machineId ?? null,
         m.deviceId
       )
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
@@ -245,6 +288,8 @@ export class TeamHub extends DurableObject<Env> {
     for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
       this.sessions.delete(r.session_id)
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
+    // A removed phone's replies never reach a Mac, and a removed Mac's queue goes with it.
+    this.sql.exec(`DELETE FROM mailbox WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
   }
 
   /**
@@ -273,7 +318,7 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes"]) this.sql.exec(`DELETE FROM ${t}`)
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 
@@ -327,6 +372,106 @@ export class TeamHub extends DurableObject<Env> {
   async macs(ownerKey: string, teamId?: string): Promise<Array<MacPresence>> {
     this.bind(ownerKey)
     return this.macList(teamId)
+  }
+
+  // ---- Reply mailbox (PROTOCOL.md "Sealed pushes and the reply mailbox") ------------------------------
+
+  /** Drops rows past `keep_until` (lazily, on every mailbox call and Mac connect). */
+  private mailboxSweep(now: number) {
+    this.sql.exec(`DELETE FROM mailbox WHERE keep_until <= ?`, now)
+  }
+
+  /**
+   * Queues a sealed reply for `item.mac` (the Worker checked that the caller owns both devices): delivered at
+   * once when the Mac's socket is open, else right after its next `hello`. The same id with the same blob is
+   * the same item (a retried request); with another blob it is a conflict. At most MAILBOX_PENDING_LIMIT wait
+   * per Mac. `ttlMs` is MAILBOX_TTL_MS outside tests.
+   */
+  async mailboxPost(ownerKey: string, item: MailboxItem, ttlMs: number = MAILBOX_TTL_MS): Promise<MailboxPost> {
+    this.bind(ownerKey)
+    const now = Date.now()
+    this.mailboxSweep(now)
+    const existing = this.sql.exec<{ mac: string; from_device: string; sealed: string; state: string }>(`SELECT mac, from_device, sealed, state FROM mailbox WHERE id = ?`, item.id).toArray()[0]
+    if (existing) {
+      if (existing.mac !== item.mac || existing.from_device !== item.from || (existing.state === "queued" && existing.sealed !== item.sealed)) return { error: "conflict" }
+      return { queued: true, delivered: false }
+    }
+    const pending = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ?`, item.mac, now).toArray()[0]?.n ?? 0
+    if (pending >= MAILBOX_PENDING_LIMIT) return { error: "full" }
+    const expiresAt = now + ttlMs
+    this.sql.exec(
+      `INSERT INTO mailbox (id, mac, from_device, sealed, at, expires_at, keep_until, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')`,
+      item.id,
+      item.mac,
+      item.from,
+      item.sealed,
+      now,
+      expiresAt,
+      // The outcome stays readable for one more full window, whatever this item's own time to live.
+      expiresAt + MAILBOX_TTL_MS
+    )
+    const ws = this.open(item.mac)
+    if (!ws) return { queued: true, delivered: false }
+    try {
+      ws.send(JSON.stringify({ type: "mailbox", items: [{ id: item.id, from: item.from, sealed: item.sealed, at: now }] }))
+      return { queued: true, delivered: true }
+    } catch {
+      return { queued: true, delivered: false }
+    }
+  }
+
+  /** The outcome of one item of `mac`, or null when there is none (never posted, or long gone). */
+  async mailboxState(ownerKey: string, mac: string, id: string): Promise<MailboxState | null> {
+    this.bind(ownerKey)
+    const now = Date.now()
+    this.mailboxSweep(now)
+    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null }>(
+      `SELECT state, reason, expires_at, sig FROM mailbox WHERE id = ? AND mac = ?`,
+      id,
+      mac
+    ).toArray()[0]
+    if (!row) return null
+    const sig = row.sig ? { sig: row.sig } : {}
+    if (row.state === "applied") return { state: "applied", ...sig }
+    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig }
+    return row.expires_at <= now ? { state: "expired" } : { state: "queued" }
+  }
+
+  /** The Mac's queued, unexpired items, oldest first, sent on its socket after `hello`. */
+  private deliverMailbox(ws: WebSocket, mac: string) {
+    const now = Date.now()
+    this.mailboxSweep(now)
+    const items = this.sql
+      .exec<{ id: string; from_device: string; sealed: string; at: number }>(
+        `SELECT id, from_device, sealed, at FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? ORDER BY at`,
+        mac,
+        now
+      )
+      .toArray()
+      .map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at }))
+    if (items.length) ws.send(JSON.stringify({ type: "mailbox", items }))
+  }
+
+  /** `mailbox_ack` from a Mac socket: settles that Mac's own queued items; anything else is ignored or refused. */
+  private mailboxAck(ws: WebSocket, att: Attachment, results: unknown) {
+    if (att.kind !== "mac") return this.error(ws, "bad_request", "only a Mac acknowledges mailbox items")
+    if (!Array.isArray(results) || results.length > MAX_ACK_RESULTS) return this.error(ws, "bad_request", "results must be a list of at most 64 {id, applied, reason?}")
+    for (const r of results) {
+      if (typeof r !== "object" || r === null) continue
+      const { id, applied, reason, sig } = r as { id?: unknown; applied?: unknown; reason?: unknown; sig?: unknown }
+      if (typeof id !== "string" || !UUID.test(id) || typeof applied !== "boolean") continue
+      const why = applied ? null : typeof reason === "string" && ACK_REASON.test(reason) ? reason : "refused"
+      // Kept as sent: the phone checks it against the Mac's pinned key (the hub can't make one up).
+      const signature = typeof sig === "string" && ACK_SIG.test(sig) ? sig : null
+      this.sql.exec(
+        `UPDATE mailbox SET state = ?, reason = ?, sig = ?, sealed = '' WHERE id = ? AND mac = ? AND state = 'queued'`,
+        applied ? "applied" : "rejected",
+        why,
+        signature,
+        id,
+        att.deviceId
+      )
+    }
   }
 
   // ---- WebSocket -------------------------------------------------------------------------------
@@ -392,8 +537,17 @@ export class TeamHub extends DurableObject<Env> {
         Date.now()
       )
     }
-    server.send(JSON.stringify({ type: "hello", you: att.deviceId, macs: this.macList(att.teamId).map(({ teamId: _t, ...m }) => m) }))
-    if (att.kind === "mac") this.broadcast(att.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), server)
+    server.send(
+      JSON.stringify({
+        type: "hello",
+        you: att.deviceId,
+        macs: this.macList(att.teamId).map(({ teamId: _t, machineId, ...m }) => ({ ...m, ...(machineId ? { machineId } : {}) }))
+      })
+    )
+    if (att.kind === "mac") {
+      this.deliverMailbox(server, att.deviceId)
+      this.broadcast(att.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), server)
+    }
     const proto = req.headers.get("x-cmux-mobile-subprotocol")
     return new Response(null, { status: 101, webSocket: client, ...(proto ? { headers: { "sec-websocket-protocol": proto } } : {}) })
   }
@@ -404,12 +558,13 @@ export class TeamHub extends DurableObject<Env> {
     if (typeof message === "string") {
       if (!this.take(ws, "text")) return this.error(ws, "rate_limited", "too many signaling frames")
       if (message.length > MAX_TEXT_FRAME) return this.error(ws, "bad_request", "frame too large")
-      let f: { type?: unknown; to?: unknown; from?: unknown; sessionId?: unknown; payload?: { kind?: unknown } }
+      let f: { type?: unknown; to?: unknown; from?: unknown; sessionId?: unknown; payload?: { kind?: unknown }; results?: unknown }
       try {
         f = JSON.parse(message)
       } catch {
         return this.error(ws, "bad_request", "invalid JSON")
       }
+      if (f.type === "mailbox_ack") return this.mailboxAck(ws, att, f.results)
       if (f.type !== "signal") return this.error(ws, "bad_request", "unknown frame type")
       if (typeof f.to !== "string" || !UUID.test(f.to)) return this.error(ws, "bad_request", "to must be a deviceId")
       if (f.from !== undefined && f.from !== att.deviceId) return this.error(ws, "bad_request", "from must be your deviceId")
@@ -546,8 +701,8 @@ export class TeamHub extends DurableObject<Env> {
 
   private macRow(deviceId: string) {
     return this.sql
-      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null }>(
-        `SELECT name, owner_user_id, owner_project_id, team_id, last_seen_at FROM macs WHERE device_id = ?`,
+      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null; machine_id: string | null }>(
+        `SELECT name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id FROM macs WHERE device_id = ?`,
         deviceId
       )
       .toArray()[0]
@@ -569,14 +724,15 @@ export class TeamHub extends DurableObject<Env> {
       teamId: r.team_id ?? "",
       online: !!this.open(deviceId),
       lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
-      ownerUserId: r.owner_user_id
+      ownerUserId: r.owner_user_id,
+      machineId: r.machine_id ?? null
     }
   }
 
-  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt}`. */
+  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId}`. */
   private presenceOf(deviceId: string) {
     const p = this.presence(deviceId)!
-    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt }
+    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}) }
   }
 
   /** To the sockets opened for `teamId` (the only team whose Macs they list). */

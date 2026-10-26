@@ -6,7 +6,7 @@ import CmuxNextSettings
 /// `browser.import.enabled` (Settings > Browser > Import; on by default). Off, cmux's Import from
 /// Browser entry points leave: the File menu items, palette actions and context-menu rows below
 /// (a run is refused with ``BrowserImportOfferStrings/turnedOff``), the import tool window, the
-/// browser tab's import offer and the import suggestion cards on Home, New Tab and Settings ›
+/// browser tab's import offer and the import suggestion cards in Settings ›
 /// Import. Nothing imports by itself either: Keep in Sync stops re-reading other browsers' history
 /// and a paused card job does not resume. Data already imported stays, and Remove Imported Data
 /// still removes it.

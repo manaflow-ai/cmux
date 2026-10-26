@@ -16,8 +16,20 @@ public struct CloudAPIClient: Sendable {
     let session: URLSession
     let appVersion: String
 
+    /// Requests that carry the account's bearer token: ephemeral, no URL
+    /// cache, no cookies, so no answer (or the request headers stored with
+    /// it) lands in `~/Library/Caches/<bundle id>/Cache.db`.
+    public static let noStoreTransport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+
     public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
-                session: URLSession = .shared, appVersion: String = "cmux-next") {
+                session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
         baseURL = configuration.apiBaseURL
         if case .localOnly = configuration.backend { backendIsLocalOnly = true } else { backendIsLocalOnly = false }
         self.tokens = tokens
@@ -74,6 +86,13 @@ public struct CloudAPIClient: Sendable {
     /// Resume can wait up to the route's 16-minute provider readiness budget.
     public func resumeMachine(_ id: String) async throws {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
+    }
+
+    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
+    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
+    public func setIdlePause(_ id: String, minutes: Int) async throws {
+        let value: any Sendable = minutes == 0 ? "off" : minutes
+        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
     }
 
     public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {

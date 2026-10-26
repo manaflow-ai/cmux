@@ -20,7 +20,9 @@ import CmuxNextCompat
 ///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
 ///
 /// The host sends again only what it recorded from a frame the page rules let through; the page
-/// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). Chats on another machine are
+/// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
+/// prompt again under its promptId: the relay marks that a resend when it sent the id to the same
+/// daemon before in this run (``sendsAgain(daemon:promptId:)``). Chats on another machine are
 /// not kept (their daemon is not this Mac's). The file is read once and written in order, never
 /// on the main thread; a record is on disk before its frame is sent.
 public nonisolated final class AgentPanePromptJournal: Sendable {
@@ -73,6 +75,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var holders: [String: Holder] = [:]
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
+        /// The daemon and promptId of each prompt the relay sent in this run (never on disk). Never
+        /// trimmed: a failed row keeps its Retry for the whole run, and a forgotten id would go
+        /// unmarked. One person's prompts in one run stay small.
+        var sent: Set<String> = []
         var generation = 0
     }
 
@@ -113,6 +119,12 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return true
         }
         return kept
+    }
+
+    /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
+    /// before in this run: the pane's Retry, which goes as a resend.
+    func sendsAgain(daemon: String, promptId: String) -> Bool {
+        state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk

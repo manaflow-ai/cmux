@@ -10549,129 +10549,471 @@
       "extractionState": "manual",
       "localizations": {
         "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld غير مقروءة"
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "علامة تبويب واحدة غير مقروءة (%lld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "علامتا تبويب غير مقروءتين (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامات تبويب غير مقروءة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld nepročitano"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitan"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitana"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitanih"
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ulæste"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulæst"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulæste"
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ungelesen"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ungelesen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ungelesen"
+                }
+              }
+            }
           }
         },
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld unread"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld unread"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld unread"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld sin leer"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld non lus"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lu"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lus"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lus"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld non letti"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non letta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non lette"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non lette"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "未読 %lld 件"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "未読 %lld 件"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "未読 %lld 件"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនទាន់អាន %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "មិនទាន់អាន %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "មិនទាន់អាន %lld"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽지 않음 %lld개"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "읽지 않음 %lld개"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "읽지 않음 %lld개"
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld uleste"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulest"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld uleste"
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld nieprzeczytane"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld não lidas"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lida"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lidas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lidas"
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Непрочитанных: %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังไม่ได้อ่าน %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ยังไม่ได้อ่าน %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ยังไม่ได้อ่าน %lld"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld okunmamış"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld okunmamış"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld okunmamış"
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Непрочитаних: %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld chưa đọc"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chưa đọc"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chưa đọc"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 条未读"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 条未读"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 条未读"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 則未讀"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 則未讀"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 則未讀"
+                }
+              }
+            }
           }
         }
       }
@@ -12375,6 +12717,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法在螢幕外擷取該頁面（%@）"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.browserNeedsREPL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقطة شاشة صفحة المتصفح للأتمتة تأتي من REPL المتصفح، الذي يخفي الأسرار في الصفحة: browser_repl_eval مع page.screenshot()"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak ekrana stranice preglednika za automatizaciju dolazi iz REPL-a preglednika, koji skriva tajne na stranici: browser_repl_eval sa page.screenshot()"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et skærmbillede af en browserside til automatisering kommer fra browserens REPL, som skjuler hemmelighederne på siden: browser_repl_eval med page.screenshot()"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Bildschirmfoto einer Browserseite für die Automatisierung kommt aus der Browser-REPL, die die Geheimnisse auf der Seite verbirgt: browser_repl_eval mit page.screenshot()"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La captura de una página del navegador para la automatización viene del REPL del navegador, que oculta los secretos de la página: browser_repl_eval con page.screenshot()"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une capture d’une page du navigateur pour l’automatisation vient du REPL du navigateur, qui masque les secrets de la page : browser_repl_eval avec page.screenshot()"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo screenshot di una pagina del browser per l’automazione arriva dal REPL del browser, che nasconde i segreti della pagina: browser_repl_eval con page.screenshot()"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化でのブラウザページのスクリーンショットは、ページ上の秘密情報を隠すブラウザ REPL から取得します: browser_repl_eval で page.screenshot()"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថតអេក្រង់នៃទំព័រកម្មវិធីរុករកសម្រាប់ស្វ័យប្រវត្តិកម្ម មកពី REPL របស់កម្មវិធីរុករក ដែលលាក់អាថ៌កំបាំងនៅលើទំព័រ៖ browser_repl_eval ជាមួយ page.screenshot()"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동화용 브라우저 페이지 스크린샷은 페이지의 비밀 정보를 가리는 브라우저 REPL에서 가져옵니다: browser_repl_eval에서 page.screenshot()"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et skjermbilde av en nettleserside for automatisering kommer fra nettleserens REPL, som skjuler hemmelighetene på siden: browser_repl_eval med page.screenshot()"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu strony przeglądarki dla automatyzacji pochodzi z REPL przeglądarki, który ukrywa sekrety na stronie: browser_repl_eval z page.screenshot()"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A captura de uma página do navegador para automação vem do REPL do navegador, que oculta os segredos da página: browser_repl_eval com page.screenshot()"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок экрана страницы браузера для автоматизации делает REPL браузера, который скрывает секреты на странице: browser_repl_eval с page.screenshot()"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพหน้าจอของหน้าเบราว์เซอร์สำหรับระบบอัตโนมัติมาจาก REPL ของเบราว์เซอร์ ซึ่งซ่อนข้อมูลลับบนหน้า: browser_repl_eval กับ page.screenshot()"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomasyon için bir tarayıcı sayfasının ekran görüntüsü, sayfadaki gizli bilgileri saklayan tarayıcı REPL'inden gelir: page.screenshot() ile browser_repl_eval"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок екрана сторінки браузера для автоматизації робить REPL браузера, який приховує секрети на сторінці: browser_repl_eval з page.screenshot()"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh chụp màn hình trang trình duyệt cho tự động hóa lấy từ REPL của trình duyệt, nơi ẩn các bí mật trên trang: browser_repl_eval với page.screenshot()"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动化获取浏览器页面截图须通过浏览器 REPL，它会隐藏页面上的机密信息：在 browser_repl_eval 中使用 page.screenshot()"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化取得瀏覽器頁面截圖須透過瀏覽器 REPL，它會隱藏頁面上的機密資訊：在 browser_repl_eval 中使用 page.screenshot()"
           }
         }
       }
@@ -18017,6 +18490,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有聚焦的手機分頁。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noPeerSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no running chat named %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد على %1$@ محادثة قيد التشغيل باسم %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nema pokrenut chat pod imenom %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har ingen kørende chat med navnet %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat keinen laufenden Chat namens %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no tiene ningún chat en curso llamado %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ n’a aucune discussion en cours nommée %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non ha una chat in esecuzione chiamata %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ に実行中のチャット %2$@ はありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនមានការជជែកកំពុងដំណើរការដែលមានឈ្មោះ %2$@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 실행 중인 %2$@ 채팅이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har ingen kjørende chat med navnet %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie ma uruchomionego czatu o nazwie %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não tem nenhum chat em execução chamado %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ нет запущенного чата с именем %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ไม่มีแชตที่กำลังทำงานชื่อ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde %2$@ adlı çalışan sohbet yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ немає запущеного чату з назвою %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không có cuộc trò chuyện đang chạy nào tên %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 没有名为 %2$@ 的运行中聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 沒有名為 %2$@ 的執行中聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.ambiguousPeerSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has more than one chat named %2$@. Name it by its session id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد على %1$@ أكثر من محادثة باسم %2$@. حدّدها بمعرّف جلستها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ima više od jednog chata pod imenom %2$@. Navedite ga po ID-u sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har mere end én chat med navnet %2$@. Angiv den med dens sessions-id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat mehr als einen Chat namens %2$@. Gib seine Sitzungs-ID an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tiene más de un chat llamado %2$@. Indícalo por su ID de sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a plusieurs discussions nommées %2$@. Indiquez son identifiant de session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha più di una chat chiamata %2$@. Indicala con il suo ID di sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には %2$@ という名前のチャットが複数あります。セッション ID で指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មានការជជែកច្រើនជាងមួយដែលមានឈ្មោះ %2$@។ សូមបញ្ជាក់ដោយលេខសម្គាល់សម័យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 %2$@ 이름의 채팅이 여러 개 있습니다. 세션 ID로 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har mer enn én chat med navnet %2$@. Oppgi den med økt-ID-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ma więcej niż jeden czat o nazwie %2$@. Wskaż go identyfikatorem sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tem mais de um chat chamado %2$@. Indique-o pelo ID da sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ несколько чатов с именем %2$@. Укажите его по идентификатору сеанса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ มีแชตชื่อ %2$@ มากกว่าหนึ่งรายการ ระบุด้วยรหัสเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde %2$@ adlı birden fazla sohbet var. Oturum kimliğiyle belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ кілька чатів з назвою %2$@. Укажіть його за ідентифікатором сеансу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ có nhiều cuộc trò chuyện tên %2$@. Hãy chỉ định bằng ID phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 有多个名为 %2$@ 的聊天。请用会话 ID 指定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 有多個名為 %2$@ 的聊天。請用工作階段 ID 指定。"
           }
         }
       }

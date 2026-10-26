@@ -47,7 +47,7 @@ nonisolated enum BrowserSettingsSchema {
                 BrowserImportSetting.configPath, section: .browser, group: importGroup,
                 title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
                 help: SettingsText.keyed("settings.browser.importEnabled.help",
-                                         "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards on Home, New Tab and Settings. Off hides them and nothing imports by itself. Data already imported stays."),
+                                         "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."),
                 kind: .toggle, default: .bool(BrowserImportSetting.fallback),
                 keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
             ),
@@ -98,7 +98,7 @@ nonisolated enum BrowserSettingsSchema {
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
                 summary: SettingsText.keyed("settings.browser.hibernation.summary", "Frees memory; history and scroll are kept"),
                 kind: .choiceOrNumber([
-                    SettingChoice("moderate", SettingsText.keyed("settings.choice.moderate", "After 1 Hour")),
+                    SettingChoice("moderate", SettingsText.keyed("settings.choice.after30Minutes", "After 30 Minutes")),
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),

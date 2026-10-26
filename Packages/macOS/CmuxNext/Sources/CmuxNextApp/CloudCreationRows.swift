@@ -25,7 +25,8 @@ enum CloudCreationRows {
                 id: WorkspaceID(creation.rowID), machineID: machineID,
                 title: CloudStrings.newCloudWorkspaceTitle,
                 status: CloudStrings.stage(stage), kind: .terminal,
-                progress: SidebarProgress(value: stage.failure == nil ? (stage == .ready ? 1 : nil) : 1, isError: stage.failure != nil),
+                // A paused machine waits for an attach: no spinner.
+                progress: stage.isPaused ? nil : SidebarProgress(value: stage.failure == nil ? (stage == .ready ? 1 : nil) : 1, isError: stage.failure != nil),
                 isClosable: false, stage: CloudStrings.stage(stage))
             if let index = sections.firstIndex(where: { $0.machine?.id == machineID }) {
                 sections[index].nodes.append(.workspace(row))
@@ -46,7 +47,11 @@ enum CloudCreationRows {
         var header = SidebarBridge.machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                              compatibility: compatibility)
         header.cost = cost(session.machine, limits: limits)
-        if let failure = session.stage.failure, header.status == .connecting || header.status == .offline {
+        let stage = session.stage
+        if case .paused(let idle) = stage, header.status == .connecting || header.status == .offline {
+            // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
+            header.status = idle ? .pausedIdle : .paused
+        } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
             header.status = .failed
             header.detail = failure
         }

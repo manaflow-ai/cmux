@@ -111,6 +111,7 @@ export function ChatHeaderTools({
   onApplyWorktree,
   onRemoveWorktree,
   inspector,
+  inbox,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -161,6 +162,9 @@ export function ChatHeaderTools({
   /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
   inspector?: ReactNode;
+  /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
+  /// the first of the top-right icons.
+  inbox?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -409,6 +413,7 @@ export function ChatHeaderTools({
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {inspector}
       {summary}
+      {inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

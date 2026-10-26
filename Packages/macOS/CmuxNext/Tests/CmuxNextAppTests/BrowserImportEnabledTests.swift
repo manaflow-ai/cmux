@@ -10,7 +10,7 @@ import Testing
 
 /// `browser.import.enabled` (on by default): off, cmux's Import from Browser entry points leave the
 /// palette, the File menu and the context menus, the import tool window does not open, the import
-/// suggestion cards (Home, New Tab, Settings › Import) are off and Keep in Sync pauses. On again,
+/// suggestion cards (Settings › Import) are off and Keep in Sync pauses. On again,
 /// every one is back.
 @MainActor @Suite(.serialized) struct BrowserImportEnabledTests {
     /// The entry points the setting hides: the menu items and palette actions, and the card verbs.
@@ -116,11 +116,11 @@ import Testing
         #expect(!h.services.onboarding.isShowing, "the import window stays closed")
         // Every run says why: the palette's subtitle and the socket's `unavailable` reason.
         #expect(h.services.registry.unavailableReason(for: "importFromBrowser") == BrowserImportOfferStrings.turnedOff)
-        // The import suggestion cards are off on Home, New Tab and Settings › Import, and a card
+        // The import suggestion cards are off in Settings › Import, and a card
         // still on screen starts nothing.
         #expect(!ImportSuggestionsCenter.shared.isEnabled)
         #expect(ImportSuggestionsCenter.shared.settingsJSON == .null)
-        #expect(ImportSuggestionsCenter.shared.list(for: .home).cards.isEmpty)
+        #expect(ImportSuggestionsCenter.shared.list().cards.isEmpty)
         #expect(throws: (any Error).self) { try ImportSuggestionsCenter.shared.perform("chrome", .start) }
         // Keep in Sync stops re-reading other browsers' history.
         #expect(await h.syncPaused(true), "Keep in Sync is paused while browser import is off")
