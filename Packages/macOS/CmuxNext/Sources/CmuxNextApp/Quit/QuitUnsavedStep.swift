@@ -78,11 +78,12 @@ enum QuitUnsavedStep {
                                       lines: participants.map { QuitStrings.unsavedSaving($0.quitTitle) },
                                       buttons: [.cancel(ConfirmationStrings.cancel)], identifier: "cmux.dialog.quitUnsavedSaving")
         return await withCheckedContinuation { (continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) in
-            let race = SaveRace(continuation)
+            let race = SaveRace(continuation, participants: participants)
             race.dialogID = center.present(progress, in: scope) { _ in race.finish(nil) }
-            // The participants are main-actor documents, so the save's body stays on main.
+            // The participants are main-actor documents, so the save's body stays on main. The task reaches
+            // them through the main-actor race, so it captures no non-Sendable value.
             work.task(.userBlocking) { @MainActor in
-                let outcomes = await registry.save(participants)
+                let outcomes = await registry.save(race.participants)
                 if race.finish(outcomes), let id = race.dialogID { center.dismiss(id) }
             }
         }
@@ -93,9 +94,12 @@ enum QuitUnsavedStep {
     final class SaveRace {
         private var continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>?
         var dialogID: Int?
+        /// The documents the save writes.
+        let participants: [any QuitUnsavedParticipant]
 
-        init(_ continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>) {
+        init(_ continuation: CheckedContinuation<[QuitFlushOutcome]?, Never>, participants: [any QuitUnsavedParticipant]) {
             self.continuation = continuation
+            self.participants = participants
         }
 
         /// True when this call answered (the other side came too late).

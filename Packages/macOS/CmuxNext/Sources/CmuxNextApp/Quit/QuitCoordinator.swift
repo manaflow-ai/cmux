@@ -275,7 +275,7 @@ final class QuitCoordinator {
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
                                            pages: [String: BrowserLaunchPictures.Picture]) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
-        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
+        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme ?? services.themeStore.tokens.app)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
         return services.windows.controllers.compactMap { controller -> WindowPictureStore.Shot? in
             let state = controller.state, root = controller.root

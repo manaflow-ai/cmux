@@ -247,12 +247,13 @@ final class FeedHandoffDriver {
         let ids = local.map { Self.cloudID(install: install, local: $0) }
         for start in stride(from: 0, to: ids.count, by: 256) {
             let chunk = Array(ids[start..<min(start + 256, ids.count)])
-            let body: [String: Any] = ["op": "feed.read", "params": ["items": chunk],
-                                       "idempotency_key": UUID().uuidString, "origin": "user"]
+            let key = UUID().uuidString
             let id = UUID()
             // task-owner: FeedHandoffDriver.running: one feed.read at best effort; a failure only leaves the cloud copy
-            // unread (U5: nothing queues). The owner call is main-actor, so its body stays on main.
+            // unread (U5: nothing queues). The owner call is main-actor, so its body stays on main. The task takes
+            // only Sendable values (the ids, the key) and builds the body there.
             running[id] = work.task(.bestEffort) { @MainActor [weak self, owner] in
+                let body: [String: Any] = ["op": "feed.read", "params": ["items": chunk], "idempotency_key": key, "origin": "user"]
                 do { _ = try await owner("v1/ops", body) } catch { self?.note("read failed: \(Self.describe(error))") }
                 self?.running[id] = nil
             }

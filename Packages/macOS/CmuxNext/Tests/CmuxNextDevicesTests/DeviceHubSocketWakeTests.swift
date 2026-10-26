@@ -65,9 +65,11 @@ struct DeviceHubSocketWakeTests {
         }
     }
 
-    /// Reads events until one `matches` it (or the stream ends).
-    static func skip(_ iterator: inout AsyncStream<DeviceHubSocket.Event>.Iterator,
-                     until matches: (DeviceHubSocket.Event) -> Bool) async {
+    /// Reads events until one `matches` it (or the stream ends). `@concurrent`, like
+    /// `AsyncStream.Iterator.next()`: the caller sends its iterator here once and the reads do not hop
+    /// isolation again (the target's default isolation is the main actor), as BranchSizedForTests.notice does.
+    @concurrent nonisolated static func skip(_ iterator: inout AsyncStream<DeviceHubSocket.Event>.Iterator,
+                                             until matches: @Sendable (DeviceHubSocket.Event) -> Bool) async {
         while let seen = await iterator.next() {
             if matches(seen) { return }
         }
