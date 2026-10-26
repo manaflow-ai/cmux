@@ -180,7 +180,9 @@ final class WindowRecordSaver {
         return value.windows.compactMap { window in
             let controller = manager.controller(for: window.id)
             var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
-                                      isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
+                                      isFullScreen: (controller?.window?.styleMask.contains(.fullScreen) == true
+                                          // full screen only for a page's fullscreen is not the window's own
+                                          && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
