@@ -1361,7 +1361,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextLaunchTests",
-            dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
+            dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
+                           "CmuxNextSignposts", "CmuxNextTrace"],
             swiftSettings: uiSwiftSettings
         ),
         // Release tracing, hang watch and crash keys (plans/cmux-next/chrome-parity/p09-observability.md):
@@ -1800,8 +1802,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPaletteTests",
-            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
-            dependencies: ["CmuxNextPalette", .product(name: "CmuxTheme", package: "CmuxTheme")],
+            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens. Compat, Signposts and Trace:
+            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime.
+            dependencies: ["CmuxNextPalette", "CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace",
+                           .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
