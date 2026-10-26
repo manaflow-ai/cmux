@@ -80,6 +80,11 @@ impl FakeAcpmux {
         self.frames.recv_timeout(WAIT).expect("a frame to acpmux")
     }
 
+    /// The next frame the daemon sent to acpmux within `timeout`, if any.
+    pub(super) fn next_frame(&self, timeout: Duration) -> Option<Value> {
+        self.frames.recv_timeout(timeout).ok()
+    }
+
     pub(super) fn no_frame(&self) {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -129,6 +134,8 @@ impl Drop for FakeAcpmux {
 pub(super) struct Fixture {
     pub(super) page: Vec<Value>,
     pub(super) watch: Vec<Value>,
+    /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
+    pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
 fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
@@ -141,6 +148,9 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "_acpmux/attach" => {
+                if let Some(gate) = &fixture.attach_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 // A running turn: acpmux subscribes first, so a live record
                 // can reach the daemon before the attach reply.
                 let early = json!({"jsonrpc":"2.0","method":"_acpmux/event","params":{
@@ -386,7 +396,7 @@ impl Client {
     }
 
     /// The next `agent-session-*` event (buffered first).
-    fn event(&mut self, timeout: Duration) -> Option<Value> {
+    pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
             return self.events.remove(index);
         }

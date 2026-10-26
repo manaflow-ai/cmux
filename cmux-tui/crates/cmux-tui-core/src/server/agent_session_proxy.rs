@@ -178,22 +178,69 @@ mod tests {
         fake.notify("_acpmux/event", record(3, "composer"));
         child_changes(&mut fake);
         fake.notify("_acpmux/event", record(4, "user_message"));
-        // Records arrive in order (the fake's own replies may come first): none is the draft.
+        // Every event up to the prompt record, in order (the fake's own replies may come first):
+        // none is the draft, and none is a child's change.
         loop {
-            let event =
-                client.named_event("agent-session-record", WAIT).expect("the prompt record");
+            let event = client.event(WAIT).expect("the prompt record");
+            assert_ne!(
+                event["event"], "agent-session-changed",
+                "no descendant reaches a teammate: {event}"
+            );
             assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
-            if event["record"]["kind"] == "user_message" {
+            if event["event"] == "agent-session-record" && event["record"]["kind"] == "user_message"
+            {
                 break;
             }
         }
-        assert!(client.named_event("agent-session-changed", Duration::from_millis(300)).is_none());
+        assert!(
+            client.event(Duration::from_millis(300)).is_none(),
+            "nothing after the prompt record"
+        );
         let children =
             json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
         assert_code(&client.request(children), "agent_session.not_trusted");
         let answer = json!({"cmd":"agent-session-permission", "surface":surface,
             "permission_id":"perm_attach", "option_id":"allow", "_host_author":author});
         assert_code(&client.request(answer), "agent_session.not_trusted");
+    }
+
+    /// A teammate that disconnects while acpmux answers the attach (the
+    /// binding is forgotten then) still has its author on the session watch:
+    /// the author is read on the request, not after.
+    #[test]
+    fn a_disconnect_during_attach_never_unstamps_the_watch() {
+        let (open, gate) = std::sync::mpsc::channel();
+        let fixture =
+            Fixture { attach_gate: Some(Arc::new(Mutex::new(gate))), ..Fixture::default() };
+        let fake = FakeAcpmux::start_with("proxy-gone", fixture);
+        let mux = mux_with(&fake, "proxy-gone");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut client = Client::connect(&mux, "proxy-gone");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        assert_eq!(
+            client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
+            true
+        );
+        client
+            .send(json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author}));
+        assert_eq!(fake.raw_frame()["method"], "_acpmux/attach");
+        drop(client);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while author_of(&mux).is_some() {
+            assert!(std::time::Instant::now() < deadline, "the disconnect forgets the binding");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        open.send(()).unwrap();
+        // The worker goes on to the watch or stops; whatever reaches acpmux carries the author.
+        while let Some(frame) = fake.next_frame(Duration::from_millis(500)) {
+            assert_eq!(frame["params"]["_meta"]["acpmux"]["author"], author, "{frame}");
+        }
+    }
+
+    fn author_of(mux: &Mux) -> Option<Value> {
+        let authors = mux.control_clients.agent_sessions.proxy_authors.lock().unwrap();
+        authors.values().next().cloned()
     }
 
     /// A WebSocket connection cannot bind a proxy identity: the frame goes

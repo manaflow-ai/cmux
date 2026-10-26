@@ -653,8 +653,11 @@ fn attach(
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
-    if let Some(author) = proxy::author(mux, client) {
-        acpmux_params["_meta"]["acpmux"]["author"] = author;
+    // Read once, on the request: the worker stamps this author on the session watch too, so a
+    // disconnect while acpmux answers (which forgets the binding) never leaves a call unstamped.
+    let author = proxy::author(mux, client);
+    if let Some(author) = &author {
+        acpmux_params["_meta"]["acpmux"]["author"] = author.clone();
         // A teammate reads the transcript only, never raw wire records or other kinds, live or replayed.
         teammate_kinds(&mut acpmux_params);
     }
@@ -686,6 +689,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                author,
                 worker_writer,
             );
         });

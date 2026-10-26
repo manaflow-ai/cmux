@@ -12,6 +12,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
+    author: Option<Value>,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -74,7 +75,6 @@ pub(super) fn connect_and_attach(
     // watchers; the reader keeps only this session's and its descendants'.
     // The answer (every session's summary) never reaches the client: only
     // the descendants it names are followed from now on.
-    let author = proxy::author(&mux, client);
     let mut watch = json!({"enabled": true});
     if let Some(author) = &author {
         watch["_meta"]["acpmux"]["author"] = author.clone();
