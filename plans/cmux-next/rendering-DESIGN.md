@@ -30,9 +30,9 @@ Chromium paths are in `chromium/src` at HEAD (read 2026-10-25).
 | The link runs only while a client is armed, at the highest rate that an armed client asks for: motion 120 Hz, UI 60 Hz, ambient 30 Hz. Low Power Mode and thermal state set a cap. | `components/viz/service/display/frame_rate_decider.h`; battery saver in `components/performance_manager`. |
 | `MainFrameBudget` stops budgeted work at `targetTimestamp` minus the measured p95 of the main CA commit and layout. The in-process CEF pump slices to the same deadline. | `cc/scheduler/scheduler.h`: the frame does not wait for a slow main thread. |
 
-Where cmux is different: the main fan-out is a thread hop that Chrome also makes. Task p03-rendering-014 measures it.
-If the hop adds 0.1 ms or more to the p99 main tick latency, cmux keeps one main link and one hub link for each
-display, and task 014 records the numbers in this section.
+Where cmux is different: Chrome has one link for each display (`DisplayLinkMac::GetForDisplay`). cmux keeps that
+unless task p03-rendering-014 measures a p99 rise of 0.1 ms or more from the hop to main. Then cmux has two links for
+each display (one on main, one on the hub), and task 014 records why (difference 6 below).
 
 ### R2 Commit once, animate on the render server
 
@@ -84,10 +84,10 @@ contention with the main commit, priority inversion and a teardown race (rule 5 
 
 | cmux | Chrome |
 |---|---|
-| The switch hides a workspace root (`isHidden`) in its own turn; it does not detach it. Content is evicted as a separate step. Detach occurs only after the grace, as budgeted idle work, and only if a measurement shows that it pays. | Views are hidden and frames evicted; native views stay attached. |
+| The switch hides a workspace root (`isHidden`) in its own turn; it does not detach it. Content is evicted as a separate step. Detach occurs only after the grace, as budgeted idle work, and only if a measurement shows that it pays. | `content/browser/renderer_host/render_widget_host_view_mac.mm` (`WasOccluded`, `Hide`): the view is hidden and the `NSView` stays attached; `content/browser/renderer_host/delegated_frame_host.cc` (`EvictDelegatedFrame`): the frame is evicted as a separate step. |
 | One `WindowOcclusionFamily` for each window. It adds the same-size window check, because the system occlusion state fails for windows of similar size. Every reader subscribes to it. | `content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.h` (crbug.com/883031). |
 | One app-wide `HiddenFrameLRU` for page frames and terminal last frames: locks for visible frames, a soft limit from physical memory, a 5 min cull, a purge on memory pressure. | `components/viz/client/frame_eviction_manager.h`. |
-| App web pages stop infinite CSS animations and `requestAnimationFrame` loops when hidden or occluded. | Hidden renderers produce no frames. |
+| App web pages stop infinite CSS animations and `requestAnimationFrame` loops when hidden or occluded. | `content/browser/renderer_host/render_widget_host_impl.cc` (`WasHidden`) and `cc/scheduler/scheduler.cc`: a hidden renderer stops its BeginFrames and produces no frames. |
 
 ### R7 Measurement
 
@@ -96,7 +96,7 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
 | cmux | Chrome |
 |---|---|
 | Time: `motion-hitches.py` (xctrace Animation Hitches, a Time Profiler of main, and a ScreenCaptureKit timeline from a separate process) at `--vdisplay=120`. No `FrameClient` runs in the app during a timed pass. | `cc/metrics/dropped_frame_counter.h`, `frame_sequence_tracker.h`. |
-| Counts: `motion-main-work.py` with `RenderStats` armed. A counting pass reports no milliseconds. | |
+| Counts: `motion-main-work.py` with `RenderStats` armed. A counting pass reports no milliseconds. | No equivalent: Chrome counts frames in viz (`cc/metrics/frame_sequence_metrics.h`), not main-thread work items. |
 | Release field data: `motion.late_commits` and `action.presented_estimate` (the `targetTimestamp` of the first tick after the commit), with no display link started for them. `action.presented` only where a true presented time exists. | `cc/metrics/event_metrics.h`: EventLatency ends at the presentation timestamp. |
 | Distributions p50, p95, p99 and max; light and STRESS; macOS 26 and 27. Tart VMs on 14 and 15 prove behavior only. | UMA histograms. |
 
@@ -121,12 +121,13 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
    layers, not a viz client, so viz cannot aggregate it. Each hosted page keeps its own `CAContext`, shown through
    one `CALayerHost`, and the render server composites it with the chrome. Each visible page pays its own GPU
    memory (its swap-chain IOSurfaces) and its own BeginFrame source.
-   - `bench_memory.py` measures the IOSurface and GPU bytes for each hosted page. `bench_idle.py` measures the
-     wakeups for each visible page. Task 050 records both numbers here before layer hosting is on by default.
-     No number is recorded yet.
+   - GPU memory for each hosted page (IOSurface and GPU bytes, `bench_memory.py`): not measured.
+   - BeginFrame cost for each visible page (wakeups, `bench_idle.py`): not measured.
+   - Task p03-rendering-050 owns both measurements. Its acceptance and test phase require it to record the numbers
+     here before layer hosting is on by default.
    - Limits: a hidden page stops BeginFrames through embedder visibility (task 058) and
-     `WindowOcclusionFamily`; its frame goes into `HiddenFrameLRU` (task 054). So the cost grows with visible
-     pages, not with open pages.
+     `WindowOcclusionFamily`; its frame goes into `HiddenFrameLRU` (task 099; pages use it from task 054). So the
+     cost grows with visible pages, not with open pages.
 3. **No blocking resize wait.** Chrome pumps the UI thread up to 500 ms in pre-commit
    (`ca_transaction_observer.h`, `kUIPaintTimeout`). cmux uses the fence port instead: the render server waits
    for the page, the main thread does not (DC9: main wait for each commit p99 = 0.0 ms).
@@ -138,6 +139,12 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
    server animates. So timing comes from xctrace and a separate-process capture, and the Release number is an
    estimate. A true presented time exists only where a producer presents its own drawable (Ghostty after task
    080, `MetalFramePresenter`).
+6. **Two display links for each display, only if the hop to main is measured as too slow.** Chrome has one link
+   for each display and posts each tick to the thread that registered (`ui/display/mac/display_link_mac.mm`).
+   cmux does the same by default: the `VSyncHub` thread holds the link and posts one coalesced tick to main.
+   If task p03-rendering-014 measures a p99 rise of 0.1 ms or more in the main tick latency from that hop, cmux
+   adds a second link on main for each display, and task 014 records the numbers and the reason here. No
+   measurement is recorded yet, so the default is one link.
 
 ## Done checks
 
