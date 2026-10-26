@@ -370,7 +370,8 @@ need it.
 
 ## 5. Done checks
 
-All on one fleet GUI mini, bench config build, 120 Hz, named host, macOS, display kind and SHA.
+All on one fleet GUI mini, bench config build (`reload.sh --config bench`; check 6 needs a `--config bench-checks`
+build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
 
 1. Warm. `python3 scripts/cmux-next/bench-startup.py --app "$NX_APP" --mode warm --profile realistic --runs 20 --require-optimized --json warm.json`.
    Pass: `first_window_frame_committed` p50 <= 150 ms, p95 <= 180 ms; `window_display` p50 <= 140 ms;
@@ -391,8 +392,9 @@ All on one fleet GUI mini, bench config build, 120 Hz, named host, macOS, displa
    20 warm + 10 cold: 0 stalls > 250 ms; 0 main turns > 16 ms except the named CefInitialize turn (until F2)
    and, only if 017 finds no off-main path, the named WKProcessPool turn; main turn p99 <= 4 ms from first
    frame to `startup_complete + 5 s`, excluding those named turns.
-6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5`
-   (CMUX_BLOCKING_CHECKS) gives 0 sites first hit on main before `startup_complete`.
+6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5` on a
+   `reload.sh --config bench-checks` app gives 0 sites first hit on main before `startup_complete`. A `--config bench`
+   app has no detector (`debug.blocking` `compiled_in: false`), and the tool refuses it (task 147).
    `scripts/measure/blocking-probe.sh --until-mark first_window_frame_committed` shows 0 raw calls on main,
    including the xpc-reply, mach-receive, spawn and dlopen kinds (084).
 7. Chromium, STRESS session, 20 runs. With no visible Chromium pane: `cef.initialize_started > startup_complete`.
@@ -441,7 +443,7 @@ Every hit of a queue is one task with the named template. Each queue is regenera
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
 - Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce\.schedule|LaunchImageHold\.shared\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
-- Q5 runtime blocking. `startup-queue.py blocking --runs 5 --temperature warm|cold` and
+- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
   `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.
 - Q6 main-thread profile. `startup-queue.py profile`: symbols >= 2 ms inclusive on main before first frame,
   turns >= 4 ms before `startup_complete`, `swift_once` / static init >= 1 ms. Seeded by 072. Template 039.
