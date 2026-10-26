@@ -62,9 +62,6 @@ struct DebugSidebarNestedFixture {
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
 ///   opens after the usual delay; `false` moves the pointer away.
 extension DebugSidebarNestedFixture {
-    /// The window's `groupsByComputer` before `sidebar: true` turned it on.
-    private static var groupsByComputerBefore: Bool?
-
     static func daemonUpdate(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let id = params["id"]?.stringValue ?? "ssh:build-box"
         let name = params["name"]?.stringValue ?? "build-box"
@@ -88,12 +85,10 @@ extension DebugSidebarNestedFixture {
         let machine = MachineID(id)
         if let show = params["sidebar"]?.boolValue {
             // A machine header (and its tooltip) is drawn only with a section per computer
-            // (`sidebar.groupByComputer`); the fixture turns it on and puts back what it found.
-            // A render applies the design preferences to the model, so the preference is what changes.
-            let design = DesignSettings.shared // the sidebar view's
-            if show, groupsByComputerBefore == nil { groupsByComputerBefore = design.sidebarSections.groupsByComputer }
-            design.sidebarSections.groupsByComputer = show || (groupsByComputerBefore ?? design.sidebarSections.groupsByComputer)
-            if !show { groupsByComputerBefore = nil }
+            // (`sidebar.groupByComputer`). A render applies the design preferences to the model, so the
+            // fixture turns the preference on; off, it goes back to the settings' value.
+            DesignSettings.shared.sidebarSections.groupsByComputer = show
+                || (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
             sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host) : nil
             sidebar.container.sidebarView.renderNow() // the list reloads on its next turn otherwise; the header is looked up below
             sidebar.container.layoutSubtreeIfNeeded()
