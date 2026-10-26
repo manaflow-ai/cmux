@@ -23,8 +23,8 @@ public import CmuxNextTrace
 /// binary that hosts every terminal), and `automation` admits the same user.
 /// The socket file is always 0600.
 ///
-/// Hang watch: the accept queue is one hang-watched lane, each accept pass one scope of
-/// ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
+/// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
+/// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
 /// Chrome watches each task of its IO thread (base/threading/hang_watcher.h, `ThreadType::kIOThread`).
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
@@ -211,10 +211,11 @@ public final class ControlSocketServer: Sendable {
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
-        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
+        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue, lane: acceptWatched) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
             // The link yields to another app's live socket at its path: no /tmp watch for it.
-            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue, yieldsToHeldPath: true) { Self.makeLink(link, to: path) })
+            let linkWatch = ControlSocketPathWatch(path: link, queue: acceptQueue, lane: acceptWatched, yieldsToHeldPath: true) { Self.makeLink(link, to: path) }
+            watches.append(linkWatch)
         }
         pathWatch.withLock { $0 = watches }
         watches.forEach { $0.start() }

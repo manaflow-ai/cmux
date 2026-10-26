@@ -18,7 +18,6 @@ import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextTerminal
-import CmuxNextTrace
 import CmuxNextWakeups
 import os
 
@@ -189,11 +188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
-        // The blocking detector's drain queue is a hang-watched lane for the process's life (Compat cannot see the watch).
-        if services.blocking.isCompiledIn {
-            let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
-            services.blocking.watchDrain { job in drain.run(job) }
-        }
         services.quit.watchdog = control.watchdog
         // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in

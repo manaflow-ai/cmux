@@ -41,6 +41,24 @@ struct BlockingDrainWatchTests {
         #expect(probe.deepest == 1)
     }
 
+    /// Watch and sink are drain-queue jobs that run in call order, so the composition root must set the watch
+    /// first (WatchdogReporting.install does): a watch set after the sink misses that sink's replay.
+    @MainActor @Test func aWatchSetAfterTheSinkMissesItsReplay() async {
+        let table = BlockingViolationTable(mode: .record)
+        let detector = BlockingDetector(table: table)
+        await BlockingViolationTable.$scoped.withValue(table) {
+            readRoot()
+        }
+        await table.flush()
+        let probe = DrainProbe()
+        detector.install(sink: probe) // the replay, queued before the watch
+        detector.watchDrain { job in probe.run(job) }
+        await table.flush()
+
+        #expect(probe.recordedInside == [0])
+        #expect(probe.jobs >= 1, "the flush after the watch is watched")
+    }
+
     @MainActor @Test func withNoWatchTheDrainStillDelivers() async {
         let table = BlockingViolationTable(mode: .record)
         let detector = BlockingDetector(table: table)

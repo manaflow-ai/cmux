@@ -2,7 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextControl
 import CmuxNextActions
 import CmuxNextSettings
-import CmuxNextTrace
+@testable import CmuxNextTrace
 import Darwin
 import Foundation
 import Testing
@@ -52,6 +52,32 @@ import Testing
         #expect(hangs.deepestNesting == 1)
     }
 
+    /// The socket file's watch runs on the accept queue: its restore (a bind and a rename on disk) is one
+    /// `control.accept` scope, while the first bind, from `start()` off the queue, is in none.
+    @Test func aSocketRestoreRunsInAnAcceptScope() async throws {
+        let hangs = LaneRecordingHangWatch()
+        // Each bind's count of open `control.accept` scopes.
+        let (openAtBind, binds) = AsyncStream<Int>.makeStream()
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .automation), router: router,
+                                         accept: { Darwin.accept($0, nil, nil) },
+                                         bind: { descriptor, address in
+                                             binds.yield(hangs.openScopes(lane: "control.accept"))
+                                             return address.bind(descriptor)
+                                         },
+                                         hangs: hangs)
+        try server.start()
+        defer { server.stop() }
+        var seen = openAtBind.makeAsyncIterator()
+        let first = await seen.next()
+        #expect(first == 0, "start() binds off the accept queue")
+
+        #expect(unlink(server.configuration.path) == 0)
+        let restore = await seen.next()
+        #expect(restore == 1, "the restore binds inside one accept scope")
+        #expect(hangs.deepestNesting == 1)
+    }
+
     @Test func withNoHangWatchNothingRegisters() throws {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .automation), router: router)
@@ -92,6 +118,13 @@ final class LaneRecordingHangWatch: HangWatchScoping {
     var lanes: [String] { state.withLock { $0.lanes } }
     var unregistered: [String] { state.withLock { $0.unregistered } }
     var deepestNesting: Int { state.withLock { $0.deepest } }
+
+    /// How many scopes are open now on the lanes named `lane`.
+    func openScopes(lane: String) -> Int {
+        state.withLock { state in
+            state.lanes.indices.filter { state.lanes[$0] == lane }.map { state.open[$0] }.reduce(0, +)
+        }
+    }
 
     /// How many scopes opened on the lanes named `lane`.
     func entered(lane: String) -> Int { allDeadlines(lane: lane).count }
