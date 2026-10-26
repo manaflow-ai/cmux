@@ -69,6 +69,10 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// The profile env its running agent was started with (`Hub::ensure_child`): its family
+    /// defaults, preset, session env and route included. The read-only shell probe judges a
+    /// command in it (`permissions.rs`); None until this daemon starts an agent for it.
+    pub(super) launch_env: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,

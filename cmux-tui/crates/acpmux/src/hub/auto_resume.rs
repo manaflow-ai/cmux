@@ -28,12 +28,18 @@
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
 //! - While a continuation waits, the session row's `retry` says so (`{attempt, of, reason,
-//!   nextAt, promptId, turnId}`, [`Hub::waiting_retry`]); it is null once the attempt fires, is
+//!   nextAt, promptId, turnId}`, [`Hub::retry_row`]); it is null once the attempt fires, is
 //!   skipped or is used up, and from Stop or close on. `auto_resume_scheduled` carries the same
 //!   `of`, `reason` and `nextAt`; `auto_resume_exhausted` its `reason`. The wait's timer ends
 //!   when its delay does, or at once when its mark goes (Stop, close, a turn that took the chat):
 //!   it then records the skip. An attempt refused before its turn starts (its folder gone, a
 //!   dispatch check) records `auto_resume_skipped` `refused` with the `error`.
+//! - From the end of a turn that failed on such an error until its retry's wait is set (or it
+//!   is settled that none comes), and while that retry starts and runs, the row says
+//!   `retryDeciding` ([`Hub::retry_row`]): `_acpmux/wait` answers for that turn only once it
+//!   is settled, so the row it answers with names the retry that waits, if one does. A
+//!   decision for no retry records `auto_resume_settled` `{turnId, why}`, so a peer that keeps
+//!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
@@ -101,6 +107,42 @@ fn continue_text(error: &str, reason: &str) -> String {
          finished (files, commands, messages), then continue from where it stopped. Do not \
          redo work that completed."
     )
+}
+
+/// The cut turn whose retry decision Stop settles when it takes the chat's `mark`: one whose
+/// turn ended and is not settled yet (`Ending`), or whose retry waits, its time set or not.
+/// A retry that fired or a turn that runs records its own end.
+fn settled_by_stop(mark: Option<&Mark>) -> Option<String> {
+    match mark {
+        Some(Mark::Ending(turn) | Mark::Waiting { turn, .. }) => Some(turn.clone()),
+        _ => None,
+    }
+}
+
+/// How many times [`settled_retry_row`] reads a chat's mark for one row.
+const ROW_READS: usize = 3;
+
+/// The row's `retry` and `retryDeciding` from `snapshot` (one read of the chat's mark: the
+/// retry that waits with its cut turn, and whether it is being decided). A waiting retry counts
+/// once `still_cut` holds for its cut turn, after the mark's lock is dropped. When it does not,
+/// the mark may have moved on meanwhile (the retry fired and its turn started), so the mark is
+/// read again, up to [`ROW_READS`] times: a row never shows neither a retry nor its decision
+/// while one starts (Codex review). A retry a newer turn superseded reads as none.
+fn settled_retry_row(
+    mut snapshot: impl FnMut() -> (Option<(String, RetrySummary)>, bool),
+    mut still_cut: impl FnMut(&str) -> bool,
+) -> (Option<RetrySummary>, bool) {
+    let mut deciding = false;
+    for _ in 0..ROW_READS {
+        let (waiting, now_deciding) = snapshot();
+        deciding = now_deciding;
+        match waiting {
+            Some((cut_turn, retry)) if still_cut(&cut_turn) => return (Some(retry), deciding),
+            Some(_) => continue,
+            None => break,
+        }
+    }
+    (None, deciding)
 }
 
 /// What a failed turn needs to be continued.
@@ -282,6 +324,11 @@ impl Hub {
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
                 pending.remove(&session.id);
+                drop(pending);
+                // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
+                if ending == Some(true) {
+                    self.settled_unretried(session, turn_id, "not_retried");
+                }
             }
             return;
         };
@@ -302,10 +349,12 @@ impl Hub {
                 cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
             };
             let Some(&delay) = delays.get(done) else {
-                hub.take_pending(&session, &turn_id);
+                let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
                     hub.append(&session, "mux", "auto_resume_exhausted", msg);
+                } else if ours {
+                    hub.settled_unretried(&session, &turn_id, "off");
                 }
                 return;
             };
@@ -335,6 +384,24 @@ impl Hub {
         });
     }
 
+    /// Records `auto_resume_settled` `{turnId, why}` when the chat's last turn `turn_id` is one a
+    /// row could have shown `retryDeciding` for and it gets no retry: watchers, and peers that
+    /// keep its row, hear the decision (Codex review: a peer's row kept saying deciding).
+    /// `why`: `stopped`, `off` (`autoResumeDelaysMs` is `[]`) or `not_retried`.
+    fn settled_unretried(&self, session: &Session, turn_id: &str, why: &str) {
+        let last = session.meta().last_turn;
+        let deciding = last.as_ref().is_some_and(|t| {
+            let error = t["errorText"].as_str().unwrap_or_default();
+            t["status"] == "failed"
+                && t["turnId"] == turn_id
+                && super::turn_errors::resume_cause(error, error).is_some()
+        });
+        if deciding {
+            let msg = json!({"turnId": turn_id, "why": why});
+            self.append(session, "mux", "auto_resume_settled", msg);
+        }
+    }
+
     /// Whether a continuation may still answer for the chat's cut turn: it releases what that
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
@@ -348,6 +415,7 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
+        let settles = settled_by_stop(pending.get(&session.id));
         let (ending, fired) = match pending.get(&session.id) {
             Some(Mark::Ending(t)) => (Some(t.clone()), false),
             Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
@@ -360,6 +428,12 @@ impl Hub {
             (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
             (None, None) => pending.remove(&id),
         };
+        drop(pending);
+        // A row may have shown this turn's retry being decided: watchers and peers hear it
+        // settle, though an idle Stop records nothing else (Codex review, round 3).
+        if let Some(turn) = settles {
+            self.settled_unretried(session, &turn, "stopped");
+        }
     }
 
     /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
@@ -405,14 +479,47 @@ impl Hub {
         }
     }
 
-    /// The session row's `retry`: the wait of a continuation that may still answer for the
-    /// chat's cut turn, null when none waits or the chat moved on.
-    pub(crate) fn waiting_retry(&self, session: &Session) -> Option<RetrySummary> {
-        let (cut_turn, retry) = match self.auto_resumes.lock().get(&session.id) {
-            Some(Mark::Waiting { turn, retry: Some(retry), .. }) => (turn.clone(), retry.clone()),
-            _ => return None,
+    /// The session row's `retry` and `retryDeciding`, from one read of the chat's mark, so a row
+    /// never shows its failed turn settled while its retry is being set. `retry`: the wait of a
+    /// continuation that may still answer for the chat's cut turn, null when none waits or the
+    /// chat moved on. `retryDeciding`: `last` (the row's `lastTurn`) failed on an error a retry
+    /// answers ([`super::turn_errors::resume_cause`]) and whether, and when, it is retried is not
+    /// settled yet: its end is being settled, its retry's time is not set yet, or its retry is
+    /// starting or runs. `_acpmux/wait` holds its answer for such a row (`server/wait.rs`).
+    pub(crate) fn retry_row(
+        &self,
+        session: &Session,
+        last: Option<&Value>,
+    ) -> (Option<RetrySummary>, bool) {
+        let failed = last.filter(|t| t["status"] == "failed").filter(|t| {
+            let error = t["errorText"].as_str().unwrap_or_default();
+            super::turn_errors::resume_cause(error, error).is_some()
+        });
+        let cut = failed.and_then(|t| t["turnId"].as_str());
+        let snapshot = || {
+            let pending = self.auto_resumes.lock();
+            let mark = pending.get(&session.id);
+            let waiting = match mark {
+                Some(Mark::Waiting { turn, retry: Some(retry), .. }) => {
+                    Some((turn.clone(), retry.clone()))
+                }
+                _ => None,
+            };
+            let deciding = cut.is_some_and(|cut| match mark {
+                Some(Mark::Ending(t) | Mark::Firing(t)) => t == cut,
+                Some(Mark::Waiting { turn, retry: None, .. }) => turn == cut,
+                Some(_) => false,
+                // Its retry's turn started since the row read `turn` (`start_turn` sets it
+                // under this lock, as the mark goes).
+                None => session.turn().is_some_and(|t| {
+                    let root = failed.and_then(|f| f["promptId"].as_str()).map(split_attempt);
+                    let (of, attempt) = split_attempt(&t.prompt_id);
+                    attempt > 0 && root.is_some_and(|(root, _)| root == of)
+                }),
+            });
+            (waiting, deciding)
         };
-        still_cut(session, &cut_turn).then_some(retry)
+        settled_retry_row(snapshot, |cut_turn| still_cut(session, cut_turn))
     }
 
     /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
@@ -569,6 +676,59 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn retry(turn: &str) -> RetrySummary {
+        RetrySummary {
+            attempt: 1,
+            of: 4,
+            reason: RetryReason::Capacity,
+            next_at: 9,
+            prompt_id: "p".into(),
+            turn_id: turn.into(),
+        }
+    }
+
+    /// Stop settles a turn whose retry is being decided or waits, with or without its time:
+    /// with retries off, nothing else records that decision (Codex review, round 3).
+    #[test]
+    fn stop_settles_an_ending_or_waiting_turn() {
+        let wake = || Wake(Arc::new(Notify::new()));
+        let unset = Mark::Waiting { turn: "t1".into(), retry: None, _wake: wake() };
+        assert_eq!(settled_by_stop(Some(&unset)).as_deref(), Some("t1"));
+        let set = Mark::Waiting { turn: "t1".into(), retry: Some(retry("t1")), _wake: wake() };
+        assert_eq!(settled_by_stop(Some(&set)).as_deref(), Some("t1"));
+        assert_eq!(settled_by_stop(Some(&Mark::Ending("t1".into()))).as_deref(), Some("t1"));
+        for mark in
+            [Mark::Firing("t1".into()), Mark::Stopped("t1".into()), Mark::Stopping("t1".into())]
+        {
+            assert_eq!(settled_by_stop(Some(&mark)), None);
+        }
+        assert_eq!(settled_by_stop(None), None);
+    }
+
+    /// A row reads its chat's mark again when the retry it read is gone by the time it checks
+    /// it (the retry fired and its turn started meanwhile), so it shows that retry's decision,
+    /// never neither (Codex review, round 2).
+    #[test]
+    fn a_row_reads_the_mark_again_when_its_retry_moved_on() {
+        let mut reads = vec![(None, true), (Some(("t1".to_owned(), retry("t1"))), false)];
+        let row = settled_retry_row(|| reads.pop().unwrap(), |_| false);
+        assert_eq!(row, (None, true), "the retry started: it is being decided");
+        let row =
+            settled_retry_row(|| (Some(("t1".to_owned(), retry("t1"))), false), |t| t == "t1");
+        assert_eq!(row, (Some(retry("t1")), false));
+        // Superseded every time (a person's prompt took the chat): no retry, nothing deciding.
+        let mut count = 0;
+        let row = settled_retry_row(
+            || {
+                count += 1;
+                (Some(("t1".to_owned(), retry("t1"))), false)
+            },
+            |_| false,
+        );
+        assert_eq!((row, count), ((None, false), ROW_READS));
+        assert_eq!(settled_retry_row(|| (None, true), |_| unreachable!()), (None, true));
+    }
 
     #[test]
     fn attempts_are_counted_from_the_prompt_id() {

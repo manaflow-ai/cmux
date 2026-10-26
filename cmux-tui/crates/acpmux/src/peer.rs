@@ -379,6 +379,12 @@ impl Peer {
         })
     }
 
+    /// How the peer said at its last handshake that it serves this daemon: `peer`, `remote`
+    /// (as a Web client), or None from a peer too old to say.
+    pub fn served_as(&self) -> Option<String> {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
@@ -507,7 +513,11 @@ impl Peer {
             tokio::time::timeout(self.timings.request, rx).await
         };
         match answer {
-            Ok(Ok(r)) => r,
+            // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
+            Ok(Ok(r)) => r.map_err(|mut e| {
+                crate::recovery::annotate_peer(&mut e, &self.name);
+                e
+            }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }

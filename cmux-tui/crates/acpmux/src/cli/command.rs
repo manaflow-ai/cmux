@@ -375,6 +375,10 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
+    /// The agent's tools to message other sessions and read them (send, ls, last, info): an
+    /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    AcpmuxMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

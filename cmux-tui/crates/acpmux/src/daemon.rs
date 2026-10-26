@@ -309,7 +309,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if !memory_store {
         let pending = hub.outbox.open(&home().join("outbox.json"));
         crate::server::outbox::resume(&hub, pending);
+        hub.watches.open(&home().join("watches.json"));
     }
+    crate::hub::watches::Watches::start(&hub);
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with

@@ -107,6 +107,26 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+/** The facts of a typed failure (`errorKind`); only the keys that apply are present. */
+export type ErrorDetails = {
+  /** The program that could not start. */
+  binary?: (string | null);
+  cwd?: (string | null);
+  exitCode?: (number | null);
+  freeBytes?: (number | null);
+  /** When the peer last answered (RFC 3339). */
+  lastSeenAt?: (string | null);
+  /** The folder whose disk is full or low. */
+  path?: (string | null);
+  /** The peer, by its name in `acpmux host ls`. */
+  peer?: (string | null);
+  /** The message is held in the durable outbox and goes when the peer or daemon is back. */
+  queued?: (boolean | null);
+  retryAfterMs?: (number | null);
+  signal?: (string | null);
+  totalBytes?: (number | null);
+} & Record<string, unknown>;
+
 /**
  * Which records a page or an event stream carries: one kind, or any of
  * several. Absent or null: every record.
@@ -186,10 +206,20 @@ export type LastMessage = {
 export type LastTurn = {
   /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
   detail?: (string | null);
+  details?: (ErrorDetails | null);
   endedAt: number;
+  /**
+   * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
+   * treats a kind it does not know as a plain error. The same key is on a request's error
+   * `data` and on the `turn_error` and `turn_result` records.
+   */
+  errorKind?: (string | null);
   errorSource?: (string | null);
   errorText?: (string | null);
   promptId?: (string | null);
+  /** One sentence saying what to do about the failure. */
+  recovery?: (string | null);
   /** `completed`, `failed` or `cancelled`. */
   status?: (string | null);
   stopReason?: (string | null);
@@ -633,6 +663,13 @@ export type SessionDetail = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -797,6 +834,13 @@ export type SessionSummary = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;

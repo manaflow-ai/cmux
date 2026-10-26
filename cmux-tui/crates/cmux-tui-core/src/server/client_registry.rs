@@ -668,6 +668,7 @@ impl ClientRegistry {
                     || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY
                     || agent_session_presence(capability)
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
