@@ -98,6 +98,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.typing-probe", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.blocking-drain", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.memory.release-sink", qos: .utility),
         ThreadDeclaration("com.cmux.host-pressure", qos: .utility),
         ThreadDeclaration("debug.window_record", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.hang-reports.store", qos: .utility),

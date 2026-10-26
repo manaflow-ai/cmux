@@ -10,10 +10,14 @@ import Darwin
 /// `base/task/sequenced_task_runner.h`). The queue is serial, so ``relieveHeap()`` runs after every
 /// drop made before it: the allocators see the pages those frees left empty.
 ///
-/// The heap relief is `malloc_zone_pressure_relief(nil, 0)`, which visits every registered zone,
-/// PartitionAlloc's too when in-process CEF installed it, then the fork's PartitionAlloc purge when
-/// the composition root has one (Chrome's `partition_alloc::MemoryReclaimer::ReclaimAll()`,
-/// `partition_alloc/memory_reclaimer.h`).
+/// The heap relief is `malloc_zone_pressure_relief(nil, 0)`, which relieves every registered zone
+/// that has a `pressure_relief`. PartitionAlloc's zone has none (`g_mac_malloc_zone.pressure_relief
+/// = nullptr`, `partition_alloc/shim/allocator_shim_override_apple_default_zone.h`), so the
+/// in-process CEF heap is not relieved by it; that takes the fork's purge (Chrome's
+/// `partition_alloc::MemoryReclaimer::Instance()->ReclaimAll()`, `partition_alloc/memory_reclaimer.h`),
+/// which the fork does not export yet. Until the follow-up task "Fork PartitionAlloc purge" (after
+/// p07-memory-069) adds that entry and passes it in AppServices+Memory.swift, the app's
+/// ``HeapRelief/system(partitionAllocPurge:)`` gets nil.
 ///
 /// ```swift
 /// let sink = MemoryReleaseSink()
@@ -71,10 +75,11 @@ extension MemoryReleaseSink {
             self.body = body
         }
 
-        /// The app's relief: every malloc zone's pressure relief, then `partitionAllocPurge` when
-        /// the Chromium fork offers one.
+        /// The app's relief: the pressure relief of every malloc zone that has one (PartitionAlloc's
+        /// has none), then `partitionAllocPurge` when the Chromium fork offers one.
         ///
-        /// - Parameter partitionAllocPurge: The fork's PartitionAlloc purge, or nil.
+        /// - Parameter partitionAllocPurge: The fork's PartitionAlloc purge, or nil (the app passes
+        ///   nil until the fork exports `MemoryReclaimer::ReclaimAll()`).
         /// - Returns: The relief.
         public static func system(partitionAllocPurge: (@Sendable () -> Void)? = nil) -> HeapRelief {
             HeapRelief {

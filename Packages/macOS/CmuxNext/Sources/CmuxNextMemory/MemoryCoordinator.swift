@@ -84,18 +84,6 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// Where consumers drop what a slice unlinked; the composition root hands it to each consumer.
     public let releaseSink: MemoryReleaseSink
 
-    /// The footprint the managed consumers report now, in bytes: the share of the app's
-    /// `phys_footprint` a critical release can take back (DC10's baseline). Volatile bytes are left
-    /// out: the kernel takes them without asking and `phys_footprint` does not count them.
-    public var managedFootprintBytes: Int {
-        consumers.liveRecords().reduce(0) { total, record in
-            guard record.entry.traits.isManaged, let usage = record.entry.liveConsumer?.memoryUsage else {
-                return total
-            }
-            return total + usage.footprintBytes
-        }
-    }
-
     private var policy: MemoryLimitPolicy
     private var isSliceScheduled = false
     /// Set by an escalation to critical; the slice that finishes that pass relieves the heap once.

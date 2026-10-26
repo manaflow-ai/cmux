@@ -37,13 +37,8 @@ import Testing
         DroppingConsumer(entries: entries, costPerEntry: costPerEntry, log: deinits, sink: sink, clock: clock)
     }
 
-    func register(_ consumer: DroppingConsumer, managed: Bool = true) -> MemoryConsumerRegistration {
-        let traits = managed
-            ? managedTraits()
-            : MemoryConsumerTraits(
-                estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
-                releaseCPUCost: .low, isStateful: false, supportsMemoryLimit: false)
-        return MemoryConsumerRegistration(name: "dropping", traits: traits, consumer: consumer, registry: coordinator)
+    func register(_ consumer: DroppingConsumer) -> MemoryConsumerRegistration {
+        MemoryConsumerRegistration(name: "dropping", traits: managedTraits(), consumer: consumer, registry: coordinator)
     }
 
     @Test func aDroppedValueEndsOnTheSinkQueueNotOnMain() async {
@@ -68,10 +63,13 @@ import Testing
     }
 
     @Test func oneReliefPerEscalationToCriticalAndNoneAtWarningOrARepeatedLevel() async {
-        let registration = register(dropping(4))
+        let consumer = dropping(4)
+        let registration = register(consumer)
         source.send(.warning)
-        slicer.drain()
+        #expect(slicer.drain() > 0, "warning ran no release pass")
         await sink.drained()
+        #expect(consumer.held < 4, "warning released nothing; the test needs a pass that drops")
+        #expect(deinits.count == 4 - consumer.held)
         #expect(reliefs.count == 0, "warning relieved the heap")
 
         source.send(.critical)
@@ -91,7 +89,7 @@ import Testing
         await sink.drained()
         #expect(reliefs.count == 2, "a second escalation to critical did not relieve the heap")
         #expect(reliefs.events.allSatisfy { !$0.onMain && $0.queue == queueLabel }, "a relief ran on main: \(reliefs.events)")
-        withExtendedLifetime(registration) {}
+        withExtendedLifetime((registration, consumer)) {}
     }
 
     @Test func theReliefRunsAfterThePassAndAfterItsDrops() async {
@@ -153,24 +151,19 @@ import Testing
     }
 
     @Test func theDebugOverrideEscalatesLikeTheKernel() async {
-        let registration = register(dropping(4))
+        let consumer = dropping(4)
+        let registration = register(consumer)
         coordinator.pressureOverride = .critical
         slicer.drain()
         await sink.drained()
+        #expect(consumer.held < 4, "the override's critical released nothing")
         #expect(reliefs.count == 1)
+        #expect(reliefs.endedBefore == [4 - consumer.held], "the relief ran before the pass's drops ended")
         source.send(.critical)
         slicer.drain()
         await sink.drained()
         #expect(reliefs.count == 1, "the kernel's critical under a critical override relieved again")
-        withExtendedLifetime(registration) {}
-    }
-
-    @Test func managedFootprintCountsFootprintBytesOnly() {
-        let managed = dropping(3)
-        let unmanaged = dropping(5)
-        let registrations = [register(managed), register(unmanaged, managed: false)]
-        #expect(coordinator.managedFootprintBytes == 3 * DroppingConsumer.footprintPerEntry)
-        withExtendedLifetime(registrations) {}
+        withExtendedLifetime((registration, consumer)) {}
     }
 
     @Test func theAppSinkRunsAtUtilityQoS() async {
