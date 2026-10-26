@@ -91,6 +91,8 @@ pub struct AttachResult {
     /// More records lie beyond this page.
     pub has_more: bool,
     pub last_seq: u64,
+    /// Who has the chat open now, this attachment included (`hub/presence.rs`).
+    pub presence: super::presence::PresenceNote,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

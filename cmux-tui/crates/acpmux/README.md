@@ -1045,6 +1045,7 @@ Extensions:
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
@@ -1064,6 +1065,19 @@ records such as `user_message`, `status`, `turn_result`, `permission_request`),
 recordKind, seq, session}` (kind `queue` for queue changes, `permission_resolved` for automatic
 approvals) and `_acpmux/permission_pending` with `via: "watch"` for sessions they are not
 attached to.
+
+<a id="chat-presence"></a>Chat presence (chat multiplayer, `hub/presence.rs`): attached
+connections hear `_acpmux/presence {sessionId, participants: [{id, name, devices, viewing,
+typing}]}` on every change, and `_acpmux/attach` answers the same object as `presence`. An entry
+is kept per connection and author: `_acpmux/typing` names its person in
+`_meta.acpmux.author {id, name, login?, node?}`, which only the unix socket and a peer daemon
+forwarding for its own unix socket or app may send (`author.origin_refused` otherwise); a caller
+with no author is `owner`. An entry goes when it stops typing (and does not view), when its
+connection detaches or closes. At most 32 people besides the owner per chat (`presence.full`).
+Presence is never written to the log, `_acpmux/events` or an export. Only a daemon's own chats
+have it: a peer daemon's link carries all of that daemon's clients, so its `_acpmux/typing`
+answers `presence.peer_unsupported`, and a chat that lives on a peer attaches with no
+participants.
 
 Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
 and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:
