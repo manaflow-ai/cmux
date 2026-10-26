@@ -15,7 +15,10 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
     let max_bytes = Some(crate::hub::page_bytes(params));
     let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
-    let last = s.meta().last_seq;
+    let (last, created) = {
+        let meta = s.meta();
+        (meta.last_seq, meta.created_at)
+    };
     if after > last {
         return Err(RpcError::invalid_params(format!(
             "cursor_future: afterSeq {after} is beyond the last event {last}"
@@ -29,6 +32,10 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
         "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
+        // Read before the page: a peer's copy of the chat covers this far (`hub/peer_snapshot.rs`).
+        "pageThrough": last,
+        // The session the page is of: a copy never joins another journal of the same id.
+        "createdAt": created,
     }))
 }
 

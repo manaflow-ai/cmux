@@ -532,9 +532,10 @@ impl Hub {
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
-                PeerNotice::Notification { method: m, params, .. } if m == "_acpmux/lagged" => {
-                    // Its live records have a hole now: none is kept until a page (`peer_snapshot.rs`).
-                    self.peer_snapshots.lagged(&peer);
+                PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
+                    // This link's live records have a hole now: none of it is kept until a page
+                    // (`peer_snapshot.rs`). A copy a later link's page joined is not this link's.
+                    self.peer_snapshots.lagged(&peer, (generation, link));
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
@@ -761,9 +762,14 @@ impl Hub {
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
     /// reconnect. `generation` is the one the row named when the purge was asked: a session
-    /// recreated since keeps its row, and only that generation's event snapshot goes.
-    pub fn forget_remote(&self, peer: &str, mux: &str, generation: Option<u64>) {
+    /// recreated since keeps its row, and only that generation's event snapshot goes. `instance`
+    /// is the peer the purge went to: one replaced since (another machine under the name) keeps
+    /// its rows and copies.
+    pub fn forget_remote(&self, (peer, instance): (&str, u64), mux: &str, generation: Option<u64>) {
         let mut map = self.remote_sessions.lock().unwrap();
+        if !self.is_current(peer, instance) {
+            return;
+        }
         let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
         let key = map
             .iter()

@@ -306,7 +306,7 @@ async fn forward_inner(
             peer.mark_attached(new_id);
         }
         if purge {
-            hub.forget_remote(&peer.name, &id, asked);
+            hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));

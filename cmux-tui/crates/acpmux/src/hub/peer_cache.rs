@@ -98,7 +98,11 @@ impl Hub {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
             let _ = std::fs::remove_file(path);
         }
-        // And its sessions' event snapshots (`peer_snapshot.rs`).
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // peer has left the registry (`remove_peer`): a listing of it that found it current
+        // (`is_current`, under this lock) has sent its op already and none after it does, so no
+        // listing that lets a page start a copy again comes after this.
+        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         self.peer_snapshots.forget_peer(peer);
     }
 
