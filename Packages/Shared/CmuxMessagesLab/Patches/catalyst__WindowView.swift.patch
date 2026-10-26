@@ -516,7 +516,7 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2336,10 +2509,8 @@
+@@ -2336,10 +2510,8 @@
          let layout = ThreadHeaderDraw.layout(header, width: bounds.width)
          threadHeaderHits = layout.hits.map { ($0.0.offsetBy(dx: frame.minX, dy: frame.minY), $0.1) }
          let v = CanvasView(frame: frame) { [weak self] ctx, _ in
@@ -528,7 +528,16 @@
              }
          }
          v.layer.contentsScale = renderScale
-@@ -2515,12 +2686,21 @@
+@@ -2476,7 +2648,7 @@
+     private let blur: CALayer?
+     private let tint = CALayer()
+     /// CAFilter inputRadius 10 gives sigma 9.5 pt (refit live on cmux-lawrence-2 against swipe-full).
+-    static var radius: CGFloat = {
++    static let radius: CGFloat = { // cmux: let (no shared mutable state)
+         let a = ProcessInfo.processInfo.arguments
+         return a.firstIndex(of: "--thread-blur-r").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? 10.0 // no index math
+     }()
+@@ -2515,12 +2687,21 @@
          return l
      }
  
