@@ -41,7 +41,7 @@ public import QuartzCore
 @MainActor
 public final class MainWorkScheduler {
     /// The per-frame budget every budgeted batch draws on.
-    public let budget: MainFrameBudget
+    public nonisolated let budget: MainFrameBudget
     /// The budget's board, readable from any thread (``postFromAnyThread(_:owner:file:line:_:)``
     /// interns owners on it off the main thread).
     public nonisolated let board: MainTaskBoard
