@@ -128,7 +128,9 @@ export function UpdatedCard({
     <section className="ui-glass wn-card" aria-labelledby={titleId}>
       {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
       <div className="wn-card-eyebrow" id={titleId} title={data.version}>
-        <Parts text={strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings, data.builtAt))} />
+        <Parts
+          text={strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings, data.builtAt))}
+        />
       </div>
       {build && (
         <div className="wn-card-build">
