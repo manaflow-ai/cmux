@@ -361,6 +361,13 @@ final class TerminalSurfaceView: UIView {
         return Int(metrics.cursor_row)
     }
 
+    /// Frames Ghostty's renderer drew for this surface (its render counters;
+    /// zero before the surface exists). For tests and benchmarks.
+    var renderedFrames: UInt64 {
+        guard let surface else { return 0 }
+        return ghostty_surface_render_counters(surface).frames
+    }
+
     // MARK: Output and drawing
 
     /// Feeds one batch of session output on the output queue (never the
