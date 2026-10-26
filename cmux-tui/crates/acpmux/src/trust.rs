@@ -111,17 +111,49 @@ pub fn cmux_worktrees_root() -> Option<PathBuf> {
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
 pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
-/// A folder path the record can key: absolute, without a trailing slash.
-/// The path is resolved (symlinks, `.` and `..`, /tmp vs /private/tmp) when it exists,
-/// so one folder has one key.
+/// A folder path the record can key: absolute, without a trailing slash, and one key per
+/// folder whatever spelling reaches it (`canonical_key`): links resolved (also in the part of
+/// the path that does not exist yet), `.` and `..`, /tmp vs /private/tmp, and on macOS each
+/// component as the volume stores it. A path that cannot be canonicalized (a dangling link, or
+/// Windows) keeps the old form: resolved when it exists, else as given.
 pub fn normalize_cwd(cwd: &str) -> Result<String, String> {
     if cwd.is_empty() || !Path::new(cwd).is_absolute() {
         return Err(format!("cwd must be an absolute path, got {cwd:?}"));
     }
+    if let Some(key) = canonical_key(cwd) {
+        return Ok(key);
+    }
     let resolved = std::fs::canonicalize(cwd).map(|path| path.to_string_lossy().into_owned());
-    let path = resolved.unwrap_or_else(|_| cwd.to_owned());
-    let without_slash = path.trim_end_matches('/');
-    Ok(if without_slash.is_empty() { "/".to_owned() } else { without_slash.to_owned() })
+    Ok(without_slash(&resolved.unwrap_or_else(|_| cwd.to_owned())))
+}
+
+fn without_slash(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() { "/".to_owned() } else { trimmed.to_owned() }
+}
+
+/// The folder's one key (`path_canon::canonical_path`), or None when it cannot be canonicalized.
+fn canonical_key(path: &str) -> Option<String> {
+    crate::path_canon::canonical_path(path, None).map(|canonical| without_slash(&canonical))
+}
+
+/// The record as lookups read it: each key as its folder's key now (`canonical_key`; a key that
+/// cannot be canonicalized stays as written), since a key was the folder's spelling when the
+/// decision was made: the folder may since have moved behind a link, been made under a link, or
+/// been renamed to another letter case. When two keys name one folder the stricter decision
+/// holds, so a no is never hidden by a yes recorded under another spelling.
+fn canonical_record(record: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for (key, level) in record {
+        let key = canonical_key(&key).unwrap_or(key);
+        let merged = match (out.get(&key).and_then(|l| Level::parse(l)), Level::parse(&level)) {
+            (Some(held), Some(new)) => held.stricter(new).as_str().to_owned(),
+            (Some(held), None) => held.as_str().to_owned(),
+            (None, _) => level,
+        };
+        out.insert(key, merged);
+    }
+    out
 }
 
 /// `cwd` and its parent folders, nearest first: an agent that trusts a folder
@@ -276,7 +308,8 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let repo = repository(Path::new(&cwd));
-    let found = decision(&read_record(&paths.record)?, &cwd, repo.as_ref(), home);
+    let record = canonical_record(read_record(&paths.record)?);
+    let found = decision(&record, &cwd, repo.as_ref(), home);
     let decided = found.as_ref().map(|(_, level)| *level);
     // The folder the decision was made for, when it is not this one: Undo forgets it there.
     let via = found.map(|(folder, _)| folder).filter(|folder| *folder != cwd);
@@ -329,7 +362,8 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
 /// agent's level, and never the agent-home rule.
 pub fn person_decision(paths: &Paths, cwd: &str) -> Result<Option<Level>, Failure> {
     let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
-    Ok(read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level)))
+    let record = canonical_record(read_record(&paths.record)?);
+    Ok(record.get(&cwd).and_then(|level| Level::parse(level)))
 }
 
 /// Whether `cwd` (normalized: canonical when it exists) is an agent-home folder the app made: a
@@ -458,10 +492,12 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     })?;
     let _serialized = RECORD_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut record = read_record(&paths.record)?;
-    match level {
-        Level::Unknown => record.remove(&cwd),
-        decided => record.insert(cwd.clone(), decided.as_str().to_owned()),
-    };
+    // Every key that names this folder now (`canonical_record`) gives way to the new decision,
+    // so `unknown` forgets the folder under every spelling it was recorded under.
+    record.retain(|key, _| canonical_key(key).as_deref().unwrap_or(key) != cwd);
+    if level != Level::Unknown {
+        record.insert(cwd.clone(), level.as_str().to_owned());
+    }
     if let Some(parent) = paths.record.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
@@ -695,6 +731,34 @@ mod scope_tests {
         assert_eq!(reply["level"], "trusted", "{reply}");
         assert_eq!(reply["via"], main.to_string_lossy().as_ref(), "{reply}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_decision_holds_and_is_forgotten_under_every_spelling_of_its_folder() {
+        let (root, paths) = scratch("spelling");
+        let home = root.join("home");
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, root.join("link")).unwrap();
+        // Recorded under an old spelling (a record written before keys were canonical), and a
+        // stricter decision under the real one: the no holds for both spellings.
+        let old = root.join("link/app");
+        std::fs::create_dir_all(real.join("app")).unwrap();
+        let app = real.join("app");
+        let raw = json!({(old.to_string_lossy()): "trusted", (app.to_string_lossy()): "untrusted"});
+        std::fs::write(&paths.record, raw.to_string()).unwrap();
+        for cwd in [&old, &app] {
+            assert_eq!(read(&paths, cwd, &home)["level"], "untrusted", "{}", cwd.display());
+            let own = person_decision(&paths, &cwd.to_string_lossy()).unwrap();
+            assert_eq!(own, Some(Level::Untrusted), "{}", cwd.display());
+        }
+        // Forgetting it under one spelling forgets every key that names the folder.
+        set(&paths, &old.to_string_lossy(), "unknown").unwrap();
+        assert_eq!(read_record(&paths.record).unwrap(), BTreeMap::new());
+        // A decision for a folder that does not exist yet, under a link, keys the folder it will be.
+        set(&paths, &root.join("link/later").to_string_lossy(), "untrusted").unwrap();
+        std::fs::create_dir_all(real.join("later")).unwrap();
+        assert_eq!(read(&paths, &real.join("later"), &home)["level"], "untrusted");
     }
 
     #[test]
