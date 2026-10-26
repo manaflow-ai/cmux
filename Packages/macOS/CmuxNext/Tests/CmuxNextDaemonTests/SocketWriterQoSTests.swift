@@ -4,12 +4,15 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The daemon socket writer of the key-carrying connection (terminal attach) is on the key echo path: every
-/// typed key goes through its drain queue, and the frame that shows the echo waits for it. Every other connection,
-/// the control link included (commands, replies, automation and sidebar events; p04-input-059), stays below
-/// user-interactive, so its traffic never shares a keystroke's class (threading-model.md, QoS table: userInteractive
-/// is the main thread and the threads a frame waits for; Chromium gives the threads input and display wait on the
-/// same class and its default thread type user-initiated, base/threading/platform_thread_apple.mm).
+/// The daemon socket writer of the key-carrying connection (terminal attach) is on the key echo path: most
+/// typed keys (`TerminalAttachment.enqueueInput`) go through its drain queue, and the frame that shows the
+/// echo waits for it. Every other connection, the control link included (commands, replies, automation and
+/// sidebar events; p04-input-059), stays below user-interactive, so its traffic never shares a keystroke's
+/// class. Two key paths still use the control link and so run at user-initiated: pre-attach input of a new
+/// split (`send {terminal_id}` from `CreatingTerminalInput`, until p04-input-058) and a TUI's Command chords
+/// (`send-key` from `TerminalHooks`). (threading-model.md, QoS table: userInteractive is the main thread and
+/// the threads a frame waits for; Chromium gives the threads input and display wait on the same class and
+/// its default thread type user-initiated, base/threading/platform_thread_apple.mm.)
 @Suite struct SocketWriterQoSTests {
     @Test func theDrainQueueRunsAtTheGivenClass() throws {
         for qos in [DispatchQoS.userInteractive, .utility] {

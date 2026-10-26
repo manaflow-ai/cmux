@@ -147,11 +147,14 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
 
 extension DaemonWireStats.Role {
     /// The class of this connection's ``SocketWriter`` queue and of its reader thread, by what it carries
-    /// (threading-model.md, QoS table). Both directions serve the same waiter, so they share one class. Only the
-    /// terminal attach connection, which carries typed keys (`TerminalAttachment.enqueueInput`) and their echo, runs at
-    /// user-interactive: control commands, replies and events (automation, sidebar churn) and bulk loopback forwards never
-    /// share a keystroke's class. Chromium maps its default thread type to user-initiated and keeps user-interactive for
-    /// the threads input and display wait on (base/threading/platform_thread_apple.mm).
+    /// (threading-model.md, QoS table). Both directions serve the same waiter, so they share one class.
+    /// Only the terminal attach connection, which carries most typed keys (`TerminalAttachment.enqueueInput`)
+    /// and their echo, runs at user-interactive: control commands, replies and events (automation, sidebar
+    /// churn) and bulk loopback forwards never share a keystroke's class. Two key paths still use `control`
+    /// and so run at user-initiated: `send {terminal_id}` from `CreatingTerminalInput` before a new split is
+    /// attached (until p04-input-058 buffers it until attach), and `send-key` for a TUI's Command chords from
+    /// `TerminalHooks`. Chromium maps its default thread type to user-initiated and keeps user-interactive
+    /// for the threads input and display wait on (base/threading/platform_thread_apple.mm).
     var writerQoS: DispatchQoS {
         switch self {
         case .terminalAttach:
