@@ -85,9 +85,25 @@ import Testing
         _ = try #require(cache.browser(for: tab))
     }
 
+    /// The app's launch read is the profile service's: it is done once the book applied, and `loaded()` waits for it.
+    @Test func theProfilesLoadSignalsTheRead() async {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-profiles-read-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let read = services.browserProfiles.loadRead
+        services.cache.enginesAwait = read
+        #expect(!read.isSignaled, "the read is done before the profiles were read")
+        services.browserProfiles.load(directory: directory)
+        await services.browserProfiles.loaded()
+        #expect(read.isSignaled, "the profiles loaded but the pages still wait")
+        #expect(services.browserProfiles.isLoaded)
+        await services.browserProfiles.flush()
+    }
+
     /// Chromium runs, so a New Tab page is made in the pane's turn (`ChromiumNewTabNow`) once nothing holds it.
     private static func cache() -> TabContentCache {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), fileInput: NoFileInput())
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }

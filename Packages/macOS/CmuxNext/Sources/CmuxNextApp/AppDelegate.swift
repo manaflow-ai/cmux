@@ -238,13 +238,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: order.startup)
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-        let browser = BrowserStartup(services: services)
-        let profilesDirectory = browser.readProfiles()  // every browser page waits for this read (p08-startup-028)
+        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+        // Every browser tab's page waits for the profiles' launch read: no engine makes one with a profile chosen
+        // before the book was read (p08-startup-028; Chrome opens a profile's first window from its loaded callback).
+        services.cache.enginesAwait = services.browserProfiles.loadRead
+        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        browser.startData(profilesDirectory: profilesDirectory)  // bookmarks, history, page schemes, Chromium hosting: before any window
+        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
+        // cmux-page:// first-party pages for Chromium, before any window can start it.
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
+        // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
+        // the statics forward to it for page views not yet made through `webUI.open`
+        // (p13-webui-006 to 009 move them, 010 deletes the statics).
+        PageWebView.openPanel = services.webUI.openPanel
+        PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)
         DebugTimings.markLaunch("dfl.windows")
@@ -301,7 +312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
-        BrowserStartup(services: services).postFollows(settings, on: order.startup)  // history's daemon sync, the location trail
+        // Neither the first frame nor a page engine reads these (p08-startup-028).
+        LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
+                                          locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
@@ -348,6 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         // Agent- and bench-launched builds never take system-wide keys from the person's app.
         if !environment.isolatedLaunch { services.globalHotKeys.start() }
+        // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
