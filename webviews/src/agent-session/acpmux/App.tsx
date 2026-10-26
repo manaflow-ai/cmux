@@ -668,8 +668,11 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 /// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
 /// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
 /// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
-/// not answer it here (`unsupported`: another computer's chat, or a host before the op) opens the
-/// chat, whose card answers it; any other refusal rejects, and the row says so.
+/// not answer it here (`unsupported`: another computer's chat or daemon; `unknown_op` on the shared
+/// page host, or `unsupported` from the pane's own, before the op) opens the chat, whose card
+/// answers it; any other refusal rejects, and the row says so.
+const NOT_ANSWERED_HERE = new Set(["unsupported", "cmux.protocol.unknown_op"]);
+
 async function answerFromHome(item: NeedsYouItem, choice: NeedsYouAnswer, open: (sessionId: string) => void) {
   if (!item.permissionId) throw new Error("unanswerable");
   try {
@@ -679,7 +682,7 @@ async function answerFromHome(item: NeedsYouItem, choice: NeedsYouAnswer, open: 
       optionId: choice.id,
     });
   } catch (error) {
-    if (!(error instanceof NativeError) || error.code !== "unsupported") throw error;
+    if (!(error instanceof NativeError) || !NOT_ANSWERED_HERE.has(error.code ?? "")) throw error;
     open(item.sessionId);
   }
 }
