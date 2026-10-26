@@ -1267,8 +1267,9 @@ def main():
                 update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
             # FAKE_STARTUP_MODE=<id>: the harness reports that mode while its session starts,
             # before it answers session/new (one that declares no modes may still report one).
+            # FAKE_STARTUP_SID=<sid>: that report names <sid> (empty allowed) instead of the new one.
             if os.environ.get("FAKE_STARTUP_MODE"):
-                update(new_sid, {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})
+                update(os.environ.get("FAKE_STARTUP_SID", new_sid), {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_LATE_MODE=<id>: half a second after it answers, the harness reports that mode.
             if os.environ.get("FAKE_LATE_MODE"):

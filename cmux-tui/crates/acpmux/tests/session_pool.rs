@@ -693,7 +693,7 @@ async fn under_an_mdm_off_a_pooled_agent_that_came_up_in_full_access_is_not_kept
     assert!(!taken(&daemon, &claimed), "a chat took the pooled agent in full access");
 }
 
-/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 32 and 46): a harness that reports
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 32, 46 and 70): a harness that reports
 /// full access while its pooled session starts is not kept either, whatever it reported in its
 /// other updates or its `session/new` answer, before or after. The reports are held with the
 /// entry's other traffic until a chat takes it, so the check reads them there.
@@ -713,6 +713,15 @@ async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_n
                 ("FAKE_STARTUP_MODE", "normal"),
             ],
             "answered in full access after reporting an asking mode",
+        ),
+        (
+            "fablank",
+            &[
+                ("FAKE_NO_MODES", "1"),
+                ("FAKE_STARTUP_MODE", "bypassPermissions"),
+                ("FAKE_STARTUP_SID", ""),
+            ],
+            "reported bypassPermissions under an empty session id (review 70)",
         ),
     ] {
         let (_daemon, _rpc, kept) = prewarmed_under_an_off(tag, env).await;

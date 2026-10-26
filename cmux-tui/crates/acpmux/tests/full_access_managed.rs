@@ -110,6 +110,9 @@ fn home(name: &str) -> PathBuf {
             // `self-reporter` whose report comes after 300 other updates.
             "self-busy": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                           "FAKE_STARTUP_NOISE": "300", "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            // `self-reporter` whose report names an empty session id (review 70).
+            "self-blank": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_STARTUP_SID": ""}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -489,7 +492,7 @@ const PROBES: &[Case] = &[
             let (_dir, _daemon, mut app) = daemon(name, true).await;
             app.push(off()).await;
             let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
-            let kept: Vec<Value> = ["self-full", "self-reporter", "self-masked", "self-busy"]
+            let kept: Vec<Value> = STARTS_IN_FULL_ACCESS
                 .iter()
                 .filter_map(|name| {
                     let all = listed["result"]["harnesses"].as_array()?;
@@ -503,6 +506,11 @@ const PROBES: &[Case] = &[
         })
     }),
 ];
+
+/// The profiles whose harness is in full access as its session starts (reviews 32, 41, 46 and
+/// 70: `self-blank` reports it under an empty session id).
+const STARTS_IN_FULL_ACCESS: &[&str] =
+    &["self-full", "self-reporter", "self-masked", "self-busy", "self-blank"];
 
 /// Runs `cases` one at a time and names every one that fails.
 async fn run(cases: &[Case]) {

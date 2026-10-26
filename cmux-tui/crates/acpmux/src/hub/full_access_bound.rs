@@ -355,6 +355,25 @@ mod tests {
         assert!(ended.is_ok(), "the unset after the off hid it from the probe");
     }
 
+    /// Review 70: a full-access report under an empty or blank session id names no session, so it
+    /// counts for every one, as a report with no id does.
+    #[test]
+    fn a_report_under_a_blank_session_id_counts_for_every_session() {
+        let full = |sid: Value| {
+            json!({"sessionId": sid, "update": {"sessionUpdate": "current_mode_update",
+                                                 "currentModeId": "bypassPermissions"}})
+        };
+        for sid in [json!(""), json!("  "), json!(null), json!(7)] {
+            let mut reports = StartReports::default();
+            reports.note(&full(sid.clone()));
+            assert!(reports.of(Some("fake-1")), "a report under {sid} was not counted");
+        }
+        let mut reports = StartReports::default();
+        reports.note(&full(json!("fake-2")));
+        assert!(!reports.of(Some("fake-1")), "another session's report counted for this one");
+        assert!(reports.of(Some("fake-2")));
+    }
+
     /// claude-sr2's bound: a forced off wins over the person's on; a forced on, or nothing
     /// forced, leaves the person's own answer.
     #[test]
