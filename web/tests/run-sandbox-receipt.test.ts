@@ -110,6 +110,8 @@ describe("sandbox receipt", () => {
   test("secret-named keys are redacted in every quoting form", () => {
     expect(sandboxReply("password: hunter2")).toBe("password: [redacted]");
     expect(sandboxReply('PASSWORD="hunter2hunter2"')).toBe("PASSWORD=[redacted]");
+    // Cut off before the closing quote (a timeout mid-line).
+    expect(sandboxReply('PASSWORD="example-pass-123!')).toBe("PASSWORD=[redacted]");
     expect(sandboxReply("export MY_API_KEY=abc123def")).toBe("export MY_API_KEY=[redacted]");
     expect(sandboxReply('{"clientSecret": "s3cr3t", "name": "ok"}')).toBe('{"clientSecret": [redacted], "name": "ok"}');
     expect(sandboxReply("Authorization: Bearer abcdefghijklmnop")).not.toContain("abcdefghijklmnop");

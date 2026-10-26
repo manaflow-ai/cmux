@@ -36,8 +36,9 @@ const TOKEN_SHAPES = [
   /(\bbasic\s+)[A-Za-z0-9+/]{8,}=*/gi,
   /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
-  // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its value.
-  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s"',;}]{2,})/gi,
+  // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
+  // value; a quoted value the output cut off before its closing quote runs to the end.
+  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
 ];
 
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
