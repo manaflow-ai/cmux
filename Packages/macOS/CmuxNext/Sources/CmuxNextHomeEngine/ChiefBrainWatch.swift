@@ -23,7 +23,8 @@ public final class ChiefBrainWatch {
     private let isChiefHost: (pid_t) -> Bool
     private var source: (any DispatchSourceProcess)?
     /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
-    private var lockSources: [any DispatchSourceFileSystemObject] = []
+    private var lockFileSource: (any DispatchSourceFileSystemObject)?
+    private var lockFolderSource: (any DispatchSourceFileSystemObject)?
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
     private var deaths: [ContinuousClock.Instant] = []
@@ -91,37 +92,54 @@ public final class ChiefBrainWatch {
     /// `lock.rs` truncates it and writes, and never removes the file): a modified lock raises an
     /// event on the **file**, never on the folder that holds it. The folder's event is for the
     /// lock's first creation on a fresh home, where there is no file to watch yet; it arms again,
-    /// which then watches the file. They end when a host is watched and at ``stop()``, and a reader
+    /// which then adds the file. They end when a host is watched and at ``stop()``, and a reader
     /// of the brain's liveness (Home's default Chief) hears the host through ``Watching``.
+    ///
+    /// Arming only ever **adds** the source it lacks, and a host that is already watched arms
+    /// nothing: cancelling the folder source to reopen it would leave a window where a lock
+    /// created in it raises no event, and a folder event that the main actor runs after
+    /// ``watch(_:)`` found a host must not open these descriptors again for that host's lifetime.
     private func armOnLock() {
-        guard !stopped else { return }
-        cancelLockSources()
+        guard !stopped, source == nil else { return }
         let state = home.root.appendingPathComponent("state")
-        for (url, isFolder) in [(state.appendingPathComponent("host.lock"), false), (state, true)] {
-            // concurrency-allow: one open of a local path while no host is watched
-            let fd = open(url.path, O_EVTONLY)
-            guard fd >= 0 else { continue }
-            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
-            weak let weakSelf = self
-            source.setEventHandler {
-                // task-owner: one hop to the main actor per lock change
-                Task { @MainActor in
-                    // A folder change may be the lock's creation: arm again, which watches the file.
-                    if isFolder { weakSelf?.armOnLock() } else { weakSelf?.lockMayHaveAHost() }
-                }
-            }
-            source.setCancelHandler { close(fd) }
-            lockSources.append(source)
-            source.resume()
+        if lockFolderSource == nil {
+            lockFolderSource = lockSource(at: state) { $0.armOnLock() }
         }
-        if lockSources.isEmpty { logger.info("chief brain watch: no host, and no lock or state folder to watch") }
+        if lockFileSource == nil {
+            lockFileSource = lockSource(at: state.appendingPathComponent("host.lock")) { $0.lockMayHaveAHost() }
+        }
+        if lockFolderSource == nil, lockFileSource == nil {
+            logger.info("chief brain watch: no host, and no lock or state folder to watch")
+        }
         // The host may have taken the lock between the read that found none and this arming.
         lockMayHaveAHost()
     }
 
+    /// One `.write` source on `url`, or nil when it cannot be opened (no such file yet).
+    private func lockSource(at url: URL,
+                            _ changed: @escaping @MainActor (ChiefBrainWatch) -> Void) -> (any DispatchSourceFileSystemObject)? {
+        // concurrency-allow: one open of a local path while no host is watched
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+        weak let weakSelf = self
+        source.setEventHandler {
+            // task-owner: one hop to the main actor per lock change
+            Task { @MainActor in
+                guard let self = weakSelf else { return }
+                changed(self)
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        return source
+    }
+
     private func cancelLockSources() {
-        for source in lockSources { source.cancel() }
-        lockSources = []
+        lockFileSource?.cancel()
+        lockFileSource = nil
+        lockFolderSource?.cancel()
+        lockFolderSource = nil
     }
 
     /// The home's lock changed while nothing was watched: watch the host that holds it now, if one

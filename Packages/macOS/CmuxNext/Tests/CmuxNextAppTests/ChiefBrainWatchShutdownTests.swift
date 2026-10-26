@@ -116,6 +116,48 @@ import Testing
         watch.stop()
     }
 
+    /// A fresh home has no lock file to watch, so the watch arms on the folder. The host creates
+    /// the lock there and writes its pid a moment later: the folder's event must add the file's
+    /// source without dropping the folder's, or that later write reaches no one. Once a host is
+    /// watched, a further folder change must not arm anything again.
+    @Test func aLockCreatedEmptyAndWrittenLaterIsStillWatched() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let lock = state.appendingPathComponent("host.lock")
+        let brain = Process()
+        brain.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        brain.arguments = ["30"]
+        try brain.run()
+        defer { brain.terminate() }
+        var seen: [pid_t?] = []
+        let watch = ChiefBrainWatch(home: home, restart: { nil }, watching: { seen.append($0) },
+                                    isChiefHost: { $0 == brain.processIdentifier })
+        // No lock file at all: only the folder can be watched.
+        watch.watch(nil)
+        #expect(seen.isEmpty, "no lock yet: nothing to report")
+
+        // The host creates the lock, empty, and writes its pid only afterwards.
+        try Data().write(to: lock)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(seen.isEmpty, "an empty lock names no host")
+        try Data("\(brain.processIdentifier)\n".utf8).write(to: lock)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while seen.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(seen == [brain.processIdentifier], "the pid written after the lock's creation is watched")
+
+        // A folder change now, with a host watched, reports nothing more.
+        try Data("x".utf8).write(to: state.appendingPathComponent("other"))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(seen == [brain.processIdentifier], "a watched host is reported once")
+        watch.stop()
+    }
+
     /// Watches a stand-in brain, ends it and counts the watch's restarts.
     private func restartsAfterExit(shutdown: Bool) async throws -> Int {
         let root = FileManager.default.temporaryDirectory
