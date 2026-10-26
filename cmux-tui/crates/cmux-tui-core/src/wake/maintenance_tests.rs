@@ -1,0 +1,308 @@
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use super::*;
+
+/// A wall-clock instant on every grid the tests use (a multiple of 3600 s).
+fn base() -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(1_800_000_000)
+}
+
+fn secs(n: u64) -> Duration {
+    Duration::from_secs(n)
+}
+
+#[derive(Clone)]
+struct FakeClock(Arc<Mutex<SystemTime>>);
+
+impl FakeClock {
+    fn new(now: SystemTime) -> Self {
+        Self(Arc::new(Mutex::new(now)))
+    }
+
+    fn set(&self, now: SystemTime) {
+        *self.0.lock().unwrap() = now;
+    }
+}
+
+impl WallClock for FakeClock {
+    fn now(&self) -> SystemTime {
+        *self.0.lock().unwrap()
+    }
+}
+
+#[derive(Default)]
+struct Log {
+    /// Every `until` the loop waited for.
+    asked: Vec<Option<SystemTime>>,
+    /// The instants of timer wakes.
+    wakes: Vec<SystemTime>,
+}
+
+/// A wait that jumps the clock to the instant it is asked for, stops after
+/// `end`, and models a machine asleep between the two instants of `asleep`.
+struct FakeWait {
+    clock: FakeClock,
+    log: Arc<Mutex<Log>>,
+    end: SystemTime,
+    asleep: Option<(SystemTime, SystemTime)>,
+    commands: VecDeque<(SystemTime, Command)>,
+}
+
+impl Wait for FakeWait {
+    fn wait(&mut self, until: Option<SystemTime>, _now: SystemTime) -> Wake {
+        let mut log = self.log.lock().unwrap();
+        log.asked.push(until);
+        if let Some((when, _)) = self.commands.front()
+            && until.is_none_or(|until| *when <= until)
+        {
+            let (when, command) = self.commands.pop_front().unwrap();
+            self.clock.set(when);
+            return Wake::Command(command);
+        }
+        let Some(until) = until.filter(|until| *until <= self.end) else {
+            return Wake::Closed;
+        };
+        let woke = match self.asleep {
+            Some((from, to)) if until >= from && until < to => to,
+            _ => until,
+        };
+        self.clock.set(woke);
+        log.wakes.push(woke);
+        Wake::Due
+    }
+}
+
+type Runs = Arc<Mutex<Vec<(&'static str, SystemTime)>>>;
+
+fn spec(name: &'static str, period: u64, skippable_in_saver: bool) -> JobSpec {
+    JobSpec { name, period: secs(period), skippable_in_saver }
+}
+
+fn add(schedule: &mut Schedule, runs: &Runs, clock: &FakeClock, job: JobSpec) {
+    let (runs, clock) = (Arc::clone(runs), clock.clone());
+    schedule.register(
+        job,
+        Box::new(move || runs.lock().unwrap().push((job.name, clock.now()))),
+        base(),
+    );
+}
+
+struct Sim {
+    clock: FakeClock,
+    runs: Runs,
+    log: Arc<Mutex<Log>>,
+    schedule: Schedule,
+}
+
+impl Sim {
+    fn new(jobs: &[JobSpec]) -> Self {
+        let clock = FakeClock::new(base());
+        let runs = Runs::default();
+        let mut schedule = Schedule::default();
+        for job in jobs {
+            add(&mut schedule, &runs, &clock, *job);
+        }
+        Self { clock, runs, log: Arc::default(), schedule }
+    }
+
+    fn run(self, end: SystemTime, asleep: Option<(SystemTime, SystemTime)>, saver: bool) -> Self {
+        let waiter = FakeWait {
+            clock: self.clock.clone(),
+            log: Arc::clone(&self.log),
+            end,
+            asleep,
+            commands: VecDeque::new(),
+        };
+        drive(self.schedule, waiter, &self.clock, &EnergyMode::new(saver));
+        Self { schedule: Schedule::default(), ..self }
+    }
+
+    fn runs_of(&self, name: &str) -> Vec<u64> {
+        let runs = self.runs.lock().unwrap();
+        runs.iter()
+            .filter(|(job, _)| *job == name)
+            .map(|(_, at)| at.duration_since(base()).unwrap().as_secs())
+            .collect()
+    }
+}
+
+#[test]
+fn periods_of_300_600_and_900_share_their_wakes() {
+    let sim = Sim::new(&[
+        spec("a.300", 300, false),
+        spec("b.600", 600, false),
+        spec("c.900", 900, false),
+    ])
+    .run(base() + secs(1800), None, false);
+
+    assert_eq!(sim.runs_of("a.300"), [300, 600, 900, 1200, 1500, 1800]);
+    assert_eq!(sim.runs_of("b.600"), [600, 1200, 1800]);
+    assert_eq!(sim.runs_of("c.900"), [900, 1800]);
+    // 11 runs, 6 wakes: at 900 the 300 s and 900 s jobs fire in one wake,
+    // at 1800 all three do.
+    let wakes = &sim.log.lock().unwrap().wakes;
+    let offsets: Vec<u64> =
+        wakes.iter().map(|at| at.duration_since(base()).unwrap().as_secs()).collect();
+    assert_eq!(offsets, [300, 600, 900, 1200, 1500, 1800]);
+}
+
+#[test]
+fn nothing_registered_waits_with_no_timeout() {
+    let sim = Sim::new(&[]).run(base() + secs(86_400), None, false);
+    let log = sim.log.lock().unwrap();
+    assert_eq!(log.asked, [None]);
+    assert!(log.wakes.is_empty());
+}
+
+#[test]
+fn a_registration_arms_the_first_timed_wait() {
+    let clock = FakeClock::new(base());
+    let runs = Runs::default();
+    let (job_runs, job_clock) = (Arc::clone(&runs), clock.clone());
+    let job: Job = Box::new(move || job_runs.lock().unwrap().push(("late.300", job_clock.now())));
+    let log = Arc::new(Mutex::new(Log::default()));
+    let waiter = FakeWait {
+        clock: clock.clone(),
+        log: Arc::clone(&log),
+        end: base() + secs(600),
+        asleep: None,
+        commands: VecDeque::from([(
+            base() + secs(10),
+            Command::Register(spec("late.300", 300, false), job),
+        )]),
+    };
+    drive(Schedule::default(), waiter, &clock, &EnergyMode::new(false));
+
+    let log = log.lock().unwrap();
+    assert_eq!(log.asked[0], None, "no timer before the first registration");
+    assert_eq!(log.asked[1], Some(base() + secs(300)));
+    assert_eq!(runs.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn the_saver_stretches_only_skippable_jobs_up_to_four_periods() {
+    let sim = Sim::new(&[spec("cache.sweep", 300, true), spec("lease.renew", 300, false)]).run(
+        base() + secs(3600),
+        None,
+        true,
+    );
+
+    assert_eq!(sim.runs_of("cache.sweep"), [1200, 2400, 3600]);
+    assert_eq!(sim.runs_of("lease.renew"), (1..=12).map(|n| n * 300).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_saver_edge_moves_skippable_jobs_without_a_gap_past_four_periods() {
+    let clock = FakeClock::new(base());
+    let runs = Runs::default();
+    let mut schedule = Schedule::default();
+    add(&mut schedule, &runs, &clock, spec("cache.sweep", 300, true));
+    add(&mut schedule, &runs, &clock, spec("lease.renew", 300, false));
+
+    assert_eq!(schedule.run_due(base() + secs(300)), ["cache.sweep", "lease.renew"]);
+    schedule.set_saver(true);
+    let sweep = schedule.entries[0].next;
+    assert!(sweep > base() + secs(300) && sweep <= base() + secs(300 + 4 * 300));
+    assert_eq!(schedule.entries[1].next, base() + secs(600), "a lease keeps its period");
+
+    schedule.set_saver(false);
+    assert_eq!(schedule.entries[0].next, base() + secs(600));
+}
+
+#[test]
+fn a_two_hour_sleep_runs_each_job_once_spread_over_one_leeway() {
+    let woke = base() + secs(100 + 7200);
+    let sim = Sim::new(&[
+        spec("a.300", 300, false),
+        spec("b.600", 600, false),
+        spec("c.900", 900, false),
+    ])
+    .run(woke + secs(60), Some((base() + secs(100), woke)), false);
+
+    let woke = 7300;
+    assert_eq!(sim.runs_of("a.300"), [woke]);
+    assert_eq!(sim.runs_of("b.600"), [woke + 10]);
+    assert_eq!(sim.runs_of("c.900"), [woke + 20]);
+    for name in ["a.300", "b.600", "c.900"] {
+        assert!(sim.runs_of(name)[0] < woke + LEEWAY.as_secs());
+    }
+}
+
+#[test]
+fn periods_round_up_to_the_five_minute_grid() {
+    let schedule = Schedule::default();
+    assert_eq!(schedule.period_secs(spec("x", 1, false)), 300);
+    assert_eq!(schedule.period_secs(spec("x", 450, false)), 600);
+    assert_eq!(schedule.period_secs(spec("x", 86_400, false)), 86_400);
+    assert_eq!(next_multiple(base() + secs(1), 600), base() + secs(600));
+    assert_eq!(next_multiple(base(), 600), base() + secs(600), "strictly after");
+}
+
+#[test]
+fn a_panicking_job_does_not_stop_the_others() {
+    let clock = FakeClock::new(base());
+    let runs = Runs::default();
+    let mut schedule = Schedule::default();
+    schedule.register(spec("bad.job", 300, false), Box::new(|| panic!("job failed")), base());
+    add(&mut schedule, &runs, &clock, spec("good.job", 300, false));
+    assert_eq!(schedule.run_due(base() + secs(300)), ["bad.job", "good.job"]);
+    assert_eq!(runs.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn ordinary_jobs_may_register() {
+    assert_eq!(check(spec("acpmux.catalog", 300, false)), Ok(()));
+}
+
+#[test]
+#[cfg_attr(debug_assertions, should_panic(expected = "durability job"))]
+fn durability_jobs_are_refused() {
+    for name in DURABILITY_JOBS {
+        assert_eq!(check(spec(name, 300, false)), Err(RegisterError::Durability(name)));
+    }
+}
+
+#[test]
+fn the_clock_thread_wakes_on_commands_and_stops_on_drop() {
+    let energy = EnergyMode::new(false);
+    let clock = MaintenanceClock::start(&energy).expect("the clock thread starts");
+    clock.register(spec("test.idle", 300, true), || {}).expect("registered");
+    assert!(energy.set_saver(true));
+    // Drop joins the thread: it must wake from its wait on the stop command.
+    drop(clock);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_armed_kevent_carries_the_leeway() {
+    let until = base() + secs(300);
+    let event = platform::timer_event(until, LEEWAY);
+    assert_eq!(event.filter, libc::EVFILT_TIMER);
+    assert_ne!(event.fflags & libc::NOTE_LEEWAY, 0);
+    assert_ne!(event.fflags & libc::NOTE_ABSOLUTE, 0);
+    assert_ne!(event.fflags & libc::NOTE_NSECONDS, 0);
+    assert_ne!(event.fflags & libc::NOTE_MACH_CONTINUOUS_TIME, 0);
+    assert_eq!(event.fflags & libc::NOTE_MACHTIME, 0, "a calendar deadline, not mach ticks");
+    assert_eq!(event.ext[1], 30_000_000_000);
+    assert_eq!(event.data, 1_800_000_300_000_000_000);
+    assert_ne!(event.flags & libc::EV_ONESHOT, 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_clock_thread_takes_the_leeway_as_timer_slack() {
+    // PR_GET_TIMERSLACK returns an int, too small for 30 s: procfs has the
+    // whole value, under the thread's own id.
+    let slack = std::thread::spawn(|| {
+        platform::prepare_thread();
+        // SAFETY: gettid takes no arguments and cannot fail.
+        let tid = unsafe { libc::gettid() };
+        std::fs::read_to_string(format!("/proc/{tid}/timerslack_ns"))
+            .expect("the thread's timer slack")
+    })
+    .join()
+    .unwrap();
+    assert_eq!(slack.trim(), "30000000000");
+}
