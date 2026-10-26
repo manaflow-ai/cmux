@@ -15,6 +15,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod compact;
+pub use compact::{CompactMode, Compaction, Staged};
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -585,6 +588,20 @@ pub trait Store: Send + Sync {
     }
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
+    /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
+    fn compacted_seq(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
+    /// store keeps no log on disk, or the chat has none.
+    fn stage_compaction(&self, _id: &str, _mode: CompactMode) -> Result<Option<Staged>> {
+        Ok(None)
+    }
+    /// Puts a staged compaction in place unless the log changed since (false). The caller holds
+    /// the chat's append lock.
+    fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
+        Ok(false)
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -735,9 +752,14 @@ impl LocalStore {
     }
 
     /// Whether the session's log holds a record: a segment with a byte in it (no line
-    /// is read). Every session the hub creates logs `created` right after its first
-    /// save, so a record without a log is a purged session's that a late save wrote back.
+    /// is read), or a compaction's record (`store/compact.rs`), which keeps a closed
+    /// chat's log however little of it stays. Every session the hub creates logs `created`
+    /// right after its first save, so a record without a log is a purged session's that a
+    /// late save wrote back.
     fn has_records(&self, id: &str) -> Result<bool> {
+        if std::fs::symlink_metadata(self.marker(id)).is_ok() {
+            return Ok(true);
+        }
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
             match std::fs::symlink_metadata(&path) {
@@ -1243,6 +1265,18 @@ impl Store for LocalStore {
         if let Some(w) = writers.open.remove(id) {
             w.close(id);
         }
+    }
+
+    fn compacted_seq(&self, id: &str) -> Option<u64> {
+        LocalStore::compacted_seq(self, id)
+    }
+
+    fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        LocalStore::stage_compaction(self, id, mode)
+    }
+
+    fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        LocalStore::commit_compaction(self, id, staged)
     }
 
     fn delete(&self, id: &str) -> Result<()> {
