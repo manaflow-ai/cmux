@@ -146,15 +146,18 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
 }
 
 extension DaemonWireStats.Role {
-    /// The class of this connection's ``SocketWriter`` queue, by what it carries
-    /// (threading-model.md, QoS table). Only the connections that carry typed keys run at
-    /// user-interactive, so a bulk loopback forward never shares the class of a keystroke.
+    /// The class of this connection's ``SocketWriter`` queue and of its reader thread, by what it carries
+    /// (threading-model.md, QoS table). Both directions serve the same waiter, so they share one class. Only the
+    /// terminal attach connection, which carries typed keys (`TerminalAttachment.enqueueInput`) and their echo, runs at
+    /// user-interactive: control commands, replies and events (automation, sidebar churn) and bulk loopback forwards never
+    /// share a keystroke's class. Chromium maps its default thread type to user-initiated and keeps user-interactive for
+    /// the threads input and display wait on (base/threading/platform_thread_apple.mm).
     var writerQoS: DispatchQoS {
         switch self {
-        case .control, .terminalAttach:
-            // qos-allow: key echo path: typed keys reach the daemon on these connections and the echo frame waits for them
+        case .terminalAttach:
+            // qos-allow: key echo path: typed keys reach the daemon on this connection and the echo frame waits for its bytes
             .userInteractive
-        case .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
+        case .control, .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
             // userBlocking: a person waits now for the result of a click, an open or quit.
             .userInitiated
         case .loopbackForward:
@@ -164,6 +167,17 @@ extension DaemonWireStats.Role {
         case .socketProbe:
             // bestEffort: a liveness probe nobody watches.
             .utility
+        }
+    }
+
+    /// The class of this connection's reader thread (`cmux-tui reader <path>`): the writer's, as a thread QoS.
+    var readerQoS: QualityOfService {
+        switch writerQoS.qosClass {
+        case .userInteractive: .userInteractive
+        case .userInitiated: .userInitiated
+        case .utility: .utility
+        case .background: .background
+        default: .default
         }
     }
 }
