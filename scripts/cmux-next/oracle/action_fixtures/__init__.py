@@ -19,7 +19,9 @@ defines:
               `enter` ran, also when the sample stopped after it; it returns None or a drift note. What `enter`
               made is an extra close_new closes like PREPARE's.
   PREPARE     {action id: [(action, args)]}, merged into the sweep's PREPARE (an id both name is refused).
-  CLOSES      the gap ids this fixture closes (tests/oracle/gap-closures/<family>.json lists the same ids).
+  CLOSES      the gap ids this fixture closes. load_families refuses a CLOSES that is not exactly the `closed` ids of
+              tests/oracle/gap-closures/<family>.json (the record p15-oracle-087 applies to every-action-gaps.json),
+              and that file without a CLOSES.
 
 `driver` is the sweep's narrow seam (SweepDriver): `run(action, args)` is action.run with focus (the PREPARE path),
 `rpc(method, params)` one socket call, `wait(predicate, seconds)` its bounded poll. Replies are the raw socket
@@ -34,6 +36,7 @@ families add contexts to one sweep.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -45,6 +48,7 @@ HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE.parents[1]  # scripts/cmux-next
 SWEEP = SCRIPTS / "every-action-sweep.py"
 SWEEP_MODULE = "every_action_sweep"
+GAP_CLOSURES = HERE.parents[3] / "tests" / "oracle" / "gap-closures"  # <family>.json per gap fixture family
 FAMILY_SLUG = re.compile(r"^[a-z][A-Za-z0-9_]*$")
 
 
@@ -160,17 +164,45 @@ def check_family(module: Any, path: Path) -> Family:
 
 
 def load_module(path: Path, name: str) -> ModuleType:
+    """`path` imported as module `name`, registered in sys.modules before it runs (importlib's recipe): dataclasses,
+    typing.get_type_hints and pickle look a class's module up there."""
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise FixtureError(f"{path}: not a Python module")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return module
 
 
-def load_families(directory: Path = HERE) -> Families:
-    """Every family of `directory`, checked and merged. A module that fails to import is a FixtureError: a fixture
-    that silently drops out would turn its closed gaps back into gaps with no word why."""
+def check_closures(family: Family, closures: Path) -> None:
+    """Refuses a family whose CLOSES is not the `closed` ids of its gap-closures record (`closures`/<family>.json),
+    or a record without a CLOSES: the two name one set of ids."""
+    record = closures / f"{family.name}.json"
+    where = family.path.name
+    if not record.exists():
+        if family.closes:
+            raise FixtureError(f"{where}: CLOSES names ids but {record.name} is not in {closures}")
+        return
+    try:
+        closed = json.loads(record.read_text())["closed"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise FixtureError(f"{record}: not a gap-closures record with `closed`: {error!r}") from error
+    if not isinstance(closed, dict):
+        raise FixtureError(f"{record}: `closed` maps an action id to why it is closed")
+    only_closes, only_record = sorted(set(family.closes) - set(closed)), sorted(set(closed) - set(family.closes))
+    if only_closes or only_record:
+        raise FixtureError(f"{where}: CLOSES and {record.name} differ: only in CLOSES {only_closes}, "
+                           f"only in {record.name} {only_record}")
+
+
+def load_families(directory: Path = HERE, closures: Path = GAP_CLOSURES) -> Families:
+    """Every family of `directory`, checked (CLOSES against `closures`) and merged. A module that fails to import is a
+    FixtureError: a fixture that silently drops out would turn its closed gaps back into gaps with no word why."""
     families: List[Family] = []
     owners: Dict[str, str] = {}
     names: Dict[str, Path] = {}
@@ -196,6 +228,7 @@ def load_families(directory: Path = HERE) -> Families:
             if ident in prepared:
                 raise FixtureError(f"{family.path.name}: PREPARE {ident!r} is also family {prepared[ident]!r}'s")
             prepared[ident] = family.name
+        check_closures(family, closures)
     return Families(tuple(families), owners)
 
 
@@ -219,5 +252,4 @@ def load_sweep(argv: Sequence[str]) -> ModuleType:
     finally:
         sys.argv = saved
     module.LOADED_ARGV = argv
-    sys.modules[SWEEP_MODULE] = module
     return module

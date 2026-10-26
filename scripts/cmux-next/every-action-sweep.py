@@ -110,7 +110,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
-from bench_launch import LaunchError, crash_reports, crash_summary, launch_app  # noqa: E402
 sys.path.append(os.path.join(HERE, "oracle"))
 import action_fixtures  # noqa: E402  (the per-family fixtures this sweep and the oracle share)
 from bench_launch import (BenchApp, LaunchError, PERF_LAB, RecordError, crash_reports, crash_summary,  # noqa: E402
@@ -651,8 +650,9 @@ PREPARE = {
 }
 # The per-family fixtures (oracle/action_fixtures/<family>.py): registry contexts CONTEXT_SETUP does not know
 # (Sweep.ready enters them, Sweep.restore leaves them) and more PREPARE steps. A family that does not load, or claims a
-# context or PREPARE id twice, stops the sweep here (FixtureError): its closed gaps never fall back silently.
-FAMILIES = action_fixtures.load_families()
+# context or PREPARE id twice, stops the sweep here (FixtureError): its closed gaps never fall back silently. --merge
+# joins shard JSON already collected and runs no action, so it loads none: a broken family never blocks a merge.
+FAMILIES = action_fixtures.Families() if MERGE else action_fixtures.load_families()
 FAMILIES.check_contexts(CONTEXT_SETUP)
 PREPARE = FAMILIES.merged_prepare(PREPARE)
 
@@ -1613,6 +1613,8 @@ class Sweep:
             drifts.extend(self.restore(ident, False))  # a context entered before the stop is left, its extras closed
         if stopped and not samples:
             row.update(skipped=stopped, skip_kind=stopped_kind)
+            if drifts:
+                row["drift"] = sorted(set(drifts))[:6]  # a skipped row keeps what its restores did not put back
             return row
         if stopped:
             row["cut_short"] = stopped  # later samples could not start; the ones that ran are the row
@@ -2546,6 +2548,8 @@ def plan_only():
         json.dump(plan, f, indent=1, sort_keys=True)
         f.write("\n")
     note(f"every-action: wrote the plan of {len(actions)} actions to {path}")
+
+
 def action_shard(ident, count):
     """The 0-based shard of action `ident` among `count`, from the id alone: adding or removing another action never
     moves it, so its perf-lab series stays in one story and a bisect at an older commit measures it in the same shard.

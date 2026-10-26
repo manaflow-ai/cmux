@@ -60,9 +60,48 @@ CLOSES = ("{context}Action",)
 """
 
 
+# A ContextFixture as a dataclass under postponed annotations, this package's own style.
+DATACLASS_FAMILY = """
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import ClassVar, Optional
+
+FAMILY = "dc"
+
+
+@dataclass
+class Context:
+    made: bool = False
+    notes: list = field(default_factory=list)
+    KIND: ClassVar[str] = "dc"
+
+    def enter(self, driver) -> Optional[str]:
+        return None
+
+    def leave(self, driver) -> Optional[str]:
+        return None
+
+
+CONTEXTS = {"dcLayout": Context}
+"""
+
+
 def write_family(directory, file="fam.py", name="fam", context="famLayout", prepare=None, refuse=False, leave_note=None):
+    """A test family in `directory`, and its gap-closures record (<name>.json, `closed` = its CLOSES) beside it."""
     text = FAMILY.format(name=name, context=context, prepare=prepare or {}, refuse=refuse, leave_note=leave_note)
     (Path(directory) / file).write_text(textwrap.dedent(text))
+    write_closures(directory, name, [f"{context}Action"])
+
+
+def write_closures(directory, name, ids):
+    record = {"family": name, "closed": {ident: "the test family sets it up" for ident in ids}, "reasoned": {}}
+    (Path(directory) / f"{name}.json").write_text(json.dumps(record))
+
+
+def load(directory):
+    """The families of `directory`, their gap-closures records read from the same directory."""
+    return action_fixtures.load_families(Path(directory), Path(directory))
 
 
 class LoaderTests(unittest.TestCase):
@@ -81,7 +120,7 @@ class LoaderTests(unittest.TestCase):
 
     def test_family_contexts_prepare_and_closes(self):
         write_family(self.dir, prepare={"x.move": [("newSurface", {})]})
-        families = action_fixtures.load_families(self.dir)
+        families = load(self.dir)
         self.assertEqual(families.contexts, frozenset({"famLayout"}))
         self.assertEqual(families.owners, {"famLayout": "fam"})
         self.assertEqual(families.families[0].closes, ("famLayoutAction",))
@@ -91,41 +130,77 @@ class LoaderTests(unittest.TestCase):
 
     def test_new_contexts_are_fresh_per_call(self):
         write_family(self.dir)
-        families = action_fixtures.load_families(self.dir)
+        families = load(self.dir)
         self.assertIsNot(families.new_contexts()["famLayout"], families.new_contexts()["famLayout"])
 
     def test_a_context_two_families_claim_is_refused(self):
         write_family(self.dir, "a.py", "a")
         write_family(self.dir, "b.py", "b")
         with self.assertRaisesRegex(action_fixtures.FixtureError, "famLayout.*also family 'a'"):
-            action_fixtures.load_families(self.dir)
+            load(self.dir)
 
     def test_a_family_name_used_twice_is_refused(self):
         write_family(self.dir, "a.py", "same", "aLayout")
         write_family(self.dir, "b.py", "same", "bLayout")
         with self.assertRaisesRegex(action_fixtures.FixtureError, "FAMILY 'same'"):
-            action_fixtures.load_families(self.dir)
+            load(self.dir)
 
     def test_a_prepare_id_two_families_claim_is_refused(self):
         write_family(self.dir, "a.py", "a", "aLayout", prepare={"x.move": [("newSurface", {})]})
         write_family(self.dir, "b.py", "b", "bLayout", prepare={"x.move": [("newColumn", {})]})
         with self.assertRaisesRegex(action_fixtures.FixtureError, "PREPARE 'x.move' is also family 'a'"):
-            action_fixtures.load_families(self.dir)
+            load(self.dir)
 
     def test_a_prepare_id_the_sweep_has_is_refused(self):
         write_family(self.dir, prepare={"column.moveLeft": [("newColumn", {})]})
         with self.assertRaisesRegex(action_fixtures.FixtureError, "column.moveLeft"):
-            action_fixtures.load_families(self.dir).merged_prepare(sweep_mod.PREPARE)
+            load(self.dir).merged_prepare(sweep_mod.PREPARE)
 
     def test_a_context_the_sweep_sets_up_is_refused(self):
         write_family(self.dir, context="terminalFocused")
         with self.assertRaisesRegex(action_fixtures.FixtureError, "terminalFocused"):
-            action_fixtures.load_families(self.dir).check_contexts(sweep_mod.CONTEXT_SETUP)
+            load(self.dir).check_contexts(sweep_mod.CONTEXT_SETUP)
 
     def test_a_family_that_does_not_import_is_an_error(self):
         (self.dir / "broken.py").write_text("import no_such_module_anywhere\n")
         with self.assertRaisesRegex(action_fixtures.FixtureError, "broken.py: does not import"):
-            action_fixtures.load_families(self.dir)
+            load(self.dir)
+
+    def test_a_dataclass_family_under_postponed_annotations_loads(self):
+        # dataclasses look the class's module up in sys.modules: load_module registers it before running it.
+        (self.dir / "dc.py").write_text(DATACLASS_FAMILY)
+        families = load(self.dir)
+        self.assertEqual(families.contexts, frozenset({"dcLayout"}))
+        self.assertFalse(families.new_contexts()["dcLayout"].made)
+        self.assertIs(sys.modules["action_fixtures.dc"], families.families[0].module)
+
+    def test_a_family_that_fails_to_import_is_not_left_registered(self):
+        (self.dir / "gone.py").write_text("raise RuntimeError('half run')\n")
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "gone.py: does not import"):
+            load(self.dir)
+        self.assertNotIn("action_fixtures.gone", sys.modules)
+
+    def test_closes_is_its_gap_closures_record(self):
+        write_family(self.dir)
+        write_closures(self.dir, "fam", ["famLayoutAction", "otherAction"])
+        with self.assertRaisesRegex(action_fixtures.FixtureError, r"only in fam.json \['otherAction'\]"):
+            load(self.dir)
+        write_closures(self.dir, "fam", [])
+        with self.assertRaisesRegex(action_fixtures.FixtureError, r"only in CLOSES \['famLayoutAction'\]"):
+            load(self.dir)
+        (self.dir / "fam.json").unlink()
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "CLOSES names ids but fam.json is not in"):
+            load(self.dir)
+        (self.dir / "fam.json").write_text("[]")
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "not a gap-closures record"):
+            load(self.dir)
+
+    def test_a_family_with_no_closes_needs_no_record_and_a_record_needs_closes(self):
+        (self.dir / "prep.py").write_text("FAMILY = 'prep'\nPREPARE = {'x.move': [('newSurface', {})]}\n")
+        self.assertEqual(load(self.dir).families[0].closes, ())
+        write_closures(self.dir, "prep", ["x.move"])
+        with self.assertRaisesRegex(action_fixtures.FixtureError, r"only in prep.json \['x.move'\]"):
+            load(self.dir)
 
     def test_malformed_families_are_refused(self):
         cases = {
@@ -141,7 +216,7 @@ class LoaderTests(unittest.TestCase):
                 path = self.dir / "f.py"
                 path.write_text(text)
                 with self.assertRaisesRegex(action_fixtures.FixtureError, words):
-                    action_fixtures.load_families(self.dir)
+                    load(self.dir)
 
 
 class LoadSweepTests(unittest.TestCase):
@@ -177,7 +252,7 @@ class SweepFamilyTests(unittest.TestCase):
     def use(self, **family):
         directory = tempfile.mkdtemp(prefix="families-")
         write_family(directory, **family)
-        families = action_fixtures.load_families(Path(directory))
+        families = load(directory)
         module = families.families[0].module
         patcher = mock.patch.object(sweep_mod, "FAMILIES", families)
         patcher.start()
