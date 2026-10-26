@@ -42,7 +42,11 @@ const row = (id: string, owner: "local" | "cloud", kind: Conversation["kind"]): 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("the store says which Cloud conversation the person views, and never a local one", async () => {
-  const conversations = [row("local-chief", "local", "chief"), row("cloud-a", "cloud", "group"), row("cloud-b", "cloud", "direct")];
+  const conversations = [
+    row("local-chief", "local", "chief"),
+    row("cloud-a", "cloud", "group"),
+    row("cloud-b", "cloud", "direct"),
+  ];
   const views: [string, boolean][] = [];
   const client = {
     async call(op: string, params: { conversation?: string; viewing?: boolean }) {
@@ -195,7 +199,8 @@ test("daemonHome sends presence for a Cloud conversation after its subscribe, in
     { conversation: "conv_cloud", viewing: false },
   ]);
   // A local conversation has no viewing presence.
-  expect(await home.call(HomeOps.view, { conversation: "conv_local", viewing: true })).toEqual({ sent: false });
+  const local = await home.call<{ sent: boolean }>(HomeOps.view, { conversation: "conv_local", viewing: true });
+  expect(local).toEqual({ sent: false });
   expect(presenceSent(requests)).toHaveLength(2);
 });
 
@@ -203,7 +208,8 @@ test("daemonHome sends no presence through a daemon without the capability", asy
   const { socket, requests } = fakeDaemon(["ws-cloud-conversations-v1"]);
   const home = new DaemonHomeClient(socket);
   await home.call(HomeOps.inbox, {});
-  expect(await home.call(HomeOps.view, { conversation: "conv_cloud", viewing: true })).toEqual({ sent: false });
+  const cloud = await home.call<{ sent: boolean }>(HomeOps.view, { conversation: "conv_cloud", viewing: true });
+  expect(cloud).toEqual({ sent: false });
   expect(presenceSent(requests)).toEqual([]);
   expect(requests.some((r) => r.cmd === "cloud-conversation-subscribe")).toBe(false);
 });
