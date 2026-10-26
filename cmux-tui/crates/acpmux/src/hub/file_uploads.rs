@@ -73,15 +73,16 @@ fn made_at(name: &str) -> Option<u64> {
     Some(secs * 1000 + u64::from(nanos) / 1_000_000)
 }
 
-/// Deletes each upload under `root` older than `max_age` at `now_ms` (none with no `max_age`),
-/// each unfinished one (it still holds `.part`) older than [`PARTIAL_MAX_AGE`], and a session
-/// folder it leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are
-/// read as uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
+/// Deletes each upload under `root` older than `max_age` at `now_ms` (none with no `max_age`), the
+/// partial file of each unfinished one no chunk has written for [`PARTIAL_MAX_AGE`] (only its
+/// `.part` and `.meta`: a finish that names the file meanwhile keeps it), and a folder either
+/// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
+/// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
 pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usize {
     let before =
         |age: Duration| now_ms.saturating_sub(u64::try_from(age.as_millis()).unwrap_or(u64::MAX));
     let cutoff = max_age.map_or(0, before);
-    let partial_cutoff = before(PARTIAL_MAX_AGE);
+    let idle_cutoff = before(PARTIAL_MAX_AGE);
     let real_dirs =
         |dir: &Path| {
             std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
@@ -91,10 +92,14 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usiz
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            let made = upload.file_name().to_str().and_then(made_at);
-            let unfinished = || upload.path().join(".part").symlink_metadata().is_ok();
-            let old = made.is_some_and(|at| at < cutoff || (at < partial_cutoff && unfinished()));
-            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+            let Some(made) = upload.file_name().to_str().and_then(made_at) else { continue };
+            let dir = upload.path();
+            if made < cutoff {
+                if std::fs::remove_dir_all(&dir).is_ok() {
+                    removed += 1;
+                }
+            } else if last_write(&dir).is_some_and(|at| at < idle_cutoff) {
+                remove_unfinished(&dir.join(".part"), &dir.join(".meta"));
                 removed += 1;
             }
         }
@@ -102,6 +107,16 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usiz
         let _ = std::fs::remove_dir(session.path());
     }
     removed
+}
+
+/// When the unfinished upload in folder `dir` was last written, in Unix ms (its `.part`, which
+/// every chunk writes, else its `.meta`); None for a finished one.
+fn last_write(dir: &Path) -> Option<u64> {
+    [".part", ".meta"].iter().find_map(|name| {
+        let at = dir.join(name).symlink_metadata().ok()?.modified().ok()?;
+        let since = at.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        Some(u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+    })
 }
 
 impl super::Hub {
@@ -320,7 +335,8 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("invalid upload size"))?;
-    let mut file = crate::config::private_state_rw(&path)
+    // Never made here: a chunk that lost a race with a finish or a cancel finds none.
+    let mut file = crate::config::private_state_existing_rw(&path)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
     let current = file.metadata().map_err(|e| RpcError::internal(e.to_string()))?.len();
     if current != offset {
@@ -394,11 +410,12 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
             "upload has {current} bytes, expected {size}"
         )));
     }
-    // On the disk before it is named: the chunks were not synced one by one. (Opened for writing:
-    // Windows flushes only a handle that may write.)
-    crate::config::private_state_rw(&part)
+    // On the disk before it is named: the chunks were not synced one by one. Opened to write
+    // (Windows flushes only such a handle) but never made: a second finish that made an empty
+    // `.part` would name it over the finished file.
+    crate::config::private_state_existing_rw(&part)
         .and_then(|file| Ok(file.sync_all()?))
-        .map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
     std::fs::rename(&part, &path)
@@ -712,8 +729,14 @@ mod tests {
         }
     }
 
+    /// Sets when `path` was last written to `ms` (Unix ms).
+    fn written_at(path: &Path, ms: u64) {
+        let at = std::time::UNIX_EPOCH + Duration::from_millis(ms);
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(at).unwrap();
+    }
+
     #[test]
-    fn the_sweep_deletes_an_unfinished_upload_once_it_is_a_day_old() {
+    fn the_sweep_deletes_an_unfinished_upload_no_chunk_wrote_for_a_day() {
         let root = std::env::temp_dir().join(format!("acpmux-partials-{}", uuid::Uuid::now_v7()));
         let hour = 60 * 60 * 1000;
         let now = crate::store::now_ms();
@@ -721,17 +744,60 @@ mod tests {
             let at = uuid::Timestamp::from_unix(uuid::NoContext, ms / 1000, 0);
             uuid::Uuid::new_v7(at).to_string()
         };
-        let stale = root.join("chat").join(named(now - 25 * hour));
-        let streaming = root.join("chat").join(named(now - hour));
-        let finished = root.join("chat").join(named(now - 25 * hour));
-        for (dir, file) in [(&stale, ".part"), (&streaming, ".part"), (&finished, "movie.mov")] {
+        let idle = root.join("chat").join(named(now - 30 * hour));
+        // Begun more than a day ago, still streaming: its last chunk came a minute ago.
+        let streaming = root.join("chat").join(named(now - 30 * hour));
+        let finished = root.join("chat").join(named(now - 30 * hour));
+        for (dir, file, at) in [
+            (&idle, ".part", now - 25 * hour),
+            (&streaming, ".part", now - 60_000),
+            (&finished, "movie.mov", now - 25 * hour),
+        ] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join(file), b"x").unwrap();
+            written_at(&dir.join(file), at);
         }
+        std::fs::write(idle.join(".meta"), b"{}").unwrap();
+        written_at(&idle.join(".meta"), now - 25 * hour);
         // With no age cap too (`uploadsMaxAgeDays` 0): a finished file stays.
         assert_eq!(sweep(&root, now, None), 1);
-        assert!(!stale.exists() && streaming.exists() && finished.exists());
+        assert!(!idle.exists() && streaming.join(".part").exists());
+        assert!(finished.join("movie.mov").exists());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The sweep reads an upload as idle, then a finish names its file before the sweep deletes:
+    /// only the partial files go, never what the finish named.
+    #[test]
+    fn the_partial_sweep_never_deletes_a_file_a_finish_named() {
+        let root = std::env::temp_dir().join(format!("acpmux-partials-{}", uuid::Uuid::now_v7()));
+        let now = crate::store::now_ms();
+        let dir = root.join("chat").join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [".part", "movie.mov"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+            written_at(&dir.join(name), now - 25 * 60 * 60 * 1000);
+        }
+        sweep(&root, now, None);
+        assert!(!dir.join(".part").exists());
+        assert_eq!(std::fs::read(dir.join("movie.mov")).unwrap(), b"x");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Two finishes of one upload both pass the length check, and the first names the file: the
+    /// second's sync finds no `.part` instead of making an empty one to name over the file.
+    #[test]
+    fn a_part_a_finish_took_is_never_made_again() {
+        let dir = std::env::temp_dir().join(format!("acpmux-finish-{}", uuid::Uuid::now_v7()));
+        crate::config::private_state_dir(&dir).unwrap();
+        let part = dir.join(".part");
+        crate::agent_tools::write_private(&part, b"whole").unwrap();
+        assert!(crate::config::private_state_existing_rw(&part).is_ok());
+        std::fs::rename(&part, dir.join("movie.mov")).unwrap();
+        assert!(crate::config::private_state_existing_rw(&part).is_err());
+        assert!(!part.exists(), "a late finish made a part to name over the finished file");
+        assert_eq!(std::fs::read(dir.join("movie.mov")).unwrap(), b"whole");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
