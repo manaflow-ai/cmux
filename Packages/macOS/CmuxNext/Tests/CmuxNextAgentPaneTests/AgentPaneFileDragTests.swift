@@ -50,7 +50,7 @@ struct AgentPaneFileDragTests {
         let picture = try #require(contents.picture)
         #expect(picture.size == CGSize(width: 160, height: 80))
         // The picture is the read's decoded thumbnail (160 pt at 2x), so drawing the drag image decodes nothing.
-        #expect(picture.cgImage(forProposedRect: nil, context: nil, hints: nil)?.width == AgentPaneFileDrag.pictureSide)
+        #expect(picture.representations.first?.pixelsWide == AgentPaneFileDrag.pictureSide)
     }
 
     /// The drag starts in the event's turn (lead review, 2026-10-25): its pasteboard holds the file URL and
