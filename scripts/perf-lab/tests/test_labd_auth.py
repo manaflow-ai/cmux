@@ -88,7 +88,7 @@ class FakeDriver:
     def job_finished(self, job_id: str) -> None:
         self.calls.append(("finished", job_id))
 
-    def tick(self, hosts, builds, *, submit):
+    def tick(self, hosts, builds, *, submit, lanes=()):
         self.calls.append(("tick", tuple(hosts), builds))
         if self.fail is not None:
             raise self.fail
@@ -261,6 +261,38 @@ class Service(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(len(runs(self.app.db_path)), 1)
 
+    def test_results_of_a_canary_lanes_commits_go_to_the_lane_store_only(self):
+        lane_store = self.scratch / "canary" / "run" / "lab.sqlite3"
+        lane_store.parent.mkdir(parents=True)
+        lane = types.SimpleNamespace(name="canary/run", commits=frozenset({SHA}), mainline="refs/perf-lab/canary/run",
+                                     store=lane_store)
+        mainlines = []
+        self.app.lanes = lambda: [lane]
+        self.app.lane_positions = lambda mainline: mainlines.append(mainline) or (
+            lambda sha: ingest.CommitPosition(7, mainline=True))
+        self.caller = LAB_HOST
+        status, answer = self.request("POST", "/ingest?kind=waterfall&tier=T0", self.body())
+        self.assertEqual((status, answer["added_runs"]), (200, 1), answer)
+        self.assertEqual(runs(self.app.db_path), [], "the lab's own store never gets a canary point")
+        self.assertEqual(runs(lane_store), [("run1/terminal.key-frame.light", "cmux15")])
+        self.assertEqual(mainlines, ["refs/perf-lab/canary/run"])
+        lane.commits = frozenset({"b" * 40})
+        status, answer = self.request("POST", "/ingest", result_body(self.scratch / "r2", "run2"))
+        self.assertEqual(status, 200, answer)
+        self.assertEqual(len(runs(self.app.db_path)), 1, "another commit goes to the lab's store")
+
+    def test_a_body_mixing_lane_and_other_commits_is_refused(self):
+        lane = types.SimpleNamespace(name="canary/run", commits=frozenset({"b" * 40}), mainline="m",
+                                     store=self.scratch / "lane.sqlite3")
+        self.app.lanes = lambda: [lane]
+        first, second = result_body(self.scratch / "r1", "run1"), result_body(self.scratch / "r2", "run2")
+        other = second.replace(SHA.encode(), b"b" * 40)
+        self.caller = LAB_HOST
+        status, answer = self.request("POST", "/ingest", first + other)
+        self.assertEqual(status, 400, answer)
+        self.assertIn("mixes commits of lane canary/run", answer["error"])
+        self.assertEqual(runs(self.app.db_path), [])
+
     def test_a_bad_result_is_rejected_with_its_reason(self):
         self.caller = LAB_HOST
         status, answer = self.request("POST", "/ingest", b'{"story": 1}\n')
@@ -410,18 +442,21 @@ class Workers(unittest.TestCase):
         self.assertEqual((len(submitted), detail["jobs"], detail["mode"]), (1, 1, "every-batch"))
 
     def test_command_submitter_hands_the_plan_on_stdin_and_returns_what_it_refused(self):
-        rejected = lambda **parts: parts  # scheduler.Rejected(jobs=, arms=)
+        rejected = lambda **parts: parts  # scheduler.Rejected(jobs=, arms=, builds=)
         with tempfile.TemporaryDirectory() as scratch:
             seen, program = Path(scratch) / "seen.json", Path(scratch) / "submit"
             program.write_text(f"#!/bin/sh\ncat > '{seen}'\nprintf '%s' \"$ANSWER\"\nexit ${{EXIT:-0}}\n")
             program.chmod(0o755)
             submit = labd.command_submitter(program, rejected)
             with mock.patch.dict(os.environ, {"ANSWER": ""}):
-                self.assertEqual(submit(FakePlan()), {"jobs": frozenset(), "arms": frozenset()})
+                self.assertEqual(submit(FakePlan()), {"jobs": frozenset(), "arms": frozenset(), "builds": frozenset()})
             self.assertEqual(json.loads(seen.read_text()), {"mode": "every-batch"})
             with mock.patch.dict(os.environ, {"ANSWER": '{"jobs": ["T0-1:m6/0"]}'}):
                 self.assertEqual(submit(FakePlan())["jobs"], {"T0-1:m6/0"})
-            for answer, code, message in (("", "3", "exited 3"), ("[1]", "0", "not {jobs, arms}")):
+            with mock.patch.dict(os.environ, {"ANSWER": '{"builds": [["%s", "bench"]]}' % SHA}):
+                self.assertEqual(submit(FakePlan())["builds"], {(SHA, "bench")})
+            for answer, code, message in (("", "3", "exited 3"), ("[1]", "0", "not {jobs, arms, builds}"),
+                                          ('{"builds": ["x"]}', "0", "not {jobs, arms, builds}")):
                 with self.subTest(answer=answer), mock.patch.dict(os.environ, {"ANSWER": answer, "EXIT": code}), \
                         self.assertRaisesRegex(labd.LabdError, message):
                     submit(FakePlan())

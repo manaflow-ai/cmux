@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """The perf lab's regression canary: a known regression on a scratch ref, checked end to end.
 
-    python3 -I scripts/perf-lab/lab.py canary --run [--tip SHA] [--at N] [--seed N] --submit-command PATH ...
+    python3 -I scripts/perf-lab/lab.py canary --run [--tip SHA] [--at N] [--seed N] [--pinpoint-command PATH]
+    python3 -I scripts/perf-lab/lab.py canary --resume RUN [--pinpoint-command PATH]
     python3 -I scripts/perf-lab/lab.py canary --last 3 [--json]
 
 A canary proves that the lab finds a regression it was not told about (p12-perf-process.md 3.7, done check 10). The
 bench-only feature `perfLabCanary` (schemas/features/features.d/perfLabCanary.json; PerfLabKeySpin in
-CmuxNextFeatures/PerfLabProbes.swift) makes every key-down spin for exactly 2 ms before key dispatch. A run:
+CmuxNextFeatures/PerfLabProbes.swift) makes every key-down spin for exactly 2 ms before key dispatch, so it moves
+key-to-frame series only. A run measures the T0 stories with a key_to_frame metric (`key_frame_stories`; 3.3 lists
+terminal, Home and omnibar key->frame) and refuses to start while stories.d and shard_map.json have none. A run:
 
 1. Builds a scratch history on top of the tip: BATCHES_BEFORE + 1 + BATCHES_AFTER batches of BATCH_COMMITS commits
    each. Every commit is empty except one inside batch BATCHES_BEFORE (never its tip, so the bisect must go below
    batch granularity): it turns `perfLabCanary` on by its channel defaults and regenerates the registry with
    gen-features.py, the step a features default flip makes inside one series (3.1). The history is pushed only to
-   refs/heads/perf-lab/canary/<run>; `push_scratch` refuses any other ref, so the big branch is never touched.
-2. Runs a lane of its own in DATA_DIR/canary/<run>/: its own store (lab.sqlite3), with the scratch ref as the
-   mainline that orders points. Each batch gets one T0 round, at most one per scheduler.BATCH_INTERVAL as on the
-   waterfall: its tip build is requested, and once built the T0 stories run on their shard-map owners. Plans go
-   to the same --submit-command labd uses, with a "lane" entry: the program writes the lane's results to
-   lane.results, which the canary ingests into the lane store before alerts.detect runs on it. Bisect and
-   verification run on the lane store through --pinpoint-command (pinpoint_exec.py, task 016, and verify.py),
-   which gets the lane store's path.
+   refs/heads/perf-lab/canary/<run>, and that ref is deleted from the remote once the run has its verdict;
+   `push_scratch` and `delete_scratch` refuse any other ref, so the big branch is never touched.
+2. Is a side lane of labd (scheduler.Lane): DATA_DIR/canary/<run>/lane.json (`LaneDocument`) gives labd's Driver
+   the lane's builds and due T0 rounds, which it starts on the T0 shard owners only when they are free, after the
+   waterfall's own T0 and pinpoint work. labd's /ingest stores the results of the scratch commits in the lane's own
+   store (DATA_DIR/canary/<run>/lab.sqlite3), ordered on the lane ref, never in the lab's. The run asks for one
+   round per batch, at most one per scheduler.BATCH_INTERVAL as on the waterfall, once the batch tip is built; a
+   round with no result ROUND_RETRY after it was asked is asked again under a new attempt id. alerts.detect, and
+   bisect and verification through --pinpoint-command (pinpoint_exec.py, task 016, and verify.py, `PROGRAM --db
+   LANE_DB`), run on the lane store.
 3. Judges the lane store (`judge`): an alert whose range holds the injected commit within ALERT_WITHIN_BATCHES T0
    batches of it (MIN_SEGMENT_SIZE = 6 points after the step, plus the step), a bisect whose culprit is exactly
    the injected commit within CULPRIT_WITHIN of the alert, and a verification of that commit by the strict rule
@@ -43,7 +48,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -83,12 +88,18 @@ ALERT_WITHIN_BATCHES = anomaly.MIN_SEGMENT_SIZE + 1  # the injected batch and th
 CULPRIT_WITHIN = timedelta(hours=3)
 VERIFY_WITHIN = timedelta(hours=12)  # the sheriff loop's fix-or-flag-off SLO, counted from the alert
 RUN_LIMIT = timedelta(hours=24)  # a check still pending a day after the start fails (no build, no host)
+ROUND_RETRY = timedelta(hours=1)  # a round asked this long ago with no result is asked again (a lost job)
 POLL_SECONDS = scheduler.POLL_SECONDS
+KEY_FRAME_METRIC = re.compile(r"key_to_frame")  # a catalog metric pattern the 2 ms key-down spin moves
 
 PASS, FAIL, PENDING = "pass", "fail", "pending"
 DATA_DIR = Path.home() / "Library" / "Application Support" / "cmux-perf-lab"
+CANARY_DIR = "canary"
 RUN_FILE = "run.json"
+LANE_FILE = "lane.json"
+LANE_SCHEMA = "cmux-perf-lab-lane/v1"
 DB_NAME = "lab.sqlite3"
+LABD_SOCKET = "labd.sock"  # labd.SOCKET_NAME: labd runs on this data directory
 
 
 class CanaryError(RuntimeError):
@@ -137,6 +148,22 @@ def scratch_ref(run_id: str) -> str:
     if not RUN_ID.match(run_id):
         raise CanaryError(f"run id {run_id!r} is not <UTC stamp>-<12 hex>")
     return SCRATCH_PREFIX + run_id
+
+
+def key_frame_stories(stories: Sequence, shard_map) -> tuple[str, ...]:
+    """The T0 stories (catalog.Story) with a key_to_frame metric that the shard map runs in T0, sorted. The 2 ms
+    key-down spin moves nothing else, so a run refuses to start without one."""
+    sharded = shard_map.sharded()
+    found = tuple(sorted(s.id for s in stories if s.tier == "T0" and ("T0", s.id) in sharded
+                         and any(KEY_FRAME_METRIC.search(metric.name) for metric in s.metrics)))
+    if not found:
+        t0 = ", ".join(sorted(s.id for s in stories if s.tier == "T0")) or "none"
+        raise CanaryError(
+            f"no T0 story measures key-to-frame (T0 now: {t0}), so the 2 ms key-down spin can move no T0 series "
+            "and no run could alert. The canary needs a T0 key->frame story in stories.d and shard_map.json first "
+            "(p12-perf-process.md 3.3: terminal key->frame light from the typing benches, task "
+            "p12-perf-process-050)")
+    return found
 
 
 # ---------- scratch history (git) ----------
@@ -230,12 +257,24 @@ def build_scratch(repo: Path, tip: str, run_id: str, layout: Layout, *, git: Git
     return Scratch(tip, batches, injected)
 
 
-def push_scratch(repo: Path, remote: str, sha: str, ref: str, *, git: Git) -> None:
-    """Pushes the scratch history; only a perf-lab/canary/<run> ref, so no lab branch is ever touched."""
+def _run_of(ref: str) -> str:
     if not ref.startswith(SCRATCH_PREFIX) or not RUN_ID.match(ref[len(SCRATCH_PREFIX):]):
         raise CanaryError(f"{ref}: a canary pushes only {SCRATCH_PREFIX}<run>")
+    return ref[len(SCRATCH_PREFIX):]
+
+
+def push_scratch(repo: Path, remote: str, sha: str, ref: str, *, git: Git) -> None:
+    """Pushes the scratch history; only a perf-lab/canary/<run> ref, so no lab branch is ever touched. The local
+    lane ref is the mainline labd orders the lane's points on."""
+    run_id = _run_of(ref)
     git("push", "--quiet", remote, f"{sha}:{ref}", cwd=repo)
-    git("update-ref", LANE_PREFIX + ref[len(SCRATCH_PREFIX):], sha, cwd=repo)
+    git("update-ref", LANE_PREFIX + run_id, sha, cwd=repo)
+
+
+def delete_scratch(repo: Path, remote: str, ref: str, *, git: Git) -> None:
+    """Deletes a finished run's scratch branch from the remote (the same refs only); the local lane ref stays."""
+    _run_of(ref)
+    git("push", "--quiet", remote, f":{ref}", cwd=repo)
 
 
 # ---------- run record ----------
@@ -249,7 +288,8 @@ class RunRecord:
     injected: str
     injected_pos: int  # its commit position on the scratch mainline (ingest.GitCommitPositions)
     injected_batch: int
-    batches: list[dict]  # {first, tip, commits, build_requested, t0_at}
+    stories: list[str]  # the T0 key-to-frame stories the lane measures (key_frame_stories)
+    batches: list[dict]  # {first, tip, commits, t0_at (first asked), attempt, attempt_at}
     finished_at: str | None = None
     verdict: dict | None = None
 
@@ -261,23 +301,19 @@ class RunRecord:
     def mainline(self) -> str:
         return LANE_PREFIX + self.run_id
 
+    @property
+    def lane_name(self) -> str:
+        return f"{CANARY_DIR}/{self.run_id}"
+
     @classmethod
-    def new(cls, run_id: str, now: datetime, remote: str, scratch: Scratch, layout: Layout,
-            injected_pos: int) -> "RunRecord":
+    def new(cls, run_id: str, now: datetime, remote: str, scratch: Scratch, layout: Layout, injected_pos: int,
+            stories: Sequence[str]) -> "RunRecord":
         return cls(run_id, _stamp(now), remote, scratch.base, scratch.injected, injected_pos, layout.injected_batch,
-                   [{"first": b.first, "tip": b.tip, "commits": list(b.commits), "build_requested": False,
-                     "t0_at": None} for b in scratch.batches])
+                   list(stories), [{"first": b.first, "tip": b.tip, "commits": list(b.commits), "t0_at": None,
+                                    "attempt": 0, "attempt_at": None} for b in scratch.batches])
 
     def save(self, directory: Path) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        handle, temp = tempfile.mkstemp(dir=directory, prefix=".run-", suffix=".json")
-        try:
-            with os.fdopen(handle, "w", encoding="utf-8") as out:
-                json.dump(asdict(self), out, indent=1, sort_keys=True)
-            os.replace(temp, directory / RUN_FILE)
-        except BaseException:
-            Path(temp).unlink(missing_ok=True)
-            raise
+        _write_json(directory / RUN_FILE, asdict(self))
 
     @classmethod
     def load(cls, directory: Path) -> "RunRecord":
@@ -285,6 +321,19 @@ class RunRecord:
             return cls(**json.loads((directory / RUN_FILE).read_text(encoding="utf-8")))
         except (OSError, ValueError, TypeError) as error:
             raise CanaryError(f"{directory / RUN_FILE}: {error}") from None
+
+
+def _write_json(path: Path, document: object) -> None:
+    """Atomic: labd reads the old file or the new one, never a partial one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".json")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            json.dump(document, out, indent=1, sort_keys=True)
+        os.replace(temp, path)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
 
 
 def _stamp(moment: datetime) -> str:
@@ -296,83 +345,109 @@ def _time(text: str) -> datetime:
     return datetime.fromisoformat(text).astimezone(timezone.utc)
 
 
-# ---------- T0 lane ----------
+# ---------- the side lane (labd reads it) ----------
 
-@dataclass
-class Lane:
-    """One canary run's T0 rounds: each batch tip is built, then measured by its shard owners, one round per
-    scheduler.BATCH_INTERVAL. `submit` takes a plan document and returns the job ids it could not start."""
+def round_id(record: RunRecord, index: int, attempt: int) -> str:
+    """A controller-safe job id prefix (labd.JOB_ID): the scheduler appends `:<lab class>.<shard>`."""
+    return f"canary:{record.run_id}:T0-{index + 1}.{attempt}"
 
-    record: RunRecord
-    directory: Path
-    stories: Sequence  # scheduler.StorySpec
-    shard_map: object  # scheduler.ShardMap
-    hosts: Callable[[], Sequence]  # scheduler.Host
-    builds: Callable[[], object]  # scheduler.Builds
-    submit: Callable[[dict], set[str]]
-    clock: Callable[[], datetime]
 
-    def _t0(self) -> list:
-        return [s for s in self.stories if s.tier == "T0"]
+@dataclass(frozen=True)
+class LaneDocument:
+    """DATA_DIR/canary/<run>/lane.json, what labd needs of a run in progress: the Driver plans `lane`
+    (scheduler.Lane), and /ingest stores a body of `commits` in `store`, its points ordered on `mainline`. The
+    store and mainline follow from the run directory, never from the file."""
 
-    def _configs(self) -> set[str]:
-        return {s.config for s in self._t0()}
+    lane: object  # scheduler.Lane
+    commits: frozenset[str]
+    mainline: str
+    store: Path
 
-    def _plan(self, jobs: Sequence, builds: Sequence) -> dict:
-        document = scheduler.Plan(scheduler.State(), tuple(jobs), tuple(builds), (), (), (), "every-batch", None,
-                                  ()).to_document()
-        document["lane"] = {"name": f"canary/{self.record.run_id}", "ref": self.record.ref,
-                            "results": str(self.directory / "results")}
-        return document
+    @property
+    def name(self) -> str:
+        return self.lane.name
 
-    def round_jobs(self, index: int, batch: Mapping) -> list:
-        """The T0 jobs of batch `index`: each T0 shard of each class on its waterfall owner (never moved)."""
-        seconds = {s.id: s.seconds for s in self._t0()}
-        owners = {(h.lab_class, h.shard): h for h in self.hosts() if h.role == scheduler.WATERFALL and h.up}
-        jobs = []
-        for lab_class in sorted(self.shard_map.classes):
-            for shard_index, shard in enumerate(self.shard_map.shards(lab_class)):
-                ids = tuple(s for s in shard.get("T0", ()) if s in seconds)
-                host = owners.get((lab_class, shard_index))
-                if not ids or host is None:
-                    continue
-                key = f"{lab_class}/{shard_index}"
-                jobs.append(scheduler.Job(
-                    f"canary:{self.record.run_id}:T0-{index + 1}:{key}", "waterfall", host.name,
-                    sum(seconds[s] for s in ids), tier="T0", round=f"canary-T0-{index + 1}", sha=batch["tip"],
-                    first=batch["first"], stories=ids, key=key))
-        return jobs
+    @classmethod
+    def of(cls, record: RunRecord, directory: Path, measured: set[tuple[str, str]]) -> "LaneDocument":
+        rounds = tuple(scheduler.LaneRound(round_id(record, index, batch["attempt"]), batch["tip"], batch["first"])
+                       for index, batch in enumerate(record.batches)
+                       if batch["t0_at"] and not _measured(batch, record.stories, measured))
+        lane = scheduler.Lane(record.lane_name, tuple(record.stories), tuple(b["tip"] for b in record.batches),
+                              rounds)
+        return cls(lane, frozenset(sha for b in record.batches for sha in b["commits"]), record.mainline,
+                   directory / DB_NAME)
 
-    def step(self) -> list[str]:
-        """Requests every batch tip build once, then starts the next due T0 round. Returns what it did."""
-        now, done = self.clock(), []
-        record = self.record
-        wanted = [b for b in record.batches if not b["build_requested"]]
-        if wanted:
-            builds = [scheduler.BuildRequest(b["tip"], config, "batch-tip") for b in wanted
-                      for config in sorted(self._configs())]
-            self.submit(self._plan((), builds))
-            for batch in wanted:
-                batch["build_requested"] = True
-            done.append(f"requested {len(wanted)} batch-tip builds")
-        measured = [b for b in record.batches if b["t0_at"]]
-        if len(measured) == len(record.batches):
-            return done
-        if measured and now - _time(measured[-1]["t0_at"]) < scheduler.BATCH_INTERVAL:
-            return done
-        index = len(measured)
-        batch = record.batches[index]
-        ready = self.builds().ready
-        if not all((batch["tip"], config) in ready for config in self._configs()):
-            return done
-        jobs = self.round_jobs(index, batch)
-        if not jobs:
-            raise CanaryError("no waterfall host owns a T0 shard; the canary has nothing to measure on")
-        refused = self.submit(self._plan(jobs, ()))
-        if refused:
-            return [*done, f"T0 round {index + 1}: the controller refused {', '.join(sorted(refused))}; retrying"]
-        batch["t0_at"] = _stamp(now)
-        return [*done, f"T0 round {index + 1} on {batch['tip'][:12]} ({len(jobs)} jobs)"]
+    def to_document(self) -> dict:
+        return {"schema": LANE_SCHEMA, "name": self.lane.name, "stories": list(self.lane.stories),
+                "builds": list(self.lane.builds), "commits": sorted(self.commits),
+                "rounds": [{"id": r.id, "sha": r.sha, "first": r.first} for r in self.lane.rounds]}
+
+    @classmethod
+    def read(cls, directory: Path) -> "LaneDocument":
+        document = json.loads((directory / LANE_FILE).read_text(encoding="utf-8"))
+        name = f"{CANARY_DIR}/{directory.name}"
+        if document.get("schema") != LANE_SCHEMA or document.get("name") != name:
+            raise ValueError(f"not a {LANE_SCHEMA} document of {name}")
+        ends = [r[key] for r in document["rounds"] for key in ("sha", "first")]
+        shas = [*document["builds"], *document["commits"], *ends]
+        if not all(isinstance(sha, str) and SHA.match(sha) for sha in shas):
+            raise ValueError("a commit is not a full sha")
+        rounds = tuple(scheduler.LaneRound(str(r["id"]), r["sha"], r["first"]) for r in document["rounds"])
+        lane = scheduler.Lane(name, tuple(map(str, document["stories"])), tuple(document["builds"]), rounds)
+        return cls(lane, frozenset(document["commits"]), LANE_PREFIX + directory.name, directory / DB_NAME)
+
+
+def lane_documents(root: Path) -> list[LaneDocument]:
+    """The lanes of the canary runs in progress under DATA_DIR/canary (labd: its Driver and /ingest). A file that
+    does not read is skipped, so one broken run never stops the lab's own scheduling."""
+    found = []
+    for directory in runs(root):
+        try:
+            found.append(LaneDocument.read(directory))
+        except FileNotFoundError:
+            continue  # finished: the run removed its lane
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"canary: {directory / LANE_FILE} skipped: {error}", file=sys.stderr)
+    return found
+
+
+def _measured(batch: Mapping, stories: Sequence[str], measured: set[tuple[str, str]]) -> bool:
+    return all((batch["tip"], story) in measured for story in stories)
+
+
+def measured_in(path: Path) -> set[tuple[str, str]]:
+    """(sha, story) of every waterfall run in the lane store."""
+    if not path.is_file():
+        return set()
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return set(db.execute("""SELECT DISTINCT b.sha, r.story FROM runs r JOIN builds b ON b.id = r.build_id
+                                 WHERE r.kind = 'waterfall'""").fetchall())
+    finally:
+        db.close()
+
+
+def advance(record: RunRecord, now: datetime, built: set[str], measured: set[tuple[str, str]]) -> list[str]:
+    """Asks for the next batch's T0 round once its tip is `built`, at most one per scheduler.BATCH_INTERVAL, and asks
+    again (a new attempt id) for a round with no result ROUND_RETRY after its last attempt. Returns what it did."""
+    done = []
+    for index, batch in enumerate(record.batches):
+        if (batch["attempt_at"] and not _measured(batch, record.stories, measured)
+                and now - _time(batch["attempt_at"]) >= ROUND_RETRY):
+            batch["attempt"] += 1
+            batch["attempt_at"] = _stamp(now)
+            done.append(f"T0 round {index + 1}: no result {ROUND_RETRY} after it was asked; attempt {batch['attempt']}")
+    asked = [b for b in record.batches if b["t0_at"]]
+    if len(asked) == len(record.batches):
+        return done
+    if asked and now - _time(asked[-1]["t0_at"]) < scheduler.BATCH_INTERVAL:
+        return done
+    batch = record.batches[len(asked)]
+    if batch["tip"] not in built:
+        return done
+    batch["t0_at"] = batch["attempt_at"] = _stamp(now)
+    batch["attempt"] = 1
+    return [*done, f"T0 round {len(asked) + 1} on {batch['tip'][:12]} asked of labd"]
 
 
 # ---------- judge ----------
@@ -524,101 +599,96 @@ class Services:
     git: Git
     clock: Callable[[], datetime]
     sleep: Callable[[float], None]
-    submit: Callable[[dict], set[str]]
-    hosts: Callable[[], Sequence]
-    builds: Callable[[], object]
-    ingest: Callable[[Path, RunRecord], None]
+    builds: Callable[[], object]  # scheduler.Builds: the lab's build ledger
     detect: Callable[[Path], None]
     pinpoint: Callable[[Path], None] | None
     log: Callable[[str], None] = field(default=lambda line: print(line, file=sys.stderr))
+    regenerate: Callable[[Path], None] = regenerate_registry
 
 
-def start_run(root: Path, repo: Path, remote: str, tip: str, layout: Layout, services: Services) -> Path:
+def start_run(root: Path, repo: Path, remote: str, tip: str, layout: Layout, stories: Sequence[str],
+              services: Services) -> Path:
     """Builds and pushes the scratch history and writes the run record; returns the run directory."""
+    if not stories:
+        raise CanaryError("no T0 key-to-frame story to measure (key_frame_stories)")
     run_id = run_id_for(services.clock(), tip)
     ref = scratch_ref(run_id)
-    scratch = build_scratch(repo, tip, run_id, layout, git=services.git)
+    scratch = build_scratch(repo, tip, run_id, layout, git=services.git, regenerate=services.regenerate)
     push_scratch(repo, remote, scratch.batches[-1].tip, ref, git=services.git)
     directory = root / run_id
     position = int(services.git("rev-list", "--count", "--first-parent", scratch.injected, "--", cwd=repo))
-    RunRecord.new(run_id, services.clock(), remote, scratch, layout, position).save(directory)
+    RunRecord.new(run_id, services.clock(), remote, scratch, layout, position, stories).save(directory)
     services.log(f"canary {run_id}: {ref} pushed; injected {scratch.injected} "
-                 f"(batch {layout.injected_batch + 1}, commit {layout.injected_offset + 1})")
+                 f"(batch {layout.injected_batch + 1}, commit {layout.injected_offset + 1}); measures "
+                 f"{', '.join(stories)}")
     return directory
 
 
-def drive(directory: Path, lane_inputs: Mapping, services: Services) -> Verdict:
-    """Runs the lane until the verdict is not pending. Resumable: the record is saved after every step."""
+def _step(directory: Path, record: RunRecord, configs: set[str], services: Services) -> None:
+    """One poll: the next round, the lane file labd reads, then detection, bisect and verification."""
+    ready = services.builds().ready
+    built = {b["tip"] for b in record.batches if all((b["tip"], config) in ready for config in configs)}
+    path = directory / DB_NAME
+    for line in advance(record, services.clock(), built, measured_in(path)):
+        services.log(f"canary {record.run_id}: {line}")
+    record.save(directory)
+    _write_json(directory / LANE_FILE, LaneDocument.of(record, directory, measured_in(path)).to_document())
+    services.detect(path)
+    if services.pinpoint is not None:
+        services.pinpoint(path)
+
+
+def _finish(directory: Path, record: RunRecord, repo: Path, verdict: Verdict, services: Services) -> None:
+    """Ends the lane (labd stops planning and routing it) and deletes the scratch branch from the remote."""
+    (directory / LANE_FILE).unlink(missing_ok=True)
+    record.finished_at, record.verdict = _stamp(services.clock()), verdict.to_dict()
+    record.save(directory)
+    try:
+        delete_scratch(repo, record.remote, record.ref, git=services.git)
+    except CanaryError as error:
+        services.log(f"canary {record.run_id}: {record.ref} stays on {record.remote}: {error}")
+
+
+def drive(directory: Path, repo: Path, configs: set[str], services: Services) -> Verdict:
+    """Runs the lane until the verdict is not pending. Resumable: the record is saved after every step. A failing
+    step (the build ledger, the store, a failing --pinpoint-command) is logged and runs again on the next poll, as
+    labd's Worker does, and the verdict is still judged, so RUN_LIMIT ends a run that never recovers."""
     record = RunRecord.load(directory)
     db = store.Store(directory / DB_NAME)
     try:
         db.migrate()
     finally:
         db.close()
-    lane = Lane(record, directory, clock=services.clock, submit=services.submit, hosts=services.hosts,
-                builds=services.builds, **lane_inputs)
     while True:
-        for line in lane.step():
-            services.log(f"canary {record.run_id}: {line}")
-        record.save(directory)
-        services.ingest(directory, record)
-        services.detect(directory / DB_NAME)
-        if services.pinpoint is not None:
-            services.pinpoint(directory / DB_NAME)
+        try:
+            _step(directory, record, configs, services)
+        except Exception as error:  # noqa: BLE001 - as labd's Worker: logged, and the next poll runs the step again
+            services.log(f"canary {record.run_id}: {error}; trying again in {POLL_SECONDS} s")
         _, verdict = judge_run(directory, services.clock())
         if verdict.state != PENDING:
-            record.finished_at, record.verdict = _stamp(services.clock()), verdict.to_dict()
-            record.save(directory)
+            _finish(directory, record, repo, verdict, services)
             return verdict
         services.sleep(POLL_SECONDS)
 
 
-def command_submit(program: Path) -> Callable[[dict], set[str]]:
-    """labd's submit protocol (labd.command_submitter): the plan JSON on stdin, {"jobs": [refused ids]} out."""
-    def submit(document: dict) -> set[str]:
-        done = subprocess.run([str(program)], input=json.dumps(document), capture_output=True, text=True, timeout=120)
-        if done.returncode != 0:
-            raise CanaryError(f"{program} exited {done.returncode}: {done.stderr.strip()[-500:]}")
-        answer = json.loads(done.stdout) if done.stdout.strip() else {}
-        return set(map(str, answer.get("jobs", ())))
-
-    return submit
-
-
-def lane_ingest(repo: Path, git: Git) -> Callable[[Path, RunRecord], None]:
-    ingest = _sibling("ingest")
-
-    def run(directory: Path, record: RunRecord) -> None:
-        results = directory / "results"
-        if not results.is_dir() or not any(results.rglob("*.ndjson")):
-            return
-        try:
-            git("rev-parse", "--verify", "--quiet", f"{record.mainline}^{{commit}}", cwd=repo)
-        except CanaryError:  # a resumed run on another checkout: the push wrote the lane ref only where it ran
-            git("fetch", "--quiet", "--no-tags", record.remote, f"+{record.ref}:{record.mainline}", cwd=repo)
-        db = store.Store(directory / DB_NAME)
-        try:
-            ingest.ingest_paths(db, [results], commit_positions=ingest.GitCommitPositions(repo, mainline=record.mainline),
-                                kind="waterfall", tier="T0")
-        finally:
-            db.close()
-
-    return run
-
-
-def lane_detect(path: Path) -> None:
+def lane_detect(path: Path, *, clock: Callable[[], datetime] = store.utc_now) -> None:
+    """alerts.detect on the lane store. The canary judges only change points (edivisive), so the lane has no
+    target tiles to compute."""
     alerts = _sibling("alerts")
-    db = store.Store(path)
+    db = store.Store(path, clock=clock)
     try:
         alerts.detect(db, alerts.Subscriptions.load(alerts.DEFAULT_SUBSCRIPTIONS), alerts.CatapultDetector(),
-                      alerts.load_targets(alerts.DEFAULT_TARGETS), floors=alerts.load_floors())
+                      lambda target_id: None, floors=alerts.load_floors())
     finally:
         db.close()
 
 
 def pinpoint_command(program: Path) -> Callable[[Path], None]:
     def run(path: Path) -> None:
-        done = subprocess.run([str(program), "--db", str(path)], capture_output=True, text=True, timeout=600)
+        try:
+            done = subprocess.run([str(program), "--db", str(path)], capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise CanaryError(f"{program}: {error}") from None
         if done.returncode != 0:
             raise CanaryError(f"{program} exited {done.returncode}: {done.stderr.strip()[-500:]}")
 
@@ -645,40 +715,36 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tip", help="start from this commit instead of the branch tip")
     parser.add_argument("--at", type=int, help=f"the injected commit's index in its batch (0..{BATCH_COMMITS - 2})")
     parser.add_argument("--seed", type=int, help="seed for the injected commit's place")
-    parser.add_argument("--submit-command", type=Path, help="labd's --submit-command program")
     parser.add_argument("--pinpoint-command", type=Path,
                         help="runs bisect and verification on the lane store (`PROGRAM --db LANE_DB`)")
-    parser.add_argument("--pool", type=Path, default=HERE / "pool.json", help="the lab hosts (task 130)")
     parser.add_argument("--json", action="store_true")
 
 
 def run(command: str, args: argparse.Namespace, out=None) -> int:
     out = out or sys.stdout
-    root = args.data_dir / "canary"
+    root = args.data_dir / CANARY_DIR
     now = datetime.now(timezone.utc)
     if args.last is not None:
         if args.last < 1:
             print("canary: --last needs N >= 1", file=sys.stderr)
             return 2
         return report_last(root, args.last, now, as_json=args.json, out=out)
-    if args.submit_command is None:
-        print("canary: --run and --resume need --submit-command (labd's), or no T0 job ever starts", file=sys.stderr)
-        return 2
     repo = args.repo or args.data_dir / "repo"
     git = git_runner()
     catalog = _sibling("catalog")
     labd = _sibling("labd")
     builds_mod = _sibling("builds")
     try:
-        stories = scheduler.stories_from_catalog(catalog.load_catalog(REPO_ROOT))
-        shard_map = scheduler.ShardMap.load(HERE / "shard_map.json")
+        loaded = catalog.load_catalog(REPO_ROOT)
+        stories = key_frame_stories(loaded.stories, scheduler.ShardMap.load(HERE / "shard_map.json"))
+        if not (args.data_dir / LABD_SOCKET).exists():
+            raise CanaryError(f"labd does not run on {args.data_dir} (no {LABD_SOCKET}): its scheduler starts the "
+                              "canary's rounds and stores their results")
+        configs = {s.config for s in scheduler.stories_from_catalog(loaded) if s.id in stories}
         services = Services(
             git=git, clock=lambda: datetime.now(timezone.utc), sleep=time.sleep,
-            submit=command_submit(args.submit_command),
-            hosts=lambda: scheduler.hosts_from_document(json.loads(args.pool.read_text(encoding="utf-8"))),
             builds=lambda: labd.ledger_builds(scheduler, builds_mod, args.data_dir / "builds"),
-            ingest=lane_ingest(repo, git), detect=lane_detect,
-            pinpoint=pinpoint_command(args.pinpoint_command) if args.pinpoint_command else None)
+            detect=lane_detect, pinpoint=pinpoint_command(args.pinpoint_command) if args.pinpoint_command else None)
         if args.run:
             tip = args.tip or scheduler.git_ls_remote(args.remote, args.branch, repo=repo)
             if not tip:
@@ -687,13 +753,13 @@ def run(command: str, args: argparse.Namespace, out=None) -> int:
                 cwd=repo)
             git("merge-base", "--is-ancestor", tip, f"refs/perf-lab/{args.branch}", cwd=repo)
             layout = choose_layout(random.Random(args.seed), args.at)
-            directory = start_run(root, repo, args.remote, tip, layout, services)
+            directory = start_run(root, repo, args.remote, tip, layout, stories, services)
         else:
             scratch_ref(args.resume)
             directory = root / args.resume
         if services.pinpoint is None:
             services.log("canary: no --pinpoint-command, so the bisect and verification checks stay pending")
-        verdict = drive(directory, {"stories": stories, "shard_map": shard_map}, services)
+        verdict = drive(directory, repo, configs, services)
     except (CanaryError, scheduler.SchedulerError, catalog.CatalogError, store.StoreError, OSError, ValueError) as error:
         print(f"canary: {error}", file=sys.stderr)
         return 2

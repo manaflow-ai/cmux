@@ -1,4 +1,3 @@
-import AppKit
 #if CMUX_BENCH_HOOKS
 import CmuxNextFeatures
 import os
@@ -18,16 +17,13 @@ final class AppProcessRoot {
     /// The adopted services; never released once set.
     private(set) var services: AppServices?
 
-    /// Holds `services` for the rest of the process. A bench build also logs the perf lab features and, with
-    /// `perfLabCanary` on, puts the canary's 2 ms spin in front of the key-down dispatcher the services set.
+    /// Holds `services` for the rest of the process. A bench build also logs the perf lab features' values and
+    /// sources (the kill probe's proof; `PerfLabCanaryKeyDown` runs the canary's spin).
     func adopt(_ services: AppServices) {
         self.services = services
         #if CMUX_BENCH_HOOKS
         let report = PerfLabFeatureReport(services.features)
         Logger(subsystem: "com.cmuxterm.app.next", category: "perf-lab").notice("\(report.line, privacy: .public)")
-        if report.canary.isEnabled, let app = NSApp as? CmuxApplication, let dispatch = app.keyDownInterceptor {
-            app.keyDownInterceptor = PerfLabKeySpin(clock: ContinuousClock()).delaying(dispatch)
-        }
         #endif
     }
 

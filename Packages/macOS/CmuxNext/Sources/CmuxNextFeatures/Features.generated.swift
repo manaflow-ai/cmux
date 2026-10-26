@@ -2,43 +2,9 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
-    /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
-    public static let perfLabCanary = Feature(
-        index: 0,
-        name: "perfLabCanary",
-        owner: "Performance Lead",
-        description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
-        kind: .killSwitch,
-        process: .app,
-        chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
-        expires: nil,
-        params: [],
-        stories: [],
-        sticky: false,
-        runtimeMutable: false
-    )
-
-    /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
-    public static let perfLabKillProbe = Feature(
-        index: 1,
-        name: "perfLabKillProbe",
-        owner: "Performance Lead",
-        description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
-        kind: .killSwitch,
-        process: .app,
-        chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
-        expires: nil,
-        params: [],
-        stories: [],
-        sticky: true,
-        runtimeMutable: false
-    )
-
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 2,
+        index: 0,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -55,7 +21,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 3,
+        index: 1,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -70,11 +36,55 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
+    public static let perfLabCanary = Feature(
+        index: 2,
+        name: "perfLabCanary",
+        owner: "Performance Lead",
+        description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
+    public static let perfLabKillProbe = Feature(
+        index: 3,
+        name: "perfLabKillProbe",
+        owner: "Performance Lead",
+        description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: true,
+        runtimeMutable: false
+    )
+    #endif
+
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .renderStarvationGuard,
+        .taskManagerMemorySaved,
         .perfLabCanary,
         .perfLabKillProbe,
+    ]
+    #else
+    /// Every feature, by index: `registered[feature.index] == feature`.
+    public static let registered: [Feature] = [
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]
+    #endif
 }

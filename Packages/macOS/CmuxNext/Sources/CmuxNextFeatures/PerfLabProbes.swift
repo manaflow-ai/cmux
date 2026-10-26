@@ -6,7 +6,8 @@
 ///
 /// It busy-waits on purpose: a sleep or a yield would let the run loop do other work, and the lab must see the
 /// key-to-frame latency grow by the whole ``duration``. DEBUG compiles it for its tests; only a bench build
-/// (`CMUX_BENCH_HOOKS`) installs it (`AppProcessRoot.adopt`), and a Release build has neither.
+/// (`CMUX_BENCH_HOOKS`) installs it (`PerfLabCanaryKeyDown`, where `AppServices` makes the key-down router), and a
+/// Release build has neither.
 public struct PerfLabKeySpin<C: Clock>: Sendable where C.Duration == Duration {
     public let clock: C
     public let duration: Duration
@@ -26,10 +27,11 @@ public struct PerfLabKeySpin<C: Clock>: Sendable where C.Duration == Duration {
         return now
     }
 
-    /// `dispatch` with ``spin()`` before each call: the key-down dispatcher a bench build with the canary on runs.
-    public func delaying<A, B, R>(_ dispatch: @escaping (A, B) -> R) -> (A, B) -> R {
+    /// `dispatch` with ``spin()`` before each call for which `isOn` is true: the key-down router of a bench build,
+    /// with `isOn` reading ``Feature/perfLabCanary`` (`PerfLabCanaryKeyDown` in CmuxNextApp).
+    public func delaying<A, B, R>(_ dispatch: @escaping (A, B) -> R, when isOn: @escaping () -> Bool) -> (A, B) -> R {
         { first, second in
-            spin()
+            if isOn() { spin() }
             return dispatch(first, second)
         }
     }

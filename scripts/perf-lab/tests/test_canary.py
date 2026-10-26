@@ -5,15 +5,19 @@
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
 import importlib.util
 import io
 import json
 import random
+import re
 import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -75,7 +79,12 @@ class ScratchRefTests(unittest.TestCase):
         for ref in refused:
             with self.assertRaises(canary.CanaryError, msg=ref):
                 canary.push_scratch(Path("."), "origin", "a" * 40, ref, git=lambda *a, cwd: calls.append(a) or "")
+            with self.assertRaises(canary.CanaryError, msg=ref):
+                canary.delete_scratch(Path("."), "origin", ref, git=lambda *a, cwd: calls.append(a) or "")
         self.assertEqual(calls, [])
+        canary.delete_scratch(Path("."), "origin", canary.scratch_ref(RUN_ID),
+                              git=lambda *a, cwd: calls.append(a) or "")
+        self.assertEqual(calls, [("push", "--quiet", "origin", f":refs/heads/perf-lab/canary/{RUN_ID}")])
         with self.assertRaises(canary.CanaryError):
             canary.scratch_ref("feat-cmux-next")
         self.assertEqual(canary.scratch_ref(RUN_ID), f"refs/heads/perf-lab/canary/{RUN_ID}")
@@ -118,25 +127,28 @@ class TurnOnTests(unittest.TestCase):
         self.assertIn("defaults: FeatureDefaults(dev: true, nightly: true, release: true)", block)
 
 
+def _make_repo(root: Path) -> tuple[Path, Path, str]:
+    """A lab checkout with the canary's feature file, its remote (bare) and its feat-cmux-next tip."""
+    remote, repo = root / "remote.git", root / "repo"
+    _git("init", "--quiet", "--bare", str(remote), cwd=root)
+    _git("init", "--quiet", "-b", "feat-cmux-next", str(repo), cwd=root)
+    feature = repo / canary.FEATURE_FILE
+    feature.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / canary.FEATURE_FILE, feature)
+    generated = repo / canary.GENERATED_SWIFT
+    generated.parent.mkdir(parents=True)
+    generated.write_text("dev: false\n", encoding="utf-8")
+    _git("add", "-A", cwd=repo)
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "base", cwd=repo)
+    _git("remote", "add", "origin", str(remote), cwd=repo)
+    _git("push", "--quiet", "origin", "feat-cmux-next", cwd=repo)
+    return repo, remote, _git("rev-parse", "HEAD", cwd=repo)
+
+
 class BuildScratchTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        root = Path(self.temp.name)
-        self.remote = root / "remote.git"
-        self.repo = root / "repo"
-        _git("init", "--quiet", "--bare", str(self.remote), cwd=root)
-        _git("init", "--quiet", "-b", "feat-cmux-next", str(self.repo), cwd=root)
-        feature = self.repo / canary.FEATURE_FILE
-        feature.parent.mkdir(parents=True)
-        shutil.copy2(ROOT / canary.FEATURE_FILE, feature)
-        generated = self.repo / canary.GENERATED_SWIFT
-        generated.parent.mkdir(parents=True)
-        generated.write_text("dev: false\n", encoding="utf-8")
-        _git("add", "-A", cwd=self.repo)
-        _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "base", cwd=self.repo)
-        _git("remote", "add", "origin", str(self.remote), cwd=self.repo)
-        _git("push", "--quiet", "origin", "feat-cmux-next", cwd=self.repo)
-        self.tip = _git("rev-parse", "HEAD", cwd=self.repo)
+        self.repo, self.remote, self.tip = _make_repo(Path(self.temp.name))
 
     def tearDown(self):
         self.temp.cleanup()
@@ -188,9 +200,15 @@ def _record(injected_batch: int = 6) -> "canary.RunRecord":
     for index in range(13):
         first = f"{index:02d}" + "a" * 38
         tip = f"{index:02d}" + "f" * 38
-        batches.append({"first": first, "tip": tip, "commits": [first, tip], "build_requested": False, "t0_at": None})
+        batches.append({"first": first, "tip": tip, "commits": [first, tip], "t0_at": None, "attempt": 0,
+                        "attempt_at": None})
     return canary.RunRecord(RUN_ID, canary._stamp(T0), "origin", "b" * 40, "06" + "c" * 38, BASE_POS + 6 * 4 + 2,
-                            injected_batch, batches)
+                            injected_batch, ["terminal-key"], batches)
+
+
+def _story(story_id: str, tier: str, *metrics: str):
+    """A catalog.Story's fields key_frame_stories reads."""
+    return types.SimpleNamespace(id=story_id, tier=tier, metrics=tuple(types.SimpleNamespace(name=m) for m in metrics))
 
 
 STORIES = (scheduler.StorySpec("terminal-key", "T0", 60, "bench"), scheduler.StorySpec("switch", "T0", 40, "bench"),
@@ -203,67 +221,175 @@ HOSTS = [scheduler.Host("cmux15", "waterfall", "m6", "apple-m6/16gb/120hz", shar
          scheduler.Host("cmux17", "pinpoint", "m6", "apple-m6/16gb/120hz")]
 
 
-class LaneTests(unittest.TestCase):
-    def setUp(self):
-        self.now = T0
-        self.ready: set = set()
-        self.sent: list[dict] = []
-        self.refuse: set[str] = set()
-        self.lane = canary.Lane(_record(), Path("/lane"), STORIES, SHARDS, lambda: HOSTS,
-                                lambda: scheduler.Builds(ready=frozenset(self.ready)), self.submit, lambda: self.now)
+class KeyFrameStoryTests(unittest.TestCase):
+    def test_the_catalog_on_this_branch_has_no_key_frame_t0_story_and_is_refused(self):
+        """Today T0 holds only launch-warm, which sends no key-down: no run could ever alert."""
+        catalog = _load("perf_lab_catalog", LAB / "catalog.py")
+        with self.assertRaises(canary.CanaryError) as raised:
+            canary.key_frame_stories(catalog.load_catalog(ROOT).stories,
+                                     scheduler.ShardMap.load(LAB / "shard_map.json"))
+        self.assertIn("launch-warm", str(raised.exception))
+        self.assertIn("p12-perf-process-050", str(raised.exception))
 
-    def submit(self, document: dict) -> set[str]:
-        self.sent.append(document)
-        return {job["id"] for job in document["jobs"]} & self.refuse
-
-    def test_requests_every_batch_tip_once_and_waits_for_the_build(self):
-        self.lane.step()
-        self.lane.step()
-        self.assertEqual(len(self.sent), 1)
-        self.assertEqual([b["sha"] for b in self.sent[0]["builds"]], [b["tip"] for b in self.lane.record.batches])
-        self.assertEqual({b["config"] for b in self.sent[0]["builds"]}, {"bench"})
-        self.assertEqual(self.sent[0]["lane"], {"name": f"canary/{RUN_ID}", "ref": f"refs/heads/perf-lab/canary/{RUN_ID}",
-                                                "results": "/lane/results"})
-
-    def test_one_t0_round_per_batch_on_the_shard_owners_at_most_every_batch_interval(self):
-        record = self.lane.record
-        self.ready = {(b["tip"], "bench") for b in record.batches}
-        self.lane.step()
-        jobs = self.sent[-1]["jobs"]
-        self.assertEqual([(j["id"], j["host"], j["stories"], j["sha"], j["first"], j["tier"], j["kind"]) for j in jobs],
-                         [(f"canary:{RUN_ID}:T0-1:m6/0", "cmux15", ["terminal-key"], record.batches[0]["tip"],
-                           record.batches[0]["first"], "T0", "waterfall"),
-                          (f"canary:{RUN_ID}:T0-1:m6/1", "cmux16", ["switch"], record.batches[0]["tip"],
-                           record.batches[0]["first"], "T0", "waterfall")])
-        sent = len(self.sent)
-        self.now += scheduler.BATCH_INTERVAL - timedelta(seconds=1)
-        self.lane.step()
-        self.assertEqual(len(self.sent), sent)
-        self.now += timedelta(seconds=1)
-        self.lane.step()
-        self.assertEqual(self.sent[-1]["jobs"][0]["sha"], record.batches[1]["tip"])
-        for _ in range(20):
-            self.now += scheduler.BATCH_INTERVAL
-            self.lane.step()
-        self.assertTrue(all(b["t0_at"] for b in record.batches))
-        self.assertEqual(sum(1 for d in self.sent if d["jobs"]), 13)
-
-    def test_a_refused_round_is_sent_again(self):
-        self.ready = {(b["tip"], "bench") for b in self.lane.record.batches}
-        self.refuse = {f"canary:{RUN_ID}:T0-1:m6/1"}
-        self.lane.step()
-        self.assertIsNone(self.lane.record.batches[0]["t0_at"])
-        self.refuse = set()
-        self.lane.step()
-        self.assertIsNotNone(self.lane.record.batches[0]["t0_at"])
-        self.assertEqual(self.sent[-1]["jobs"][1]["id"], f"canary:{RUN_ID}:T0-1:m6/1")
-
-    def test_no_owner_is_an_error(self):
-        lane = canary.Lane(_record(), Path("/lane"), STORIES, SHARDS, lambda: HOSTS[2:],
-                           lambda: scheduler.Builds(ready=frozenset((b["tip"], "bench") for b in _record().batches)),
-                           self.submit, lambda: self.now)
+    def test_only_sharded_t0_stories_with_a_key_to_frame_metric_count(self):
+        stories = [_story("terminal-key", "T0", r"terminal\.light\.key_to_frame"),
+                   _story("switch", "T0", r"switch\.ms"),
+                   _story("cold-launch", "T1", r"omnibar\.(idle|load)\.key_to_frame"),
+                   _story("omnibar-key", "T0", r"omnibar\.(idle|load)\.key_to_frame")]  # not in the shard map
+        self.assertEqual(canary.key_frame_stories(stories, SHARDS), ("terminal-key",))
         with self.assertRaises(canary.CanaryError):
-            lane.step()
+            canary.key_frame_stories(stories[1:], SHARDS)
+
+    def test_run_refuses_before_building_or_pushing_anything(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parser = argparse.ArgumentParser()
+            canary.add_arguments("canary", parser)
+            args = parser.parse_args(["--run", "--data-dir", temp, "--tip", "a" * 40])
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(canary.run("canary", args, out=io.StringIO()), 2)
+            self.assertIn("no T0 story measures key-to-frame", err.getvalue())
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+
+class AdvanceTests(unittest.TestCase):
+    def setUp(self):
+        self.record = _record()
+        self.tips = {b["tip"] for b in self.record.batches}
+
+    def test_asks_one_round_per_batch_once_built_at_most_every_batch_interval(self):
+        now = T0
+        self.assertEqual(canary.advance(self.record, now, set(), set()), [])
+        self.assertIsNone(self.record.batches[0]["t0_at"])
+        self.assertEqual(len(canary.advance(self.record, now, self.tips, set())), 1)
+        self.assertEqual(self.record.batches[0]["attempt"], 1)
+        self.assertEqual(canary.advance(self.record, now + scheduler.BATCH_INTERVAL - timedelta(seconds=1), self.tips,
+                                        set()), [])
+        for step in range(1, 30):
+            canary.advance(self.record, now + step * scheduler.BATCH_INTERVAL, self.tips,
+                           {(b["tip"], "terminal-key") for b in self.record.batches})
+        self.assertTrue(all(b["t0_at"] for b in self.record.batches))
+        asked = [canary._time(b["t0_at"]) for b in self.record.batches]
+        self.assertTrue(all(later - earlier >= scheduler.BATCH_INTERVAL for earlier, later in zip(asked, asked[1:])))
+
+    def test_a_round_with_no_result_is_asked_again_under_a_new_attempt(self):
+        canary.advance(self.record, T0, self.tips, set())
+        first = canary.round_id(self.record, 0, 1)
+        later = T0 + canary.ROUND_RETRY
+        lines = canary.advance(self.record, later, self.tips, set())
+        self.assertEqual(self.record.batches[0]["attempt"], 2)
+        self.assertIn("attempt 2", lines[0])
+        self.assertEqual(self.record.batches[0]["t0_at"], canary._stamp(T0), "the cadence counts the first ask")
+        rounds = canary.LaneDocument.of(self.record, Path("/lane"), set()).lane.rounds
+        self.assertEqual([r.id for r in rounds][:1], [canary.round_id(self.record, 0, 2)])
+        self.assertNotEqual(rounds[0].id, first)
+        measured = {(self.record.batches[0]["tip"], "terminal-key")}
+        canary.advance(self.record, later + canary.ROUND_RETRY, self.tips, measured)
+        self.assertEqual(self.record.batches[0]["attempt"], 2, "a measured round is never asked again")
+
+
+class LaneDocumentTests(unittest.TestCase):
+    def test_round_trips_and_lists_only_unmeasured_rounds(self):
+        record = _record()
+        for index in range(3):
+            canary.advance(record, T0 + index * scheduler.BATCH_INTERVAL, {b["tip"] for b in record.batches}, set())
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / RUN_ID
+            record.save(directory)
+            measured = {(record.batches[0]["tip"], "terminal-key")}
+            document = canary.LaneDocument.of(record, directory, measured)
+            canary._write_json(directory / canary.LANE_FILE, document.to_document())
+            [read] = canary.lane_documents(Path(temp))
+        self.assertEqual(read, document)
+        self.assertEqual(read.lane.name, f"canary/{RUN_ID}")
+        self.assertEqual(read.mainline, f"refs/perf-lab/canary/{RUN_ID}")
+        self.assertEqual(read.store, directory / canary.DB_NAME)
+        self.assertEqual([r.sha for r in read.lane.rounds], [b["tip"] for b in record.batches[1:3]])
+        self.assertEqual(read.lane.builds, tuple(b["tip"] for b in record.batches))
+        self.assertEqual(read.commits, {sha for b in record.batches for sha in b["commits"]})
+
+    def test_a_finished_or_broken_lane_is_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            finished = _record()
+            finished.save(root / RUN_ID)
+            broken = canary.RunRecord(**{**_record().__dict__, "run_id": "20261019T120000Z-0123456789ab"})
+            broken.save(root / broken.run_id)
+            (root / broken.run_id / canary.LANE_FILE).write_text('{"schema": "cmux-perf-lab-lane/v1", "name": "x"}')
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(canary.lane_documents(root), [])
+            self.assertIn("skipped", err.getvalue())
+
+
+class SchedulerLaneTests(unittest.TestCase):
+    """The lane in labd's real scheduler (scheduler.plan): owners, one job per host, the waterfall first."""
+
+    def lane(self, record, measured=frozenset()):
+        return canary.LaneDocument.of(record, Path("/lane"), set(measured)).lane
+
+    def plan(self, lane, *, hosts=HOSTS, ready=None, state=None, log=()):
+        builds = scheduler.Builds(ready=frozenset(ready if ready is not None else
+                                                  {(sha, "bench") for sha in lane.builds}))
+        return scheduler.plan(state or scheduler.State(), T0, hosts, builds, log, stories=STORIES, shard_map=SHARDS,
+                              lanes=[lane])
+
+    def asked(self):
+        record = _record()
+        canary.advance(record, T0, {b["tip"] for b in record.batches}, set())
+        return record
+
+    def test_a_round_runs_only_the_key_frame_story_on_its_owner(self):
+        record = self.asked()
+        result = self.plan(self.lane(record))
+        self.assertEqual([(j.id, j.host, j.stories, j.sha, j.first, j.tier, j.kind, j.lane, j.reference)
+                          for j in result.jobs],
+                         [(f"canary:{RUN_ID}:T0-1.1:m6.0", "cmux15", ("terminal-key",), record.batches[0]["tip"],
+                           record.batches[0]["first"], "T0", "waterfall", f"canary/{RUN_ID}", None)])
+        self.assertEqual(result.state.queue, (), "a lane round is never a waterfall queue item")
+        self.assertEqual(result.state.t0_count, {}, "nor counts toward the reference cadence")
+        again = self.plan(self.lane(record), state=result.state)
+        self.assertEqual(again.jobs, (), "a lane job id starts once")
+
+    def test_a_busy_or_down_owner_gets_no_lane_job(self):
+        record = self.asked()
+        for change in ({"busy": True}, {"up": False}):
+            hosts = [scheduler.replace(HOSTS[0], **change), *HOSTS[1:]]
+            self.assertEqual(self.plan(self.lane(record), hosts=hosts).jobs, (), change)
+
+    def test_the_waterfall_t0_goes_first(self):
+        record = self.asked()
+        branch = ("e" * 40,)
+        ready = {(sha, "bench") for sha in (*self.lane(record).builds, *branch)}
+        state = scheduler.plan(scheduler.State(), T0 - scheduler.BATCH_INTERVAL, HOSTS, scheduler.Builds(), branch,
+                               stories=STORIES, shard_map=SHARDS).state
+        result = self.plan(self.lane(record), ready=ready, state=state, log=branch)
+        on_owner = [j for j in result.jobs if j.host == "cmux15"]
+        self.assertEqual([(j.round, j.lane) for j in on_owner], [("T0-1", None)])
+
+    def test_builds_wait_and_are_requested_ahead(self):
+        record = self.asked()
+        result = self.plan(self.lane(record), ready=set())
+        self.assertEqual(result.jobs, ())
+        self.assertEqual([(b.sha, b.config, b.reason) for b in result.builds],
+                         [(b["tip"], "bench", f"lane:canary/{RUN_ID}") for b in record.batches])
+
+    def test_a_refused_lane_job_and_a_refused_build_are_asked_for_again(self):
+        record = self.asked()
+        lane = self.lane(record)
+        with tempfile.TemporaryDirectory() as temp:
+            driver = scheduler.Driver(Path(temp) / "scheduler.json", ls_remote=lambda: None,
+                                      first_parent=lambda anchor, tip: None, stories=STORIES, shard_map=SHARDS,
+                                      clock=lambda: T0)
+            job_id = f"canary:{RUN_ID}:T0-1.1:m6.0"
+            ready = scheduler.Builds(ready=frozenset({(record.batches[0]["tip"], "bench")}))
+            refused_build = (record.batches[1]["tip"], "bench")
+            first = driver.tick(HOSTS, ready, lanes=[lane],
+                                submit=lambda plan: scheduler.Rejected(jobs=frozenset({job_id}),
+                                                                       builds=frozenset({refused_build})))
+            self.assertEqual([j.id for j in first.jobs], [job_id])
+            second = driver.tick(HOSTS, ready, lanes=[lane], submit=lambda plan: scheduler.Rejected())
+            self.assertEqual([j.id for j in second.jobs], [job_id])
+            self.assertEqual([(b.sha, b.config) for b in second.builds], [refused_build])
 
 
 class LaneStore:
@@ -444,21 +570,180 @@ class CommandTests(unittest.TestCase):
     def test_lab_lists_the_canary_command(self):
         self.assertIn("canary", lab.discover(LAB))
 
-    def test_run_without_a_submit_command_refuses(self):
-        with tempfile.TemporaryDirectory() as temp:
-            parser = __import__("argparse").ArgumentParser()
-            canary.add_arguments("canary", parser)
-            args = parser.parse_args(["--run", "--data-dir", temp])
-            self.assertEqual(canary.run("canary", args, out=io.StringIO()), 2)
-
     def test_last_with_no_runs_fails(self):
         with tempfile.TemporaryDirectory() as temp:
-            parser = __import__("argparse").ArgumentParser()
+            parser = argparse.ArgumentParser()
             canary.add_arguments("canary", parser)
             args = parser.parse_args(["--last", "3", "--data-dir", temp])
             out = io.StringIO()
             self.assertEqual(canary.run("canary", args, out=out), 1)
             self.assertIn("0/3 canary runs passed", out.getvalue())
+
+
+class RealSubmitPathTests(unittest.TestCase):
+    def test_labd_hands_the_lane_job_to_its_submit_program_and_hands_a_refused_one_on_again(self):
+        """labd's PlanLoop, the real Driver and command_submitter with a submit program, the lane read from disk."""
+        labd = _load("perf_lab_labd", LAB / "labd.py")
+        record = _record()
+        canary.advance(record, T0, {b["tip"] for b in record.batches}, set())
+        job_id = f"canary:{RUN_ID}:T0-1.1:m6.0"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "canary"
+            directory = root / RUN_ID
+            record.save(directory)
+            canary._write_json(directory / canary.LANE_FILE,
+                               canary.LaneDocument.of(record, directory, set()).to_document())
+            program = Path(temp) / "submit"
+            program.write_text(f"#!/bin/sh\nn=$(cat '{temp}/count' 2>/dev/null || echo 0); n=$((n + 1))\n"
+                               f"echo $n > '{temp}/count'\ncat > '{temp}/plan-'$n.json\n"
+                               f"if [ $n = 1 ]; then printf '{{\"jobs\": [\"{job_id}\"]}}'; fi\n")
+            program.chmod(0o755)
+            driver = scheduler.Driver(Path(temp) / "scheduler.json", ls_remote=lambda: None,
+                                      first_parent=lambda anchor, tip: None, stories=STORIES, shard_map=SHARDS,
+                                      clock=lambda: T0)
+            ready = scheduler.Builds(ready=frozenset((b["tip"], "bench") for b in record.batches))
+            loop = labd.PlanLoop(driver, hosts=lambda: HOSTS, builds=lambda: ready,
+                                 submit=labd.command_submitter(program, scheduler.Rejected),
+                                 lanes=lambda: canary.lane_documents(root))
+            loop.step()
+            loop.step()
+            plans = [json.loads((Path(temp) / f"plan-{n}.json").read_text()) for n in (1, 2)]
+            third = loop.step()
+        for plan in plans:
+            self.assertEqual([(j["id"], j["host"], j["lane"], j["stories"]) for j in plan["jobs"]],
+                             [(job_id, "cmux15", f"canary/{RUN_ID}", ["terminal-key"])])
+        self.assertEqual(third["jobs"], 0, "accepted on the second plan: it is running")
+
+
+class DriveTests(unittest.TestCase):
+    """start_run and drive end to end on a temp git repo. labd's real scheduler plans the lane from lane.json, a
+    fake lab host measures each job (KEY_MS before the injected commit, KEY_MS + 2 from it on), the real
+    alerts.detect must find the step within 7 T0 batches, and a fake --pinpoint-command names the culprit."""
+
+    STORY = "terminal-key-to-frame-light"  # subscriptions.json target-key-frame watches this series
+    SPECS = (scheduler.StorySpec(STORY, "T0", 60, "bench"),)
+    SHARD_MAP = scheduler.ShardMap.from_document({"classes": {"m6": {"tiers": ["T0"], "shards": [
+        {"index": 0, "stories": {"T0": [STORY]}}]}}})
+    KEY_MS = 8.0
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.repo, self.remote, self.tip = _make_repo(self.root)
+        self.data = self.root / "data" / "canary"
+        self.now = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=2)
+        self.state = scheduler.State()
+        self.jobs: list = []
+        self.crash_at: int | None = None
+        self.sleeps = 0
+        self.pinpoint_failed = False
+        self.logs: list[str] = []
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def services(self) -> "canary.Services":
+        return canary.Services(
+            git=canary.git_runner(), clock=lambda: self.now, sleep=self.sleep,
+            builds=lambda: types.SimpleNamespace(ready=Everything()),
+            detect=lambda path: canary.lane_detect(path, clock=lambda: self.now), pinpoint=self.pinpoint,
+            log=self.logs.append, regenerate=BuildScratchTests.regenerate)
+
+    def sleep(self, seconds: float) -> None:
+        """labd and its lab host between two polls: plan the lanes, run each job at once, store its points."""
+        self.sleeps += 1
+        if self.sleeps == self.crash_at:
+            raise Crash()
+        self.now += scheduler.BATCH_INTERVAL
+        for document in canary.lane_documents(self.data):
+            builds = scheduler.Builds(ready=frozenset((sha, "bench") for sha in document.lane.builds))
+            host = scheduler.Host("cmux15", "waterfall", "m6", "apple-m6/16gb/120hz", shard=0)
+            result = scheduler.plan(self.state, self.now, [host], builds, (), stories=self.SPECS,
+                                    shard_map=self.SHARD_MAP, lanes=[document.lane])
+            self.state = result.state
+            for job in result.jobs:
+                self.jobs.append(job.id)
+                self.state = scheduler.finished(self.state, job.id)
+                self.measure(document, job)
+
+    def measure(self, document, job) -> None:
+        position = int(_git("rev-list", "--count", "--first-parent", job.sha, "--", cwd=self.repo))
+        injected = canary.RunRecord.load(document.store.parent).injected_pos
+        value = self.KEY_MS + (2.0 if position >= injected else 0.0)
+        db = store.Store(document.store, clock=lambda: self.now)
+        try:
+            db.insert_run(store.Run(job.id, "waterfall", "m1", self.STORY, "none", 26, "26A1", "h", "off", self.now,
+                                    tier="T0"),
+                          build=store.Build(job.sha, "bench", position), host=LaneStore.HOST,
+                          metrics=[store.Metric("key_to_frame_ms", "ms", "lower",
+                                                [value + 0.01 * (i % 3) for i in range(10)])])
+        finally:
+            db.close()
+
+    def pinpoint(self, path: Path) -> None:
+        """--pinpoint-command: fails once (a transient error), then bisects and verifies each new alert group."""
+        if not self.pinpoint_failed:
+            self.pinpoint_failed = True
+            raise canary.CanaryError("pinpoint executor is restarting")
+        record = canary.RunRecord.load(path.parent)
+        db = sqlite3.connect(path)
+        try:
+            for (group,) in db.execute("SELECT id FROM alert_groups WHERE id NOT IN "
+                                       "(SELECT alert_group_id FROM jobs WHERE alert_group_id IS NOT NULL)").fetchall():
+                at = canary._stamp(self.now)
+                for kind, result, head in (("bisect", _bisect(record.injected), None),
+                                           ("verify", _verified(), record.injected)):
+                    db.execute("INSERT INTO jobs (kind, state, story, head_sha, alert_group_id, result_json, "
+                               "created_at, updated_at) VALUES (?, 'done', ?, ?, ?, ?, ?, ?)",
+                               (kind, self.STORY, head, group, json.dumps(result), at, at))
+            db.commit()
+        finally:
+            db.close()
+
+    def start(self) -> Path:
+        return canary.start_run(self.data, self.repo, "origin", self.tip, canary.Layout(injected_offset=1),
+                                [self.STORY], self.services())
+
+    def assert_passed(self, directory: Path, verdict) -> None:
+        self.assertEqual(verdict.state, canary.PASS, verdict)
+        measured = int(re.search(r"after (\d+) T0 batches", verdict.alert.detail).group(1))
+        self.assertLessEqual(measured, canary.ALERT_WITHIN_BATCHES)
+        self.assertFalse((directory / canary.LANE_FILE).exists(), "labd stops planning a finished lane")
+        record = canary.RunRecord.load(directory)
+        self.assertEqual(record.verdict["state"], canary.PASS)
+        heads = _git("for-each-ref", "--format=%(refname)", "refs/heads", cwd=self.remote).split()
+        self.assertEqual(heads, ["refs/heads/feat-cmux-next"], "the scratch branch is deleted from the remote")
+        self.assertEqual(_git("rev-parse", record.mainline, cwd=self.repo), record.batches[-1]["tip"])
+        self.assertTrue(any("pinpoint executor is restarting" in line for line in self.logs))
+
+    def test_a_run_alerts_bisects_and_verifies_the_injected_commit(self):
+        directory = self.start()
+        verdict = canary.drive(directory, self.repo, {"bench"}, self.services())
+        self.assert_passed(directory, verdict)
+        self.assertEqual(len(self.jobs), len(set(self.jobs)), "every lane job started once")
+
+    def test_a_resumed_run_goes_on_where_it_stopped(self):
+        directory = self.start()
+        self.crash_at = 5
+        with self.assertRaises(Crash):
+            canary.drive(directory, self.repo, {"bench"}, self.services())
+        asked = sum(1 for b in canary.RunRecord.load(directory).batches if b["t0_at"])
+        self.assertEqual(asked, 5)
+        self.crash_at = None
+        verdict = canary.drive(directory, self.repo, {"bench"}, self.services())
+        self.assert_passed(directory, verdict)
+        record = canary.RunRecord.load(directory)
+        self.assertEqual({b["attempt"] for b in record.batches if b["t0_at"]}, {1}, "no round was asked twice")
+        self.assertEqual(len(self.jobs), len(set(self.jobs)))
+
+
+class Crash(Exception):
+    """The canary process dies between two polls."""
+
+
+class Everything:
+    def __contains__(self, item) -> bool:
+        return True
 
 
 if __name__ == "__main__":

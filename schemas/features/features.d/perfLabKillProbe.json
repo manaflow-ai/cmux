@@ -9,5 +9,6 @@
   "params": [],
   "stories": [],
   "sticky": true,
-  "runtimeMutable": false
+  "runtimeMutable": false,
+  "benchOnly": true
 }
