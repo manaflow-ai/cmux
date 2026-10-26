@@ -5,6 +5,7 @@ public import WebKit
 extension PageWebView {
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
+        isClosed = true
         _ = claimState.end()
         router.close()
         bridge.uninstall()

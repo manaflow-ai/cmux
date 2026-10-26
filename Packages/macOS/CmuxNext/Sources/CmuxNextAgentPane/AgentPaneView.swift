@@ -404,6 +404,8 @@ public final class AgentPaneView: NSView {
         transportPacer?.stop()
         removeContextMenu()
         if let page {
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
             // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {

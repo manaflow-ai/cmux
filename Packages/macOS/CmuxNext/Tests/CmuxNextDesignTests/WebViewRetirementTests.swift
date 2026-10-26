@@ -10,12 +10,27 @@ import WebKit
 /// `WebViewRetirement` takes a closed page's web view out of its window at once and closes its page
 /// only after the scrolling stopped, on its own turn.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct WebViewRetirementTests {
-    /// Records the pages it closes.
+    /// Records the pages it closes; ``waitForCloses(_:)`` waits until it has closed that many.
     @MainActor private final class Closer {
         private(set) var closed: [ObjectIdentifier] = []
-        func close(_ webView: WKWebView) { closed.append(ObjectIdentifier(webView)) }
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        private var wanted = 0
+
+        func close(_ webView: WKWebView) {
+            closed.append(ObjectIdentifier(webView))
+            guard closed.count >= wanted, let waiter else { return }
+            self.waiter = nil
+            waiter.resume()
+        }
+
+        func waitForCloses(_ count: Int) async {
+            guard closed.count < count else { return }
+            wanted = count
+            await withCheckedContinuation { waiter = $0 }
+        }
     }
 
     private static func webViewInWindow() -> (WKWebView, NSWindow) {
@@ -40,10 +55,11 @@ struct WebViewRetirementTests {
 
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(2))
-        await Self.yield()
         #expect(closer.closed.isEmpty)
+        #expect(!retirement.isFinished)
         clock.advance(by: .seconds(1))
-        try await Self.until { retirement.isFinished }
+        await closer.waitForCloses(1)
+        #expect(retirement.isFinished)
         #expect(closer.closed == [ObjectIdentifier(webView)])
     }
 
@@ -52,21 +68,19 @@ struct WebViewRetirementTests {
         let clock = ManualClock()
         let closer = Closer()
         weak var released: WKWebView?
-        weak var retirement: WebViewRetirement?
         let window: NSWindow = autoreleasepool {
             let (webView, window) = Self.webViewInWindow()
             released = webView
-            retirement = WebViewRetirement(webView, quietPeriod: .seconds(3), clock: clock, closePage: closer.close)
+            WebViewRetirement(webView, quietPeriod: .seconds(3), clock: clock, closePage: closer.close)
             return window
         }
         defer { window.close() }
         #expect(released != nil, "the retirement holds the view through the quiet period")
-        #expect(retirement != nil)
 
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(3))
-        try await Self.until { closer.closed.count == 1 }
-        try await Self.until { retirement == nil }
+        await closer.waitForCloses(1)
+        #expect(closer.closed.count == 1)
     }
 
     @Test func finishingEarlyClosesThePageOnce() {
@@ -97,13 +111,4 @@ struct WebViewRetirementTests {
         #expect(released == nil)
     }
 
-    private static func yield() async {
-        for _ in 0..<50 { await Task.yield() }
-    }
-
-    /// Yields the main actor until `condition` holds (the deadline's action runs on it).
-    private static func until(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<1000 where !condition() { await Task.yield() }
-        try #require(condition())
-    }
 }
