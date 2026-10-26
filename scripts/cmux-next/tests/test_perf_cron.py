@@ -10,6 +10,11 @@ spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, ".
 cron = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cron)
 budgets_mod = cron.load_budgets_module()
+# The suite tests the cron's logic whether or not the checkout has the perf lab's sentinel: only LabSentinelTests
+# points LAB_SENTINEL at a file that exists.
+REPO_LAB_SENTINEL = cron.LAB_SENTINEL
+NO_SENTINEL_DIR = tempfile.TemporaryDirectory()
+cron.LAB_SENTINEL = os.path.join(NO_SENTINEL_DIR.name, "OWNS_MEASUREMENT")
 
 T0 = datetime.datetime(2026, 10, 23, 12, 0, tzinfo=datetime.timezone.utc)
 ALL = [p["name"] for p in cron.PARTS]
@@ -2505,7 +2510,7 @@ class LabSentinelTests(unittest.TestCase):
 
     def test_the_sentinel_is_in_the_scripts_the_plan_job_checks_out(self):
         # The plan job's sparse checkout is `scripts` (cmux-next-perf-budgets.yml).
-        self.assertEqual(os.path.relpath(cron.LAB_SENTINEL, cron.ROOT),
+        self.assertEqual(os.path.relpath(REPO_LAB_SENTINEL, cron.ROOT),
                          os.path.join("scripts", "perf-lab", "OWNS_MEASUREMENT"))
 
     def test_with_the_sentinel_the_plan_submits_0_parts_and_the_report_saves_nothing(self):
@@ -2556,7 +2561,7 @@ class LabSentinelTests(unittest.TestCase):
             xspec = importlib.util.spec_from_file_location("xbench_lab_sentinel", path)
             xbench = importlib.util.module_from_spec(xspec)
             xspec.loader.exec_module(xbench)
-        self.assertEqual(xbench.LAB_SENTINEL, cron.LAB_SENTINEL, "one sentinel for both")
+        self.assertEqual(xbench.LAB_SENTINEL, REPO_LAB_SENTINEL, "one sentinel for both")
         self.assertEqual(xbench.LAB_REASON, cron.LAB_REASON)
         with tempfile.TemporaryDirectory() as d:
             sentinel = os.path.join(d, "OWNS_MEASUREMENT")
@@ -2574,6 +2579,17 @@ class LabSentinelTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as ctx:
                     xbench.main(["gate", "--results", "r", "--baseline", "b"])
                 self.assertEqual(ctx.exception.code, 1, "without the sentinel the gate runs")
+            # The lab's own stories (task 208) run xbench from a checkout that has the sentinel.
+            ran = []
+            with mock.patch.object(xbench, "LAB_SENTINEL", sentinel), \
+                    mock.patch.object(xbench, "gate", return_value=1), \
+                    mock.patch.object(xbench, "Run", lambda args: types.SimpleNamespace(main=lambda: ran.append(args))), \
+                    mock.patch.object(xbench.signal, "signal"):
+                with self.assertRaises(SystemExit) as ctx:
+                    xbench.main(["--perf-lab", "gate", "--results", "r", "--baseline", "b"])
+                self.assertEqual(ctx.exception.code, 1, "--perf-lab runs the gate with the sentinel present")
+                xbench.main(["--perf-lab", "run", "--out", d])
+                self.assertEqual([a.out for a in ran], [d], "--perf-lab measures with the sentinel present")
 
 
 if __name__ == "__main__":

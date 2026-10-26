@@ -48,6 +48,8 @@ Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
 
 While scripts/perf-lab/OWNS_MEASUREMENT exists, every subcommand prints
 "xbench: perf lab owns measurement" and exits 0: the perf lab measures instead.
+The lab's own stories pass --perf-lab, which the sentinel does not stop:
+  xbench.py --perf-lab run --out DIR ...
 
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
@@ -1052,11 +1054,10 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
 
 
 def main(argv=None):
-    if os.path.exists(LAB_SENTINEL):
-        print(f"xbench: {LAB_REASON} (scripts/perf-lab/OWNS_MEASUREMENT); nothing measured", flush=True)
-        sys.exit(0)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--perf-lab", action="store_true",
+                        help="the perf lab runs this (scripts/perf-lab): measure even while its sentinel exists")
+    sub =parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run")
     run.add_argument("--out", required=True)
     run.add_argument("--app", action="append", default=[], metavar="NAME=BUNDLE")
@@ -1088,6 +1089,9 @@ def main(argv=None):
     gat.add_argument("--baseline", required=True)
     gat.add_argument("--tolerance", type=float, default=0.15)
     args = parser.parse_args(argv)
+    if os.path.exists(LAB_SENTINEL) and not args.perf_lab:
+        print(f"xbench: {LAB_REASON} (scripts/perf-lab/OWNS_MEASUREMENT); nothing measured", flush=True)
+        sys.exit(0)
     if args.command == "run":
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         random.seed(0)
