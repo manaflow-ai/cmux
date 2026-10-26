@@ -410,6 +410,8 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         tracing::warn!(root = %worktree.root.display(), "worktree not removed: another folder is at its path");
         return;
     }
+    #[cfg(test)]
+    before_path_removal(&worktree.root);
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
     let _ = git(folder, &["branch", "-D", &worktree.branch]);
@@ -605,6 +607,20 @@ thread_local! {
 #[cfg(test)]
 fn after_root_check(root: &Path) {
     if let Some(f) = AFTER_ROOT_CHECK.with(|h| h.borrow_mut().take()) {
+        f(root);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on the next [`remove_worktree`], right before anything is removed by path.
+    static BEFORE_PATH_REMOVAL: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn before_path_removal(root: &Path) {
+    if let Some(f) = BEFORE_PATH_REMOVAL.with(|h| h.borrow_mut().take()) {
         f(root);
     }
 }
@@ -1057,6 +1073,29 @@ mod tests {
         std::fs::rename(&made.root, &aside).unwrap();
         std::fs::rename(&impostor, &made.root).unwrap();
 
+        remove_worktree(repo.as_path().into(), &made);
+        assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
+        assert!(branch_in(&repo, "task"), "its branch stays with its registration");
+    }
+
+    /// A folder that takes the worktree's place while it is being removed is left alone too:
+    /// nothing is removed by path but an empty folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_takes_the_worktrees_place_during_its_removal_is_left_alone() {
+        let (scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let git_file = std::fs::read(made.root.join(".git")).unwrap();
+        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
+        BEFORE_PATH_REMOVAL.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                std::fs::create_dir_all(&impostor).unwrap();
+                std::fs::write(impostor.join(".git"), git_file).unwrap();
+                std::fs::write(impostor.join("sentinel"), "theirs\n").unwrap();
+                std::fs::rename(root, &aside).unwrap();
+                std::fs::rename(&impostor, root).unwrap();
+            }))
+        });
         remove_worktree(repo.as_path().into(), &made);
         assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
         assert!(branch_in(&repo, "task"), "its branch stays with its registration");
