@@ -307,13 +307,17 @@ final class AppServices {
     /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
 
-    /// Every declared feature's value for this launch: this build's channel and the launch
-    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). The composition root builds it
-    /// once, before anything that reads a feature.
+    /// Every declared feature's value for this launch: this build's channel, the launch
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the Labs page's local choices
+    /// when their launch read has ended. The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                    local: environment.featureLocalOverrides?.value)
     }
+    /// The Feature Flags card's local choices (feature `featureFlagsCard`): this launch's, and the next one's it writes.
+    private(set) lazy var featureLocalOverrides = FeatureLocalOverrideStore(registry: features.registry, channel: features.channel,
+        launch: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(), file: environment.featureLocalOverridesFile, work: work)
     /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.

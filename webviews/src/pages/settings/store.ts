@@ -525,6 +525,13 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Experimental > Feature Flags: a feature on, off or back to no choice (null) for the next launch, then re-read
+   * the host lists. */
+  async setLocalFeature(name: string, on: boolean | null): Promise<void> {
+    await this.request("cmux.settings.features.set", { name, on });
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
