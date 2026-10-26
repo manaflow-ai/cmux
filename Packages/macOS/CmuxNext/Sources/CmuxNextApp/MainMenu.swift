@@ -2,12 +2,21 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
+    /// The menu bar as the launch's critical `MainMenu.make` step (startup-DESIGN.md row O13): every key
+    /// equivalent is in place from the first frame, as Chrome builds its whole main menu before the first
+    /// window (chrome/browser/ui/cocoa/main_menu_builder.mm). The step's record (`debug.startup`) and
+    /// `launch.startup_task` signpost carry its cost against the 2 ms the design allows it.
+    static func install(registry: ActionRegistry, blocking: BlockingDetector, on startup: StartupScheduler) {
+        startup.post(.critical, "MainMenu.make", on: .main) { NSApp.mainMenu = MainMenu.make(registry: registry, blocking: blocking) }
+    }
+
     static func make(registry: ActionRegistry, blocking: BlockingDetector) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.

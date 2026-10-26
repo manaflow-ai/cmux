@@ -4,7 +4,6 @@ import CmuxNextLaunch
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextWakeups
-import os
 
 // Launch calls for the services, the daemon, the first window and its
 // hooks. `finishLaunching` calls each domain's registerX in the launch's order; the `DebugTimings`
@@ -46,9 +45,9 @@ extension AppDelegate {
         return services
     }
 
-    /// App activation, the launch settle, OSC 52 prompts, the daemon, managed feature policy and Cloud's post.
+    /// The handler coverage check, app activation, the launch settle, OSC 52 prompts, the daemon, managed feature policy and Cloud's post.
     func registerDaemon(services: AppServices) {
-        logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
+        HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)

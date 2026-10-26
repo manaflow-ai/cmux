@@ -132,8 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = registerServices(launch: settingsRead)
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
+        AppActions.bindAtLaunch(services, on: order.startup)  // critical `AppActions.bind`: keys work from the first frame
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         registerTerminal(services: services)
         DebugTimings.markLaunch("dfl.bind")
@@ -158,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerControl(services: services, settings: settings)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
+        MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
         registerDaemon(services: services)
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
