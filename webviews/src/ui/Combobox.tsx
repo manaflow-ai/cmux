@@ -111,6 +111,7 @@ export function Combobox({
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
   const highlightedRef = useRef<string | undefined>(undefined);
+  const completionRef = useRef<{ text: string; key: string } | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
@@ -140,7 +141,13 @@ export function Combobox({
       event.preventDefault();
       event.preventBaseUIHandler?.();
       const highlighted = highlightedRef.current;
-      const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
+      const completed = completionRef.current;
+      const next =
+        highlighted && suggestions.includes(highlighted)
+          ? highlighted
+          : completed?.text === typed
+            ? completed.key
+            : typed;
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -154,6 +161,7 @@ export function Combobox({
       if (typed === completed) return;
       event.preventDefault();
       event.preventBaseUIHandler?.();
+      completionRef.current = { text: completed, key: next };
       update(completed);
     }
   };
@@ -178,7 +186,14 @@ export function Combobox({
             aria-current={isItemCurrent?.(item) ? true : undefined}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
-            onClick={() => onSubmit(item)}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onSubmit(item);
+            }}
+            onClick={(event) => {
+              // The press handler above is the activation path; this handles keyboard/synthetic clicks.
+              if (event.detail === 0) onSubmit(item);
+            }}
           >
             {renderItemContent(item)}
           </Autocomplete.Item>
@@ -207,7 +222,10 @@ export function Combobox({
       items={enabledSuggestions as string[]}
       filter={null}
       value={value}
-      onValueChange={(next) => update(next)}
+      onValueChange={(next) => {
+        if (completionRef.current?.text !== next) completionRef.current = undefined;
+        update(next);
+      }}
       open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}
