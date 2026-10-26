@@ -1256,16 +1256,15 @@ function measuredRowHeight(
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
-  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
-  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
-  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
-  // the row's message gap.
+  // Another agent's message: one compact 26px line in `.cv-received`'s 2px margins when closed,
+  // or that line plus its opened Markdown card (conversation/IncomingMessageCard.tsx). A notice
+  // is a tool row's line under `.cv-tools`' 2px margin. Each keeps the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
   if (row.incoming?.kind === "message") {
-    // In Minimal Mode a closed message is its line alone, images too; one the person opened
-    // (incomingOpened.ts) is its whole card, uncut.
-    const minimal = chatDisplay().minimal;
+    // Received messages are compact by default; an opened row reserves its full Markdown body.
+    // The global Minimal Mode setting does not affect this row, and does not affect user or
+    // assistant messages either.
+    const minimal = true;
     const opened = messageOpened(sessionId, row.id);
     if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
@@ -1498,7 +1497,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 
 /// The pane's fallback accessible name and problem-only header status.

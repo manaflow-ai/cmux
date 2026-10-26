@@ -18,11 +18,11 @@
 // ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
 // commit SHA reads as quiet monospace, and a message from another machine names that machine's
 // files, which draw with its name and a lock (chips/messageScope.ts).
-// In cmux's Minimal Mode (chatDisplay.ts `minimal`; Leo 2026-10-24: "in minimal mode ... we could
-// just have the first line be the thing that's there, and then you can expand that") a closed
-// message is its line alone: the sender's chip, then the message's first line (messagePreview), cut
-// with an ellipsis, then the chevron. The line opens the card in place, the fold playing as a tool
-// row's does (useAnchoredCollapse.ts: at once under Reduce Motion), and closes it again.
+// Received agent messages start in the compact disclosure Leo asked for: the sender's chip, then
+// the message's first line (messagePreview), cut with an ellipsis, then the chevron. The line
+// opens the card in place, the fold playing as a tool row's does (useAnchoredCollapse.ts: at once
+// under Reduce Motion), and closes it again. This default is independent of the global Minimal
+// Mode setting; the user's and assistant's messages keep their existing presentation.
 // Out of Minimal Mode, opening and closing move only what is under the line too (Leo 2026-10-21:
 // "just expand the area at the bottom and you're in the same place"): the line stays on its pixel
 // while a cut card slides open to its whole height or back (fold.ts `playResize`), and Details
@@ -52,7 +52,6 @@ import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
-import { useChatDisplay } from "../chatDisplay";
 import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
@@ -113,8 +112,9 @@ export function IncomingMessageLine({
   const [details, setDetails] = useState(false);
   // Only the reader's own clicks play the motion; Find opening a message for its match does not.
   const played = useRef(false);
-  // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
-  const { minimal } = useChatDisplay();
+  // Received agent messages use the compact disclosure by default. This is intentionally separate
+  // from the global Minimal Mode switch, which does not change user or assistant messages.
+  const minimal = true;
   // Out of Minimal Mode, Details folds its envelope in and out; in it, Details shows it at once (#25002).
   const envelope = useAnchoredCollapse({
     open: details,
