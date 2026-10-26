@@ -123,9 +123,17 @@ public final class MainTurnMeter {
     /// Runs one event's dispatch as a ``Span/input`` span.
     // perf-hot: 100ns main-turn (every event's dispatch)
     public func inputDispatch<T>(_ body: () throws -> T) rethrows -> T {
-        beginSpan(.input, at: uptimeNanos())
+        try stampedInputDispatch { _ in try body() }
+    }
+
+    /// Runs one event's dispatch as a ``Span/input`` span; `body` gets the span's begin stamp (ns of
+    /// uptime), the event's dispatch time.
+    // perf-hot: 100ns main-turn (every event's dispatch)
+    public func stampedInputDispatch<T>(_ body: (_ dispatchedNanos: UInt64) throws -> T) rethrows -> T {
+        let now = uptimeNanos()
+        beginSpan(.input, at: now)
         defer { endSpan(at: uptimeNanos()) }
-        return try body()
+        return try body(now)
     }
 
     /// Opens a span at `now` (the caller's own clock read).
