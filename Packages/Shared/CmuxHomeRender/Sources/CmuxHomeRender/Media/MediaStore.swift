@@ -25,8 +25,15 @@ public protocol HomeAttachmentLoader: Sendable {
 /// file, else the loader) and one decode off the main actor; the result
 /// reaches the rows through `onImage`. Nothing here changes layout: the
 /// rows were sized from the pixel size before any request started.
+///
+/// The host sizes the cache (`maxBytes`, its ``HomeMemoryBudget`` share).
+/// A picture always reaches its rows before the cache drops anything, so a
+/// picture larger than the whole budget still shows and is not loaded again
+/// in a loop. Dropping is lossless: rows keep the picture they show, and the
+/// next ask loads it again (local file first). A draft's preview is the
+/// host's own image, kept until its picture arrives, and is not counted.
 @MainActor
-final class MediaStore: HomeVideoSource {
+final class MediaStore: HomeVideoSource { // memory: consumer via HomeRenderMemoryConsumer (CmuxNextHome)
     var loader: (any HomeAttachmentLoader)? {
         didSet {
             failed.removeAll()
@@ -39,12 +46,27 @@ final class MediaStore: HomeVideoSource {
     var onReload: () -> Void = {}
 
     private var images: [String: CGImage] = [:]
+    /// The hashes of `images`, oldest stored first.
     private var order: [String] = []
+    /// Pixel bytes of `images`.
+    private(set) var bytes = 0
+    /// The most pixel bytes `images` keeps. Lowering it frees nothing: the
+    /// next arrival drops the oldest pictures down to it.
+    var maxBytes: Int
     private var previews: [String: CGImage] = [:]
     private var locals: [String: (file: URL, poster: URL?)] = [:]
     private var jobs: [String: Task<Void, Never>] = [:]
+    /// Loads whose picture goes to its rows but is not kept (they were in
+    /// flight when the host hid the transcript).
+    private var showOnly: Set<String> = []
     private var failed: Set<String> = []
-    static let capacity = 120
+
+    init(maxBytes: Int) {
+        self.maxBytes = max(0, maxBytes)
+    }
+
+    /// Cached pictures.
+    var count: Int { images.count }
 
     /// The image for a media bubble; on a miss its load starts and the
     /// host's preview (if any) shows until the full picture arrives.
@@ -62,11 +84,14 @@ final class MediaStore: HomeVideoSource {
             let image = await Self.load(ref, isVideo: isVideo, local: local, loader: loader, maxPixel: maxPixel)
             guard let self else { return }
             self.jobs[hash] = nil
+            let keep = self.showOnly.remove(hash) == nil
             guard !Task.isCancelled else { return }
             guard let image else { self.failed.insert(hash); return }
             self.store(image, for: hash)
             self.previews[hash] = nil
             self.onImage(hash)
+            // Only after the rows have it: dropping it first would ask for it again.
+            if keep { self.trim(toBytes: self.maxBytes) } else { self.forget(hash) }
         }
         return preview
     }
@@ -100,12 +125,39 @@ final class MediaStore: HomeVideoSource {
         }
     }
 
-    private func store(_ image: CGImage, for hash: String) {
-        if images.updateValue(image, forKey: hash) == nil { order.append(hash) }
-        while order.count > Self.capacity {
-            images[order.removeFirst()] = nil
+    /// Drops the oldest pictures until the cache holds at most `target` bytes.
+    func trim(toBytes target: Int) {
+        var n = 0
+        while n < order.count, bytes > target {
+            if let hash = order[checked: n], let old = images.removeValue(forKey: hash) { bytes -= Self.bytes(of: old) }
+            n += 1
         }
+        order.removeFirst(n)
     }
+
+    /// The transcript is hidden: drops every picture; loads in flight still
+    /// reach their rows but are not kept.
+    func releaseHidden() {
+        trim(toBytes: 0)
+        showOnly.formUnion(jobs.keys)
+    }
+
+    private func forget(_ hash: String) {
+        guard let old = images.removeValue(forKey: hash) else { return }
+        bytes -= Self.bytes(of: old)
+        order.removeAll { $0 == hash }
+    }
+
+    private func store(_ image: CGImage, for hash: String) {
+        if let old = images.updateValue(image, forKey: hash) {
+            bytes -= Self.bytes(of: old)
+        } else {
+            order.append(hash)
+        }
+        bytes += Self.bytes(of: image)
+    }
+
+    private static func bytes(of image: CGImage) -> Int { image.bytesPerRow * image.height }
 
     private nonisolated static func load(_ ref: AttachmentRef, isVideo: Bool, local: (file: URL, poster: URL?)?,
                                          loader: (any HomeAttachmentLoader)?, maxPixel: Int) async -> CGImage? {

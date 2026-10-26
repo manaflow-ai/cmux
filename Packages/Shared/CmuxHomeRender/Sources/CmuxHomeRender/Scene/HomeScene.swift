@@ -21,7 +21,7 @@ final class HomeScene {
     let bitmaps: RowBitmaps
     var morphs: [String: MorphBubble] = [:]
     /// Attachment pictures by content hash, and inline video playback.
-    let media = MediaStore()
+    let media: MediaStore
     let video = VideoPlayback()
     /// Upload progress by content hash (absent: not uploading).
     var uploadProgress: [String: Double] = [:]
@@ -60,8 +60,9 @@ final class HomeScene {
     private var pool: [RowLayer] = []
     private var dirty = true
 
-    init(palette: HomePalette) {
-        bitmaps = RowBitmaps(palette: palette)
+    init(palette: HomePalette, memoryBudget: HomeMemoryBudget) {
+        bitmaps = RowBitmaps(palette: palette, maxBytes: memoryBudget.rowBitmapBytes)
+        media = MediaStore(maxBytes: memoryBudget.pictureBytes)
         compose = ComposeLayer(palette: palette)
         layout = ChatLayout(model: model)
         for l in [root, clip, clipMask, scrollLayer, morphLayer] {

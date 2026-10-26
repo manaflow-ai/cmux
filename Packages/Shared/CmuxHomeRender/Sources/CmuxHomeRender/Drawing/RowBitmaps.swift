@@ -10,8 +10,14 @@ import CoreGraphics
 /// asked for it. Until then a row shows its layers without the bitmap (the
 /// outgoing fill is its own layer), as the prototype did during a fast
 /// scroll. `prefetch` draws rows near the viewport before they scroll in.
+///
+/// The host sizes the cache (`maxBytes`, its ``HomeMemoryBudget`` share):
+/// a store past it drops the oldest bitmaps to three quarters of it, and
+/// `trim(toBytes:)` and `releaseHidden()` give bytes back on request.
+/// Dropping is lossless: a row on screen keeps the image its layer shows,
+/// and the next miss draws it again.
 @MainActor
-final class RowBitmaps {
+final class RowBitmaps { // memory: consumer via HomeRenderMemoryConsumer (CmuxNextHome)
     private struct Key: Hashable {
         var kind: RowSpec.Kind
         var height: CGFloat
@@ -19,10 +25,16 @@ final class RowBitmaps {
     }
 
     private var cache: [Key: CGImage] = [:]
+    /// The keys of `cache`, oldest stored first.
     private var order: [Key] = []
-    private var bytes = 0
-    static let capacity = 500
-    static let maxBytes = 96 << 20
+    /// Pixel bytes of the cached bitmaps.
+    private(set) var bytes = 0
+    /// The most pixel bytes the cache keeps. Lowering it frees nothing: the
+    /// next store drops the oldest bitmaps down to it.
+    var maxBytes: Int
+    /// Jobs whose image goes to the rows that asked but is not kept (they
+    /// were in flight when the host hid the transcript).
+    private var installOnly: Set<Key> = []
     /// Render jobs started (tests read it to prove a reflow redraws only changed rows).
     private(set) var renderCount = 0
     /// Bumped when the palette changes; old bitmaps and jobs stop matching.
@@ -36,7 +48,10 @@ final class RowBitmaps {
     private var waiters: [Key: [@MainActor (CGImage) -> Void]] = [:]
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(palette: HomePalette) { self.palette = palette }
+    init(palette: HomePalette, maxBytes: Int) {
+        self.palette = palette
+        self.maxBytes = max(0, maxBytes)
+    }
 
     func setPalette(_ new: HomePalette) {
         guard new != palette else { return }
@@ -59,6 +74,32 @@ final class RowBitmaps {
         for (_, job) in jobs { job.cancel() }
         jobs.removeAll()
         waiters.removeAll()
+        installOnly.removeAll()
+        resumeIdleWaitersIfDone()
+    }
+
+    /// Cached bitmaps.
+    var count: Int { cache.count }
+
+    /// Drops the oldest bitmaps until the cache holds at most `target` bytes.
+    func trim(toBytes target: Int) {
+        var n = 0
+        while n < order.count, bytes > target {
+            if let key = order[checked: n], let old = cache.removeValue(forKey: key) { bytes -= Self.bytes(of: old) }
+            n += 1
+        }
+        order.removeFirst(n)
+    }
+
+    /// The transcript is hidden: drops every bitmap and every job that only
+    /// draws ahead of need; a job a row waits for still installs its image
+    /// but does not keep it.
+    func releaseHidden() {
+        trim(toBytes: 0)
+        for key in jobs.keys.filter({ waiters[$0] == nil }) {
+            jobs.removeValue(forKey: key)?.cancel()
+        }
+        installOnly.formUnion(jobs.keys)
         resumeIdleWaitersIfDone()
     }
 
@@ -105,8 +146,9 @@ final class RowBitmaps {
     private func finish(_ key: Key, _ image: CGImage?) {
         guard jobs.removeValue(forKey: key) != nil else { return }  // cancelled by a palette change
         let installers = waiters.removeValue(forKey: key) ?? []
+        let keep = installOnly.remove(key) == nil
         if let image {
-            store(key, image)
+            if keep { store(key, image) }
             for install in installers { install(image) }
         }
         resumeIdleWaitersIfDone()
@@ -120,15 +162,13 @@ final class RowBitmaps {
     }
 
     private func store(_ key: Key, _ image: CGImage) {
+        guard cache[key] == nil else { return }
         cache[key] = image
         order.append(key)
-        bytes += image.bytesPerRow * image.height
-        guard order.count > Self.capacity + 100 || bytes > Self.maxBytes else { return }
-        var n = 0
-        while n < order.count - 1, order.count - n > Self.capacity || bytes > Self.maxBytes * 3 / 4 {
-            if let key = order[checked: n], let old = cache.removeValue(forKey: key) { bytes -= old.bytesPerRow * old.height }
-            n += 1
-        }
-        order.removeFirst(n)
+        bytes += Self.bytes(of: image)
+        guard bytes > maxBytes else { return }
+        trim(toBytes: maxBytes / 4 * 3)
     }
+
+    private static func bytes(of image: CGImage) -> Int { image.bytesPerRow * image.height }
 }
