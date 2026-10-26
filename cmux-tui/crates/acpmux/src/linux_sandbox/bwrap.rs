@@ -726,24 +726,24 @@ case "$self_net_ns" in '') fail 32 "network namespace empty: observed=<$self_net
 if [ "$self_net_ns" = "$host_net_ns" ]; then
     fail 33 "network namespace not isolated: sandbox=<$self_net_ns> host=<$host_net_ns>"
 fi
-net_data=$(cat /proc/net/dev 2>&1) || fail 34 "network interface table read failed: status=$? output=<$net_data>"
+net_data=$(cat /proc/self/net/dev 2>&1) || fail 34 "network interface table read failed: status=$? output=<$net_data>"
 bad_iface=$(printf '%s\n' "$net_data" | awk -F: '/:/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); if ($1 !~ /^(lo|tunl0|gre0|gretap0|erspan0|ip_vti0|ip6_vti0|sit0|ip6tnl0|ip6gre0)$/) print $0 }') || fail 35 "interface inspection failed: status=$? data=<$net_data>"
 case "$bad_iface" in '') ;; *) fail 36 "unexpected interface: observed=<$bad_iface> all=<$net_data>";; esac
 
-ipv6_data=$(cat /proc/net/if_inet6 2>&1) || fail 37 "IPv6 address table read failed: status=$? output=<$ipv6_data>"
+ipv6_data=$(cat /proc/self/net/if_inet6 2>&1) || fail 37 "IPv6 address table read failed: status=$? output=<$ipv6_data>"
 bad_ipv6=$(printf '%s\n' "$ipv6_data" | awk 'NF && (NF != 6 || $1 != "00000000000000000000000000000001") { print $0 }') || fail 38 "IPv6 address inspection failed: status=$? data=<$ipv6_data>"
 case "$bad_ipv6" in '') ;; *) fail 39 "non-loopback IPv6 address: observed=<$bad_ipv6> all=<$ipv6_data>";; esac
 
-fib_data=$(cat /proc/net/fib_trie 2>&1) || fail 40 "IPv4 address table read failed: status=$? output=<$fib_data>"
+fib_data=$(cat /proc/self/net/fib_trie 2>&1) || fail 40 "IPv4 address table read failed: status=$? output=<$fib_data>"
 # Each leaf address precedes its /prefix scope/type line. Only LOCAL
 # entries are assigned addresses; UNICAST/BROADCAST entries are not.
 bad_ipv4=$(printf '%s\n' "$fib_data" | awk '/\|--/ { address=$2 } $NF == "LOCAL" && address !~ /^127\.[0-9]+\.[0-9]+\.[0-9]+$/ { print "address=<" address "> " $0 }') || fail 41 "IPv4 LOCAL address inspection failed: status=$? data=<$fib_data>"
 case "$bad_ipv4" in '') ;; *) fail 42 "non-loopback IPv4 LOCAL address: observed=<$bad_ipv4> all=<$fib_data>";; esac
 
-route_data=$(cat /proc/net/route 2>&1) || fail 43 "IPv4 route table read failed: status=$? output=<$route_data>"
+route_data=$(cat /proc/self/net/route 2>&1) || fail 43 "IPv4 route table read failed: status=$? output=<$route_data>"
 bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF { print $0 }') || fail 44 "IPv4 route inspection failed: status=$? data=<$route_data>"
 case "$bad_route" in '') ;; *) fail 45 "unexpected IPv4 route: observed=<$bad_route> all=<$route_data>";; esac
-ipv6_route_data=$(cat /proc/net/ipv6_route 2>&1) || fail 46 "IPv6 route table read failed: status=$? output=<$ipv6_route_data>"
+ipv6_route_data=$(cat /proc/self/net/ipv6_route 2>&1) || fail 46 "IPv6 route table read failed: status=$? output=<$ipv6_route_data>"
 bad_ipv6_route=$(printf '%s\n' "$ipv6_route_data" | awk 'NF && (NF != 10 || $10 != "lo") { print $0 }') || fail 47 "IPv6 route inspection failed: status=$? data=<$ipv6_route_data>"
 case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<$bad_ipv6_route> all=<$ipv6_route_data>";; esac
 "#;
