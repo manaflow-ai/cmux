@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A WebKit tab's `contentView`: the parent of the `WKWebView`, owned by
 /// the tab. The chrome pins this container with Auto Layout; the web view
@@ -38,6 +39,8 @@ final class WebKitPageContainer: NSView {
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
+        // An attached Web Inspector owns the web view's frame from now on: no spring holds it.
+        if subview !== page { endSpringHold() }
         onSubviewsChange?()
         if emulation != nil { needsLayout = true }
     }
@@ -79,16 +82,26 @@ final class WebKitPageContainer: NSView {
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
+        if springHold == nil { joinSpringResize() }
+        if let springHold, let page {
+            // Held at its top-left: the container's resize moves it, and WebKit lays out nothing.
+            let held = springHold.rect(in: bounds, flipped: isFlipped)
+            if page.frame != held { page.frame = held }
+            return
+        }
         guard emulation != nil, pageAlone else { return super.resizeSubviews(withOldSize: oldSize) }
         placeEmulatedPage()
     }
+
+    /// The size its pane's spring rests at, held at the top-left until it lands (`WebKitPageContainer+SpringResize`).
+    var springHold: SpringPageHold?
 
     private var isScaledForEmulation = false
     /// A fit's backdrop, bounds hairline and bar (below the page), nil otherwise.
     private var fitFrame: BrowserFitFrameView?
 
     /// The web view is alone in the container (no attached Web Inspector beside it).
-    private var pageAlone: Bool { subviews.allSatisfy { $0 === page || $0 === fitFrame } }
+    var pageAlone: Bool { subviews.allSatisfy { $0 === page || $0 === fitFrame } }
 
     private func placeEmulatedPage() {
         guard let page else { return }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextSignposts
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
@@ -44,11 +45,16 @@ final class CEFLayerHosting {
         /// (false for a closed browser's id). Nil below API 27, where Chromium
         /// holds it up to 500 ms on every resize.
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// `cmux_browser_set_resize_fence` (fork task 042): the page's next frame at its new size joins the
+        /// fence port, held at most `deadlineFrames`. True when the fork took it. Nil until the shim has it.
+        let setResizeFence: ((_ browser: Int32, _ fence: UInt32, _ deadlineFrames: UInt32) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             setResizeFence: ((_ browser: Int32, _ fence: UInt32, _ deadlineFrames: UInt32) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
+            self.setResizeFence = setResizeFence
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -58,6 +64,8 @@ final class CEFLayerHosting {
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            // The shim's fence call comes with the fork's API (tasks 042 and 043).
+            setResizeFence = nil
         }
     }
 
@@ -84,6 +92,8 @@ final class CEFLayerHosting {
     private(set) var refusals = 0
     /// Calls into the fork so far.
     private(set) var forkCalls = 0
+    /// Resizes of the hosted page that joined a window's fence (``pageResized(in:)``).
+    private(set) var fencedResizes = 0
     /// A browser of the page window (any tab of it names the same window).
     private(set) var browser: Int32?
     private var fork: Fork?
@@ -208,6 +218,16 @@ final class CEFLayerHosting {
         guard active != inLiveResize else { return }
         inLiveResize = active
         syncDeadline()
+    }
+
+    /// The hosted page took a new size in a pane spring's turn (p03-rendering-036): its frame at that size joins
+    /// the window's fence of the turn, so the render server shows it with the spring's first frame, or after at
+    /// most ``ResizeFenceTurn/deadlineFrames``. A page in its own window, or a fork or context without fences,
+    /// joins nothing and opens no fence.
+    func pageResized(in fence: ResizeFenceTurn) {
+        guard page != nil, let browser, let setResizeFence = fork?.setResizeFence, let port = fence.fence() else { return }
+        forkCalls += 1
+        if setResizeFence(browser, port, ResizeFenceTurn.deadlineFrames) { fencedResizes += 1 }
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached

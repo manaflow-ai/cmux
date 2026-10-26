@@ -35,11 +35,15 @@ final class PaneHostView: NSView, RestingPlacement {
     /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
     /// default: live resize). Injected so tests pin it without the shared tunable store.
     private let holdsContentInMotion: () -> Bool
+    /// What pages in the content do while the host springs (`RestingPlacement`); nil: they resize with it.
+    let pageResizing: PageSpringResizing?
 
-    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value },
+         pageResizing: PageSpringResizing? = nil) {
         self.pane = pane
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
+        self.pageResizing = pageResizing
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -376,32 +380,5 @@ extension PaneHostView: PageCoverSource {
         let covers = screen.panes(inFrontOf: self).map { convert($0, from: screen) }
         pageCoverMemo = (ObjectIdentifier(screen), screen.coverVersion, covers)
         return covers
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }

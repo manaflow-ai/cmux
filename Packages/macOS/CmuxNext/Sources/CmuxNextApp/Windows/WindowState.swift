@@ -1,5 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -48,6 +50,9 @@ final class WindowState {
     let focus = FocusCoordinator()
     /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
     let localBrowserTabs = LocalBrowserTabs()
+    /// The window's one resize fence per run-loop turn for the pages its springs resize (p03-rendering-036).
+    /// No port until the window's context has the fence calls (p03-rendering-043). Never persisted.
+    let pageResizeFence = ResizeFenceTurn(afterCommit: { AfterFrameCommit().run($0) })
     /// Sidebar width in points (nil = default); kept while hidden, so the
     /// sidebar comes back at this width.
     var sidebarWidth: Double?

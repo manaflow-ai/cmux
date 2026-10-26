@@ -18,11 +18,19 @@ public protocol RestingPlacement: NSView {
     /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
     /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
     var restContentSizeChange: CGSize? { get }
+    /// What pages in the view do while it springs (``PageSpringResizing``); nil: they resize with it.
+    var pageResizing: PageSpringResizing? { get }
+    /// Whether Core Animation shows the view springing while its frame is already at rest (a render-server
+    /// spring): content placed from its frame in another window (a Chromium page window) is at the rest
+    /// place, not where the view shows.
+    var isOnRenderSpring: Bool { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
+    var pageResizing: PageSpringResizing? { nil }
+    var isOnRenderSpring: Bool { false }
 }
 
 public extension NSView {

@@ -29,6 +29,18 @@ nonisolated enum ChildWindowPageFallback {
         }
         return []
     }
+
+    /// Whether the page window over `host` hides while its pane springs on the render server with the
+    /// `pageSpringResizeOnce` feature (p03-rendering-036): a page in its own window is placed from the pane's
+    /// frame, which a render-server spring sets at rest in its first turn, so it would show at the rest place
+    /// for the whole spring. It hides through an occlusion hole over all of the host
+    /// (`CEFHostView.allOcclusionRects`, the fork's way to keep a page from showing), the host shows the page's
+    /// background meanwhile, and the landing's geometry update shows it again where the pane landed. On the
+    /// main thread's spring frames the window follows the pane's frame; a hosted page moves with its pane.
+    @MainActor
+    static func hidesForSpring(_ host: CEFHostView) -> Bool {
+        host.spring?.onRenderServer == true && host.drawsInChildWindow
+    }
 }
 
 /// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`).

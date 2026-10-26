@@ -36,6 +36,9 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
+    /// The pane spring the page is on with the `pageSpringResizeOnce` feature (`CEFTabContentView+SpringResize`);
+    /// nil at rest.
+    private(set) var spring: PageSpring?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -80,7 +83,7 @@ final class CEFHostView: NSView {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if inLiveResize || spring != nil, let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
@@ -158,7 +161,7 @@ final class CEFHostView: NSView {
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
-        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
+        if ChildWindowPageFallback.hidesForSpring(self) || CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
         var rects = occlusionRects
         if let provider = window as? any BrowserWindowOcclusionProviding {
             for rect in provider.browserOcclusionRectsInWindow {
@@ -178,6 +181,28 @@ final class CEFHostView: NSView {
                 other != index && outer.contains(rect) && (outer != rect || other < index)
             }
         }.map(\.element)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized, let spring { layerHosting.pageResized(in: spring.fence) }
+    }
+
+    /// Another tab's container or pane took the view mid-spring: its pane's landing may never reach it.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        setSpring(nil)
+    }
+
+    /// Sets ``spring``: while it is set the gaps show the page background, and a page in its own window may
+    /// hide (`ChildWindowPageFallback.hidesForSpring`); the fork re-reads the page's geometry when that changes.
+    func setSpring(_ spring: PageSpring?) {
+        let hid = ChildWindowPageFallback.hidesForSpring(self)
+        let wasSet = self.spring != nil
+        self.spring = spring
+        if wasSet != (spring != nil) { updateBackground() }
+        if ChildWindowPageFallback.hidesForSpring(self) != hid { postGeometryChange() }
     }
 
     override func viewDidMoveToWindow() {
@@ -236,6 +261,8 @@ final class CEFHostView: NSView {
 /// window, and shows a snapshot while the tab is occluded.
 final class CEFTabContentView: NSView, PaneMotionSettling {
     weak var tab: CEFTab?
+    /// The size its pane's spring rests at, held at the top-left until it lands (`CEFTabContentView+SpringResize`).
+    var springHold: SpringPageHold?
     private let snapshotView = NSImageView()
 
     override init(frame: NSRect) {
@@ -303,8 +330,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
-        let frames = tab?.devToolsController.frames(in: bounds)
-            ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
+        joinSpringResize()
+        let area = springHold?.rect(in: bounds, flipped: isFlipped) ?? bounds
+        let frames = tab?.devToolsController.frames(in: area)
+            ?? CEFDevToolsLayout.Frames(page: area, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
         // A fit (cx-qby5j) shows the page in its presented rect inside the frame view.
         let emulation = tab?.deviceEmulation
@@ -346,6 +375,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the shown
     /// page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
     func paneMotionDidSettle() {
+        endSpringResize()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
     }
