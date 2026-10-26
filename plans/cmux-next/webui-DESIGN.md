@@ -184,7 +184,7 @@ the spike must justify. A claim in the key's turn shows the cover in
 that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
 CEF spare windows keep the window with no renderer.
 
-Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `2ca55eea`, on the cmux.33 line
+Fork implementation, proposed (task 017, manaflow-ai/cef `cp/p13-webui-017` at `1cb02dc4`, on the cmux.33 line
 `c382c63b`). Nobody has built or run it. A Chrome-style browser created with an empty URL and
 `extra_info[CMUX_EXTRA_INFO_NO_RENDERER] = true` gets a first tab made with
 `WebContents::CreateParams::desired_renderer_state = kNoRendererProcess` and no navigation, as Chrome makes restored
