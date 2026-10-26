@@ -316,6 +316,15 @@ export function ComposerQueue({
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
   // A paused queue of agent messages alone still says so, with Resume.
+  // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
+  // picked after a row turned out to be a teammate's (its authored record came in while the menu
+  // was open) does nothing, as the row now offers nothing.
+  const owners = (rows: readonly QueuedEntry[]) =>
+    rows.map((entry) => `${entry.id}\u0000${entry.author?.id ?? ""}`).join("\u0001");
+  const drawnOwners = useRef("");
+  useLayoutEffect(() => {
+    drawnOwners.current = owners(shown);
+  });
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -349,6 +358,15 @@ export function ComposerQueue({
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
   // A teammate's prompt in a shared chat: shown with its author, never changed from here.
   const theirs = (entry: QueuedEntry) => entry.author !== undefined;
+  const whileOwnersHold = (items: ContextMenuItem[]): ContextMenuItem[] => {
+    const opened = owners(shown);
+    return items.map((entry) => ({
+      ...entry,
+      onSelect: () => {
+        if (drawnOwners.current === opened) entry.onSelect();
+      },
+    }));
+  };
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
@@ -486,7 +504,7 @@ export function ComposerQueue({
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
     theirs(entry)
       ? []
-      : [
+      : whileOwnersHold([
           ...(canSendNow(entry)
             ? [
                 {
@@ -520,7 +538,7 @@ export function ComposerQueue({
                 },
               ]
             : []),
-        ];
+        ]);
   // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
   // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {

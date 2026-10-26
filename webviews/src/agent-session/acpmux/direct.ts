@@ -534,9 +534,14 @@ export function mergeQueue(
     const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
     const kept = whole ? had.message : undefined;
     const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    // A list that names the field says whose it is, null the owner's (acpmux lists it for every
+    // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =
-      participant(entry?.author?.id, entry?.author?.name) ??
-      (authors?.has(id) ? (authors.get(id) ?? undefined) : had?.author);
+      entry && typeof entry === "object" && "author" in entry
+        ? participant(entry.author?.id, entry.author?.name)
+        : authors?.has(id)
+          ? (authors.get(id) ?? undefined)
+          : had?.author;
     return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, message, author);
   });
 }

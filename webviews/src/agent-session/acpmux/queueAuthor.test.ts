@@ -279,3 +279,17 @@ test("a cold open whose page holds no authored record takes the author acpmux li
     close();
   }
 });
+
+test("a list that names the owner (author null) wins over an author the pane kept", async () => {
+  const { daemon, view, until, id, close } = await pane();
+  try {
+    daemon.emit(id, { mux: "queued", msg: { promptId: "p-x", text: "Rebase first", _meta: fromAna } });
+    await until(() => view.shown.queue?.[0]?.author?.name === "Ana");
+    // acpmux, which lists authors, says this prompt is the owner's: the pane's own record loses.
+    daemon.touch(id, { queue: [{ promptId: "p-x", prompt: "Rebase first", fromAgent: null, author: null }] });
+    await until(() => view.shown.queue?.[0]?.author === undefined);
+    expect(authors(view.shown)).toEqual([["p-x", null]]);
+  } finally {
+    close();
+  }
+});

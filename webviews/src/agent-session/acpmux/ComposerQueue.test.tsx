@@ -694,3 +694,59 @@ test("an open edit closes, unsaved, when the row turns out to be a teammate's", 
   expect(edits).toEqual([]);
   expect(actions(container, "p-1")).toEqual([]);
 });
+
+// The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
+// with. Picked after the row turned out to be a teammate's, none runs.
+test("a row menu opened before the row turned out to be a teammate's changes nothing", async () => {
+  const { installNativeMenu } = await import("../../ui/nativeMenu");
+  const touched: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  let answer: (reply: unknown) => void = () => {};
+  const offered: string[] = [];
+  installNativeMenu(
+    (request) =>
+      new Promise((resolve) => {
+        offered.push(...request.items.map((row) => row.id));
+        answer = resolve;
+      }),
+  );
+  const draw = (rows: Array<{ id: string; prompt: string; author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={async (id) => {
+          touched.push(`change ${id}`);
+          return true;
+        }}
+        onRemove={async (id) => {
+          touched.push(`remove ${id}`);
+          return true;
+        }}
+      />,
+    );
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      draw(queue);
+    });
+    const target = container.querySelector<HTMLElement>('[data-prompt-id="p-1"] .acpmux-queued-menu')!;
+    await act(async () => {
+      target.dispatchEvent(
+        new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    await settle();
+    const remove = offered.find((id) => id === "delete");
+    expect(remove).toBeDefined();
+    // Ana's authored record lands while the menu is up; then the person picks Delete.
+    await act(async () => draw([{ ...queue[0]!, author: ana }, queue[1]!]));
+    await act(async () => answer({ picked: remove }));
+    await settle();
+    expect(touched).toEqual([]);
+  } finally {
+    installNativeMenu(null);
+  }
+});
