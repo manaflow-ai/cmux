@@ -315,6 +315,17 @@ final class CloudMachineSession {
         }
     }
 
+    /// After `cmux link machine update` ran here (``CloudMachineUpdates``): the daemon restarted,
+    /// or rolled back, so connect to it again. A legacy link's waiting connect is woken. An app
+    /// link connects again once its link ended with the old daemon's connection, and also while
+    /// the app refused the old daemon: that connect waits for an event, and its next ask of the
+    /// socket would only end the link.
+    func reconnectAfterUpdate() {
+        guard appLink != nil else { return daemon.retryWake.fire() }
+        if linkEnded == nil, daemon.connection == nil, !appConnecting { appTicket = nil }
+        connect()
+    }
+
     /// A `cloud.link.changed` for this machine (app link only).
     func linkChanged(_ change: CloudLinkChange) {
         guard let appLink else { return }
