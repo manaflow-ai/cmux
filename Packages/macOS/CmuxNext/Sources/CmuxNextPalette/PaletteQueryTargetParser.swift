@@ -26,7 +26,7 @@ public struct PaletteQueryTargetParser: Sendable {
 
     /// The real file system.
     public static let diskKind: @Sendable (String) -> Kind? = { path in
-        FileManager.default.entryKind(atPath: path).map { $0 == .directory ? .folder : .file }
+        FileManager.default.entryKind(atPath: path).map { $0 == .directory ? Kind.folder : Kind.file }
     }
 
     /// Hosts typed without a scheme or a path still read as web addresses
