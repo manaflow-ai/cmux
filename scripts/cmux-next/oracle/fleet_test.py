@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""Tests for fleet.py and scripts/measure/oracle.sh (p15-oracle-050): shards merge into one receipt, waits never
+resubmit, refusals and lost pairs are reported, never maclease.
+
+Run: python3 -I scripts/cmux-next/oracle/fleet_test.py (stdlib unittest; no fleet, no build). A fake `cmux-ci`
+(FAKE_CLIENT below) stands in for the controller: `run` prints the step line the real client prints, then runs
+scripts/measure/oracle.sh --dry-run in a throwaway git checkout that holds copies of oracle.sh and the oracle
+scripts, as a worker runs a step in its checkout; `wait` and `artifact` answer from the fake's state dir.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[2]
+sys.path.insert(0, str(HERE))
+
+import fleet  # noqa: E402
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+OTHER_SHA = "89abcdef0123456789abcdef0123456789abcdef"
+
+FAKE_CLIENT = r'''#!/usr/bin/env python3
+"""A fake cmux-ci: run, wait, artifact. State in $FAKE_STATE; every call logged to $FAKE_STATE/calls.jsonl."""
+import fcntl, hashlib, json, os, shutil, subprocess, sys
+state = os.environ["FAKE_STATE"]
+args = sys.argv[1:]
+def log(entry):
+    with open(os.path.join(state, "calls.jsonl"), "a") as f:
+        f.write(json.dumps(entry) + "\n")
+def bump(name):
+    # Shards submit in parallel: the counter file is read and written under an flock.
+    with open(os.path.join(state, name), "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        n = int(f.read() or 0)
+        f.seek(0)
+        f.truncate()
+        f.write(str(n + 1))
+    return n
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+op = args[0]
+log({"op": op, "args": args[1:]})
+if op == "run":
+    if os.environ.get("FAKE_REFUSE"):
+        print("cmux-ci: HTTP 400: script is not on the ci-step allowlist", file=sys.stderr)
+        sys.exit(1)
+    key = opt("--key")
+    step_id = hashlib.sha1(key.encode()).hexdigest()[:24]
+    workers = os.environ.get("FAKE_WORKERS", "mini-a,mini-b,mini-c").split(",")
+    target = opt("--target-worker")
+    worker = workers[bump("submissions") % len(workers)]
+    if target and not os.environ.get("FAKE_IGNORE_TARGET"):
+        worker = target
+    print(f"cmux-ci: step {step_id} (exclusive, key {key})", file=sys.stderr, flush=True)
+    step_args = [a[len("--arg="):] for a in args if a.startswith("--arg=")]
+    checkout = os.environ["FAKE_CHECKOUT"]
+    if os.environ.get("FAKE_WORKER_REFUSE"):
+        code = 1
+        print(f"ci-step refused: scripts/measure/oracle.sh at {opt('--ref')} (blob 0) is not the reviewed version "
+              "on main or feat-cmux-next", flush=True)
+    else:
+        code = subprocess.run(["bash", "scripts/measure/oracle.sh", *step_args], cwd=checkout,
+                              env={**os.environ, "CMUX_CI_STEP_KEY": key}).returncode
+    job = {"id": step_id, "state": "done" if code == 0 else "failed", "exit_code": code, "worker": worker,
+           "step_key": key}
+    artifact = os.path.join(checkout, opt("--artifact"))
+    if code == 0 and os.path.exists(artifact):
+        shutil.copy(artifact, os.path.join(state, step_id + ".tar.gz"))
+        job["artifact"] = "sha256:" + "0" * 64
+    json.dump(job, open(os.path.join(state, step_id + ".json"), "w"))
+    print(f"cmux-ci: step {step_id} {job['state']} on {worker}", file=sys.stderr, flush=True)
+    if os.environ.get("FAKE_CLIENT_GONE"):
+        print(f"cmux-ci: step {step_id} continues; re-attach with the same --key {key}", file=sys.stderr)
+        sys.exit(130)
+    sys.exit(code)
+if op == "wait":
+    step_id = args[1]
+    if bump("waits-" + step_id) < int(os.environ.get("FAKE_WAIT_TIMEOUTS", "0")):
+        print(f"Timed out observing {step_id}; remote job is unchanged", file=sys.stderr)
+        sys.exit(2)
+    job = json.load(open(os.path.join(state, step_id + ".json")))
+    open(opt("--receipt"), "w").write(json.dumps(job))
+    sys.exit(0 if job["state"] == "done" else 1)
+if op == "artifact":
+    source = os.path.join(state, args[1] + ".tar.gz")
+    if not os.path.exists(source):
+        print("no artifact", file=sys.stderr)
+        sys.exit(1)
+    shutil.copy(source, args[2])
+    sys.exit(0)
+sys.exit(64)
+'''
+
+
+def write_corpus(root: Path, count: int) -> Path:
+    for i in range(count):
+        suite = ("alpha", "beta", "gamma")[i % 3]
+        path = root / suite / f"case-{i:03d}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"id": f"{suite}/case-{i:03d}", "steps": [{"id": "s1", "op": "snapshot"}]}))
+    return root
+
+
+def make_checkout(root: Path) -> Path:
+    """A git checkout with oracle.sh and the oracle scripts, where the fake worker runs its steps."""
+    checkout = root / "checkout"
+    (checkout / "scripts" / "measure").mkdir(parents=True)
+    shutil.copy(REPO / "scripts" / "measure" / "oracle.sh", checkout / "scripts" / "measure" / "oracle.sh")
+    shutil.copytree(HERE, checkout / "scripts" / "cmux-next" / "oracle",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    for rel in ("tests/oracle", "schemas/oracle"):
+        if (REPO / rel).is_dir():
+            shutil.copytree(REPO / rel, checkout / rel)
+    git = ["git", "-C", str(checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(git[:3] + ["init", "-q"], check=True)
+    subprocess.run(git + ["add", "-A"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
+    return checkout
+
+
+class FleetHarness(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="oracle-fleet-test-"))
+        self.state = self.tmp / "state"
+        self.state.mkdir()
+        self.client = self.tmp / "bin" / "cmux-ci"
+        self.client.parent.mkdir()
+        self.client.write_text(FAKE_CLIENT)
+        self.client.chmod(0o755)
+        self.corpus = write_corpus(self.tmp / "corpus", 30)
+        self.checkout = make_checkout(self.tmp)
+        self.env = {"FAKE_STATE": str(self.state), "FAKE_CHECKOUT": str(self.checkout)}
+        self.saved = {k: os.environ.get(k) for k in ("FAKE_STATE", "FAKE_CHECKOUT", "FAKE_REFUSE", "FAKE_WAIT_TIMEOUTS",
+                                                     "FAKE_CLIENT_GONE", "FAKE_IGNORE_TARGET", "FAKE_WORKER_REFUSE",
+                                                     "FAKE_WORKERS")}
+        os.environ.update(self.env)
+
+    def tearDown(self) -> None:
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def fleet(self, *argv: str) -> int:
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = fleet.main([*argv, "--client", str(self.client), "--dry-run", "--corpus", str(self.corpus)])
+        self.output = out.getvalue() + err.getvalue()
+        return code
+
+    def calls(self, op: str) -> list:
+        path = self.state / "calls.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return [r for r in rows if r["op"] == op]
+
+    def record(self, out: Path) -> dict:
+        return json.loads((out / "fleet.json").read_text())
+
+
+class RunTests(FleetHarness):
+    def test_six_shards_merge_into_one_receipt(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "6", "--out", str(out), "--run-id", "t1")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        runs = self.calls("run")
+        self.assertEqual(len(runs), 6)
+        for row in runs:
+            args = row["args"]
+            self.assertEqual(args[args.index("--class") + 1], "exclusive")
+            self.assertEqual(args[args.index("--script") + 1], "scripts/measure/oracle.sh")
+            self.assertIn("--no-supersede", args)
+            self.assertIn("--arg=--config=bench", args)
+        receipt = json.loads((out / "run" / "receipt.json").read_text())
+        self.assertEqual(receipt["shards"], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(len(receipt["cases"]), 30)
+        self.assertEqual(receipt["config"]["build"], "bench")
+        self.assertEqual(receipt["config"]["product"], "app")
+        record = self.record(out)
+        self.assertTrue(record["ok"])
+        self.assertEqual(len(record["sides"]["run"]["shards"]), 6)
+        self.assertTrue(all(s["state"] == "done" for s in record["sides"]["run"]["shards"]))
+
+    def test_wait_timeouts_wait_again_and_never_resubmit(self) -> None:
+        os.environ.update({"FAKE_CLIENT_GONE": "1", "FAKE_WAIT_TIMEOUTS": "2"})
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "3", "--out", str(out), "--run-id", "t2")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        self.assertEqual(len(self.calls("run")), 3)
+        self.assertEqual(len(self.calls("wait")), 9)
+        self.assertIn("waiting again (never a resubmit)", self.output)
+
+    def test_a_second_fleet_py_reattaches_to_the_same_steps(self) -> None:
+        out = self.tmp / "out"
+        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t3"), 0)
+        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out)), 0, self.output)
+        self.assertEqual(len(self.calls("run")), 2)
+        self.assertEqual(self.record(out)["runId"], "t3")
+
+    def test_controller_refusal_is_incomplete_and_names_the_hq_ask(self) -> None:
+        os.environ["FAKE_REFUSE"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t4")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        shards = self.record(out)["sides"]["run"]["shards"]
+        self.assertEqual({s["state"] for s in shards}, {"refused"})
+        self.assertIn("measureScripts", shards[0]["error"])
+        self.assertFalse((out / "run").exists())
+
+    def test_worker_refusal_of_an_unreviewed_blob_is_reported(self) -> None:
+        os.environ["FAKE_WORKER_REFUSE"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "1", "--out", str(out), "--run-id", "t5")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        shard = self.record(out)["sides"]["run"]["shards"][0]
+        self.assertEqual(shard["state"], "refused")
+        self.assertIn("not the reviewed version", shard["error"])
+
+    def test_glob_filters_travel_hex_encoded(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t6",
+                          "--filter", "alpha/*")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        args = self.calls("run")[0]["args"]
+        self.assertIn("--arg=--filter-hex=" + "alpha/*".encode().hex(), args)
+        receipt = json.loads((out / "run" / "receipt.json").read_text())
+        self.assertEqual(len(receipt["cases"]), 10)
+        self.assertTrue(all(cid.startswith("alpha/") for cid in receipt["cases"]))
+
+
+class DiffTests(FleetHarness):
+    def test_head_runs_on_the_base_steps_worker(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "3", "--out", str(out),
+                          "--run-id", "d1")
+        record = self.record(out)
+        for base, head in zip(record["sides"]["base"]["shards"], record["sides"]["head"]["shards"]):
+            self.assertEqual(head["target_worker"], base["worker"])
+            self.assertEqual(head["worker"], base["worker"])
+        # Both sides merged; oracle.py diff refuses to compare dry runs (nothing ran), exit 3.
+        self.assertTrue((out / "base" / "receipt.json").is_file())
+        self.assertTrue((out / "head" / "receipt.json").is_file())
+        self.assertEqual(record["comparison"]["exit"], code)
+        self.assertEqual(code, 3, self.output)
+
+    def test_a_cross_host_pair_is_refused(self) -> None:
+        os.environ["FAKE_IGNORE_TARGET"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "1", "--out", str(out),
+                          "--run-id", "d2")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        head = self.record(out)["sides"]["head"]["shards"][0]
+        self.assertIn("ignored --target-worker", head["error"])
+        self.assertNotIn("comparison", self.record(out))
+
+
+class UnitTests(unittest.TestCase):
+    def test_maclease_is_never_the_client(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "maclease"
+            path.write_text("#!/bin/sh\n")
+            path.chmod(0o755)
+            with self.assertRaises(fleet.UsageError):
+                fleet.find_client(str(path))
+
+    def test_encode_decode_round_trip(self) -> None:
+        for name, value in (("suite", "alpha,beta"), ("filter", "alpha/*,beta/case-00?"), ("filter", "a b")):
+            self.assertEqual(fleet.decode_args([fleet.encode_arg(name, value)]), [f"--{name}={value}"])
+        self.assertEqual(fleet.encode_arg("suite", "alpha"), "--suite=alpha")
+
+    def test_unpack_refuses_names_outside_the_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tarball = Path(tmp) / "bad.tar.gz"
+            with tarfile.open(tarball, "w:gz") as archive:
+                data = b"x"
+                info = tarfile.TarInfo("../escape")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            with self.assertRaises(fleet.UsageError):
+                fleet.unpack(tarball, Path(tmp) / "dest")
+            self.assertFalse((Path(tmp) / "escape").exists())
+
+    def test_step_args_fit_the_controller(self) -> None:
+        side = fleet.Side("launch-config", SHA, (("arm", "launch-config"),))
+        selection = fleet.Selection(suites=("actions", "journeys"), filters=("actions/*",), repeat=2, retry_limit=3,
+                                    seed=7, batch_limit=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            fleet.make_shards(side, run_id="20261026T114552Z-abc123", total=64, selection=selection, out=Path(tmp))
+        self.assertEqual(len(side.shards), 64)
+        for shard in side.shards:
+            self.assertRegex(shard.key, fleet.KEY_PATTERN)
+            self.assertLessEqual(len(shard.args), fleet.MAX_STEP_ARGS)
+            self.assertTrue(all(fleet.ARG_PATTERN.match(a) for a in shard.args), shard.args)
+
+    def test_vm_only_options_are_refused(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(fleet.main(["run", "--ref", SHA, "--jobs", "200"]), fleet.EXIT_USAGE)
+
+    def test_step_refuses_unknown_forwarded_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
+            code = fleet.main(["step", "--ref", SHA, "--tag", "oracle", "--shard", "0/1", "--work", tmp,
+                               "--artifact", "artifacts/oracle/x.tar.gz", "--dry-run", "--binary=/Applications/cmux.app"])
+        self.assertEqual(code, fleet.EXIT_USAGE)
+
+
+if __name__ == "__main__":
+    unittest.main()
