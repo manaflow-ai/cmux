@@ -159,8 +159,8 @@
 //!   `personInstance` is a daemon it enrolled directly (an app follow-up).
 //!
 //! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
-//! with no `mode` asked, a new chat starts in the person's latest pick, else
-//! `defaultPermissionMode` / `agents.defaultPermissionMode`, else the
+//! with no `mode` asked, a new chat starts in `defaultPermissionMode` /
+//! `agents.defaultPermissionMode`, else the
 //! harness's full-access mode, for every non-Web origin (also the unix
 //! socket CLI). It never widens a proven caller session: one in a mode
 //! that asks starts its chats in the harness's own mode
