@@ -187,6 +187,20 @@ public final class WindowMaterialView: NSView {
         updateInactiveTint()
     }
 
+    /// The art's place moves the pages lensing it (``noteGlassSourceChange()``) when its size is final: not per
+    /// frame of a live window resize or of a pane spring, whose ends tell them (``viewDidEndLiveResize()``,
+    /// `GlassBackdropFeed.landed()`).
+    override public func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized, !inLiveResize, !isInPaneMotion { noteGlassSourceChange() }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        noteGlassSourceChange()
+    }
+
     /// Makes `window`'s key tracker (the inactive wash of its material views) observe through the
     /// app's `events`: the composition root calls it before the window gets content. A later call
     /// for the same window changes nothing.

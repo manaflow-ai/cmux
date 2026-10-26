@@ -1,6 +1,6 @@
 public import AppKit
 public import WebKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Hosts the Activity renderer in a web view while keeping socket and native
 /// operation ownership in ``AgentActivityModel`` and its injected source.
@@ -14,7 +14,8 @@ public final class AgentActivityHostView: NSView {
     /// Activity events can arrive as a batch, and serializing the full projection for every
     /// element makes the main actor and WebKit do redundant work while the page is catching up.
     private var statePushScheduled = false
-    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
+    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme and when
+    /// the view's place settles (``paneMotionWillRest(sizeChange:)``, ``paneMotionDidSettle()``).
     private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
         self?.webView.evaluateJavaScript($0, completionHandler: nil)
     }
@@ -66,7 +67,11 @@ public final class AgentActivityHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override func layout() { super.layout(); webView.frame = bounds }
+    public override func layout() {
+        super.layout()
+        webView.frame = bounds
+        glassFeed.hostDidLayout()
+    }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -137,5 +142,17 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
     @MainActor
     private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
         (await AgentActivityRequests(model: model, source: source).reply(to: method, params: params), nil)
+    }
+}
+
+/// The page's glass follows the pane's springs at their start and landing, never per frame (`GlassBackdropFeed`).
+extension AgentActivityHostView: PaneMotionTargeting, PaneMotionSettling {
+    public func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
+        glassFeed.layoutWillRest()
+        return .top
+    }
+
+    public func paneMotionDidSettle() {
+        glassFeed.landed()
     }
 }
