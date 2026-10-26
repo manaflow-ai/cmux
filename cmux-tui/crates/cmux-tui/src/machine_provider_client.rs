@@ -20,7 +20,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
@@ -311,27 +311,21 @@ impl ProviderEventReceiver {
         &self,
         timeout: Duration,
     ) -> Result<ReceivedProviderEvent, RecvTimeoutError> {
-        let deadline = Instant::now() + timeout;
-        let mut state = self.queue.state.lock().map_err(|_| RecvTimeoutError::Disconnected)?;
-        loop {
-            if let Some(event) = state.events.pop_front() {
-                return Ok(event);
-            }
-            if state.disconnected {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Err(RecvTimeoutError::Timeout);
-            };
-            let (next, timed_out) = self
-                .queue
-                .ready
-                .wait_timeout(state, remaining)
-                .map_err(|_| RecvTimeoutError::Disconnected)?;
-            state = next;
-            if timed_out.timed_out() && state.events.is_empty() {
-                return Err(RecvTimeoutError::Timeout);
-            }
+        let state = self.queue.state.lock().map_err(|_| RecvTimeoutError::Disconnected)?;
+        // wakeup-allow: deadline the caller's one timeout; publish and disconnect notify `ready` first
+        let (mut state, _) = self
+            .queue
+            .ready
+            .wait_timeout_while(state, timeout, |state| {
+                state.events.is_empty() && !state.disconnected
+            })
+            .map_err(|_| RecvTimeoutError::Disconnected)?;
+        if let Some(event) = state.events.pop_front() {
+            Ok(event)
+        } else if state.disconnected {
+            Err(RecvTimeoutError::Disconnected)
+        } else {
+            Err(RecvTimeoutError::Timeout)
         }
     }
 }
@@ -1153,6 +1147,7 @@ impl ProviderClient {
             return Err(error);
         }
 
+        // wakeup-allow: deadline one request timeout; the reader's response or disconnect wakes it first
         let mut frame = match receiver.recv_timeout(timeout) {
             Ok(Ok(frame)) => frame,
             Ok(Err(failure)) => return Err(failure.into()),
@@ -2711,3 +2706,7 @@ mod tests {
 #[cfg(all(test, unix))]
 #[path = "machine_provider_client_snapshot_tests.rs"]
 mod snapshot_tests;
+
+#[cfg(all(test, unix))]
+#[path = "machine_provider_client_wake_tests.rs"]
+mod wake_tests;
