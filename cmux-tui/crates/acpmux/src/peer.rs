@@ -67,8 +67,10 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
-    out: mpsc::Sender<String>,
-    out_rx: Mutex<Option<mpsc::Receiver<String>>>,
+    /// Outbound frames, each tagged with the link epoch it was admitted on:
+    /// `serve` drops one whose link is gone, so it never goes out on the next.
+    out: mpsc::Sender<(u64, String)>,
+    out_rx: Mutex<Option<mpsc::Receiver<(u64, String)>>>,
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
     pub connected: AtomicBool,
@@ -302,26 +304,50 @@ impl Peer {
     /// prompt to the Web's rules until the link next drops. A remote too old
     /// to make a token has none after the rereads and is served as Web.
     async fn remote_tokens_settled(&self) -> Result<(String, Option<String>), String> {
+        const STOPPED: &str = "peer stopped";
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(STOPPED.to_owned());
+        }
         let mut tokens = self.remote_tokens().await?;
         for wait in TOKEN_REREADS {
-            if tokens.1.is_some() || self.stop.load(Ordering::SeqCst) {
+            if tokens.1.is_some() {
                 break;
             }
-            tokio::time::sleep(wait).await;
+            if !self.reread_wait(wait).await {
+                return Err(STOPPED.to_owned());
+            }
             tokens = self.remote_tokens().await?;
         }
         Ok(tokens)
+    }
+
+    /// Sleeps `wait` before a token reread; false, at once, when the peer
+    /// stops (before or during it), so no further ssh read is made.
+    async fn reread_wait(&self, wait: Duration) -> bool {
+        if self.stop.load(Ordering::SeqCst) {
+            return false;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(wait) => {}
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+            }
+        }
+        !self.stop.load(Ordering::SeqCst)
     }
 
     /// Why an `ssh://` connection the remote served as Web should connect
     /// again: the remote has a peer token now that this connection did not
     /// present (it restarted between the token read and the handshake, or
     /// had not written its token yet). One read per such connection, and
-    /// rereads (`TOKEN_REREADS`) while the token it presented is gone and no
-    /// new one is written yet (the remote is restarting); None when it was
-    /// served as a peer, when a read fails, or when the remote still has no
-    /// token or the same one (it serves this daemon as Web for another
-    /// reason, and reconnecting would not change that).
+    /// rereads (`TOKEN_REREADS`) while the remote has no token (it is
+    /// restarting, or wrote it after this connection's last read), all
+    /// before the link is admitted, so a live link is never torn down for a
+    /// late token; None when it was served as a peer, when a read fails, on
+    /// stop, or when the remote still has no token or the same one (it
+    /// serves this daemon as Web for another reason, and reconnecting would
+    /// not change that).
     async fn stale_token(&self) -> Option<String> {
         self.ssh_parts()?;
         let served_as_web =
@@ -330,48 +356,23 @@ impl Peer {
             return None;
         }
         let presented = self.presented.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if self.stop.load(Ordering::SeqCst) {
+            return None;
+        }
         let (_, mut now) = self.remote_tokens().await.ok()?;
-        if presented.is_some() {
-            for wait in TOKEN_REREADS {
-                if now.is_some() || self.stop.load(Ordering::SeqCst) {
-                    break;
-                }
-                tokio::time::sleep(wait).await;
-                now = self.remote_tokens().await.ok()?.1;
+        for wait in TOKEN_REREADS {
+            if now.is_some() {
+                break;
             }
+            if !self.reread_wait(wait).await {
+                return None;
+            }
+            now = self.remote_tokens().await.ok()?.1;
         }
         (now.is_some() && now != presented).then(|| {
             "the peer served this daemon as remote, and it has a new peer token; reconnecting"
                 .to_owned()
         })
-    }
-
-    /// `stale_token` for a connection that presented no token, once the
-    /// link is admitted: the remote is reread (`TOKEN_REREADS`), and a token
-    /// it writes after the handshake's read is a reason to connect again as
-    /// a peer. None once the rereads end with no token (a remote too old to
-    /// make one), when a read fails, or on stop.
-    async fn late_token(&self) -> Option<String> {
-        self.ssh_parts()?;
-        let served_as_web =
-            self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("remote");
-        if !served_as_web || self.presented.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
-            return None;
-        }
-        for wait in TOKEN_REREADS {
-            tokio::time::sleep(wait).await;
-            if self.stop.load(Ordering::SeqCst) {
-                return None;
-            }
-            if self.remote_tokens().await.ok()?.1.is_some() {
-                return Some(
-                    "the peer served this daemon as remote, and it has written its peer token; \
-                     reconnecting"
-                        .to_owned(),
-                );
-            }
-        }
-        None
     }
 
     pub fn remote_build(&self) -> Option<String> {
@@ -489,7 +490,8 @@ impl Peer {
         }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
-        if self.out.send(line).await.is_err() {
+        let tag = epoch.unwrap_or_else(|| self.link_epoch());
+        if self.out.send((tag, line)).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
@@ -510,13 +512,15 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
-        // Never queued while down: it would go out on the next connection.
+        // Read before the check, as in `request`: a frame tagged with a link
+        // that went down is dropped by `serve`, never sent on the next one.
+        let epoch = self.link_epoch();
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
         let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(line)
+            .send((epoch, line))
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
@@ -562,7 +566,7 @@ impl Peer {
 
     async fn connect_once(
         self: &Arc<Self>,
-        out_rx: &mut mpsc::Receiver<String>,
+        out_rx: &mut mpsc::Receiver<(u64, String)>,
     ) -> Result<(), String> {
         if self.ssh_parts().is_some() {
             let (token, peer_token) = self.remote_tokens_settled().await?;
@@ -638,17 +642,13 @@ impl Peer {
     async fn serve<S>(
         self: &Arc<Self>,
         ws: tokio_tungstenite::WebSocketStream<S>,
-        out_rx: &mut mpsc::Receiver<String>,
+        out_rx: &mut mpsc::Receiver<(u64, String)>,
     ) -> Result<(), String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
-        // A frame still queued was enqueued for the link that went down;
-        // its caller was failed when that link dropped, so it never goes
-        // out on this one.
-        while out_rx.try_recv().is_ok() {}
         self.admitting.store(true, Ordering::SeqCst);
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
@@ -723,13 +723,6 @@ impl Peer {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             me.refresh_health();
-            // While these rereads run the link serves as Web, as it did before for
-            // good: a request then gets the Web answer (fewer rights, never more),
-            // and holding the link unready instead would leave a remote too old
-            // to write a token unreachable for every reread on every connect.
-            if let Some(why) = me.late_token().await {
-                let _ = stale_tx.send(why);
-            }
             Ok::<(), RpcError>(())
         });
 
@@ -833,7 +826,12 @@ impl Peer {
                     }
                 }
                 line = out_rx.recv() => {
-                    let Some(line) = line else { break Ok(()) };
+                    let Some((epoch, line)) = line else { break Ok(()) };
+                    // Admitted on a link that went down: its caller was failed
+                    // with that link, so it never goes out on this one.
+                    if epoch != self.link_epoch() {
+                        continue;
+                    }
                     let text = line.trim_end_matches('\n').to_owned();
                     match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
@@ -849,7 +847,7 @@ impl Peer {
 }
 
 /// The waits before each reread of a remote that has no peer token yet
-/// (`Peer::remote_tokens_settled`, `Peer::stale_token`, `Peer::late_token`).
+/// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 
@@ -1155,5 +1153,47 @@ mod link_epoch_tests {
         .expect("a prompt on a dead link must not wait");
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+}
+
+#[cfg(test)]
+mod frame_epoch_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A frame admitted on a link that went down is dropped when `serve` dequeues it, even
+    /// when its sender woke only after the next link opened; one admitted on the live link
+    /// goes out.
+    #[tokio::test]
+    async fn a_frame_tagged_with_an_ended_link_never_goes_out_on_the_next() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let stale = peer.link_epoch();
+        peer.link_ended();
+        peer.out.send((stale, r#"{"jsonrpc":"2.0","method":"stale"}"#.to_owned())).await.unwrap();
+        let live = peer.link_epoch();
+        peer.out.send((live, r#"{"jsonrpc":"2.0","method":"live"}"#.to_owned())).await.unwrap();
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+
+        let mut seen = Vec::new();
+        while !seen.iter().any(|t: &String| t.contains("\"live\"")) {
+            let frame = tokio::time::timeout(Duration::from_secs(5), server.next())
+                .await
+                .expect("the live frame goes out")
+                .expect("the link stays open")
+                .unwrap();
+            if let Frame::Text(text) = frame {
+                seen.push(text.to_string());
+            }
+        }
+        assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
+        serving.abort();
     }
 }

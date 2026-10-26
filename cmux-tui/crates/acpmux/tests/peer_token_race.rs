@@ -256,10 +256,11 @@ fn a_peer_whose_remote_writes_its_token_after_the_handshake_reconnects_as_a_peer
 fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
     let pair = Pair::start("never", Reads::Never);
     let first = pair.wait_served_as("remote");
-    // The first read, three rereads before the connect, one after the
-    // handshake and three once the link is admitted (1 + 2 + 4 s); then the
-    // link stays up with no more reads.
-    std::thread::sleep(Duration::from_secs(10));
+    // The first read and three rereads before the connect, one after the
+    // handshake and three more (1 + 2 + 4 s) before the link is admitted;
+    // then the link stays up with no more reads.
+    assert_eq!(pair.reads(), 8, "reads before the link is admitted");
+    std::thread::sleep(Duration::from_secs(5));
     let later = pair.peer();
     assert_eq!(later["state"], json!("connected"), "{later}");
     assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
