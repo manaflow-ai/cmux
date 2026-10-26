@@ -46,8 +46,10 @@ extension TabDragSession {
             let dwell = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
                 ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline
             let armed = dwell.map { CACurrentMediaTime() >= $0 } ?? false
-            // Content moved under the pointer or a dwell armed: one hit test for the frame, whichever asked.
-            if scrolled || armed { retarget(current.point, drag: current) }
+            // Content moved under the pointer or a dwell armed: one hit test for the frame, whichever asked, unless
+            // the frame's moves hit-tested (two per frame at most; the next delivery or frame sees the scroll).
+            if scrolled || armed, !current.movedSinceFrame { retarget(current.point, drag: current) }
+            current.movedSinceFrame = false
             moving = moving || scrolled || dwell != nil
         }
         current.ghost.render(current.motion)
@@ -162,6 +164,8 @@ extension TabDragSession {
 
     /// Stops the drag's input: its tap intercept and the app-resign observer.
     func endInput(_ drag: Drag) {
+        drag.moves?.cancel()
+        drag.moves = nil
         drag.input?.cancel()
         drag.input = nil
         resignObserver = nil

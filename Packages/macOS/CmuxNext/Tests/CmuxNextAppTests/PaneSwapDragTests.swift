@@ -7,7 +7,9 @@ import CmuxNextWakeups
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
-/// back on its own pane does nothing. The tab bar's tabs keep their own drag.
+/// back on its own pane does nothing. The tab bar's tabs keep their own drag. With feature
+/// `pointerFrameDrags` the drag previews on a frame interval's first move and once at the frame
+/// (p04-input-032); with it off every move previews.
 @MainActor
 struct PaneSwapDragTests {
     final class Panes: LayoutPaneContentProvider {
@@ -28,21 +30,22 @@ struct PaneSwapDragTests {
         let root: LayoutRootView
         /// The drags' input tap: Escape reaches a drag through it.
         let tap = InputEventTap()
-        /// The drags' frames: a drag's moves preview when the test ticks.
-        let frames = DragFrames()
+        /// The drags' frames: a drag's trailing moves preview when the test calls `frames.frame()`.
+        let frames = PointerFrameTestRig()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         private(set) var swaps: [(PaneID, PaneID)] = []
         private(set) var drags: [PaneID: PaneSwapDrag] = [:]
 
-        init() {
+        /// `framed`: the feature on (the drags' moves go through `frames`); off, every move previews.
+        init(framed: Bool = true) {
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             // Gesture recognizers only see the events of a window on screen.
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             for (pane, strip) in provider.strips {
-                drags[pane] = PaneSwapDrag(strip: strip, pane: pane, input: tap, frames: frames.coalescers, layout: { [root] in root },
+                drags[pane] = PaneSwapDrag(strip: strip, pane: pane, input: tap, frames: framed ? frames.coalescers : nil, layout: { [root] in root },
                                            swap: { [unowned self] in swaps.append(($0, $1)) })
             }
         }
@@ -78,7 +81,7 @@ struct PaneSwapDragTests {
                 send(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
             }
             lastHeld = end
-            if frame { frames.tick() }
+            if frame { frames.frame() }
         }
 
         private var lastHeld: CGPoint = .zero
@@ -158,7 +161,7 @@ struct PaneSwapDragTests {
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         strip.layoutSubtreeIfNeeded()
-        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), frames: FrameInputCoalescers(), layout: { nil },
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), frames: nil, layout: { nil },
                                 swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
         let cell = try #require(strip.cells[TabID("b")])
@@ -188,17 +191,21 @@ struct PaneSwapDragTests {
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
 
-    /// A frame of moves previews at most twice (the drag's start at once, then the frame's latest
-    /// move at the frame), and the preview is where the pointer is at that frame (p04-input-032).
+    /// A frame of moves previews twice at most: the drag's start is the interval's first move and
+    /// previews at once, the other moves wait and preview once at the frame, where the pointer is
+    /// then (p04-input-032).
     @Test func aFrameOfMovesPreviewsAtMostTwice() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer {
+            window.frames.close()
+            window.window.orderOut(nil)
+        }
         let drag = try #require(window.drags["p1"])
         window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"), frame: false)
-        #expect(drag.previews <= 1, "moves previewed before their frame: \(drag.previews)")
+        #expect(drag.previews == 1, "the start did not preview at once, or a move did before its frame: \(drag.previews)")
         #expect(window.frames.coalescer.hasPending, "the moves did not wait for their frame")
-        window.frames.tick()
-        #expect(drag.previews <= 2, "one frame previewed \(drag.previews) times")
+        window.frames.frame()
+        #expect(drag.previews == 2, "one frame interval previewed \(drag.previews) times, not 2")
         let pane = try #require(window.root.frame(of: "p2"))
         #expect(window.root.highlight.destinationRect.width > pane.width / 2, "the frame did not preview the pane under the pointer")
         window.release()
@@ -215,7 +222,21 @@ struct PaneSwapDragTests {
         let previews = drag.previews
         window.release()
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
-        window.frames.tick()
+        #expect(drag.previews == previews, "the release previewed a waiting move")
+        #expect(!window.frames.coalescer.hasPending, "the ended drag left moves waiting")
+        window.frames.frame()
         #expect(drag.previews == previews, "a stale move previewed after the drop")
+    }
+
+    /// With the feature off each move previews at once, and the drop swaps as with it on.
+    @Test func withTheFeatureOffEveryMovePreviews() throws {
+        let window = Window(framed: false)
+        defer { window.window.orderOut(nil) }
+        let drag = try #require(window.drags["p1"])
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"), frame: false)
+        #expect(drag.previews >= 2, "the moves did not preview each: \(drag.previews)")
+        #expect(!window.frames.coalescer.hasPending, "a move went to the coalescer with the feature off")
+        window.release()
+        #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
 }

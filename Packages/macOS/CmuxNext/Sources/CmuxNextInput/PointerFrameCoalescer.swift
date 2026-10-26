@@ -38,8 +38,9 @@ public final class PointerFrameCoalescer {
 
     /// Weak: a closed window's scheduler goes away with the window; its coalescer does not keep it.
     private weak var scheduler: FrameScheduler?
-    private lazy var client = FrameClient(owner: "PointerFrameCoalescer", isAnimation: false,
-                                          on: scheduler ?? .app) { [weak self] tick in
+    /// The window's input stage: the trailing deliveries run before the frame's springs and drivers,
+    /// and one a delivery wakes ticks in the same frame (Blink's rAF-aligned input before rAF).
+    private lazy var client = FrameClient(inputStageOf: scheduler ?? .app, owner: "PointerFrameCoalescer") { [weak self] tick in
         self?.frameTick(tick) ?? false
     }
     private let fallback: DemandTimer

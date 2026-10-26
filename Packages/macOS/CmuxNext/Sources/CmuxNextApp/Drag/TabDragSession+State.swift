@@ -66,10 +66,14 @@ extension TabDragSession {
         var presentation: Presentation = .none
         /// The drag's input tap intercept; cancelled when the drag ends.
         var input: InputSubscription?
-        /// The ghost window's input coalescer: the drag's moves run once per ghost frame.
-        let moves: FrameInputCoalescer
-        /// Hit tests run during this drag (debug.tab_drag and tests: at most two per frame).
+        /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`): a frame interval's first
+        /// move and the frame's latest hit-test. Nil while it is off: every move hit-tests.
+        var moves: PointerFrameConsumer?
+        /// Hit tests run during this drag (debug.tab_drag and tests: at most two per frame with ``moves``).
         var hitTests = 0
+        /// A delivery of ``moves`` hit-tested since the last ghost frame: that frame's scroll step or dwell does not
+        /// hit-test again (the next delivery or frame does).
+        var movedSinceFrame = false
         /// The edge auto-scroll the pointer asks for and the layout it scrolls, resolved at each hit test;
         /// nil outside every edge band.
         var autoscroll: TabDragAutoscroll?
@@ -97,14 +101,12 @@ extension TabDragSession {
         /// The layout previewing a merge of the dragged workspace.
         weak var workspaceLayout: LayoutTabDropTarget?
 
-        init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint,
-             moves: FrameInputCoalescer) {
+        init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint) {
             self.source = source
             self.lifecycle = lifecycle
             self.ghost = ghost
             self.motion = motion
             self.point = point
-            self.moves = moves
         }
 
         /// Records a pointer position for the release velocity.

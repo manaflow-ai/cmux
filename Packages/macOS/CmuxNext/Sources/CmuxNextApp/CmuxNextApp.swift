@@ -101,8 +101,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
-                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
-                                   frameInput: (app as? CmuxApplication)?.frameInput ?? FrameInputCoalescers(), settingsRead: settingsRead,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)

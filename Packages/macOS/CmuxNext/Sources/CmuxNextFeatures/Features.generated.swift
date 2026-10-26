@@ -342,12 +342,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    /// Dividers, resize edges and the DevTools divider move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
         index: 20,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        description: "Dividers, resize edges and the DevTools divider move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

@@ -3,7 +3,6 @@ import CmuxNextBridge
 import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextTabs
-import CmuxNextWakeups
 
 /// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
@@ -21,12 +20,15 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let input: InputEventTap
     /// The drag's Escape intercept; nil while no drag runs.
     private var escape: InputSubscription?
-    /// Each window's input coalescer: the drag's moves preview once per frame of the strip's window.
-    private let frames: FrameInputCoalescers
-    /// Pane hit tests and previews run (tests: at most two per frame, the drag's start and the frame's latest move).
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the drag previews on a frame
+    /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move previews.
+    private let frames: PointerFrameCoalescers?
+    /// The running drag's moves on its window's coalescer; nil between drags and with the feature off.
+    private var moves: PointerFrameConsumer?
+    /// Pane hit tests and previews run (tests: at most two per frame interval, its first move and the frame's latest).
     private(set) var previews = 0
 
-    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, frames: FrameInputCoalescers,
+    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, frames: PointerFrameCoalescers?,
          layout: @escaping () -> LayoutRootView?, swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
         self.strip = strip
         self.pane = pane
@@ -47,7 +49,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     /// A pane's drag: a drop sends `swap-pane` to its daemon.
     convenience init(pane: PaneController) {
         self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, input: pane.services.inputTap,
-                  frames: pane.services.frameInput, layout: { [weak pane] in pane?.workspace?.layoutView },
+                  frames: pane.services.dragFrameInput, layout: { [weak pane] in pane?.workspace?.layoutView },
                   swap: { [weak pane] from, to in
                       guard let pane, let content = pane.workspace, let from = content.handles.panes[from],
                             let to = content.handles.panes[to] else { return }
@@ -94,17 +96,17 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         case .began:
             guard armed else { return }
             watchEscape(recognizer)
-            preview(atWindow: point)
-        case .changed:
-            guard armed, let window = layout.window else { return }
-            // The preview follows the frame's latest move, once per frame (Chromium's rAF-aligned moves,
-            // `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
-            let sample = FrameInputSample(location: point, delta: .zero, timestamp: ProcessInfo.processInfo.systemUptime)
-            frames.coalescer(for: window).post(.drag, owner: Self.movesOwner, sample: sample) { [weak self] latest, _, _ in
-                self?.preview(atWindow: latest.location)
+            // The start is the frame interval's first move: it previews at once, through the coalescer when there is one.
+            moves = layout.window.flatMap { frames?.coalescer(for: $0) }?.consumer(owner: Self.movesOwner) { [weak self] input in
+                self?.preview(atWindow: CGPoint(x: input.latest.location.x, y: input.latest.location.y))
             }
+            move(to: point, in: layout)
+        case .changed:
+            guard armed else { return }
+            move(to: point, in: layout)
         case .ended:
-            // At the real release point. Escape disarmed it: the release swaps nothing.
+            // At the real release point; a move still waiting for its frame is older, and `end` drops it unpreviewed.
+            // Escape disarmed it: the release swaps nothing.
             let target = otherPane(atWindow: point, in: layout)
             let swaps = armed
             end(layout)
@@ -116,6 +118,16 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
 
     /// The coalescer owner of a pane drag's moves.
     static let movesOwner = "PaneSwapDrag.moves"
+
+    /// One move of the drag to `point` (window coordinates). With the coalescer the preview follows a frame
+    /// interval's first move at once and the frame's latest move at its frame, before the frame's drivers (Chromium's
+    /// rAF-aligned input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`); without it
+    /// every move previews.
+    private func move(to point: CGPoint, in layout: LayoutRootView) {
+        guard let moves, let window = layout.window else { return preview(atWindow: point) }
+        moves.post(InputEventRecord(type: .leftMouseDragged, timestamp: ProcessInfo.processInfo.systemUptime,
+                                    windowNumber: window.windowNumber, location: InputPoint(x: point.x, y: point.y)))
+    }
 
     /// The pane under `point` (window coordinates) when it is not the dragged one.
     private func otherPane(atWindow point: CGPoint, in layout: LayoutRootView) -> LayoutPaneID? {
@@ -148,6 +160,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
 
     /// Ends the drag on every path: the Escape intercept goes, the drag disarms, the preview hides.
     private func end(_ layout: LayoutRootView?) {
+        moves?.cancel()
+        moves = nil
         escape?.cancel()
         escape = nil
         armed = false

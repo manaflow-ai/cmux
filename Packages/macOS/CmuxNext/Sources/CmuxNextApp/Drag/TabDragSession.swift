@@ -97,9 +97,13 @@ final class TabDragSession: NSObject {
             pane.syncStripFromStore()
             Self.endPresentation(item, in: pane)
         })
-        // Its moves wait for the ghost's frame: the ghost window's coalescer ticks before the ghost does.
-        let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point,
-                        moves: services.frameInput.coalescer(for: ghost.panel))
+        let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
+        // Its moves on the ghost window's coalescer, whose frame input runs in the input stage before the ghost's
+        // spring (feature `pointerFrameDrags`).
+        drag.moves = services.dragFrameInput?.coalescer(for: ghost.panel).consumer(owner: Self.movesOwner) { [weak self, weak drag] input in
+            guard let self, let drag else { return }
+            self.deliverMoves(input, drag: drag)
+        }
         // The drag's events, for the drag only: an intercept in the drag order (after the key router, before
         // AppKit dispatches), in every window, since the ghost crosses them. Chrome's Mac tab drag does the
         // same with a local monitor that lives for the move loop and ends it at the release or Escape
@@ -170,11 +174,12 @@ final class TabDragSession: NSObject {
     func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
-            move(to: Self.screenPoint(of: event), timestamp: event.timestamp)
+            move(event)
             return .consume
         case .leftMouseUp:
-            // At the real release point: a move still waiting for its frame is stale (the app flushed it
-            // before this release; a drag that ended ignores it).
+            // The release hit-tests once, at its own point: a move still waiting for its frame is older, so it is
+            // dropped, not hit-tested first.
+            drag?.moves?.cancel()
             update(Self.screenPoint(of: event))
             drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
@@ -195,19 +200,25 @@ final class TabDragSession: NSObject {
     /// The coalescer owner of a drag's moves.
     static let movesOwner = "TabDragSession.moves"
 
-    /// One pointer move of the drag. Every move feeds the release velocity; the ghost, the hit test
-    /// and the autoscroll target follow the frame's latest move, once per frame (Chromium aligns
-    /// continuous input to the frame: `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`,
-    /// `DispatchRafAlignedInput`).
-    func move(to point: CGPoint, timestamp: TimeInterval) {
+    /// One pointer move of the drag. Every move feeds the release velocity. With ``Drag/moves`` the ghost, the hit
+    /// test and the autoscroll target follow a frame interval's first move at once and the frame's latest move at its
+    /// frame (Chromium aligns continuous input to the frame: `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`,
+    /// `DispatchRafAlignedInput`); without it every move hit-tests.
+    func move(_ event: NSEvent) {
         guard let drag else { return }
+        let point = Self.screenPoint(of: event)
+        guard let moves = drag.moves else { return update(point) }
         drag.samplePointer(point, at: CACurrentMediaTime())
-        let sample = FrameInputSample(location: point, delta: .zero, timestamp: timestamp)
-        drag.moves.post(.drag, owner: Self.movesOwner, sample: sample) { [weak self, weak drag] latest, _, _ in
-            // The drag ended (released, cancelled) before its frame: nothing to show.
-            guard let self, let drag, self.drag === drag else { return }
-            self.retarget(latest.location, drag: drag)
-        }
+        moves.post(event)
+    }
+
+    /// One delivery of the drag's moves: a hit test at its latest point. A drag that ended before it gets none
+    /// (its end cancels ``Drag/moves``).
+    func deliverMoves(_ input: PointerCoalescedInput, drag: Drag) { // perf-hot: 2ms drag-frame (each leading or trailing delivery)
+        guard self.drag === drag else { return }
+        let latest = input.latest.screenLocation
+        drag.movedSinceFrame = true
+        retarget(CGPoint(x: latest.x, y: latest.y), drag: drag)
     }
 
     /// The event's own location, so events posted to this process (tests,
