@@ -33,9 +33,13 @@
 //!
 //! - A report the same as the lane's last one (state, reply, pull requests and commits) is not
 //!   sent again; the turn still counts as reported.
-//! - A report never steers: it waits for the parent's turn to end. The hub alone sets a
-//!   report's provenance (`prompt_provenance.rs` takes only `agent_message` from a client), so
-//!   no prompt passes for one.
+//! - A turn that ran on lane reports only (a report, or a turn of agent messages, `digest.rs`,
+//!   that took in nothing else, and nothing else steered into it, each turn on its own) sends
+//!   none, so a parent's turn
+//!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
+//!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
+//!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
+//!   of a turn that reports.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -109,6 +113,92 @@ pub(crate) struct LaneReports {
     links: StdMutex<BTreeMap<String, Link>>,
     /// Lanes with a delivery on its way, and whether a turn ended meanwhile.
     inflight: StdMutex<HashMap<String, bool>>,
+    /// What each running turn took in, by session and turn.
+    turns: StdMutex<TurnKinds>,
+}
+
+/// Which turns ran on lane reports only: a turn that started on reports, with no other prompt
+/// steered in while it ran. A steer is aimed at a turn but goes into whichever one the agent runs
+/// when it reads it, so steers are counted by session: one on its way when a turn ends makes that
+/// turn report, and one answered as gone in makes every turn up to the last started that has not
+/// ended yet report.
+#[derive(Default)]
+struct TurnKinds {
+    /// Turns that started on reports only.
+    report_only: std::collections::HashSet<(String, u64)>,
+    /// Other prompts steered in and not answered yet, by session.
+    in_flight: HashMap<String, usize>,
+    /// The last turn started when another prompt was answered as gone in, by session: every
+    /// turn up to it had one.
+    carried: HashMap<String, u64>,
+}
+
+impl TurnKinds {
+    fn steer_in(&mut self, id: &str) {
+        *self.in_flight.entry(id.to_owned()).or_default() += 1;
+    }
+
+    /// A steer [`TurnKinds::steer_in`] counted was answered with `last` the last turn started:
+    /// `entered`, it went into a turn up to that one. A session forgotten meanwhile keeps nothing.
+    fn steer_done(&mut self, id: &str, entered: bool, last: u64) {
+        let Some(n) = self.in_flight.get_mut(id) else { return };
+        *n -= 1;
+        if *n == 0 {
+            self.in_flight.remove(id);
+        }
+        if entered {
+            let t = self.carried.entry(id.to_owned()).or_default();
+            *t = (*t).max(last);
+        }
+    }
+
+    /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
+    fn end(&mut self, id: &str, turn: u64) -> bool {
+        // Kept, not taken: turns' ends may run out of order, and a later turn is never under it.
+        let carried =
+            self.carried.get(id).is_some_and(|&t| t >= turn) || self.in_flight.contains_key(id);
+        self.report_only.remove(&(id.to_owned(), turn)) && !carried
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.report_only.retain(|(s, _)| s != id);
+        self.in_flight.remove(id);
+        self.carried.remove(id);
+    }
+}
+
+/// One steer [`TurnKinds::steer_in`] counted, until its answer: [`SteerCount::done`] takes it
+/// back. Dropped first (its request was dropped), it may be with the agent still, to be read in
+/// the turn running or the next, so it counts as gone into both. `last` reads the last turn
+/// started.
+pub(super) struct SteerCount<'a, F: Fn() -> u64> {
+    turns: &'a StdMutex<TurnKinds>,
+    id: String,
+    last: F,
+    entered: Option<bool>,
+}
+
+impl<'a, F: Fn() -> u64> SteerCount<'a, F> {
+    fn new(turns: &'a StdMutex<TurnKinds>, id: &str, last: F) -> Self {
+        turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
+        Self { turns, id: id.to_owned(), last, entered: None }
+    }
+
+    /// The steer was answered: `entered`, it went into a turn, which reports.
+    pub(super) fn done(mut self, entered: bool) {
+        self.entered = Some(entered);
+    }
+}
+
+impl<F: Fn() -> u64> Drop for SteerCount<'_, F> {
+    fn drop(&mut self) {
+        let last = (self.last)();
+        let (entered, last) = match self.entered {
+            Some(entered) => (entered, last),
+            None => (true, last + 1),
+        };
+        self.turns.lock().unwrap_or_else(|e| e.into_inner()).steer_done(&self.id, entered, last);
+    }
 }
 
 /// One report, before it is written out.
@@ -150,6 +240,19 @@ impl Report {
              task. Answer only if it needs you.)",
         );
         t
+    }
+}
+
+/// Whether a turn's provenance is lane reports only: a report, or a turn of agent messages that
+/// took in nothing else.
+fn reports_only(provenance: Option<&Value>) -> bool {
+    let Some(p) = provenance else { return false };
+    match p.get("kind").and_then(Value::as_str) {
+        Some(KIND) => true,
+        Some(super::digest::DIGEST_KIND) => p["messages"].as_array().is_some_and(|m| {
+            !m.is_empty() && m.iter().all(|m| m.pointer("/provenance/kind") == Some(&json!(KIND)))
+        }),
+        _ => false,
     }
 }
 
@@ -234,6 +337,10 @@ impl Hub {
         self.lane_reports.inflight.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn lane_turns(&self) -> std::sync::MutexGuard<'_, TurnKinds> {
+        self.lane_reports.turns.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Takes `lane`'s one delivery; when another has it, that one goes again once done.
     fn lane_claim(&self, lane: &str) -> bool {
         let mut inflight = self.lane_inflight();
@@ -304,20 +411,51 @@ impl Hub {
         self.set_tags(&s, Some(&set), &[], None);
     }
 
+    /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
+    /// (`digest.rs`).
+    pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
+        if reports_only(provenance) {
+            let turn = session.meta().turn_count;
+            self.lane_turns().report_only.insert((session.id.clone(), turn));
+        }
+    }
+
+    /// A prompt that is not a lane report is about to be steered into `session`: counted before
+    /// it reaches the agent, so any turn that ends while it is on its way reports.
+    pub(super) fn lane_steer_in<'a>(
+        &'a self,
+        session: &'a Session,
+        provenance: Option<&Value>,
+    ) -> Option<SteerCount<'a, impl Fn() -> u64 + 'a>> {
+        let last = move || session.meta().turn_count;
+        (!reports_only(provenance))
+            .then(|| SteerCount::new(&self.lane_reports.turns, &session.id, last))
+    }
+
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's
     /// report of it is made now, from this turn's own records and state, and queued; delivery
     /// and its retries send that report and never read the lane again.
-    pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>, started: bool) {
-        let turn = session.meta().turn_count;
+    /// `turn` is its own number, read before its end let the next turn start.
+    pub(super) fn lane_turn_ended(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        started: bool,
+        turn: u64,
+    ) {
+        // One that failed to start left the lane stuck, so it reports whatever it took in.
+        let on_reports = self.lane_turns().end(&session.id, turn) && started;
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
         }
-        let report = self.lane_capture(session, turn, started);
-        self.lane_links(|links| {
-            if let Some(l) = links.get_mut(&session.id) {
-                l.ready = Some(replace_ready(report, l.ready.take()));
-            }
-        });
+        // A turn on reports only makes none, and leaves one still queued to go now.
+        if !on_reports {
+            let report = self.lane_capture(session, turn, started);
+            self.lane_links(|links| {
+                if let Some(l) = links.get_mut(&session.id) {
+                    l.ready = Some(replace_ready(report, l.ready.take()));
+                }
+            });
+        }
         self.lane_send(&session.id);
     }
 
@@ -457,6 +595,7 @@ impl Hub {
     /// reports to a closed parent and nothing of a closed lane stays here.
     pub(super) fn lane_retire(&self, id: &str) {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
+        self.lane_turns().forget(id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -665,6 +804,188 @@ mod tests {
         let got = replace_ready(report(2, &["pr/2"]), Some(report(1, &["pr/1", "pr/2"])));
         assert_eq!((got.turn, got.prs), (2, vec!["pr/2".to_owned(), "pr/1".to_owned()]));
         assert_eq!(replace_ready(report(1, &[]), None), report(1, &[]));
+    }
+
+    #[test]
+    fn each_turn_on_reports_only_is_known_on_its_own() {
+        let mut k = TurnKinds::default();
+        // Two report turns back to back: the second never hides the first.
+        k.report_only.insert(("c".into(), 1));
+        k.report_only.insert(("c".into(), 2));
+        assert!(k.end("c", 1));
+        assert!(k.end("c", 2));
+        // A task steered in before the turn ends: counted before the end, whenever its own
+        // answer comes, so the turn reports.
+        k.report_only.insert(("c".into(), 3));
+        k.steer_in("c");
+        assert!(!k.end("c", 3));
+        k.steer_done("c", true, 3);
+        assert!(k.in_flight.is_empty());
+        // (answered once turn 3, which reported for it, ended: turn 4 does not)
+        k.report_only.insert(("c".into(), 4));
+        assert!(k.end("c", 4));
+        // A steer withdrawn (or that found no turn) is taken back: still reports only.
+        k.report_only.insert(("c".into(), 5));
+        k.steer_in("c");
+        k.steer_done("c", false, 5);
+        assert!(k.end("c", 5));
+        // A turn not on reports.
+        assert!(!k.end("c", 6));
+        k.steer_in("c");
+        k.forget("c");
+        assert!(k.in_flight.is_empty() && k.carried.is_empty() && k.report_only.is_empty());
+    }
+
+    #[test]
+    fn a_steer_dropped_before_its_answer_is_not_counted_forever() {
+        let turns = StdMutex::new(TurnKinds::default());
+        // The steer's request is dropped (its client went away) before the agent answers, in
+        // turn 1. It may already be with the agent, to be read in turn 1 or the next: both
+        // report, and no later one.
+        let count = SteerCount::new(&turns, "c", || 1);
+        for turn in [1, 2, 3] {
+            turns.lock().unwrap().report_only.insert(("c".into(), turn));
+        }
+        drop(count);
+        let mut k = turns.lock().unwrap();
+        assert!(k.in_flight.is_empty(), "a dropped steer stays on its way");
+        assert!(!k.end("c", 1));
+        assert!(!k.end("c", 2), "the next turn, which may have read it, did not report");
+        assert!(k.end("c", 3), "every later report turn reports");
+        drop(k);
+        // Answered, it counts as the answer says.
+        SteerCount::new(&turns, "c", || 4).done(false);
+        let mut k = turns.lock().unwrap();
+        k.report_only.insert(("c".into(), 4));
+        assert!(k.end("c", 4));
+    }
+
+    #[test]
+    fn a_turn_whose_end_runs_after_the_next_turn_ended_keeps_its_steer() {
+        let mut k = TurnKinds::default();
+        // A task is steered into report turn 1; turn 1's end is held up behind the next turn,
+        // which ends first.
+        k.report_only.insert(("c".into(), 1));
+        k.report_only.insert(("c".into(), 2));
+        k.steer_in("c");
+        k.steer_done("c", true, 1);
+        assert!(k.end("c", 2));
+        assert!(!k.end("c", 1), "turn 1's task was lost when turn 2 ended first");
+    }
+
+    #[test]
+    fn a_steer_answered_after_its_session_was_forgotten_leaves_nothing() {
+        let turns = StdMutex::new(TurnKinds::default());
+        let answered = SteerCount::new(&turns, "c", || 1);
+        let dropped = SteerCount::new(&turns, "c", || 1);
+        turns.lock().unwrap().forget("c");
+        answered.done(true);
+        drop(dropped);
+        let k = turns.lock().unwrap();
+        assert!(k.in_flight.is_empty() && k.carried.is_empty(), "a retired lane left state");
+    }
+
+    #[test]
+    fn a_steer_counted_before_a_report_turn_started_still_makes_it_report() {
+        let mut k = TurnKinds::default();
+        // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
+        // 2, a report turn that started meanwhile: turn 2 did a task, so it reports.
+        k.steer_in("c");
+        k.report_only.insert(("c".into(), 2));
+        assert!(!k.end("c", 2), "the task's turn was taken for reports only");
+        // Answered after that turn ended, with none running since: the turn it went into
+        // already reported, so the next one does not.
+        k.steer_done("c", true, 2);
+        k.report_only.insert(("c".into(), 3));
+        assert!(k.end("c", 3));
+    }
+
+    #[test]
+    fn a_late_steer_answer_does_not_make_a_later_report_turn_report() {
+        let mut k = TurnKinds::default();
+        k.steer_in("c");
+        // Two report turns end while the steer is on its way: both report, one had it.
+        for turn in [1, 2] {
+            k.report_only.insert(("c".into(), turn));
+            assert!(!k.end("c", turn));
+        }
+        // Its answer comes after, with turn 2 the last to start: no later report turn is put
+        // down to it.
+        k.steer_done("c", true, 2);
+        k.report_only.insert(("c".into(), 3));
+        assert!(k.end("c", 3), "a later report turn reported for a steer it never had");
+        // Answered while turn 4 runs, it went into turn 4: that one reports.
+        k.steer_in("c");
+        k.steer_done("c", true, 4);
+        k.report_only.insert(("c".into(), 4));
+        assert!(!k.end("c", 4));
+    }
+
+    #[test]
+    fn a_steer_taken_by_the_next_report_turn_makes_that_turn_report() {
+        let mut k = TurnKinds::default();
+        // Sent in report turn 1, which ends before the agent reads it (that turn reports, as
+        // it may have had it); report turn 2 starts and takes it, answered while it runs.
+        k.steer_in("c");
+        k.report_only.insert(("c".into(), 1));
+        assert!(!k.end("c", 1));
+        k.report_only.insert(("c".into(), 2));
+        k.steer_done("c", true, 2);
+        assert!(!k.end("c", 2), "the turn that did the task was taken for reports only");
+        // Answered with turn 2 just started and turn 1 not yet ended: both report.
+        k.steer_in("c");
+        k.report_only.insert(("c".into(), 3));
+        k.report_only.insert(("c".into(), 4));
+        k.steer_done("c", true, 4);
+        assert!(!k.end("c", 3));
+        assert!(!k.end("c", 4));
+        k.report_only.insert(("c".into(), 5));
+        assert!(k.end("c", 5));
+    }
+
+    #[tokio::test]
+    async fn a_turn_ending_after_the_next_one_started_ends_its_own_turn() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let lane = hub.new_session(start()).await.unwrap();
+        let report = json!({"kind": KIND, "from": "s1"});
+        for turn in [1, 2] {
+            lane.meta.lock().unwrap().turn_count = turn;
+            hub.lane_turn_started(&lane, Some(&report));
+        }
+        // Report turn 1's end runs after report turn 2 started (its queue woke turn 2 first).
+        hub.lane_turn_ended(&lane, true, 1);
+        assert!(
+            hub.lane_turns().report_only.contains(&(lane.id.clone(), 2)),
+            "turn 1's end took turn 2's mark: turn 2 will report"
+        );
+        hub.lane_turn_ended(&lane, true, 2);
+        assert!(hub.lane_turns().report_only.is_empty());
+        hub.kill(&lane, true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_report_turn_that_failed_to_start_still_reports() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        // A worker's report starts the lane's turn 1, whose agent then fails to start: the lane
+        // is stuck, and its parent must hear it.
+        lane.meta.lock().unwrap().turn_count = 1;
+        hub.lane_turn_started(&lane, Some(&json!({"kind": KIND, "from": "s1"})));
+        hub.lane_turn_ended(&lane, false, 1);
+        for _ in 0..150 {
+            if parent.meta().turn_count > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(parent.meta().turn_count, 1, "the failed start never reached the parent");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
     }
 
     #[test]
@@ -1027,6 +1348,21 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_turn_on_reports_only_is_known_by_its_provenance() {
+        let report = json!({"kind": "lane_report", "from": "s1"});
+        let task = json!({"kind": "session_message", "from": "s2"});
+        assert!(reports_only(Some(&report)));
+        assert!(!reports_only(Some(&task)));
+        assert!(!reports_only(None));
+        let digest = |kinds: &[&Value]| {
+            let m: Vec<Value> = kinds.iter().map(|p| json!({"provenance": p})).collect();
+            json!({"kind": "agent_digest", "messages": m})
+        };
+        assert!(reports_only(Some(&digest(&[&report, &report]))));
+        assert!(!reports_only(Some(&digest(&[&report, &task]))));
+    }
 
     #[test]
     fn the_state_names_what_the_lane_waits_on() {

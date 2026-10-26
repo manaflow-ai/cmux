@@ -126,14 +126,15 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
-    # The settings exports and their source stamp
-    # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
-    # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # The settings exports (regenerate-settings-exports.sh; the generated
+    # files job exports them fresh and compares). The CmuxNextSettings sources
+    # and the export tests are under PACKAGE.
     # (The defaults snapshot and defaults_guard.py are checked on Linux.)
     "schemas/settings/settings-schema.json",
-    "schemas/settings-export/",
     "docs/mdm/",
     "scripts/cmux-next/regenerate-settings-exports.sh",
+    "scripts/cmux-next/check-settings-exports.sh",
+    "scripts/cmux-next/settings-exports.txt",
 )
 
 # The path classes of the original routing: these never need a Mac.
