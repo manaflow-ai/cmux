@@ -23,9 +23,15 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "risk-tier.yml"
 STEP = "Set the risk label"
+VIEW_CALL = "pr view 25172 --repo manaflow-ai/cmux --json labels --jq .labels[].name"
 
+# Records its arguments, and answers `pr view --json labels` the way gh does: one label per line,
+# from GH_VIEW_LABELS. That way the live-confirmation path is exercised, not stubbed out.
 GH_RECORDER = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$GH_CALLS"
+if [ "${1:-}" = pr ] && [ "${2:-}" = view ]; then
+  [ -z "${GH_VIEW_LABELS:-}" ] || printf '%s\\n' "$GH_VIEW_LABELS"
+fi
 exit "${GH_EXIT:-0}"
 """
 
@@ -43,8 +49,12 @@ def step_script() -> str:
 
 
 class RiskLabelBudgetTest(unittest.TestCase):
-    def run_step(self, label: str, current: list[str], gh_exit: int = 0):
-        """(gh calls, stdout) of the step for a pull request carrying `current`."""
+    def run_step(self, label: str, current: list[str], gh_exit: int = 0,
+                 live: list[str] | None = None):
+        """(gh calls, stdout) of the step for a pull request carrying `current`.
+
+        `live` is what a `gh pr view` reports, when it differs from the event payload.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = pathlib.Path(tmp) / "bin"
             bin_dir.mkdir()
@@ -63,6 +73,8 @@ class RiskLabelBudgetTest(unittest.TestCase):
                 "NUMBER": "25172",
                 "LABEL": label,
                 "CURRENT_JSON": json.dumps(current),
+                # What a live `gh pr view` would report; defaults to the payload.
+                "GH_VIEW_LABELS": "\n".join(live if live is not None else current),
             }
             done = subprocess.run(
                 ["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60
@@ -79,7 +91,8 @@ class RiskLabelBudgetTest(unittest.TestCase):
 
     def test_an_unlabeled_pull_request_costs_one_add(self):
         calls, _ = self.run_step("risk:normal", [])
-        self.assertEqual(calls, ["pr edit 25172 --repo manaflow-ai/cmux --add-label risk:normal"])
+        self.assertEqual(calls, ["pr view 25172 --repo manaflow-ai/cmux --json labels --jq .labels[].name",
+                                 "pr edit 25172 --repo manaflow-ai/cmux --add-label risk:normal"])
 
     def test_a_label_is_never_created_while_adding_it_works(self):
         """The four unconditional `gh label create` calls were the whole drain."""
@@ -91,6 +104,7 @@ class RiskLabelBudgetTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
+                "pr view 25172 --repo manaflow-ai/cmux --json labels --jq .labels[].name",
                 "pr edit 25172 --repo manaflow-ai/cmux --add-label risk:high",
                 "pr edit 25172 --repo manaflow-ai/cmux --remove-label risk:low",
             ],
@@ -112,6 +126,7 @@ class RiskLabelBudgetTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
+                "pr view 25172 --repo manaflow-ai/cmux --json labels --jq .labels[].name",
                 "pr edit 25172 --repo manaflow-ai/cmux --add-label risk:low",
                 "label create risk:low --repo manaflow-ai/cmux --color 0E8A16 "
                 "--description Risk tier (docs/ci/risk-tiers.md)",
@@ -142,6 +157,25 @@ class RiskLabelBudgetTest(unittest.TestCase):
         calls, _ = self.run_step("risk:low", [f"$(touch {marker})", "*", "risk:low"])
         self.assertEqual(calls, [])
         self.assertFalse(marker.exists(), f"{marker} was created, so a label name ran as code")
+
+    def test_a_live_read_that_disagrees_with_the_payload_wins(self):
+        """The payload is a snapshot. A racing run may already have set the tier, and a
+        GITHUB_TOKEN label edit starts no run to correct a double label, so the edit path
+        confirms against the live labels first."""
+        calls, out = self.run_step("risk:high", ["risk:low"], live=["risk:high"])
+        self.assertEqual(calls, [VIEW_CALL])
+        self.assertIn("became the only risk label", out)
+
+    def test_a_failed_live_read_falls_back_to_the_payload(self):
+        """A read error must not make the step treat the pull request as unlabelled."""
+        calls, _ = self.run_step("risk:high", ["risk:low"], gh_exit=1)
+        self.assertIn("pr edit 25172 --repo manaflow-ai/cmux --remove-label risk:low", calls)
+
+    def test_the_step_cannot_spend_a_request_except_through_gh(self):
+        """The budget claim rests on counting `gh`, so nothing else may reach the API."""
+        body = step_script()
+        for tool in ("curl", "wget", "python", "node", "/usr/bin/gh", "actions/github-script"):
+            self.assertNotIn(tool, body, f"{tool} could spend quota without the recorder seeing it")
 
     def test_an_api_error_never_fails_the_step(self):
         """The check's verdict is the gate; a label error is a warning."""

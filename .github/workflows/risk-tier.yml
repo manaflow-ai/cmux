@@ -115,6 +115,23 @@ jobs:
             echo "$LABEL is already the only risk label; no API request spent"
             exit 0
           fi
+          # Only once the payload says an edit is due: confirm against the live labels before making
+          # one. The payload is a snapshot, so two runs racing on one pull request (the concurrency
+          # group cancels the older, but not instantly) could each edit from a different view and
+          # leave two tier labels, and a GITHUB_TOKEN label edit starts no new run to correct it.
+          # This costs one request on the rare change path and none in the usual case above, which
+          # is the whole point of the step.
+          live="$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')" || live=""
+          # An error, or a read that somehow came back with nothing, falls back to the payload
+          # rather than treating the pull request as unlabelled.
+          [ -n "$live" ] || live="$current"
+          stale="$(grep -E '^risk:(low|medium|normal|high)$' <<<"$live" | grep -vxF "$LABEL" || true)"
+          wanted=no
+          grep -qxF "$LABEL" <<<"$live" && wanted=yes
+          if [ "$wanted" = yes ] && [ -z "$stale" ]; then
+            echo "$LABEL became the only risk label while this run graded; nothing to do"
+            exit 0
+          fi
           if [ "$wanted" = no ] && ! gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; then
             # The only way this label can be missing from the repository is a fresh fork.
             case "$LABEL" in
