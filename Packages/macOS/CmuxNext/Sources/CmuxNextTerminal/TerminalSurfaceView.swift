@@ -114,7 +114,8 @@ public final class TerminalSurfaceView: NSView {
     /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
     private var occlusionWatch: WindowOcclusionSubscription?
     private var appliedContentScale: NSSize?
-    private var appliedDisplayID: UInt32?
+    /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
+    private(set) var appliedDisplayID: UInt32?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -357,10 +358,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// AppKit walks hidden views too; a hidden terminal applies the scale when shown.
+    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale when
+    /// shown (`syncWindowState`). Each scale or display call is a message that wakes the surface's
+    /// renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isHiddenOrHasHiddenAncestor else { return }
+        guard isShown else { return }
         updateContentScale()
         updateSurfaceSize()
     }
