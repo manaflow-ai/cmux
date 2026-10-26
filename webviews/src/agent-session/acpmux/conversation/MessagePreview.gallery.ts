@@ -44,10 +44,17 @@ export default agentPaneEntry({
       snapshot: cards,
     },
     "full-cards-no-fade": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.001,
+          reason: "Opening the existing sent row turns its chevron; its SVG bounds shift slightly.",
+        },
+      },
       note: "Today's full cards, with intact lines and Show more instead of a bottom fade. Open the sent row to compare both directions.",
       snapshot: cards,
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-message .cv-agentmsg__toggle" });
+        if (!ctx.document.querySelector('.cv-message .cv-agentmsg__toggle[aria-expanded="true"]'))
+          await ctx.click({ selector: ".cv-message .cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
     },

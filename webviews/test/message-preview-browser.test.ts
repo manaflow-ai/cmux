@@ -55,10 +55,23 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         visible: rects.some((r) => r.bottom <= edge),
       };
     });
-  test("received preview has intact lines at wide and narrow widths; Show more and chevron share disclosure", async () => {
+  test("received preview has intact lines at wide and narrow zoomed widths; Show more and chevron share disclosure", async () => {
     await open();
+    let previousWidth = Infinity;
     for (const width of [700, 360]) {
       await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(
+        (zoom) => {
+          document.documentElement.style.zoom = String(zoom);
+        },
+        width === 360 ? 1.25 : 1,
+      );
+      const drawnWidth = await page
+        .locator(".cv-received__text")
+        .first()
+        .evaluate((box) => box.getBoundingClientRect().width);
+      expect(drawnWidth).toBeLessThan(previousWidth);
+      previousWidth = drawnWidth;
       expect((await intact(".cv-received__text >> nth=0")).mask).toBe("none");
       await page.locator(".cv-received__show").waitFor();
       await page.waitForFunction(() => {
@@ -67,8 +80,13 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
       });
       expect(await intact(".cv-received__text >> nth=0")).toEqual({ mask: "none", split: 0, visible: true });
     }
+    await page.setViewportSize({ width: 700, height: 1000 });
+    await page.evaluate(() => {
+      document.documentElement.style.zoom = "1";
+    });
     expect(await page.locator(".cv-received").nth(1).locator(".cv-received__show").count()).toBe(0);
-    await page.locator(".cv-received__show").click();
+    await page.locator(".cv-received__show").focus();
+    await page.keyboard.press("Enter");
     expect(await page.locator(".cv-received__toggle").first().getAttribute("aria-expanded")).toBe("true");
     expect(
       await page
@@ -88,6 +106,11 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
+    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    expect(await page.locator(".cv-message__more").getAttribute("aria-expanded")).toBe("true");
+    await page.locator(".cv-message__more").press("Enter");
+    expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
   test("one-line variant keeps Minimal Mode's existing ellipsis and opens the full card", async () => {
     await open("one-line");
