@@ -48,7 +48,7 @@ import {
   type VmCreateCreditReservation,
   type VmBillingGatewayShape,
 } from "./billingGateway";
-import { vmCreateDisabledReason } from "./config";
+import { gcpLabsDisabledReason, vmCreateDisabledReason } from "./config";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_DISK_MB_MAX,
@@ -139,6 +139,7 @@ import {
 import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import { withVmSyncPublication } from "./presencePublisher";
 import {
+  CREATE_CLEANUP_INTENT_AT_KEY,
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
@@ -318,6 +319,8 @@ const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const CREATE_CLEANUP_BATCH_LIMIT = 20;
+/** Retained creates one credentialed request deletes beside its own work. */
+const CREATE_CLEANUP_DRAIN_LIMIT = 4;
 const OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT = 20;
 const OBSERVED_DESTROY_CLEANUP_TIMEOUT = "15 seconds";
 const ABANDONED_CREATE_BATCH_LIMIT = 20;
@@ -399,9 +402,77 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  * when the workflow ends (success, failure or interruption), which is after
  * any work that continues past the route's answer deadline, never before.
  */
-export function releaseProviderCredential(credential: ProviderCredential | undefined) {
-  return <A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-    credential ? Effect.ensuring(program, Effect.sync(() => wipeProviderCredential(credential))) : program;
+export function releaseProviderCredential(
+  credential: ProviderCredential | undefined,
+): <A, E, R>(program: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+export function releaseProviderCredential(
+  credential: ProviderCredential | undefined,
+  ownerUserId: string,
+): <A, E, R>(program: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | VmRepository | VmProviderGateway>;
+export function releaseProviderCredential(credential: ProviderCredential | undefined, ownerUserId?: string) {
+  return <A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | VmRepository | VmProviderGateway> => {
+    if (!credential) return program;
+    // While the user's credential is here, it also deletes the creates this
+    // user left retained (the server keeps no credential of its own). The
+    // drain runs beside the request and never changes its result. If the
+    // request is interrupted the drain is too: its rows stay retained (a
+    // claimed one until its lease lapses) for the next credentialed request.
+    const withDrain = ownerUserId
+      ? Effect.gen(function* () {
+        const drain = yield* Effect.fork(drainCredentialedCreateCleanups(ownerUserId, credential));
+        const exit = yield* Effect.exit(program);
+        yield* Fiber.join(drain);
+        return yield* exit;
+      })
+      : program;
+    return Effect.ensuring(withDrain, Effect.sync(() => wipeProviderCredential(credential)));
+  };
+}
+
+/**
+ * Deletes the retained creates of one user's credential-bound provider with
+ * that user's credential. Bounded and best effort: a failed delete keeps its
+ * row and backoff for the next credentialed request.
+ */
+function drainCredentialedCreateCleanups(
+  userId: string,
+  credential: ProviderCredential,
+  limit = CREATE_CLEANUP_DRAIN_LIMIT,
+): Effect.Effect<void, never, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    // Off with the Labs gate: no row is claimed or backed off while GCP is off.
+    if (credential.provider === "gcp" && gcpLabsDisabledReason()) return;
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    // Promote this user's stopped creates itself, so neither the drain nor
+    // account deletion depends on the status cron having run.
+    if (repo.retainAbandonedCreateIntents) {
+      yield* repo.retainAbandonedCreateIntents({
+        before: new Date(Date.now() - VM_CREATE_ABANDONED_AFTER_MS),
+        limit,
+        now: new Date(),
+        userId,
+      }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+    }
+    yield* reconcilePendingCreateCleanups(repo, providers, {
+      limit,
+      owner: { userId, credential },
+    });
+  });
+}
+
+/**
+ * Account deletion's entry to the drain: the user-triggered request carries
+ * the user's credential. Whatever this leaves retained keeps the account:
+ * its row deletion refuses while any personal create row is still
+ * provisioning (deleteCmuxOwnedAccountRows, before the Stack user goes).
+ */
+export function drainProviderCreateCleanups(input: {
+  readonly userId: string;
+  readonly providerCredential: ProviderCredential;
+}): Effect.Effect<void, never, VmRepository | VmProviderGateway> {
+  return drainCredentialedCreateCleanups(input.userId, input.providerCredential, CREATE_CLEANUP_BATCH_LIMIT)
+    .pipe(releaseProviderCredential(input.providerCredential));
 }
 
 export function runVmWorkflowExit<A>(
@@ -471,7 +542,7 @@ export function getVm(input: {
 
     const providerStatus = yield* getStatus(vm.provider, providerVmId, input.providerCredential).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(vm.provider, err)
           ? Effect.succeed("destroyed" as const)
           : Effect.fail(err),
       ),
@@ -489,7 +560,7 @@ export function getVm(input: {
       }
     }
     return vmEntryFromRow(vm);
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /** Sets or clears the label and refreshes the guest prompt. Routing ids stay stable. */
@@ -605,6 +676,15 @@ export function reconcileVmProviderStatuses(input: {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
     const repo = yield* VmRepository;
+    // A create that named its allocation before stopping is not abandoned:
+    // it becomes a retained cleanup that the next owner credential deletes.
+    if (repo.retainAbandonedCreateIntents) {
+      yield* repo.retainAbandonedCreateIntents({
+        before: new Date((input.now?.() ?? Date.now()) - VM_CREATE_ABANDONED_AFTER_MS),
+        limit: Math.min(boundedVmStatusReconcileLimit(input.limit), ABANDONED_CREATE_BATCH_LIMIT),
+        now: new Date(),
+      }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+    }
     yield* reconcileAbandonedProvisioningCreates(repo, {
       before: new Date((input.now?.() ?? Date.now()) - VM_CREATE_ABANDONED_AFTER_MS),
       limit: Math.min(boundedVmStatusReconcileLimit(input.limit), ABANDONED_CREATE_BATCH_LIMIT),
@@ -700,7 +780,11 @@ export function reconcileVmProviderStatuses(input: {
 function reconcilePendingCreateCleanups(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  input: { readonly limit: number },
+  input: {
+    readonly limit: number;
+    /** One user's credential-bound rows, deleted with that user's own credential. */
+    readonly owner?: { readonly userId: string; readonly credential: ProviderCredential };
+  },
 ): Effect.Effect<void, never> {
   const listCandidates = repo.pendingCreateCleanupCandidates;
   const claimCleanup = repo.claimCreateCleanup;
@@ -708,7 +792,11 @@ function reconcilePendingCreateCleanups(
   const resolveCleanup = repo.resolveCreateCleanup;
   if (!listCandidates || !claimCleanup || !deferCleanup || !resolveCleanup) return Effect.void;
   return Effect.gen(function* () {
-    const candidates = yield* listCandidates({ limit: input.limit }).pipe(
+    const owner = input.owner;
+    const candidates = yield* listCandidates({
+      limit: input.limit,
+      ...(owner ? { owner: { userId: owner.userId, provider: owner.credential.provider } } : {}),
+    }).pipe(
       Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])),
     );
     yield* Effect.forEach(
@@ -734,12 +822,12 @@ function reconcilePendingCreateCleanups(
         }).pipe(
           Effect.flatMap((claim) => {
             if (!claim) return Effect.void;
-            const destroy = providers.destroy(vm.provider, providerVmId).pipe(
+            const destroy = providers.destroy(vm.provider, providerVmId, owner?.credential).pipe(
               Effect.timeoutFail({
                 duration: CREATE_CLEANUP_PROVIDER_TIMEOUT,
                 onTimeout: () => new Error("provider cleanup deadline"),
               }),
-              Effect.catchAll((error) => isProviderDeletionConfirmed(error)
+              Effect.catchAll((error) => isProviderDeletionConfirmed(error) && !insertMayStillLand(vm, owner !== undefined)
                 ? Effect.succeed("confirmed" as const)
                 : Effect.fail(error)),
             );
@@ -767,6 +855,21 @@ function reconcilePendingCreateCleanups(
       { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
     );
   });
+}
+
+/**
+ * A not-found answer proves nothing while the create that named this
+ * allocation could still be in flight at the provider (its insert sent but
+ * never answered): wait out the abandon window before trusting it.
+ */
+function insertMayStillLand(vm: CloudVmRow, credentialBound: boolean): boolean {
+  const raw = vm.providerMetadata?.[CREATE_CLEANUP_INTENT_AT_KEY];
+  const intentAtMs = typeof raw === "number" ? raw : Number.NaN;
+  // Freestyle rows keep their existing behaviour. A credential-bound row
+  // always records its intent time (or its failure time, whichever came
+  // first); one without a valid time cannot prove its insert settled.
+  if (!credentialBound) return false;
+  return !Number.isFinite(intentAtMs) || Date.now() - intentAtMs < VM_CREATE_ABANDONED_AFTER_MS;
 }
 
 /**
@@ -973,9 +1076,12 @@ function rollbackProviderCreate(
   provider: ProviderId,
   handle: VMHandle,
   providerCredential?: ProviderCredential,
-): Effect.Effect<void> {
+): Effect.Effect<boolean> {
   return Effect.gen(function* () {
-    yield* providers.destroy(provider, handle.providerVmId, providerCredential).pipe(Effect.catchAll(() => Effect.void));
+    const confirmed = yield* providers.destroy(provider, handle.providerVmId, providerCredential).pipe(
+      Effect.as(true),
+      Effect.catchAll((error) => Effect.succeed(isProviderDeletionConfirmed(error))),
+    );
     const metadata = handle.providerMetadata ?? {};
     const homeVolume = metadata["homeVolume"];
     if (
@@ -995,7 +1101,54 @@ function rollbackProviderCreate(
         ),
       );
     }
+    return confirmed;
   });
+}
+
+/**
+ * The workflow side of CreateOptions.createCleanupIntent. `retained()` is the
+ * provider id a failed create still owns: recorded before the allocation and
+ * not released by a confirmed driver rollback.
+ */
+function createCleanupIntent(repo: VmRepositoryShape, vmId: string) {
+  let retained: string | null = null;
+  return {
+    options: {
+      record: async (providerVmId: string) => {
+        // Retained before the write is acknowledged: a failure handler that
+        // runs while the write is in flight (a provider deadline) must still
+        // keep the row, because the driver may send its insert once the write
+        // lands. A row that ends up naming an instance never sent resolves on
+        // the cleanup's not-found.
+        retained = providerVmId;
+        const record = repo.recordCreateCleanupIntent;
+        if (!record || !(await Effect.runPromise(record({ id: vmId, providerVmId })))) {
+          throw new Error("the create row could not name its provider allocation");
+        }
+      },
+      released: () => {
+        retained = null;
+      },
+    },
+    retained: () => retained,
+  };
+}
+
+/**
+ * Whether a provider error proves the machine is gone. A GCP machine lives in
+ * the user's own project: only Compute Engine's explicit not-found counts,
+ * never a message that happens to mention a VM and a 404.
+ */
+function isProviderMachineGone(provider: ProviderId, error: unknown): boolean {
+  return provider === "gcp" ? isProviderDeletionConfirmed(error) : isProviderNotFoundError(error);
+}
+
+/** A failed create that still owns an allocation keeps its row as a retained cleanup. */
+function createFailureCode(cause: unknown, retainedProviderVmId: string | null, code: string) {
+  const providerVmId = isProviderCreateCleanupError(cause) ? cause.providerVmId : retainedProviderVmId;
+  return providerVmId
+    ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: providerVmId }
+    : { code };
 }
 
 function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boolean {
@@ -1362,7 +1515,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           measureVmEffect(
             input.timing,
             "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }),
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }),
           ),
         ),
         beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
@@ -1451,6 +1604,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       ),
     );
 
+    const cleanupIntent = createCleanupIntent(repo, create.vm.id);
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -1464,6 +1618,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
         providerCredential: input.providerCredential,
+        createCleanupIntent: cleanupIntent.options,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -1486,9 +1641,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             // An unconfirmed rollback remains owned by this failed row. Keep
             // its provider id and make same-key retries wait for reconciliation
             // instead of allocating a duplicate machine.
-            ...(isProviderCreateCleanupError(err.cause)
-              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
-              : { code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
+            ...createFailureCode(err.cause, cleanupIntent.retained(), PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE),
             message: isProviderCreateCleanupError(err.cause)
               ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
               : errorMessage(err.cause),
@@ -1523,12 +1676,12 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       Effect.catchAll((err) =>
         Effect.gen(function* () {
           yield* awaitRequestedEvents;
-          yield* rollbackProviderCreate(providers, input.provider, handle, input.providerCredential);
+          const rolledBack = yield* rollbackProviderCreate(providers, input.provider, handle, input.providerCredential);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           const markedFailed = yield* repo.markCreateFailed({
             id: create.vm.id,
-            code: "database_finalize_failed",
+            ...createFailureCode(null, rolledBack ? null : cleanupIntent.retained(), "database_finalize_failed"),
             message: "Cloud VM state update failed.",
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           if (markedFailed) {
@@ -1564,7 +1717,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
 
     return vmEntryFromRow(running);
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /**
@@ -1779,7 +1932,7 @@ export function openBaseVm(input: {
       repo.beginBaseOpen(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /** Replace the account's Base generation after applying create-time gates. */
@@ -1826,7 +1979,7 @@ export function resetBaseVm(input: {
       repo.beginBaseReset(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /** Finish a Base allocation, including provider and billing cleanup paths. */
@@ -1911,7 +2064,7 @@ function finishBaseCreate(
     const network = yield* measureVmEffect(
       input.timing,
       "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
@@ -1975,6 +2128,7 @@ function finishBaseCreate(
       ),
     );
 
+    const cleanupIntent = createCleanupIntent(repo, create.vm.id);
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -1986,6 +2140,7 @@ function finishBaseCreate(
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
         providerCredential: input.providerCredential,
+        createCleanupIntent: cleanupIntent.options,
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
@@ -1999,9 +2154,7 @@ function finishBaseCreate(
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
-            ...(isProviderCreateCleanupError(err.cause)
-              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
-              : { code: err.operation }),
+            ...createFailureCode(err.cause, cleanupIntent.retained(), err.operation),
             message: errorMessage(err.cause),
           }), {
             userId: input.userId,
@@ -2033,7 +2186,7 @@ function finishBaseCreate(
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          yield* rollbackProviderCreate(providers, input.provider, handle, input.providerCredential);
+          const rolledBack = yield* rollbackProviderCreate(providers, input.provider, handle, input.providerCredential);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
           const markedFailed = yield* repo.markBaseCreateFailed({
@@ -2041,7 +2194,7 @@ function finishBaseCreate(
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
-            code: "database_finalize_failed",
+            ...createFailureCode(null, rolledBack ? null : cleanupIntent.retained(), "database_finalize_failed"),
             message: "Cloud VM Base state update failed.",
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           if (markedFailed) {
@@ -2108,7 +2261,7 @@ function reopenBaseIfProviderDeleted(
   return getStatus(existing.provider, providerVmId).pipe(
     Effect.as(null),
     Effect.catchAll((err) =>
-      isProviderNotFoundError(err)
+      isProviderMachineGone(existing.provider, err)
         ? Effect.gen(function* () {
           // forceStatus, the one caller that overrides the mapping. Everywhere
           // else a missing provider machine follows the shared observation
@@ -2451,7 +2604,7 @@ export function pauseVm(input: {
   return Effect.gen(function* () {
     const vm = yield* requireUserVm(input);
     return yield* pauseVmRow(vm, input.providerVmId, "user", input.providerCredential);
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /**
@@ -2625,7 +2778,7 @@ export function resumeVm(input: {
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane, providerCredential: input.providerCredential },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 export type VmRestartResult = {
@@ -3747,7 +3900,7 @@ function reconcileObservedProviderStatus(
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(vm.provider, err)
           ? Effect.succeed("destroyed" as const)
           : Effect.succeed(null),
       ),
@@ -4354,6 +4507,7 @@ function preflightResumeIfSuspended(
       vm,
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
+      options.providerCredential,
     ).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -4403,6 +4557,7 @@ function withResumeOnSuspendedAfterFailure<A>(
   callerPlanId?: string | null,
   /** Failures a status probe and resume cannot fix; they are returned as they are. */
   isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
@@ -4411,11 +4566,11 @@ function withResumeOnSuspendedAfterFailure<A>(
       if (!getStatus || !resume || isUnrecoverable(originalError)) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
-        const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        const status = yield* getStatus(vm.provider, providerVmId, providerCredential).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
         if (status === "creating") {
-          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId, providerCredential);
           if (!settled) return yield* Effect.fail(originalError);
           const recorded = yield* repo.markProviderObservedStatus({
             id: vm.id,
@@ -4430,7 +4585,7 @@ function withResumeOnSuspendedAfterFailure<A>(
         }
 
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
-        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+        yield* resumeUntilRunning(providers, vm, providerVmId, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           // An allowance refusal is the answer the caller needs; any other
           // resume failure reports the operation's own error.
@@ -4440,7 +4595,7 @@ function withResumeOnSuspendedAfterFailure<A>(
               : originalError,
           )),
         );
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
         );
         if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
@@ -4462,11 +4617,12 @@ function recordRunningTransition<E extends VmWorkflowError>(
   vm: CloudVmRow,
   providerVmId: string,
   staleRowError: E,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<void, VmDatabaseError | E> {
   const rollbackPause = (): Effect.Effect<void, never> => {
     const pause = providers.pause;
     if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    return pause(vm.provider, providerVmId, providerCredential).pipe(Effect.catchAll(() => Effect.void));
   };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
@@ -4510,7 +4666,10 @@ export function destroyVm(input: {
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId, input.providerCredential, { strict: input.requireConfirmedDeletion }).pipe(
       Effect.catchAll((err) => {
-        if (input.requireConfirmedDeletion ? isProviderDeletionConfirmed(err.cause) : isProviderNotFoundError(err.cause)) return Effect.void;
+        const gone = input.requireConfirmedDeletion
+          ? isProviderDeletionConfirmed(err.cause)
+          : isProviderMachineGone(vm.provider, err.cause);
+        if (gone) return Effect.void;
         return Effect.fail(err);
       }),
     );
@@ -4596,7 +4755,7 @@ export function destroyVm(input: {
         ...(homeVolume ? { homeVolume, homeVolumeDeleted } : {}),
       },
     }).pipe(Effect.catchAll(() => Effect.void));
-  }).pipe(releaseProviderCredential(input.providerCredential));
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 export function revokeExpiredIdentityLeases(input: {
@@ -5137,7 +5296,7 @@ export function getVmStats(input: {
                 ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
               },
             }, input.providerVmId, Date.now()) : { ...reported, health: "unresponsive" as const }),
-            Effect.catchAll((error) => isProviderNotFoundError(error)
+            Effect.catchAll((error) => isProviderMachineGone(vm.provider, error)
               ? Effect.fail(error)
               : Effect.succeed({ ...reported, health: "unresponsive" as const })),
           );
@@ -5145,7 +5304,7 @@ export function getVmStats(input: {
       }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
-        if (!isProviderNotFoundError(error)) return Effect.fail(error);
+        if (!isProviderMachineGone(vm.provider, error)) return Effect.fail(error);
         return Effect.gen(function* () {
           yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
@@ -5804,6 +5963,8 @@ type OpenAttachEndpointInput = {
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
   readonly options?: AttachOptions;
+  readonly transport?: "ssh" | "websocket";
+  readonly providerCredential?: ProviderCredential;
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
@@ -5814,7 +5975,7 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
     return result.endpoint;
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /**
@@ -5970,13 +6131,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const vm = yield* requireAccessibleUserVm(input);
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
+    const requestedTransport = input.transport ?? "websocket";
     const supportedTransports = providers.attachTransports?.(vm.provider);
-    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+    if (supportedTransports && !supportedTransports.includes(requestedTransport)) {
       return yield* Effect.fail(
         new VmAttachTransportUnsupportedError({
           provider: vm.provider,
           vmId: input.providerVmId,
-          requested: "websocket",
+          requested: requestedTransport,
           supported: supportedTransports,
         }),
       );
@@ -5989,24 +6151,37 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      {
+        forceProviderProbe: true,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.callerPlanId,
+        modelPlane: input.modelPlane,
+        providerCredential: input.providerCredential,
+      },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
     // fail closed without pausing a VM another request may have attached to.
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    const providerCredential = input.providerCredential && vm.provider === "gcp" && !input.providerCredential.sshUsername
+      ? { ...input.providerCredential, sshUsername: typeof vm.providerMetadata.gcpSshUsername === "string" ? vm.providerMetadata.gcpSshUsername : undefined }
+      : input.providerCredential;
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
       "attach",
-      providers.openAttach(vm.provider, input.providerVmId, {
-        ...(input.options ?? {}),
-        providerMetadata: vm.providerMetadata,
-      }),
+      input.transport === "ssh"
+        ? providers.openSSH(vm.provider, input.providerVmId, providerCredential)
+        : providers.openAttach(vm.provider, input.providerVmId, {
+          ...(input.options ?? {}),
+          providerMetadata: vm.providerMetadata,
+        }),
       input.maxActiveVms,
       input.callerPlanId,
+      undefined,
+      providerCredential,
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>

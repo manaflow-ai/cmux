@@ -1,6 +1,7 @@
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
+import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -210,7 +211,12 @@ struct PageFactory {
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
-                      PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
+                      PageRoute(prefix: ChannelsPageProvider.prefix,
+                                provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services] in
+                                    // The acpmux this app starts; none in a showcase or with the mock agent host.
+                                    guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
+                                    return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
+                                })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),

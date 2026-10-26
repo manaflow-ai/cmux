@@ -50,6 +50,7 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 HOLD_GATED = (
     "gallery-advisory.yml",
     "gallery-link.yml",
+    "pr-size-advisory.yml",
 )
 
 # Optional pull request workflows that skip drafts and run on ready_for_review.
@@ -62,6 +63,7 @@ DRAFT_SKIPPED = (
     "cmux-next-fast-gates.yml",
     "gallery-advisory.yml",
     "gallery-link.yml",
+    "pr-size-advisory.yml",
 )
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
 NEVER_DRAFT_SKIPPED = (

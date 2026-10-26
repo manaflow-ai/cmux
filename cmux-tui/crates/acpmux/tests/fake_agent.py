@@ -49,6 +49,8 @@ error", as Claude's ACP adapter does for a chat with no turn.
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
+FAKE_UNTIL_CANCEL_IN=<text>: a prompt containing <text> is an "until-cancel" one.
+
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
@@ -925,7 +927,7 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
-    if text == "until-cancel":
+    if text == "until-cancel" or (os.environ.get("FAKE_UNTIL_CANCEL_IN") or "\0") in text:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
         for _ in range(600):
             if sid in cancelled:
@@ -1297,6 +1299,13 @@ def main():
             if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
                 update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
                                              "kind": "execute", "status": "in_progress"})
+            # FAKE_LOAD_REPLAY_REPLY=<text>: the history replayed on load holds an earlier turn's
+            # reply, as codex-acp replays every turn's agent messages on session/load.
+            # FAKE_LOAD_REPLAY_CHUNKS=<n>: in that many chunks (a long history), default 1.
+            if os.environ.get("FAKE_LOAD_REPLAY_REPLY"):
+                for _ in range(int(os.environ.get("FAKE_LOAD_REPLAY_CHUNKS", "1"))):
+                    update(params["sessionId"], {"sessionUpdate": "agent_message_chunk",
+                                                 "content": {"type": "text", "text": os.environ["FAKE_LOAD_REPLAY_REPLY"]}})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")

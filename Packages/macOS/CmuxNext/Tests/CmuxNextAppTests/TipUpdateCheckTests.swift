@@ -50,12 +50,23 @@ import CmuxNextWakeupsTestSupport
     static let nightly = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
                                              minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
                                              hasPublicKey: true)
+    static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
+                                            minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
+
+    /// A nightly-next feed with build 500 published `minutesAgo` ago, listing deltas or not.
+    static func nightlyFeed(minutesAgo: Double, deltas: Bool) -> String { """
+    <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title>
+    <item><title>nightly</title><sparkle:version>500</sparkle:version><pubDate>\(Base.pubDate(minutesAgo: minutesAgo))</pubDate>\
+    \(deltas ? "<sparkle:deltas><enclosure url=\"https://files-next.cmux.com/d.delta\" sparkle:version=\"500\" sparkle:deltaFrom=\"300\"/></sparkle:deltas>" : "")</item>
+    </channel></rss>
+    """ }
 
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
-    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false) -> Harness {
+    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false,
+                     xml: String = feed, deltaWindow: TimeInterval? = nil) -> Harness {
         let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
-        let feed = Base.CountingFeed(xml: Self.feed, held: held)
+        let feed = Base.CountingFeed(xml: xml, held: held)
         let sparkle = Base.FakeSparkle()
         sparkle.staged = nil
         let policy = Policy()
@@ -71,6 +82,7 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
         updater.tipCheck.downloadsInBackground = { checks.downloads }
+        updater.tipCheck.deltaWindow = deltaWindow
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: true, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -83,9 +95,9 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// One interval passes; with `fetches`, the read it starts (the feed's fetch number `fetches`) ends.
-    func tick(_ h: Harness, fetches: Int? = nil) async throws {
+    func tick(_ h: Harness, fetches: Int? = nil, interval: TimeInterval = TipUpdateCheck.interval) async throws {
         try await h.clock.waitForSleeper()
-        h.clock.advance(by: .seconds(TipUpdateCheck.interval))
+        h.clock.advance(by: .seconds(interval))
         guard let fetches else { return try await Task.sleep(for: .milliseconds(100)) }
         try #require(await eventually { h.feed.fetches >= fetches }, "no read of the feed at the interval")
         await h.updater.tipCheck.task?.value
@@ -104,13 +116,39 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1, "build 500 was checked for again")
     }
 
-    @Test func otherAppsArmNoFastCheck() async throws {
-        let h = Self.make(Self.nightly)
-        #expect(!h.updater.tipCheck.timer.isScheduled, "a NIGHTLY armed the tip app's check")
-        h.clock.advance(by: .seconds(TipUpdateCheck.interval * 2))
+    @Test func aStableAppArmsNoFastCheck() async throws {
+        let h = Self.make(Self.stable)
+        #expect(!h.updater.tipCheck.timer.isScheduled, "a stable app armed the fast check")
+        h.clock.advance(by: .seconds(TipUpdateCheck.nightlyInterval * 2))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0)
         #expect(h.checks.count == 0)
+    }
+
+    /// A NIGHTLY reads its feed every 15 minutes (not the tip app's 5) and asks for a newer build
+    /// that lists its deltas.
+    @Test func aNightlyChecksItsFeedEveryFifteenMinutes() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 2, deltas: true), deltaWindow: 45 * 60)
+        #expect(h.updater.tipCheck.timer.isScheduled, "a NIGHTLY armed no fast check")
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: .seconds(TipUpdateCheck.interval))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.feed.fetches == 0, "a NIGHTLY read its feed at the tip interval")
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval - TipUpdateCheck.interval)
+        #expect(h.checks.count == 1, "build 500 is out with its deltas but no check started")
+        try await tick(h, fetches: 2, interval: TipUpdateCheck.nightlyInterval)
+        #expect(h.checks.count == 1, "build 500 was checked for again")
+    }
+
+    /// A fresh nightly build without its deltas yet is not asked for (the full archive would download);
+    /// one published longer ago than the delta window is.
+    @Test(arguments: [(2.0, 0), (60.0, 1)])
+    func aNightlyWaitsForAFreshBuildsDeltas(minutesAgo: Double, checks: Int) async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: minutesAgo, deltas: false), deltaWindow: 45 * 60)
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(h.checks.count == checks)
+        #expect(h.updater.tipCheck.timer.isScheduled, "the next read was not armed")
+        #expect((h.updater.tipCheck.asked != nil) == (checks == 1), "a build waiting for its deltas was marked asked")
     }
 
     @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .available(version: "5.0.0"),
