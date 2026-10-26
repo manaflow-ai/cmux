@@ -71,7 +71,7 @@ extension TraceRing {
 
     /// The recording ring's file and size, nil before ``attachRecording(_:path:)``.
     var recordingFile: (path: String, bytes: Int)? {
-        recordingRing.map { ($0.pointee.path ?? "", $0.pointee.storage.layout.totalBytes) }
+        recordingRing.map { (path: $0.pointee.path ?? "", bytes: $0.pointee.storage.layout.totalBytes) }
     }
 
     /// Stores `mask` into the black box's header `categories` word and, while a recording runs, the

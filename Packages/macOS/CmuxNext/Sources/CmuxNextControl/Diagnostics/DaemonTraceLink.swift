@@ -18,12 +18,11 @@ public struct DaemonTraceLink: TraceDaemonLink {
 
     public func send(_ command: TraceControl.DaemonCommand) async throws -> CmuxNextSettings.JSONValue {
         guard let connection = await connection() else { return TraceControl.untraced("not_connected") }
-        let reply = switch command {
-        case .start(let categories, let keys): try await connection.request(StartRequest(categories: categories, keys: keys))
-        case .stop: try await connection.request(StopRequest())
-        case .status: try await connection.request(StatusRequest())
+        switch command {
+        case .start(let categories, let keys): return try await connection.request(StartRequest(categories: categories, keys: keys)).settingsJSON
+        case .stop: return try await connection.request(StopRequest()).settingsJSON
+        case .status: return try await connection.request(StatusRequest()).settingsJSON
         }
-        return reply.settingsJSON
     }
 }
 
