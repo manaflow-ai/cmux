@@ -408,7 +408,7 @@ export function vmFreeAccessExpiredResponse(input: {
     error: "vm_access_requires_pro",
     status: 402,
     message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to a paid plan reconnects it.`,
-    action: `Upgrade at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux cloud kill-machine --target machine:${input.vmId}\`.`,
+    action: `Upgrade at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux cloud kill-machine --target machine:${input.vmId} --confirm\`.`,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { vmId: input.vmId, windowDays: input.windowDays },
   });
@@ -731,7 +731,7 @@ export async function vmActiveLimitExceededResponse(input: {
     status: 402,
     message: `The free plan includes ${input.limit} Cloud VM${plural}.${counted}`,
     action: `Upgrade at ${VM_UPGRADE_URL} for more active machines, ` +
-      "or free a slot with `cmux cloud kill-machine --target machine:<id>`.",
+      "or free a slot with `cmux cloud kill-machine --target machine:<id> --confirm`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { limit: input.limit, upgradeRequired: true, ...countedDetails },
     ...(input.phase ? { phase: input.phase } : {}),
@@ -1150,7 +1150,7 @@ export const vmWorkflowErrorResponders = {
       error: "vm_tunnel_not_found",
       status: 404,
       message: "This computer is not enrolled on your Cloud VM network.",
-      action: "Enroll it with `cmux cloud tunnel-attach --path <network-id>`, then bring the WireGuard tunnel up.",
+      action: "Enroll it with `cmux cloud tunnel-attach --arg path=<network-id>`, then bring the WireGuard tunnel up.",
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: error.deviceFingerprint },
@@ -1570,7 +1570,7 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     message,
     reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
     action:
-      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id>`, or revoke Macs you no longer use on the " +
+      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, or revoke Macs you no longer use on the " +
       "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
     phase: vmPhaseForOperation(error.operation),
     retryable: false,
@@ -1776,7 +1776,7 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
     case "exec":
       return `${retryPrefix}Check that the machine is still running with \`cmux cloud list-machines\`, then retry the command. For long commands, open a terminal with \`cmux cloud ssh --target machine:<id>\`.`;
     case "destroy":
-      return `${retryPrefix}Run \`cmux cloud list-machines\` to see whether the machine is already gone. If it still appears, retry \`cmux cloud kill-machine --target machine:<id>\`.`;
+      return `${retryPrefix}Run \`cmux cloud list-machines\` to see whether the machine is already gone. If it still appears, retry \`cmux cloud kill-machine --target machine:<id> --confirm\`.`;
     default:
       return `${retryPrefix}Retry the command. If it keeps failing, copy this error and contact support.`;
   }

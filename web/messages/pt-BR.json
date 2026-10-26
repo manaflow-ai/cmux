@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go inclui duas VMs salvas, incluindo a VM em execução.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go inclui uma VM em execução por vez.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go esgotou suas 40 horas de VM neste mês. As VMs salvas estarão disponíveis no próximo período de cobrança.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Cota de disco do {plan} esgotada",
       "storageMessage": "Seu plano {plan} inclui {included} GB de disco para todas as máquinas salvas. As máquinas salvas usam {used} GB, e esta solicitação precisa de {requested} GB.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Recursos de Cloud VM insuficientes",

@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go umożliwia uruchomienie jednej maszyny VM naraz.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Wykorzystano 40 godzin VM w Go na ten miesiąc. Zapisane VM będą dostępne w następnym okresie rozliczeniowym.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Limit dysku planu {plan} wyczerpany",
       "storageMessage": "Twój plan {plan} obejmuje łącznie {included} GB dysku dla wszystkich zapisanych maszyn. Zapisane maszyny zajmują {used} GB, a to żądanie wymaga {requested} GB.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Za mało zasobów Cloud VM",

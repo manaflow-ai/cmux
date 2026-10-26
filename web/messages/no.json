@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go inkluderer én kjørende VM om gangen.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan}-diskkvoten er brukt opp",
       "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",

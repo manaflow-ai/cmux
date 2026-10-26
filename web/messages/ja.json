@@ -270,7 +270,7 @@
         "default": "再試行しても解決しません。`cmux cloud list-machines` でマシンを確認するか、問題が続く場合はサポートに連絡してください。",
         "sizing": "`memoryMb` を省略して再試行してください。",
         "persistentHome": "`persistentHome`/`perMachineHome` を省略して再試行してください。",
-        "pause": "再試行しても解決しません。マシンを起動したままにするか、不要になったら `cmux cloud kill-machine --target machine:<id>` で削除してください。",
+        "pause": "再試行しても解決しません。マシンを起動したままにするか、不要になったら `cmux cloud kill-machine --target machine:<id> --confirm` で削除してください。",
         "resume": "再試行しても解決しません。`cmux cloud new-machine` で新しい VM を作成してください。"
       }
     },
@@ -299,7 +299,7 @@
     },
     "goLimit": {
       "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go では同時に 1 台の VM を実行できます。",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go の今月の 40 VM 時間を使い切りました。保存済み VM は次の請求期間から再び利用できます。",
@@ -314,8 +314,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} のディスク枠を使い切りました",
       "storageMessage": "{plan} プランでは、保存済みのすべてのマシンで合計 {included} GB のディスクを使用できます。保存済みマシンは {used} GB を使用しており、このリクエストには {requested} GB が必要です。",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM のリソースが足りません",

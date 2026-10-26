@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go включает две сохранённые ВМ, в том числе работающую.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go позволяет запускать одну ВМ одновременно.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "40 часов ВМ в Go на этот месяц израсходованы. Сохранённые ВМ будут доступны в следующем расчётном периоде.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Лимит диска {plan} исчерпан",
       "storageMessage": "Тариф {plan} включает {included} ГБ диска на все сохранённые машины. Сохранённые машины занимают {used} ГБ, а этому запросу нужно {requested} ГБ.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Недостаточно ресурсов Cloud VM",

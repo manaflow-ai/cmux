@@ -55,7 +55,7 @@ describe("a private network with no free addresses", () => {
       message: "This account's private network has no free addresses.",
     });
     expect(payload.retryAfterSeconds).toBeUndefined();
-    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:");
+    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:<id> --confirm");
     expect(JSON.stringify(payload)).not.toMatch(/retrying is safe|temporarily unavailable/i);
   });
 

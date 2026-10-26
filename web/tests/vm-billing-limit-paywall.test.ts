@@ -311,7 +311,7 @@ describe("free access window", () => {
     expect(payload.message).toContain("5 days");
     expect(payload.message).toContain("preserved");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
-    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:noble-wren");
+    expect(String(payload.action)).toContain("cmux cloud kill-machine --target machine:noble-wren --confirm");
     expect(String(payload.action)).not.toContain("Pro");
     expect(payload.upgradeRequired).toBe(true);
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");

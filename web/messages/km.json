@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go អនុញ្ញាតឱ្យដំណើរការ VM មួយក្នុងពេលតែមួយ។",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go បានប្រើអស់ 40 ម៉ោង VM សម្រាប់ខែនេះ។ VM ដែលបានរក្សាទុកអាចប្រើវិញនៅរយៈពេលចេញវិក្កយបត្របន្ទាប់។",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "បានប្រើកូតាឌីស {plan} អស់ហើយ",
       "storageMessage": "គម្រោង {plan} របស់អ្នករួមបញ្ចូលឌីសសរុប {included} GB សម្រាប់ម៉ាស៊ីនដែលបានរក្សាទុកទាំងអស់។ ម៉ាស៊ីនដែលបានរក្សាទុកប្រើ {used} GB ហើយសំណើនេះត្រូវការ {requested} GB។",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "ធនធាន Cloud VM មិនគ្រប់គ្រាន់",

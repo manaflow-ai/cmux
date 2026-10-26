@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go comprend deux VM enregistrées, y compris la VM en cours.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go permet une seule VM en cours à la fois.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Les 40 heures de VM de Go sont épuisées ce mois-ci. Les VM enregistrées seront disponibles au prochain cycle de facturation.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Quota de disque {plan} épuisé",
       "storageMessage": "Votre forfait {plan} inclut {included} Go de disque pour l'ensemble des machines enregistrées. Les machines enregistrées utilisent {used} Go, et cette demande nécessite {requested} Go.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ressources Cloud VM insuffisantes",

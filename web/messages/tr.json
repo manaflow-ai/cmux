@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go aynı anda bir VM çalıştırabilir.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go bu ayki 40 VM saatini kullandı. Kayıtlı VM’ler sonraki fatura döneminde yeniden kullanılabilir.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} disk kotası doldu",
       "storageMessage": "{plan} planınız, kayıtlı tüm makineler için toplam {included} GB disk içerir. Kayıtlı makineler {used} GB kullanıyor ve bu istek {requested} GB gerektiriyor.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Yeterli Cloud VM kaynağı yok",

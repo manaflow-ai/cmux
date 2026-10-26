@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go รวม VM ที่บันทึกไว้สองเครื่อง รวมเครื่องที่กำลังทำงานด้วย",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go ใช้งาน VM ได้ครั้งละหนึ่งเครื่อง",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go ใช้เวลา VM ครบ 40 ชั่วโมงในเดือนนี้แล้ว VM ที่บันทึกไว้จะใช้ได้อีกครั้งในรอบบิลถัดไป",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
       "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",

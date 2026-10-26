@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} 디스크 한도를 모두 사용했습니다",
       "storageMessage": "{plan} 플랜에는 저장된 모든 머신을 합쳐 {included} GB의 디스크가 포함됩니다. 저장된 머신이 {used} GB를 사용 중이며 이 요청에는 {requested} GB가 필요합니다.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM 리소스가 부족합니다",

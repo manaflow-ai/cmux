@@ -113,7 +113,7 @@ describe("unsupported provider operations", () => {
       details: { operation: "pause", retryable: false },
     });
     expect(String(pausePayload.message)).toContain("cannot be paused");
-    expect(String(pausePayload.action)).toContain("cmux cloud kill-machine --target machine:");
+    expect(String(pausePayload.action)).toContain("cmux cloud kill-machine --target machine:<id> --confirm");
 
     const resume = await vmWorkflowErrorResponse(new VmOperationUnsupportedError({ provider: "freestyle", operation: "resume" }));
     expect(resume!.status).toBe(501);

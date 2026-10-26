@@ -132,7 +132,7 @@
     },
     "goLimit": {
       "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
-      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go umfasst eine gleichzeitig laufende VM.",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Die 40 VM-Stunden für diesen Monat sind aufgebraucht. Gespeicherte VMs können im nächsten Abrechnungszeitraum wieder genutzt werden.",
@@ -147,8 +147,8 @@
       "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan}-Speicherkontingent aufgebraucht",
       "storageMessage": "Dein {plan}-Plan umfasst insgesamt {included} GB Speicher für alle gespeicherten Maschinen. Gespeicherte Maschinen belegen {used} GB, und diese Anfrage benötigt {requested} GB.",
-      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>",
-      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id>\nhttps://cmux.com/pricing"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Nicht genug Cloud-VM-Ressourcen",
