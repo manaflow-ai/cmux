@@ -4,6 +4,8 @@
 //! as `Bytes` (a reference count, no copy) and may outlive the reader; a JSON
 //! line is lent as `&str` until the next call, which zeroes and releases it
 //! (lines can carry credentials; the daemon zeroed them before this crate).
+//! A frame's payload carries the same request bodies, so its bytes are zeroed
+//! when the last `Bytes` that shares them drops (`WipedOnDrop`).
 //!
 //! It follows Mojo's channel read loop (chromium mojo/core/channel.cc,
 //! `Channel::OnReadComplete`): bytes accumulate until a whole message is
@@ -13,7 +15,7 @@
 use std::io::{self, Read};
 use std::mem::MaybeUninit;
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 
 use crate::frame::{BadMessage, Frame, FrameHeader, HEADER_LEN, MAGIC, MAX_FRAME_PAYLOAD};
 
@@ -52,6 +54,33 @@ enum Next {
     Pending,
     Line { len: usize, consumed: usize },
     Frame(Frame),
+}
+
+/// A frame payload's own region of the read buffer, zeroed when the last
+/// `Bytes` that shares it drops, as a lent line is zeroed on the next call.
+/// The region is this value's alone (`split_to` hands out disjoint ranges),
+/// so zeroing it never touches bytes another message still holds.
+struct WipedOnDrop(BytesMut);
+
+impl AsRef<[u8]> for WipedOnDrop {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Drop for WipedOnDrop {
+    fn drop(&mut self) {
+        self.0.fill(0);
+        #[cfg(test)]
+        WIPED_BYTES.with(|wiped| wiped.set(wiped.get() + self.0.len()));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Bytes this thread's dropped frame payloads zeroed, for the tests:
+    /// safe code cannot read a region once its owner is gone.
+    pub(crate) static WIPED_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The reader. Feed it with `push`, `read_from` or `read_with`, then call `next_message`
@@ -225,7 +254,7 @@ impl FrameReader {
         }
         whole.advance(HEADER_LEN);
         self.header = None;
-        Frame::from_parts(header, whole.freeze()).map(Next::Frame)
+        Frame::from_parts(header, Bytes::from_owner(WipedOnDrop(whole))).map(Next::Frame)
     }
 
     fn pending_frame(&self, need: usize) -> Result<Next, BadMessage> {

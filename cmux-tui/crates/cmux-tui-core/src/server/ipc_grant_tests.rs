@@ -128,6 +128,42 @@ fn ipc_grant_unbound_transports_are_never_advertised_or_granted() {
     mux.shutdown();
 }
 
+/// The frame route is bound only when the daemon's `ipcFrames` feature is
+/// on (default off on every channel).
+#[test]
+fn ipc_grant_frames_follow_the_ipc_frames_feature() {
+    use cmux_features::{Channel, Snapshot};
+    for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
+        assert!(!Snapshot::defaults(channel).is_enabled(cmux_features::feature::IPC_FRAMES));
+    }
+
+    let mux = Mux::new_for_test("ipc-grant-feature-off", crate::SurfaceOptions::default());
+    mux.apply_ipc_features(&Snapshot::defaults(Channel::Release));
+    let local = Connection::local(&mux);
+    assert!(local.advertised().is_empty(), "ipcFrames is off");
+    assert_eq!(local.ask(13)["ok"], true);
+    assert!(local.granted().is_empty());
+    mux.shutdown();
+
+    let mux = Mux::new_for_test("ipc-grant-feature-on", crate::SurfaceOptions::default());
+    let on = Snapshot::from_env(Channel::Release, Some("ipcFrames"), None);
+    mux.apply_ipc_features(&on);
+    let local = Connection::local(&mux);
+    assert_eq!(local.advertised(), ["ipc-frames-v2"]);
+    assert_eq!(local.ask(13)["ok"], true);
+    assert_eq!(local.granted(), ["ipc-frames-v2"]);
+    // A byte bridge cannot carry frames.
+    let bridged = Connection::open(&mux, ClientTransport::Unix, PeerProcess::ByteBridge);
+    assert!(bridged.advertised().is_empty());
+    mux.shutdown();
+
+    let mux = Mux::new_for_test("ipc-grant-feature-disabled", crate::SurfaceOptions::default());
+    let both = Snapshot::from_env(Channel::Release, Some("ipcFrames"), Some("ipcFrames"));
+    mux.apply_ipc_features(&both);
+    assert!(Connection::local(&mux).advertised().is_empty(), "disable wins");
+    mux.shutdown();
+}
+
 #[test]
 fn ipc_grant_local_unix_at_the_current_revision_gets_all_four() {
     let mux = mux("ipc-grant-local");

@@ -2457,6 +2457,8 @@ fn run_server(
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
     mux.configure_browser_host(&socket_path);
+    // Before the first client: `identify` offers what is bound now.
+    mux.apply_ipc_features(&feature_flags::daemon_features());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))

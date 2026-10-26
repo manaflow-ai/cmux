@@ -142,36 +142,8 @@ HOLDER_RS = '''pub fn holder_enabled() -> bool {
     std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
 }
 '''
-# The interface the generated Rust is written against (task p12-perf-process-095's lib.rs).
-RUST_INTERFACE = '''#![deny(warnings)]
-#![allow(dead_code)]
-pub struct Feature {
-    pub index: usize,
-    pub name: &'static str,
-    pub owner: &'static str,
-    pub description: &'static str,
-    pub kind: FeatureKind,
-    pub process: FeatureProcess,
-    pub defaults: FeatureDefaults,
-    pub expires: Option<&'static str>,
-    pub params: &'static [FeatureParamSpec],
-    pub stories: &'static [&'static str],
-    pub sticky: bool,
-    pub runtime_mutable: bool,
-}
-pub enum FeatureKind { PerfPath, KillSwitch, Labs }
-pub enum FeatureProcess { App, Daemon, Both, Chromium }
-pub struct FeatureDefaults { pub dev: bool, pub nightly: bool, pub release: bool }
-pub struct FeatureParamSpec { pub name: &'static str, pub description: &'static str, pub value: FeatureParamValue }
-pub enum FeatureParamValue {
-    Int { default: i64, min: i64, max: i64 },
-    Double { default: f64, min: f64, max: f64 },
-    Duration { default: f64, min: f64, max: f64 },
-    Bool { default: bool },
-}
-pub mod generated;
-pub fn count() -> usize { generated::REGISTERED.len() }
-'''
+# The crate the generated Rust is compiled into: cmux-features' own lib.rs (task p12-perf-process-095).
+RUST_CRATE_LIB = REPO / "cmux-tui/crates/cmux-features/src/lib.rs"
 
 
 class Repo:
@@ -557,11 +529,11 @@ class GeneratedFileTests(unittest.TestCase):
         """rustfmt (the pre-commit hook) owns the Rust layout; content changes are still drift."""
         self.repo.run()
         raw = gen.rust([KILL, HOLDER])
-        self.repo.write(gen.RUST_OUT, raw.replace("\n    ", "\n        ").replace("},\n    ],", "}],"))
+        self.repo.write(gen.RUST_OUT, raw.replace("\n    ", "\n        ").replace("},\n]", "}]"))
         self.assertEqual(self.repo.run("--check")[0], 0)
-        self.repo.write(gen.RUST_OUT, raw.replace("sticky: true", "sticky: false"))
+        self.repo.write(gen.RUST_OUT, raw.replace("dev: true, nightly: false", "dev: false, nightly: false"))
         self.assertEqual(self.repo.run("--check")[0], 1)
-        self.repo.write(gen.RUST_OUT, raw.replace("Ring size in MiB.", "Ring size in  MiB."))
+        self.repo.write(gen.RUST_OUT, raw.replace('"terminalHolder"', '"terminal Holder"', 1))
         self.assertEqual(self.repo.run("--check")[0], 1, "string contents keep their spaces")
 
     def test_invalid_feature_fails_check_and_writes_nothing(self):
@@ -628,18 +600,21 @@ class GeneratedFileTests(unittest.TestCase):
     def test_rust_has_only_daemon_side_features(self):
         self.repo.run()
         rust = self.repo.read(gen.RUST_OUT)
-        self.assertIn("pub const FLAGS_FETCH: crate::Feature", rust)
-        self.assertIn("pub const TERMINAL_HOLDER: crate::Feature", rust)
+        self.assertIn('FLAGS_FETCH = "flagsFetch",', rust)
+        self.assertIn('TERMINAL_HOLDER = "terminalHolder",', rust)
         self.assertNotIn("CEF_LAYER_HOSTING", rust)
         self.assertNotIn("BACK_FORWARD_CACHE", rust)
-        self.assertIn("pub static REGISTERED: &[crate::Feature] = &[FLAGS_FETCH, TERMINAL_HOLDER];", rust)
+        self.assertLess(rust.index('name: "flagsFetch"'), rust.index('name: "terminalHolder"'), "registry order")
+        self.assertIn("process: crate::Process::Daemon,", rust)
+        self.assertIn("process: crate::Process::Both,", rust)
 
     def test_empty_registry(self):
         repo = Repo()
         self.addCleanup(repo.close)
         self.assertEqual(repo.run()[0], 0)
         self.assertIn("public static let registered: [Feature] = []", repo.read(gen.SWIFT_OUT))
-        self.assertIn("pub static REGISTERED: &[crate::Feature] = &[];", repo.read(gen.RUST_OUT))
+        self.assertIn("pub(crate) const TABLE: &[crate::FeatureDef] = &[];", repo.read(gen.RUST_OUT))
+        self.assertNotIn(' = "', repo.read(gen.RUST_OUT), "no handles")
 
     def test_files_are_written_and_checked_only_once_their_target_exists(self):
         repo = Repo([PERF, HOLDER, KILL, CHROMIUM], targets=False)
@@ -675,7 +650,8 @@ class GeneratedFileTests(unittest.TestCase):
             crate = repo.root / "crate"
             crate.mkdir()
             shutil.copy(repo.root / gen.RUST_OUT, crate / "generated.rs")
-            (crate / "lib.rs").write_text(RUST_INTERFACE)
+            # The crate's own lib.rs, deny(warnings): the generated table and handles must build in it.
+            (crate / "lib.rs").write_text("#![deny(warnings)]\n" + RUST_CRATE_LIB.read_text())
             shutil.copy(repo.root / "cmux-tui/rustfmt.toml", crate / "rustfmt.toml")
             fmt = subprocess.run(["rustfmt", "--edition", gen.RUST_EDITION, "--check", "generated.rs"], cwd=crate,
                                  capture_output=True, text=True)

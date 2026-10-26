@@ -307,7 +307,7 @@ pub(super) fn handle_resource_connection_message(
             match handled {
                 Ok(response) => {
                     activity::note_resource_input(mux, client, operation, &response);
-                    writer.send_control(&response).is_ok()
+                    writer.send_reply(&response).is_ok()
                 }
                 // Only a response that cannot be encoded fails here.
                 Err(error) => send_resource_response(writer, id, operation, Err(error)),

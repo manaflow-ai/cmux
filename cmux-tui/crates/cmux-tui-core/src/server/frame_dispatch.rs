@@ -10,24 +10,29 @@
 //! connection error (chromium mojo/public/cpp/bindings/lib/
 //! interface_endpoint_client.cc, `HandleValidatedMessage`).
 //!
-//! The body then takes its line's path, so it runs the same handler and its
-//! reply is the same JSON. The writer it runs with answers the frame
-//! (`MessageWriter::replying_to`, Mojo's responder): the reply leaves as one
-//! REPLY frame, or ERROR when `ok` is false, with the request's call fields,
-//! in the control FIFO behind every event the request emitted. A request id
-//! is in flight until that frame; reusing it before then is a bad message.
+//! The method id picks the handler: the body is decoded once, as a request of
+//! that method (`connection_frame::handle_framed_request_at`), with no line
+//! sniffing, and runs the handler its line runs, so its reply is the same
+//! JSON. A body of another method is a bad message. The writer it runs with
+//! answers the frame (`MessageWriter::replying_to`, Mojo's responder): the
+//! reply leaves as one REPLY frame, or ERROR when `ok` is false, with the
+//! request's call fields, in the control FIFO behind every event the request
+//! emitted. A request id is in flight until that frame; reusing it before
+//! then is a bad message. The payload's bytes are zeroed when the frame
+//! drops (cmux-ipc reader), as a line's are.
 //!
 //! A CANCEL frame fires the request's cancellation: a waiting handler
 //! (`wait-for`) ends with an ERROR reply, and a request still queued is
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
-//! Only `Command` methods answer on frames yet. A feature route or a v2
-//! operation replies on its own writer, so a frame naming one gets the ERROR
-//! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
-//! routes move to the method table in p05-ipc-062/063/070.
+//! `Command` methods and the v2 operations the router answers at once are
+//! served on frames. A feature route, and a v2 operation the connection owns
+//! (attaches, streams, waits), still replies on its own writer, so a frame
+//! naming one gets the ERROR [`METHOD_NOT_FRAMED`] and the client sends that
+//! method as a line; those routes move to the method table in
+//! p05-ipc-062/063/070.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -37,13 +42,15 @@ use cmux_ipc::{
     Aux, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD,
     MethodAttrs, MethodId, MethodTables, Payload, PriorityHint,
 };
-use serde::{Deserialize, Deserializer, de::IgnoredAny};
 use serde_json::json;
 
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
-use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
+use super::{
+    Command, ConnectionCancellation, FramedBodyMismatch, FramedMethod, MessageWriter, Mux,
+    ResourceOperation, handle_framed_request_at,
+};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
@@ -180,6 +187,9 @@ pub(super) struct RequestFrames {
     /// Requests by id, from arrival until a sweep after their reply.
     in_flight: HashMap<u32, Arc<FrameCall>>,
     sweep_at: usize,
+    /// Each method id's handler (`None`: served only as a line), resolved
+    /// on its first frame.
+    routes: HashMap<u16, Option<FramedMethod>>,
 }
 
 impl Default for RequestFrames {
@@ -188,6 +198,7 @@ impl Default for RequestFrames {
             tables: MethodTables::schema(),
             in_flight: HashMap::new(),
             sweep_at: SWEEP_MIN,
+            routes: HashMap::new(),
         }
     }
 }
@@ -242,20 +253,23 @@ impl RequestFrames {
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
         let frame_call = Arc::new(FrameCall::new(header.stream(), call));
         let writer = connection.writer.replying_to(frame_call.clone());
-        if !self.served_on_frames(method) {
+        let Some(framed) = self.route_of(method) else {
             return Ok(send_not_framed(&writer, method));
-        }
-        names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+        };
         self.in_flight.insert(call.request_id, frame_call);
-        Ok(handle_connection_frame_at(
+        handle_framed_request_at(
             connection.mux,
             connection.client,
             connection.transport,
             body,
+            framed,
             &writer,
             connection.scheduler,
             connection.arrived,
-        ))
+        )
+        .map_err(|FramedBodyMismatch| {
+            ConnectionBadMessage::Call(CallRefusal::MethodMismatch { method_id: call.method_id })
+        })
     }
 
     fn cancel(
@@ -326,13 +340,32 @@ impl RequestFrames {
         Ok(())
     }
 
-    /// Whether the method's reply goes through the responder: a JSON v12
-    /// `Command` (its handler replies through `responses`).
-    fn served_on_frames(&self, method: &MethodAttrs) -> bool {
-        self.tables.v12(method.id).is_some()
-            && method.payload == Payload::Json
-            && Command::method_of_wire(method.name).is_some()
+    /// The handler of `method`'s frames, or None when it answers only as a
+    /// line: its reply must go through the responder.
+    fn route_of(&mut self, method: &MethodAttrs) -> Option<FramedMethod> {
+        let tables = self.tables;
+        *self.routes.entry(method.id.raw()).or_insert_with(|| framed_method(tables, method))
     }
+}
+
+/// A JSON v12 `Command` (its handler replies through `responses`), or a JSON
+/// v2 operation the router answers at once (through `send_resource_response`).
+fn framed_method(tables: &MethodTables, method: &MethodAttrs) -> Option<FramedMethod> {
+    if method.payload != Payload::Json {
+        return None;
+    }
+    if tables.v12(method.id).is_some() {
+        return Command::method_of_wire(method.name).map(|(row, _)| FramedMethod::Command(row));
+    }
+    if tables.v2(method.id).is_some() {
+        let operation = ResourceOperation::ALL
+            .iter()
+            .copied()
+            .find(|operation| operation.wire_name() == method.name)?;
+        return (!crate::resource_router::requires_connection_context(operation))
+            .then_some(FramedMethod::Resource(operation));
+    }
+    None
 }
 
 /// The flags a REQUEST of `method` may carry.
@@ -346,29 +379,6 @@ fn request_flags(method: &MethodAttrs, flags: CallFlags) -> Result<(), CallRefus
         return Err(CallRefusal::FlagsRefused { method_id: method.id.raw(), flags: flags.bits() });
     }
     Ok(())
-}
-
-/// The members of a body that name its method.
-#[derive(Deserialize)]
-struct BodyHead<'a> {
-    #[serde(default, borrow)]
-    cmd: Option<Cow<'a, str>>,
-    /// Present (even `null`): the line path would read it as a v2 envelope.
-    #[serde(default, deserialize_with = "member_present")]
-    protocol: bool,
-}
-
-fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
-    IgnoredAny::deserialize(deserializer).map(|_| true)
-}
-
-/// The body must be the v12 line of the header's method, so the handler that
-/// runs is the one the header was checked for.
-fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
-    match serde_json::from_str::<BodyHead<'_>>(body) {
-        Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),
-        _ => Err(CallRefusal::MethodMismatch { method_id: method.id.raw() }),
-    }
 }
 
 fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {

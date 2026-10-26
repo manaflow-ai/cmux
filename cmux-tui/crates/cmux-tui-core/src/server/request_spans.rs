@@ -157,6 +157,12 @@ impl RequestHead {
         self.command
     }
 
+    /// The `COMMANDS` row its `cmd` names; None when it names none or the
+    /// head did not parse.
+    pub(super) fn command_row(&self) -> Option<u16> {
+        (self.command && self.method.id < RequestMethod::RESOURCE_BASE).then_some(self.method.id)
+    }
+
     pub(super) fn open<'a>(
         &self,
         stats: &'a Arc<RequestStats>,

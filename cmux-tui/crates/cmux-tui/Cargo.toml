@@ -56,6 +56,8 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# The daemon's feature snapshot (schemas/features, CMUX_ENABLE_FEATURES).
+cmux-features.workspace = true
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.

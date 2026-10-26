@@ -23,13 +23,6 @@
 /// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"`: the index of
 /// `name` in `table`. A name the table lacks fails the build; every check is a
 /// `const` item, so none of it runs in the daemon.
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_macros,
-        reason = "the generated handles use it; the registry has no daemon feature yet"
-    )
-)]
 macro_rules! feature_handles {
     ($table:path; $($handle:ident = $name:literal),* $(,)?) => {$(
         pub const $handle: $crate::Feature = $crate::Feature($crate::position($table, $name));

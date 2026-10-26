@@ -2730,8 +2730,8 @@ mod request_spans;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    pairing_request, zeroize_string,
+    FramedBodyMismatch, FramedMethod, auth_token, constant_time_eq, handle_connection_frame_at,
+    handle_framed_request_at, handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};

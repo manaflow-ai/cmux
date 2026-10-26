@@ -153,14 +153,41 @@ pub(crate) fn report() -> (String, Vec<String>) {
 /// Whether the managed policy or this tester's wave turns `feature` off.
 #[allow(dead_code)] // The first wave-gated feature reads this; the flags ship before it.
 pub(crate) fn disables(feature: &str) -> bool {
+    disabled_by_policy_or_wave().iter().any(|item| item == feature)
+}
+
+/// What the managed policy's `DisabledFeatures` and this tester's wave turn
+/// off, read once.
+fn disabled_by_policy_or_wave() -> Vec<String> {
     let env = |name: &str| std::env::var(name).ok();
     let managed = cmux_config::managed::default_reader(env).read();
-    let managed_off = managed
+    let mut disabled: Vec<String> = managed
         .forced
         .get("DisabledFeatures")
         .and_then(Value::as_array)
-        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(feature)));
-    managed_off || report().1.iter().any(|item| item == feature)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.as_str().map(str::to_owned))
+        .collect();
+    disabled.extend(report().1);
+    disabled
+}
+
+/// The daemon's feature snapshot (cmux-features): the spawn environment's
+/// `CMUX_ENABLE_FEATURES` / `CMUX_DISABLE_FEATURES`, then what the managed
+/// policy or this tester's wave turns off. A debug build reads the `dev`
+/// defaults; any other the `release` ones (the daemon is not told whether it
+/// shipped in a nightly).
+pub(crate) fn daemon_features() -> cmux_features::Snapshot {
+    let channel = if cfg!(debug_assertions) {
+        cmux_features::Channel::Dev
+    } else {
+        cmux_features::Channel::Release
+    };
+    let enable = std::env::var(cmux_features::ENABLE_ENV).ok();
+    let disable = std::env::var(cmux_features::DISABLE_ENV).ok();
+    cmux_features::Snapshot::from_env(channel, enable.as_deref(), disable.as_deref())
+        .with_disabled(disabled_by_policy_or_wave().iter().map(String::as_str))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
