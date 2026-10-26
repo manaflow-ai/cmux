@@ -31,11 +31,10 @@ PTYs). Then:
 With counters (a build of the rows lane) it asserts: no structural rebuild and no list reload
 during the ticks; row configures stay at or under the row patches (one realized row per changed
 row) and are not 0 when a ticking row is on screen; no list reload during the scroll. A build
-without `debug.sidebar_perf` (the base) is measured only. Writes summary-<label>.json to --out,
-the raw samples as result-v1 (story sidebar-rows-live, sidebar_bench_report.py: the tick reply
-delays, CPU and main time per tick, each scroll mode's event RPC times, hitch totals of the valid
-recordings and their hitches; the attached app's bundle, build and features), and exits 1 when an
-assertion fails. Every percentile is perf_stats.pct (p50, p95, p99).
+without `debug.sidebar_perf` (the base) is measured only. Writes summary-<label>.json to --out;
+with --app, also the raw samples as result-v1 (story sidebar-rows-live, sidebar_bench_report.py: the
+tick reply delays, CPU and main time per tick, each scroll mode's event RPC times, and the hitch total
+and hitch time ratio of each valid recording); exits 1 when an assertion fails. Every percentile is perf_stats.pct (p50, p95, p99).
 """
 import argparse, json, os, shutil, socket, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
@@ -372,7 +371,7 @@ def hitches(trace, pid):
             "p99_ms": report.pct(durations, 99),
             "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1),
             "app_updates": len(updates), **report.update_stats(updates),
-            "updates_over_8_3_ms": len([u for u in updates if u > 8.34]), "durations_ms": durations}
+            "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
 
 
 def hang_records(reply):
@@ -543,7 +542,9 @@ def scroll_mode(pid, window, label, terms):
         if trace:
             trace.__enter__()
         rpc("debug.frames", {"action": "start"})
+        started = time.perf_counter()
         d = gesture(window, point, opts.gesture_events, -60.0)
+        gesture_s = time.perf_counter() - started  # the recorded gesture: the hitch ratio's denominator
         moved = moved or realized_titles(window) != before
         if trace:
             trace.__exit__(None, None, None)
@@ -553,6 +554,9 @@ def scroll_mode(pid, window, label, terms):
         run = {"frames": f}
         if trace and os.path.exists(trace.path):
             run["hitches"] = hitches(trace.path, pid)
+            ratio = report.hitch_ratio(run["hitches"].get("total_ms"), gesture_s)
+            if ratio is not None:
+                run["hitches"]["hitch_ratio_pct"] = round(ratio, 3)
             run["hitches_trace"] = os.path.relpath(trace.path, opts.out)
         # Valid: the recording worked and the app drew (an occluded or sleeping window commits nothing).
         h = run.get("hitches") or {}
@@ -564,7 +568,7 @@ def scroll_mode(pid, window, label, terms):
     pick = valid[len(valid) // 2] if valid else (runs[-1] if runs else {})
     raw["scrolls"][label.replace("-", "_")] = {
         "event_rpc_ms": down + up, "hitch_total_ms": [r["hitches"].get("total_ms") for r in valid],
-        "hitch_ms": [d for r in valid for d in r["hitches"].get("durations_ms") or []]}
+        "hitch_ratio": [r["hitches"].get("hitch_ratio_pct") for r in valid]}
     result.update({"frames": pick.get("frames") or frames, "event_rpc": latency_stats(down + up), "moved_down": moved,
                    "runs": runs, "valid_runs": len(valid)})
     if "hitches" in pick:
@@ -605,6 +609,14 @@ def launch():
     SOCKET, CLI = BENCH.socket, BENCH.cli
 
 
+def write_summary():
+    os.makedirs(opts.out, exist_ok=True)
+    path = os.path.join(opts.out, f"summary-{opts.label}.json")
+    with open(path, "w") as out:
+        json.dump(summary, out, indent=2)
+    return path
+
+
 def measure():
     if "error" in (rpc("debug.layout_counters") or {"error": 1}):
         sys.exit(f"no tagged app answering on {SOCKET}")
@@ -615,13 +627,15 @@ def measure():
         make_workspaces()
     tick_phase(pid)
     scroll_phase(pid)
-    bench = BENCH or report.attach(report.running_bundle(opts.tag)[1], SOCKET, opts.out)
-    summary["result_v1"] = report.record_all(bench, report.live_series(opts.count, raw["ticks"], raw["scrolls"]))
     summary["failures"] = failures
-    os.makedirs(opts.out, exist_ok=True)
-    path = os.path.join(opts.out, f"summary-{opts.label}.json")
-    with open(path, "w") as out:
-        json.dump(summary, out, indent=2)
+    path = write_summary()
+    # result-v1 only from an app this script launched (its launch env is BenchApp's), and after the summary is on
+    # disk, so a failure here cannot lose it.
+    if BENCH is None:
+        summary["result_v1"] = "not recorded: attached to an app this bench did not launch (--tag)"
+    else:
+        summary["result_v1"] = report.record_all(BENCH, report.live_series(opts.count, raw["ticks"], raw["scrolls"]))
+    write_summary()
     print(f"summary: {path}", flush=True)
     print(json.dumps(summary), flush=True)
     print(f"{len(failures)} failure(s)", flush=True)

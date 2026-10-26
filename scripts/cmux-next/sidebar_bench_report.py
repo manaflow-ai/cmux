@@ -12,9 +12,11 @@ scripts/perf-lab/perf_stats.py (linear interpolation, Chromium's perf dashboard 
 | sidebar-stress-bench.py | sidebar-stress | `sidebar_stress.<size>.<scenario>.<metric>` | bench |
 
 The benches make their own 1,000 (or --sizes) workspaces, so every series is session `stress`; the count is part
-of the name, as the perf-budgets rows (`sidebar.400.scroll.frame`). A bench that attaches to an app it did not start
-(`--tag`) records through ``attach``: the app's bundle is read from the process that holds the tag, and its features
-from its socket, so the result names the same build, host and features as a launched one.
+of the name, as the perf-budgets rows (`sidebar.400.scroll.frame`). Only a run of an app the bench launched through
+BenchApp is recorded: an app it attaches to (`--tag`) has an unknown launch env, so that run writes its report JSON
+only. Scroll hitches are a hitch time ratio per recording (percent of the gesture time spent in hitches; Chromium's
+PercentDroppedFrames4 in cc/metrics/dropped_frame_counter.h, Apple's Animation Hitches hitch time ratio), so a
+recording with no hitch counts as 0.
 """
 import collections
 import os
@@ -22,7 +24,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
-from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path  # noqa: E402
+from bench_launch import PERF_LAB, RecordError, load_by_path  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -76,6 +78,13 @@ def median(values):
     return perf_stats.pct(numbers(values), 0.5)
 
 
+def hitch_ratio(total_ms, gesture_s):
+    """The percent of a gesture's time spent in hitches; None when either is unknown or the gesture took no time."""
+    if len(numbers([total_ms, gesture_s])) < 2 or gesture_s <= 0:
+        return None
+    return 100 * total_ms / (gesture_s * 1000)
+
+
 def series(story, metric, unit, samples):
     """[Series] for the numeric samples, or [] when there is none (result-v1 needs one sample)."""
     samples = numbers(samples)
@@ -86,8 +95,8 @@ def series(story, metric, unit, samples):
 
 def live_series(count, ticks, scrolls):
     """sidebar-rows-perf-live.py: `ticks` is the tick phase's raw samples {reply_ms: [...], cpu_us_per_tick,
-    main_us_per_tick}; `scrolls` maps a mode (no_ticks, ticking) to {event_rpc_ms: [...], hitch_total_ms: [...] of the
-    valid recordings, hitch_ms: [...] every hitch of the valid recordings}."""
+    main_us_per_tick}; `scrolls` maps a mode (no_ticks, ticking) to {event_rpc_ms: [...], hitch_total_ms: [...] and
+    hitch_ratio: [...] (``hitch_ratio``, percent) of the valid recordings}."""
     name = f"sidebar_rows_live.{count}"
     out = series(LIVE_STORY, f"{name}.ticks.reply_delay", "ms", ticks.get("reply_ms") or [])
     out += series(LIVE_STORY, f"{name}.ticks.app_cpu_per_tick", "us", [ticks.get("cpu_us_per_tick")])
@@ -95,7 +104,7 @@ def live_series(count, ticks, scrolls):
     for mode, raw in scrolls.items():
         out += series(LIVE_STORY, f"{name}.scroll_{mode}.event_rpc", "ms", raw.get("event_rpc_ms") or [])
         out += series(LIVE_STORY, f"{name}.scroll_{mode}.hitch_total", "ms", raw.get("hitch_total_ms") or [])
-        out += series(LIVE_STORY, f"{name}.scroll_{mode}.hitch", "ms", raw.get("hitch_ms") or [])
+        out += series(LIVE_STORY, f"{name}.scroll_{mode}.hitch_ratio", "percent", raw.get("hitch_ratio") or [])
     return out
 
 
@@ -123,10 +132,12 @@ def mirror_series(count, cycles):
 
 
 def stress_series(samples):
-    """sidebar-stress-bench.py: {(size, metric): [raw samples]} -> series `sidebar_stress.<size>.<metric>` (ms)."""
+    """sidebar-stress-bench.py: {(size, metric): [raw samples]} -> series `sidebar_stress.<size>.<metric>` (ms, or
+    percent for a `hitch_ratio`)."""
     out = []
     for (size, metric), values in sorted(samples.items(), key=lambda kv: (int(kv[0][0]), kv[0][1])):
-        out += series(STRESS_STORY, f"sidebar_stress.{size}.{metric}", "ms", values)
+        unit = "percent" if metric.endswith(".hitch_ratio") else "ms"
+        out += series(STRESS_STORY, f"sidebar_stress.{size}.{metric}", unit, values)
     return out
 
 
@@ -170,17 +181,4 @@ def running_bundle(tag, ps_output=None):
         if app and pid.isdigit() and command.lstrip().startswith(app + "/Contents/MacOS/") and "Helper" not in command:
             return int(pid), app
     return None, None
-
-
-def attach(app, socket_path, out):
-    """A BenchApp for an app this script did not start (``record`` only: it never launches, stops or tears down):
-    its socket is `socket_path` and its features the app's own features.list. None, with the reason printed, when
-    the bundle is unknown."""
-    if not app:
-        print("result-v1: no app bundle for the attached app; no result is recorded", flush=True)
-        return None
-    bench = BenchApp(app, out=out, teardown=False, fresh_state=False)
-    bench.socket = socket_path
-    bench.features = bench.read_features()
-    return bench
 

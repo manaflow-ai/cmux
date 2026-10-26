@@ -20,8 +20,8 @@ list again. Measured from `debug.sidebar_perf` (reset before the phase):
   rebuilds, list_reloads, and the mirror `view` calls (`debug.sidebar_rows` doc.ffi_calls)
 
 It reports the time per `view` call and per rebuild, the p50/p95/p99 of each create-and-close
-cycle, and writes each cycle's mirror and layout time as result-v1 (story sidebar-mirror-rebuild,
-sidebar_bench_report.py). It fails when the build has no `mirror_ns` counter, when the sidebar
+cycle, and, with --app, writes each cycle's mirror and layout time as result-v1 (story
+sidebar-mirror-rebuild, sidebar_bench_report.py). It fails when the build has no `mirror_ns` counter, when the sidebar
 document mode is not active, or when no `view` call happened.
 """
 
@@ -113,6 +113,12 @@ def counter_ms(counters, key):
     return (counters.get(key) or 0) / 1e6
 
 
+def write_summary(summary):
+    os.makedirs(opts.out, exist_ok=True)
+    with open(os.path.join(opts.out, f"mirror-rebuild-{opts.label}.json"), "w") as out:
+        json.dump(summary, out, indent=2)
+
+
 def measure():
     doc = rows().get("doc") or {}
     if "error" in rows() or not doc.get("active"):
@@ -168,11 +174,14 @@ def measure():
     for key in ("mirror_ms", "main_ms"):
         values = [c[key] for c in cycles]
         summary[f"cycle_{key}"] = {f"p{p}": report.pct(values, p, 3) for p in (50, 95, 99)}
-    bench = BENCH or report.attach(report.running_bundle(opts.tag)[1], SOCKET, opts.out)
-    summary["result_v1"] = report.record_all(bench, report.mirror_series(opts.count, cycles))
-    os.makedirs(opts.out, exist_ok=True)
-    with open(os.path.join(opts.out, f"mirror-rebuild-{opts.label}.json"), "w") as out:
-        json.dump(summary, out, indent=2)
+    write_summary(summary)
+    # result-v1 only from an app this script launched (its launch env is BenchApp's), and after the summary is on
+    # disk, so a failure here cannot lose it.
+    if BENCH is None:
+        summary["result_v1"] = "not recorded: attached to an app this bench did not launch (--tag)"
+    else:
+        summary["result_v1"] = report.record_all(BENCH, report.mirror_series(opts.count, cycles))
+    write_summary(summary)
     print(json.dumps(summary), flush=True)
     if views == 0:
         sys.exit("FAIL no mirror view call during the rebuilds")

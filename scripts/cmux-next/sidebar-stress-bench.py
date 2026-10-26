@@ -23,9 +23,10 @@ Per size it measures:
                 observations app-wide and the evaluations, applies and hosting bodies the one change cost;
                 `budget` checks armed SidebarRows <= on screen + one screen and 1 change -> <= 2 evaluations
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
-Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles), and the
-raw samples behind the ms blocks are written as result-v1 (story sidebar-stress, series
-`sidebar_stress.<size>.<scenario>.<metric>`) into OUT.
+Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles). When
+every size finished, the raw samples behind the ms blocks and each hitch recording's hitch time ratio
+are written as result-v1 (story sidebar-stress, series `sidebar_stress.<size>.<scenario>.<metric>`)
+into OUT.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
@@ -703,7 +704,9 @@ def scenario_hitches(pid, size):
     tr = Trace(pid, f"{size}-scroll-hitches", 10, template="Animation Hitches")  # about 90 MB per second of trace
     tr.__enter__()
     frames("start")
+    started = time.perf_counter()
     scroll_gesture(300, -60.0)
+    gesture_s = time.perf_counter() - started  # the hitch ratio's denominator
     stats = frames("stop")
     tr.__exit__(None, None, None)
     toc = ""
@@ -729,8 +732,12 @@ def scenario_hitches(pid, size):
                     ours += 1
                     if duration is not None and (duration.text or "").isdigit():
                         durations.append(int(duration.text) / 1e6)
-            hitches = {"rows_for_app": ours, "duration_ms": sample_block(durations, size, "scroll_hitches.hitch"),
-                       "total_ms": round(sum(durations), 1)}
+            ratio = report.hitch_ratio(sum(durations), gesture_s)
+            if ratio is not None:  # one sample per recording, 0 when it has no hitch
+                SAMPLES.setdefault((size, "scroll_hitches.hitch_ratio"), []).append(ratio)
+            hitches = {"rows_for_app": ours, "duration_ms": sample_block(durations),
+                       "total_ms": round(sum(durations), 1), "gesture_s": round(gesture_s, 3),
+                       "hitch_ratio_pct": None if ratio is None else round(ratio, 3)}
         except ET.ParseError as error:
             hitches = {"error": str(error)}
     return {"frames": stats, "trace": os.path.relpath(tr.path, OUT), "hitches": hitches}
@@ -814,14 +821,17 @@ def main():
                                             "cpu": cpu_share(app.pid, 10), "trace": os.path.relpath(tr.path, OUT), "profile": prof}
             ticking(False)
         results["cleanup_closed"] = close_scratch("after")
-    finally:
-        ticking(False)
-        results["made"] = {k: len(v) for k, v in made.items()}
+        # result-v1 only from a run that finished every size; a failed or stopped run writes results.json only.
         results["result_v1"] = report.record_all(bench, report.stress_series(SAMPLES))
-        with open(os.path.join(OUT, "results.json"), "w") as f:
-            json.dump(results, f, indent=1, default=str)
-        if opts.stop:
-            bench.stop()  # debug.quit with end-sessions, then TERM of its own PID, then the tag's daemons
+    finally:
+        try:
+            ticking(False)
+            results["made"] = {k: len(v) for k, v in made.items()}
+            with open(os.path.join(OUT, "results.json"), "w") as f:
+                json.dump(results, f, indent=1, default=str)
+        finally:
+            if opts.stop:
+                bench.stop()  # debug.quit with end-sessions, then TERM of its own PID, then the tag's daemons
 
 
 main()

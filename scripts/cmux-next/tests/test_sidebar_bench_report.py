@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The sidebar row benches' statistics and result-v1 series (sidebar_bench_report.py, p12-perf-process-054): the
 perf_stats percentiles against the private ones they replace, the report keys the benches kept, the names the lab
-stories claim, the attached app's bundle, and one run's series through perf_result and perf-lab ingest.
+stories claim, the hitch time ratio, the running app's pid and bundle, and one run's series through perf_result and perf-lab ingest.
 
 Runs on any host (Linux included): no app, no daemon, no fleet, no network.
 
@@ -76,8 +76,8 @@ def claimed(doc, series):
 
 def live_raw():
     ticks = {"reply_ms": VECTOR, "cpu_us_per_tick": 41.5, "main_us_per_tick": 12.25}
-    scrolls = {"no_ticks": {"event_rpc_ms": VECTOR, "hitch_total_ms": [33.0], "hitch_ms": [16.0, 17.0]},
-               "ticking": {"event_rpc_ms": VECTOR, "hitch_total_ms": [], "hitch_ms": []}}
+    scrolls = {"no_ticks": {"event_rpc_ms": VECTOR, "hitch_total_ms": [33.0, 0.0], "hitch_ratio": [1.65, 0.0]},
+               "ticking": {"event_rpc_ms": VECTOR, "hitch_total_ms": [], "hitch_ratio": []}}
     return ticks, scrolls
 
 
@@ -89,7 +89,7 @@ def release_modes():
 def stress_samples():
     return {("1000", "scroll.event_rpc"): VECTOR, ("1000", "scroll_ticking.event_rpc"): VECTOR,
             ("1000", "switch.click_to_idle"): [20.0, 22.5], ("1000", "drag.post_rpc"): [1.5],
-            ("1000", "scroll_hitches.hitch"): [18.0], ("1000", "ticks.main_per_tick"): [0.4],
+            ("1000", "scroll_hitches.hitch_ratio"): [0.0], ("1000", "ticks.main_per_tick"): [0.4],
             ("100", "scroll.event_rpc"): [2.0]}
 
 
@@ -133,7 +133,9 @@ class SeriesTests(unittest.TestCase):
         series = {s.metric: s for s in report.live_series(1000, *live_raw())}
         self.assertEqual(series["sidebar_rows_live.1000.ticks.reply_delay"].samples, VECTOR)
         self.assertEqual(series["sidebar_rows_live.1000.ticks.app_cpu_per_tick"].unit, "us")
-        self.assertEqual(series["sidebar_rows_live.1000.scroll_no_ticks.hitch"].samples, [16.0, 17.0])
+        ratio = series["sidebar_rows_live.1000.scroll_no_ticks.hitch_ratio"]
+        self.assertEqual((ratio.unit, ratio.samples), ("percent", [1.65, 0.0]))  # a hitch-free recording is a 0
+        self.assertNotIn("sidebar_rows_live.1000.scroll_no_ticks.hitch", series)  # no per-hitch series
         self.assertNotIn("sidebar_rows_live.1000.scroll_ticking.hitch_total", series)  # no valid recording
         self.assertIn("sidebar_rows_live.1000.scroll_ticking.event_rpc", series)
 
@@ -152,9 +154,21 @@ class SeriesTests(unittest.TestCase):
         self.assertEqual(series["sidebar_mirror_rebuild.1000.main_per_cycle"].samples, [1.25, 1.0])
 
     def test_stress_series_by_size_then_metric(self):
-        metrics = [s.metric for s in report.stress_series(stress_samples())]
+        series = report.stress_series(stress_samples())
+        metrics = [s.metric for s in series]
         self.assertEqual(metrics[0], "sidebar_stress.100.scroll.event_rpc")
         self.assertIn("sidebar_stress.1000.ticks.main_per_tick", metrics)
+        units = {s.metric: s.unit for s in series}
+        self.assertEqual(units["sidebar_stress.1000.scroll_hitches.hitch_ratio"], "percent")
+        self.assertEqual(units["sidebar_stress.1000.drag.post_rpc"], "ms")
+
+    def test_hitch_ratio_is_hitch_time_per_gesture_time(self):
+        self.assertEqual(report.hitch_ratio(50.0, 2.0), 2.5)  # 50 ms of hitches in a 2 s gesture
+        self.assertEqual(report.hitch_ratio(0.0, 2.0), 0.0)  # no hitch: the best result, still one sample
+        # One big hitch left after the small ones go is less hitch time, so the ratio goes down, not up.
+        self.assertLess(report.hitch_ratio(40.0, 2.0), report.hitch_ratio(40.0 + 3 * 8.0, 2.0))
+        for total, seconds in ((None, 2.0), (10.0, None), (10.0, 0.0), (True, 2.0)):
+            self.assertIsNone(report.hitch_ratio(total, seconds))
 
 
 class StoryTests(unittest.TestCase):
@@ -185,7 +199,7 @@ class StoryTests(unittest.TestCase):
         self.assertEqual([p for p in catalog.problems if any(story_id in p for story_id in new)], [])
 
 
-class AttachTests(unittest.TestCase):
+class RunningAppTests(unittest.TestCase):
     PS = ("  101 /Applications/cmux DEV other.app/Contents/MacOS/cmux DEV\n"
           "  202 /Users/x/Library/cmux DEV sb.app/Contents/Frameworks/Helper.app/Contents/MacOS/cmux Helper\n"
           "  303 /Users/x/Library/cmux DEV sb.app/Contents/MacOS/cmux DEV -AppleLanguages (en)\n")
@@ -194,11 +208,9 @@ class AttachTests(unittest.TestCase):
         self.assertEqual(report.running_bundle("sb", self.PS), (303, "/Users/x/Library/cmux DEV sb.app"))
         self.assertEqual(report.running_bundle("none", self.PS), (None, None))
 
-    def test_attach_without_a_bundle_records_nothing(self):
-        with redirect_stdout(io.StringIO()) as printed:
-            self.assertIsNone(report.attach(None, "/tmp/x.sock", "/tmp"))
-            self.assertEqual(report.record_all(None, report.mirror_series(1, [{"mirror_ms": 1.0, "main_ms": 1.0}])), {})
-        self.assertIn("no result is recorded", printed.getvalue())
+    def test_no_bench_records_nothing(self):
+        self.assertFalse(hasattr(report, "attach"))  # an attached app (--tag) has an unknown launch env
+        self.assertEqual(report.record_all(None, report.mirror_series(1, [{"mirror_ms": 1.0, "main_ms": 1.0}])), {})
 
 
 class RecordTests(unittest.TestCase):
@@ -259,6 +271,20 @@ class BenchSourceTests(unittest.TestCase):
             self.assertNotIn("statistics.", source, name)
             self.assertNotIn('["open", "-n"', source, name)
 
+    def test_result_v1_is_written_after_the_report_and_only_for_a_launched_app(self):
+        for name in BENCHES[0], BENCHES[2]:  # live and mirror: attach with --tag, launch with --app
+            source = (HERE / name).read_text()
+            body = source[source.index("def measure():"):]
+            self.assertLess(body.index("write_summary("), body.index("report.record_all("), name)
+            self.assertIn("if BENCH is None:", body, name)
+            self.assertNotIn("report.attach", source, name)
+        stress = (HERE / BENCHES[3]).read_text()
+        body = stress[stress.index("def main():"):]
+        cleanup = body[body.index("    finally:"):]
+        self.assertNotIn("record_all", cleanup)  # never from a failed run, never before the cleanup
+        self.assertLess(cleanup.index("results.json"), cleanup.index("bench.stop()"))
+        self.assertIn("        finally:\n            if opts.stop:\n                bench.stop()", cleanup)
+
     def test_every_bench_takes_app_and_tag(self):
         """The lab runner (task 008) passes --app, --tag and --out to a story command."""
         for name in BENCHES:
@@ -270,11 +296,11 @@ class BenchSourceTests(unittest.TestCase):
 
     def test_the_report_module_and_bench_launch_import_under_python_isolated(self):
         code = ("import runpy, sys; m = runpy.run_path(sys.argv[1]); "
-                "print(m['pct']([1.0, 2.0, 3.0], 50), m['BenchApp'].__name__)")
+                "print(m['pct']([1.0, 2.0, 3.0], 50), m['RecordError'].__name__)")
         done = subprocess.run([sys.executable, "-I", "-c", code, str(HERE / "sidebar_bench_report.py")],
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr[-600:])
-        self.assertEqual(done.stdout.split(), ["2.0", "BenchApp"])
+        self.assertEqual(done.stdout.split(), ["2.0", "RecordError"])
 
 
 if __name__ == "__main__":
