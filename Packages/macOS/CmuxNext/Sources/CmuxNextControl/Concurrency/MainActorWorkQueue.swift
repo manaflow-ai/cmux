@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+public import CmuxNextTrace
 public import CmuxNextWakeups
 
 /// The one path from the control socket to main-actor state
@@ -34,6 +35,9 @@ public import CmuxNextWakeups
 ///   queued fails with `timeout` and is dropped without running. Time the
 ///   main thread spends in Chromium's start does not count
 ///   (`MainThreadEngineStart`).
+/// - Traced: each request is a `control.request` async slice from its enqueue to its run's end or its failure
+///   (``ControlRequestTrace``), and a posted task: a `task.post` flow at its `file` and `line` and a `task.run`
+///   slice on the main thread (``TaskTrace``), while those categories record.
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -118,11 +122,15 @@ public final class MainActorWorkQueue: Sendable {
 
     public let limits: Limits
     private let frameSource: any ControlFrameSource
+    private let taskTrace: TaskTrace
     private let state = Mutex(State())
 
-    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource()) {
+    /// A queue; `trace` is the runtime its `control.request` and task records go to (default the process's).
+    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource(),
+                trace: TraceRuntime = .shared) {
         self.limits = limits
         self.frameSource = frameSource
+        taskTrace = TaskTrace(runtime: trace)
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
@@ -176,23 +184,32 @@ public final class MainActorWorkQueue: Sendable {
         // Interned when the method was registered; otherwise here, off the main thread. Either way
         // the drain starts the task without a lock.
         let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
+        let itemClass: MainWorkClass = workClass == .input ? .input : .automation
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            let request = ControlRequestTrace.begin(on: taskTrace.runtime, owner: owner, workClass: itemClass)
+            let ticket = taskTrace.post(fileID: file, line: line, lane: .main)
             let item = MainActorWorkItem(
                 connection: connection,
                 method: method,
                 owner: owner,
-                workClass: workClass == .input ? .input : .automation,
+                workClass: itemClass,
                 deadline: deadline,
                 enqueuedAt: now,
                 posted: posted,
                 body: {
-                    do {
-                        continuation.resume(returning: try work())
-                    } catch {
-                        continuation.resume(throwing: error)
+                    defer { request?.end(.ran) }
+                    ticket.run(priority: TaskTrace.code(itemClass)) {
+                        do {
+                            continuation.resume(returning: try work())
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
                     }
                 },
-                fail: { continuation.resume(throwing: $0) }
+                fail: { error in
+                    request?.end(ControlRequestTrace.Outcome(error))
+                    continuation.resume(throwing: error)
+                }
             )
             if let rejection = enqueue(item) {
                 item.expire(rejection)
