@@ -294,6 +294,12 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
+        }
         // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {
@@ -327,7 +333,7 @@ extension WebKitTab: WKScriptMessageHandler {
         // Entering hides the chrome: only in answer to the user (a script
         // could otherwise hide the address bar and draw a fake one).
         if on, !((webView as? WebKitWebView)?.hadRecentUserInput() ?? false) {
-            webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+            WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
             return
         }
         apply(.contentFullscreenChanged(on))

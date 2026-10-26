@@ -151,14 +151,21 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            let used = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_read_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("cache_creation_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // `used` is the context held by the last request. It is the prompt
+                            // side of the usage, including cache reads/writes, and deliberately
+                            // excludes output: the context ring must not grow from generated text.
+                            let input = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let cache_read = u
+                                .get("cache_read_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let cache_write = u
+                                .get("cache_creation_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let output =
+                                u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let used = input + cache_read + cache_write;
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
@@ -172,6 +179,10 @@ impl Translator {
                                 "sessionUpdate": "usage_update",
                                 "used": used,
                                 "size": size,
+                                "inputTokens": input,
+                                "cachedReadTokens": cache_read,
+                                "cachedWriteTokens": cache_write,
+                                "outputTokens": output,
                                 "_meta": {"acpmux": {"call": true}},
                             })));
                         }
@@ -440,21 +451,17 @@ impl Translator {
                             }),
                         ));
                     }
-                    other => {
-                        // Anything else (hook_callback, mcp_message) is declined
-                        // with an error response, so claude does not wait on it.
-                        let other = other.unwrap_or("?");
-                        tracing::debug!("claude control_request {other} declined");
-                        self.stdin_replies.lock().await.push(json!({
-                            "type": "control_response",
-                            "response": {
-                                "subtype": "error",
-                                "request_id": rid,
-                                "error": format!("acpmux does not support control request {other}"),
-                            }
-                        }));
-                    }
+                    // An MCP server's form, asked as a question (elicitation.rs).
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // Anything else (hook_callback, mcp_message) is declined
+                    // with an error response, so claude does not wait on it.
+                    other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
+            }
+            // Claude Code no longer needs the answer to one of its requests.
+            "control_cancel_request" => {
+                let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                self.forget_elicitation(rid).await;
             }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);
@@ -549,6 +556,25 @@ impl Translator {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     out.push(Message::ok(id, json!({"interrupted": ok})));
+                } else if let Some(acp) = rid.strip_prefix("mcp-") {
+                    // An mcp_reconnect's answer (`MCP_RECONNECT`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(if ok {
+                        Message::ok(id, json!({}))
+                    } else {
+                        let why = resp.get("error").and_then(Value::as_str);
+                        let why = why.unwrap_or("Claude Code did not reconnect the MCP server");
+                        Message::err(id, RpcError::internal(why))
+                    });
+                } else if rid.starts_with("ctx-")
+                    && let Some(breakdown) = ok.then(|| context_breakdown(&inner)).flatten()
+                {
+                    // The turn's context breakdown (`get_context_usage`, asked at its result). A
+                    // Claude Code that cannot answer leaves the last one, or none.
+                    out.push(upd(json!({
+                        "sessionUpdate": "session_info_update",
+                        "_meta": {"acpmux": {"contextBreakdown": breakdown}},
+                    })));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -616,6 +642,11 @@ impl Translator {
                 self.in_turn.store(false, Ordering::SeqCst);
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
+                // What the context holds now, as Claude Code's /context breaks it down; its
+                // answer comes after the turn ended (`context_breakdown`). `summary` answers
+                // from the last response's usage, with no token-count API call.
+                let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("ctx-{n}"), "request": {"subtype": "get_context_usage", "detail": "summary"}}));
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -910,7 +941,10 @@ impl Translator {
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
-            self.workflows.lock().await.insert(tool_use_id.to_owned(), Default::default());
+            self.workflows
+                .lock()
+                .await
+                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input));
         }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {

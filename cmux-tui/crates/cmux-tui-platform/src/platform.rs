@@ -25,6 +25,14 @@ pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
     peer_uid_of(socket.as_raw_fd())
 }
 
+/// Linux: the executable of the connected socket peer a `token:<pid>.<start
+/// time>` peer key names (`Stream::peer_process_key`), only while that pid
+/// still has the key's start time. Nil when the key is malformed or stale.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
+    peer_process::executable(peer_key)
+}
+
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]

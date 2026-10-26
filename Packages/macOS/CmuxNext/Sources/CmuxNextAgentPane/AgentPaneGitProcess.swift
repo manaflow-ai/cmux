@@ -57,18 +57,24 @@ nonisolated enum AgentPaneGitProcess {
     static func output(_ arguments: [String], executable: String = "/usr/bin/git", directory: String? = nil,
                        input: Data? = nil, timeout: Duration, network: Bool = false) async -> Outcome {
         let environment = network ? networkEnvironment() : environment()
-        // Awaited without a thread (AsyncProcess): output and errors together, SIGTERM at the deadline,
-        // and the run ends at git's exit even when a child git it started keeps the output open.
+        // Awaited without a thread (AsyncProcess): output and errors together, SIGTERM at the deadline
+        // (SIGKILL after the grace), and the run ends at git's exit even when a child git it started keeps
+        // the output open. `.finish`: a page reload or close cancels its request, but a write (and each
+        // step of a write sequence: restore --staged then --worktree, diff then apply) runs to its end,
+        // and a timeout returns only once git has exited and removed index.lock.
         let request = ProcessRequest(URL(fileURLWithPath: executable), arguments, environment: environment,
                                      directory: directory.map { URL(fileURLWithPath: $0) }, input: input,
-                                     errorOutput: .merge, timeout: timeout)
+                                     errorOutput: .merge, timeout: timeout, onCancel: .finish)
         do {
             let outcome = try await AsyncProcess().run(request)
             return Outcome(status: outcome.status, text: outcome.text)
         } catch ProcessFailure.launch(let message) {
             return Outcome(status: nil, text: message)
-        } catch {
+        } catch ProcessFailure.timedOut {
             return Outcome(status: nil, text: timedOutMessage)
+        } catch {
+            // A `.finish` run never throws CancellationError; whatever else stopped it is not a timeout.
+            return Outcome(status: nil, text: stoppedMessage)
         }
     }
 
@@ -104,6 +110,11 @@ nonisolated enum AgentPaneGitProcess {
     /// git did not finish before the deadline.
     static var timedOutMessage: String {
         String(localized: "agentPane.error.gitTimedOut", defaultValue: "Git didn't finish in time.", bundle: .module)
+    }
+
+    /// git was stopped before it finished, for a reason other than its deadline.
+    static var stoppedMessage: String {
+        String(localized: "agentPane.error.gitStopped", defaultValue: "Git was stopped before it finished.", bundle: .module)
     }
 
     /// The chat's repository holds the home folder.

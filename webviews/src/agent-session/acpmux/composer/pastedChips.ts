@@ -3,7 +3,8 @@
 import { type RefObject, useEffect, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { isLargePaste, pastedTextAttachment } from "../pastedText";
+import type { MadeFile } from "./attachmentIntake";
+import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes
 /// through the host (`pane.edit`), which runs the web view's own paste.
@@ -27,6 +28,9 @@ export function usePastedChips(
   attachments: RefObject<ComposerAttachment[]>,
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   field: RefObject<MarkdownFieldHandle | null>,
+  /// Attaches a file the way a pasted file is (attachmentIntake.tsx): a paste past PASTE_FILE_CHARS
+  /// goes as one. Unset, such a paste is a chip like any large one.
+  attachFile?: (file: MadeFile) => void,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
   const plainUntil = useRef(0);
@@ -60,6 +64,13 @@ export function usePastedChips(
     /// Makes pasted `text` a chip when it is huge; true when it did. A composer already holding the
     /// most chips takes the text as it is.
     take(text: string): boolean {
+      // Past what a prompt carries it is a file, Paste as Plain Text or not.
+      if (attachFile && text.length > PASTE_FILE_CHARS) {
+        // Its tile shows now; its bytes are made a slice per task after (copying 100 MB of text in
+        // the paste's own task held the page for 160 ms before the tile showed).
+        attachFile({ name: PASTED_TEXT_NAME, type: "text/plain", file: pastedTextFile(text) });
+        return true;
+      }
       if (raw() || !isLargePaste(text)) return false;
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.

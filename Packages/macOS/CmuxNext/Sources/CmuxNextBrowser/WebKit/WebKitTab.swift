@@ -7,7 +7,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab {
+public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
@@ -33,6 +33,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
+    /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
+    @ObservationIgnored public let agentFiles = BrowserAgentFiles()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -192,12 +194,18 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     /// Runs `body` as an async function with named arguments. Safer than
     /// string interpolation for automation input.
+    /// - Parameter gesture: Whether the call acts as the person (``BrowserScriptGesture``); no default.
     public func callFunction(
         _ body: String,
         arguments: [String: BrowserJSValue] = [:],
-        world: BrowserScriptWorld = .isolated
+        world: BrowserScriptWorld = .isolated,
+        gesture: BrowserScriptGesture
     ) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
+        if gesture == .cmux {
+            return try await WebKitGestureFreeEvaluation(webView: webView)
+                .callAsync(body, arguments: arguments.mapValues(\.foundationValue), in: world.contentWorld)
+        }
         let result = try await webView.callAsyncJavaScript(
             body,
             arguments: arguments.mapValues(\.foundationValue),
@@ -220,14 +228,15 @@ public final class WebKitTab: NSObject, BrowserTab {
 
         let count = try? await callFunction(
             FindScripts.countBody,
-            arguments: ["needle": .string(text), "caseSensitive": .bool(caseSensitive)]
+            arguments: ["needle": .string(text), "caseSensitive": .bool(caseSensitive)],
+            gesture: .cmux
         ).numberValue.map { Int($0) }
         return findState.step(query: text, direction: direction, matchFound: matchFound, count: count)
     }
 
     public func clearFind() {
         findState = FindState()
-        webView.evaluateJavaScript(FindScripts.clearSelection, completionHandler: nil)
+        WebKitGestureFreeEvaluation(webView: webView).run(FindScripts.clearSelection, in: .page)
     }
 
     // MARK: Zoom, fullscreen, devtools
@@ -239,7 +248,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     }
 
     public func exitContentFullscreen() {
-        webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+        WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
     }
 
     /// Leaves pane fullscreen now: the chrome returns at once, and the page
@@ -265,6 +274,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentFiles.withdraw()
         removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()

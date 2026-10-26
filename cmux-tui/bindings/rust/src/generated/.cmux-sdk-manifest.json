@@ -7,8 +7,8 @@
     },
     {
       "path": "events.rs",
-      "sha256": "67be585187a28b48659fe35d27619457fd7e0b304295ef094926779b3d413726",
-      "size": 80697
+      "sha256": "f3b6b92a9e0a56c84f5dcba39d89797ee1636900438962bcf172bdf64c8249cf",
+      "size": 80699
     },
     {
       "path": "metadata.rs",
@@ -22,8 +22,8 @@
     },
     {
       "path": "types.rs",
-      "sha256": "1a6c6bd1adb9292b3fa529b9e6da2b85b4f588dcccf496eaeee2de5d4181afc7",
-      "size": 93883
+      "sha256": "0dd7a0b0f490104cb41f297891e11a02f3be05bd17df2ed5e7fe6e5b351d6f33",
+      "size": 93887
     }
   ],
   "format": 1,

@@ -18,6 +18,11 @@
 //!   that pinned it (`pairing.rs`). Sent at start; never logged.
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
 //!   phone (Settings > Mobile > Remove): hostd closes its live links now.
+//! - `{"type":"phone_credentials","credentials":{"<phone device id>":"<token>"}}`: each
+//!   paired phone's own acpmux credential (acpmux pairing role `phone`, which the person
+//!   issued through the app), the whole set each time. That phone's `acpmux` channel
+//!   presents it instead of the dashboard token, so acpmux knows which phone it is and
+//!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -36,6 +41,20 @@ pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
 static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+static PHONE_CREDENTIALS: std::sync::Mutex<Option<std::collections::HashMap<String, Secret>>> =
+    std::sync::Mutex::new(None);
+
+/// The acpmux credential the app gave phone `phone_device_id` (`phone_credentials`), if any.
+pub fn phone_credential(phone_device_id: &str) -> Option<String> {
+    let credentials = PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner());
+    credentials.as_ref()?.get(&phone_device_id.to_lowercase()).map(|s| s.0.clone())
+}
+
+/// Replaces every phone's acpmux credential (`phone_credentials`); keys are lowercased.
+pub fn set_phone_credentials(credentials: std::collections::HashMap<String, Secret>) {
+    let lowered = credentials.into_iter().map(|(id, token)| (id.to_lowercase(), token)).collect();
+    *PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner()) = Some(lowered);
+}
 
 /// Phone device ids the app removed, as they arrive (lowercased).
 pub fn drops() -> broadcast::Receiver<String> {
@@ -111,6 +130,10 @@ pub enum Inbound {
     Devices(crate::pairing::DeviceTrust),
     DropPhone {
         phone_device_id: String,
+    },
+    /// Each paired phone's own acpmux credential, by phone device id. Never logged.
+    PhoneCredentials {
+        credentials: std::collections::HashMap<String, Secret>,
     },
 }
 
@@ -230,6 +253,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Devices(trust)) => {
                     devices_tx.send_replace(Some(trust));
                 }
+                Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -313,6 +337,21 @@ mod tests {
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
+    }
+
+    #[test]
+    fn phone_credentials_replace_the_set_and_never_print() {
+        let Some(Inbound::PhoneCredentials { credentials }) =
+            Inbound::parse(r#"{"type":"phone_credentials","credentials":{"AB-1":"tok"}}"#)
+        else {
+            panic!("a phone_credentials line")
+        };
+        assert!(!format!("{credentials:?}").contains("tok"));
+        set_phone_credentials(credentials);
+        assert_eq!(phone_credential("ab-1").as_deref(), Some("tok"));
+        assert_eq!(phone_credential("AB-1").as_deref(), Some("tok"));
+        set_phone_credentials(Default::default());
+        assert_eq!(phone_credential("ab-1"), None, "a phone the app no longer lists has none");
     }
 
     #[test]

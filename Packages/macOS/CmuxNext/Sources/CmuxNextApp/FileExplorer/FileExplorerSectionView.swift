@@ -147,7 +147,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     }
 
     @objc private func doubleClicked() {
-        guard table.clickedRow >= 0 else { return }
+        guard table.clickedRowIfValid != nil else { return }
         perform("fileExplorerOpenSelection")
     }
 

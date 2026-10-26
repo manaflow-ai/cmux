@@ -115,17 +115,18 @@ nonisolated extension SidebarLayout {
     /// The rows of `keys` (and of group `id`'s block and its section header), as a small layout: what a fold's
     /// animation reads of the layout before it (old frames, the folding header) without keeping every row.
     func excerpt(_ keys: some Sequence<SidebarRowKey>, group id: GroupID) -> SidebarLayout {
-        var picked: [SidebarRowKey: SidebarRow] = [:]
-        for key in keys { if let row = row(for: key) { picked[key] = row } }
+        // Positions, not row copies: the rows are already in y order, so sorting the picked positions orders them,
+        // and the group's block (10,000 members in a huge group) is one contiguous range appended once.
+        var positions = Set<Int>()
+        for key in keys { if let at = position(of: key) { positions.insert(at) } }
         if let start = position(of: .group(id)) {
-            picked[rows[start].key] = rows[start]
-            for i in (start + 1)..<rows.count {
-                guard rows[i].group == id, !rows[i].key.isGroupHeader else { break }
-                picked[rows[i].key] = rows[i]
-            }
-            if let section = row(for: .section(rows[start].section)) { picked[section.key] = section }
+            positions.insert(start)
+            var end = start + 1
+            while end < rows.count, rows[end].group == id, !rows[end].key.isGroupHeader { end += 1 }
+            positions.formUnion(start..<end)
+            if let section = position(of: .section(rows[start].section)) { positions.insert(section) }
         }
-        var layout = SidebarLayout(rows: picked.values.sorted { $0.y < $1.y }, totalHeight: totalHeight, gapY: nil, gapHeight: 0, gapShift: 0)
+        var layout = SidebarLayout(rows: positions.sorted().map { rows[$0] }, totalHeight: totalHeight, gapY: nil, gapHeight: 0, gapShift: 0)
         layout.rowSpacing = rowSpacing
         return layout
     }

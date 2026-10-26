@@ -16,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_health.rs"]
+mod health;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -85,8 +88,13 @@ pub struct Peer {
     file_put: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
+    /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
+    /// the connection, like its media handles, went with it (`server/media_forward.rs`).
+    link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
+    /// Whether the peer saves a message's attachments (`attach.rs`).
+    send_attach: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -103,6 +111,10 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
+    health: StdMutex<Option<(u64, Value)>>,
+    /// An ask for it is out.
+    health_asking: AtomicBool,
 }
 
 impl Peer {
@@ -133,7 +145,9 @@ impl Peer {
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
+            link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
+            send_attach: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -143,6 +157,8 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            health: StdMutex::new(None),
+            health_asking: AtomicBool::new(false),
         })
     }
 
@@ -187,6 +203,7 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
         self.stop_signal.notify_one();
         if let Ok(mut t) = self.tunnel.try_lock() {
@@ -293,13 +310,29 @@ impl Peer {
         self.media_read.load(Ordering::SeqCst)
     }
 
+    /// Which connection to the peer this is: it changes when a connection ends or the peer stops.
+    pub fn link_epoch(&self) -> u64 {
+        self.link_epoch.load(Ordering::SeqCst)
+    }
+
+    /// A connection to the peer ended: what the peer kept for it is gone.
+    pub(crate) fn link_ended(&self) {
+        self.link_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Whether the peer said at its last handshake that it serves subagent transcripts.
     pub fn supports_subagent_transcript(&self) -> bool {
         self.subagent_transcript.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it saves a message's attachments.
+    pub fn supports_send_attach(&self) -> bool {
+        self.send_attach.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
             "url": self.url,
@@ -316,6 +349,8 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
+            "health": health,
+            "healthAt": health_at,
         })
     }
 
@@ -323,6 +358,11 @@ impl Peer {
     /// re-attached after a reconnect.
     pub fn mark_attached(&self, session_id: &str) -> bool {
         self.attached.lock_or_recover().insert(session_id.to_owned())
+    }
+
+    /// How many requests wait for the peer's answer now.
+    pub async fn pending_requests(&self) -> usize {
+        self.pending.lock().await.len()
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
@@ -341,7 +381,15 @@ impl Peer {
         if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
-        match tokio::time::timeout(Duration::from_secs(600), rx).await {
+        // A prompt or a wait answers when the peer's turn ends, however long that is; the
+        // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
+        // and a forwarder whose client left drops it (`server/peer_forward.rs`).
+        let answer = if waits_on_turn(m) {
+            Ok(rx.await)
+        } else {
+            tokio::time::timeout(self.timings.request, rx).await
+        };
+        match answer {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
@@ -369,6 +417,7 @@ impl Peer {
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
             self.connected.store(false, Ordering::SeqCst);
+            self.link_ended();
             // A link that held a while starts over; one that flaps (up, then
             // reset seconds later) keeps backing off, so a loaded host is
             // not hit with a reconnect every second.
@@ -524,6 +573,7 @@ impl Peer {
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
+            me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -543,6 +593,7 @@ impl Peer {
             for sid in attached {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
+            me.refresh_health();
             Ok::<(), RpcError>(())
         });
 
@@ -558,6 +609,7 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -581,6 +633,10 @@ impl Peer {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(budget)),
+                    }
+                    ticks += 1;
+                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                        self.refresh_health();
                     }
                 }
                 frame = source.next() => {
@@ -646,6 +702,11 @@ impl Peer {
         handshake.abort();
         result
     }
+}
+
+/// The requests whose answer waits on the agent's turn, never on the link alone.
+pub(crate) fn waits_on_turn(m: &str) -> bool {
+    matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
 fn connect_timed_out(after: Duration) -> String {

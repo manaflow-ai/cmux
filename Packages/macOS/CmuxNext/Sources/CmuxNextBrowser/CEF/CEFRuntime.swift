@@ -27,6 +27,8 @@ final class CEFRuntime {
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
+    /// The pump's gate for requests from Chromium threads (read off the main thread).
+    nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
@@ -62,6 +64,12 @@ final class CEFRuntime {
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
+    /// Tabs with an agent's file offer standing: while any does, Chromium sends file choosers to the app
+    /// (`CEFRuntime+FileDialogs`).
+    var agentFileOffers: Set<ObjectIdentifier> = []
+    /// Asks the person for files when a chooser reaches the app with no offer for its tab (the App's
+    /// made-ahead panel, as WebKit tabs use); nil cancels such a chooser.
+    var fileInput: (any WebFileInputAnswering)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
@@ -395,7 +403,8 @@ final class CEFRuntime {
 
         let pump = CEFMessagePump(
             work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
-            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
+            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+            gate: pumpGate
         )
         self.pump = pump
         pump.start()

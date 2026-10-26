@@ -325,3 +325,20 @@ test("a model its profile declares with no effort levels shows no Effort row, th
   expect(menu()!.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain("Opus 5.5");
   expect(sent).toEqual([]);
 });
+
+// A profile may declare one alias without effort levels while another model still supports them.
+// The no-effort declaration must be scoped to the running model, not disable the whole profile.
+test("a sibling no-effort model does not hide Effort for the running model", async () => {
+  await mount({
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    model: "claude-fable-5-1",
+    effort: "high",
+    declared: { opus: { efforts: [] } },
+  });
+  await open();
+  const effortRow = [...menu()!.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
+    label(item).startsWith("Effort"),
+  );
+  expect(effortRow?.querySelector(".acpmux-quick-value")?.textContent).toBe("High");
+});

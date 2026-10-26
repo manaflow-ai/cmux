@@ -54,6 +54,11 @@ contains(' <key> ') matches whole keys only:
 - `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
   is online and idle for this placement; an empty value keeps the Blacksmith
   overflow route.
+- `fast_runner`: FAST_LABEL (vars.CI_FAST_LANE_RUNNER, the fast tier's
+  reserved glaeda-fast-* runner) while an online runner carrying it is idle
+  now, else empty (fast_route()). Only then does the fast tier leave JOBS and
+  CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
+  fast pool never holds it in a queue no overflow reaches.
 
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
 mini's label. When the dedicated nightly labels are supplied, its idle state
@@ -279,6 +284,37 @@ def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, 
     )
 
 
+FAST_JOB = "fast-tier"
+
+
+def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """FAST_LABEL while an online runner carrying it is idle now, else "".
+
+    The fast tier's reserved label is one small pool. On 2026-10-25 the fleet
+    reservation left two runners carrying glaeda-fast-light-xcode-26.6, each
+    running a 20-minute fast tier back to back, and 15 runs' fast tiers queued
+    behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
+    joined the cascade, and nothing else moved it. So the label is a
+    preference taken only when it is free; a busy label, unreadable runners or
+    an unset variable send the tier down the cascade (Blacksmith, hosted
+    macos-26), then the side route, like every other job.
+    """
+    label = (env.get("FAST_LABEL") or "").strip()
+    if not label or runners is None:
+        return ""
+    return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
+
+
+def without_fast(env: Mapping[str, str]) -> dict[str, str]:
+    """`env` with the fast tier dropped from JOBS and CASCADE_RUNS: it runs on its own idle runner."""
+    trimmed = dict(env)
+    for key in ("JOBS", "CASCADE_RUNS"):
+        if key in trimmed:
+            kept = [job for job in (trimmed[key] or "").split() if job != FAST_JOB]
+            trimmed[key] = f" {' '.join(kept)} " if key == "CASCADE_RUNS" and kept else " ".join(kept)
+    return trimmed
+
+
 def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
@@ -291,6 +327,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             runners = pool.GitHub(token, repo).runners()
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners ({error})")
+    fast = fast_route(env, runners)
+    if fast:
+        env = without_fast(env)
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
@@ -299,6 +338,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
+    if (env.get("FAST_LABEL") or "").strip():
+        why += (f"; the fast tier takes idle `{fast}`" if fast
+                else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
     dedicated_ready = nightly_runner_ready(env, runners)
@@ -311,6 +353,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
+                         f"fast_runner={fast}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:

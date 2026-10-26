@@ -172,9 +172,17 @@ if "--suite=cli-storm" in sys.argv:
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cli-storm"])
 # `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
 # driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
+# `--suite=cef-idle`: Chromium's pages, their visibility and what wakes the pump at idle, scripts/cmux-next/cef-idle-probe.py.
+if "--suite=cef-idle" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-idle-probe.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-idle"])
 if "--suite=automation-typing" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
+# `--suite=idle-budget`: threads and wakeups per process at idle, light and STRESS, scripts/cmux-next/idle-budget.py.
+if "--suite=idle-budget" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle-budget.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=idle-budget"])
 # `--suite=script-storm`: terminal typing and Cmd-D / Cmd-W while a script storms background workspaces (sidebar
 # reorders, tab moves, New Column/Row, renames, app-side renameTab), light and STRESS, scripts/cmux-next/script-storm-bench.py.
 if "--suite=script-storm" in sys.argv:

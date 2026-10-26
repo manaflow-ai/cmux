@@ -2,6 +2,7 @@
 import CmuxUpdater
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// "Installing Update — cmux relaunches in a moment" sat for about 80 s with an
 /// indeterminate bar (Lawrence 2026-10-23, nightly 3973494930601 to 3991367032401):
