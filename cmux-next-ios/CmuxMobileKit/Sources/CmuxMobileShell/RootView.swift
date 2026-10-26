@@ -286,7 +286,7 @@ public struct RootView: View {
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread.
         Task.detached(priority: .utility) {
-            let group = await PushAppGroup.resolved()
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
             PushSnapshotStore(group: group)?.removeAll()
             PushOutbox(group: group)?.removeAll()
         }

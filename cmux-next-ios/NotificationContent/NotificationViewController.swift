@@ -54,6 +54,8 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         case .refused: (nil, false)
         }
         model.actionable = actionable
+        // The push shows at once; the App Group's outbox and snapshot join it once resolved.
+        model.load(payload: payload, group: nil)
         // The App Group (outbox, chat snapshot) and the shared Require Face ID
         // choice are read off the main thread. A build signed without the
         // App Group shows the push alone and offers "Open in app" only.
@@ -64,7 +66,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
                 return (group, PushSharedPreference.live(group: group).requireFaceID)
             }.value
             guard let self, !Task.isCancelled else { return }
-            self.model.load(payload: payload, group: group)
+            if group != nil { self.model.load(payload: payload, group: group) }
             // The notification's own buttons: a question's options, the permission's offers.
             // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
             if let payload, actionable {

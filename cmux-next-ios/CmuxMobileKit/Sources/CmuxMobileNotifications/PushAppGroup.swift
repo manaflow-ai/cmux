@@ -43,6 +43,9 @@ public struct PushAppGroup: Sendable, Equatable {
 public final class PushAppGroupResolver: @unchecked Sendable { // crash-allow: lock-guarded
     /// How long a reader waits for a lookup that has not answered.
     public static let defaultTimeout: Duration = .seconds(2)
+    /// For cleanup that must not be skipped (sign-out, sent attachments): it
+    /// waits for the real answer, never on the main thread.
+    public static let cleanupTimeout: Duration = .seconds(60)
 
     public struct Environment: Sendable {
         /// Info.plist `CmuxMobileAppGroup`.

@@ -37,13 +37,14 @@ public struct PushSnapshots {
             snapshots.append(PushSnapshot(mac: chat.summary.macID, session: source.sessionID, title: chat.summary.name, messages: messages))
         }
         guard !snapshots.isEmpty else { return }
-        await Task.detached(priority: .utility) { for snapshot in snapshots { store.save(snapshot) } }.value
+        let toSave = snapshots
+        await Task.detached(priority: .utility) { for snapshot in toSave { store.save(snapshot) } }.value
     }
     #endif
 
     /// Sign-out: no account's chats stay on disk (off the main thread).
     public func removeAll() async {
-        let group = await PushAppGroup.resolved()
+        let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
         await Task.detached(priority: .utility) { PushSnapshotStore(group: group)?.removeAll() }.value
     }
 }

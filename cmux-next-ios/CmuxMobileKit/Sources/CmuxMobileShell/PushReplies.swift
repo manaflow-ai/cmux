@@ -310,7 +310,7 @@ public final class PushReplies {
             try await live.deliver(reply, budget: budget)
             if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
             // Its photos leave the App Group once sent (review L4).
-            if case .text(_, let names) = reply.action, !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved()) {
+            if case .text(_, let names) = reply.action, !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)) {
                 await Task.detached(priority: .utility) { outbox.removeAttachments(names) }.value
             }
         } catch let failure as LiveCoordinator.PushReplyFailure {
