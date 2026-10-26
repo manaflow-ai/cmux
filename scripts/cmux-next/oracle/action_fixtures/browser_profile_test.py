@@ -25,33 +25,57 @@ GAPS = HERE.parents[1] / "every-action-gaps.json"
 GAP = lambda why: {"skipped": why, "skip_kind": "gap"}
 
 
+# What action.run validates before a handler runs (BrowserProfileActionCatalog, ControlRouter+Validation
+# validatedRequest): the arguments each action declares and the target kinds it takes. An argument it does not declare
+# is "has no argument", a target it does not take is "does not take a target".
+SCHEMA = {
+    "browserProfile.new": ({"name", "color", "icon"}, ()),
+    "browserProfile.rename": ({"name"}, ("browser-profile",)),
+}
+
+
 class FakeApp:
-    """The app's profile records as action.run sees them: rename resolves a profile by name, new makes one that shows
-    up `lag` reads later (the daemon's create-browser-profile reply)."""
+    """The app's profile records as action.run sees them: the router refuses what the catalog does not declare,
+    rename resolves its target profile by name, new makes one that shows up `lag` reads later (the daemon's
+    create-browser-profile reply)."""
 
     def __init__(self, held=False, lag=0, refuse_new=None):
         self.names = ["Default"] + ([browser_profile.NAME] if held else [])
         self.lag, self.refuse_new, self.pending = lag, refuse_new, None
         self.ran = []
 
-    def run(self, action, args=None):
+    def run(self, action, args=None, target=None):
         self.ran.append(action)
         args = args or {}
+        if action not in SCHEMA:
+            return {"error": f"unexpected {action}"}
+        declared, kinds = SCHEMA[action]
+        for name in args:
+            if name not in declared:
+                return {"error": {"code": "invalid_params", "message": f"{action} has no argument '{name}'"}}
+        if target is not None:
+            kind = target.split(":", 1)[0]
+            if kind not in kinds:
+                return {"error": {"code": "invalid_params", "message": f"{action} does not take a {kind} target"}}
         if action == "browserProfile.new":
             if self.refuse_new:
                 return {"error": self.refuse_new}
             self.pending = [args["name"], self.lag]
             return {}
-        if action == "browserProfile.rename":
-            if self.pending:
-                if self.pending[1] <= 0:
-                    self.names.append(self.pending[0])
-                    self.pending = None
-                else:
-                    self.pending[1] -= 1
-            target = args["browserProfile"].split(":", 1)[1]
-            return {} if target in self.names else {"error": {"code": "invalid_target", "message": f"no profile {target}"}}
-        return {"error": f"unexpected {action}"}
+        if self.pending:
+            if self.pending[1] <= 0:
+                self.names.append(self.pending[0])
+                self.pending = None
+            else:
+                self.pending[1] -= 1
+        if target is None:
+            return {"error": {"code": "invalid_target", "message": "rename needs a browser-profile target"}}
+        name = target.split(":", 1)[1]
+        if name not in self.names:
+            return {"error": {"code": "invalid_target", "message": f"no profile {name}"}}
+        if args.get("name") != name:
+            return {"error": f"the presence check renamed {name!r} to {args.get('name')!r}"}
+        return {}
 
     def rpc(self, method, params=None):
         return {}

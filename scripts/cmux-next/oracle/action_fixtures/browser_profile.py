@@ -38,9 +38,10 @@ def _error(reply: Any) -> Optional[str]:
 
 
 def _held(driver: Any) -> bool:
-    """True when the launch holds the scratch profile: renaming it to its own name resolves it by name and keeps every
-    field, and refuses when no profile has that name."""
-    return _error(driver.run("browserProfile.rename", {"browserProfile": TARGET, "name": NAME})) is None
+    """True when the launch holds the scratch profile. The socket lists no browser profiles, so the check renames the
+    target profile to its own name: rename takes the profile only as its target and `name` as its one argument, keeps
+    every field, and refuses a target no profile's name matches."""
+    return _error(driver.run("browserProfile.rename", {"name": NAME}, target=TARGET)) is None
 
 
 class ScratchProfile:

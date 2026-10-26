@@ -725,8 +725,8 @@ PREPARE = FAMILIES.merged_prepare(PREPARE)
 class SweepDriver:
     """The narrow seam a family's ContextFixture drives the app through (action_fixtures.Driver)."""
 
-    def run(self, action, args=None):
-        return act(action, args=args, focus=True)
+    def run(self, action, args=None, target=None):
+        return act(action, target=target, args=args, focus=True)
 
     def rpc(self, method, params=None):
         return rpc(method, params)
