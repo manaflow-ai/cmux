@@ -374,8 +374,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                     watch: AcpmuxUnresponsiveWatch? = nil) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
+        // The status call below answered: a later deadline in this lookup is not a missed status call.
+        var answered = false
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            answered = true
             watch?.answered(home: environment.home.standardizedFileURL.path)
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.
@@ -430,7 +433,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .noWebSocket, detail: environment.socketPath)
         } catch is AgentPaneDeadlineExceeded {
             logger.error("acpmux status timed out socket=\(environment.socketPath, privacy: .public)")
-            throw AgentPaneHostError.timedOut
+            // A daemon that stays alive but stopped answering holds its lock: no new one could
+            // start. Once it is stopped, start one below; it adopts the agent hosts.
+            guard !answered, let watch, await watch.restartIfStuck(environment) else { throw AgentPaneHostError.timedOut }
         } catch let error as AgentPaneHostError {
             throw error
         } catch let refusal as AcpmuxServerPeer.Refusal {
