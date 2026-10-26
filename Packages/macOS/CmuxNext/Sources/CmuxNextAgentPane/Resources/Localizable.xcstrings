@@ -1,6 +1,1578 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.acpmuxDaemon.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not running"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يعمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pokrenut"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kører ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft nicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se está ejecutando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non lancé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중이 아님"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjører ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie działa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não está em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не запущена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışmıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не запущена"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未執行"
+          }
+        }
+      }
+    },
+    "agentPane.acpmuxDaemon.otherBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (not the app's build)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ليس إصدار التطبيق)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (nije verzija aplikacije)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ikke appens build)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (nicht der Build der App)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (no es la compilación de la app)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (pas le build de l’app)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (non è la build dell’app)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（アプリのビルドではありません）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (មិនមែនជាកំណែរបស់កម្មវិធី)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (앱의 빌드가 아님)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ikke appens bygg)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (nie jest to kompilacja aplikacji)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (não é a build do app)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (не сборка приложения)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ไม่ใช่บิลด์ของแอป)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (uygulamanın derlemesi değil)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (не збірка застосунку)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (không phải bản dựng của ứng dụng)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（不是 App 的版本）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（不是 App 的版本）"
+          }
+        }
+      }
+    },
+    "agentPane.acpmuxDaemon.restarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (restarting…)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (جارٍ إعادة التشغيل…)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ponovno pokretanje…)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (genstarter…)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (wird neu gestartet …)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (reiniciando…)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (redémarrage…)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (riavvio in corso…)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（再起動中…）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (កំពុងចាប់ផ្ដើមឡើងវិញ…)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (다시 시작하는 중…)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (starter på nytt …)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ponowne uruchamianie…)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (reiniciando…)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (перезапуск…)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (กำลังเริ่มใหม่…)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (yeniden başlatılıyor…)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (перезапуск…)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (đang khởi động lại…)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（正在重新启动…）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（正在重新啟動…）"
+          }
+        }
+      }
+    },
+    "agentPane.acpmuxDaemon.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux daemon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة acpmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux servis"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux-tjeneste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux-Dienst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servicio de acpmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Service acpmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servizio acpmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux デーモン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវា acpmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 데몬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux-tjeneste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa acpmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serviço do acpmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба acpmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการ acpmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux hizmeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба acpmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ acpmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 守护进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 常駐程式"
+          }
+        }
+      }
+    },
+    "agentPane.acpmuxDaemon.upToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (up to date)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (محدّث)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ažurno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (opdateret)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (aktuell)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (actualizado)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (à jour)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (aggiornato)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（最新）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (ទាន់សម័យ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (최신)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (oppdatert)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (aktualny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (atualizado)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (актуальна)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (เป็นปัจจุบัน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (güncel)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (актуальна)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (đã cập nhật)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（已是最新）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（已是最新）"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.notice.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديث %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće ažurirati %1$@: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opdatere %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konnte nicht aktualisiert werden: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't update %1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo actualizar %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de mettre à jour %1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiornare %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を更新できませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាព %1$@ បានទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@을(를) 업데이트할 수 없음: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oppdatere %1$@: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zaktualizować %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível atualizar %1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить %1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดต %1$@ ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ güncellenemedi: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося оновити %1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể cập nhật %1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新 %1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.notice.rolledBack": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ %1$@ بإصداره السابق: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ je zadržao prethodni build: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ beholdt sin tidligere build: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ behält seinen vorherigen Build: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kept its previous build: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ conservó su compilación anterior: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a conservé sa version précédente : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha mantenuto la build precedente: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は以前のビルドのままです: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានរក្សាកំណែមុនរបស់វា៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@은(는) 이전 빌드를 유지했습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ beholdt det forrige bygget: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zachował poprzednią kompilację: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ manteve a versão anterior: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ остался на прежней сборке: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ยังใช้บิลด์ก่อนหน้า: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ önceki derlemesinde kaldı: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ залишився на попередній збірці: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vẫn giữ bản dựng trước: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 保留了之前的版本：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 保留了先前的版本：%2$@"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.updating": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحديث إلى إصدار هذا الـMac…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje na build ovog Maca…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdaterer til denne Macs build…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird auf den Build dieses Macs aktualisiert …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating to this Mac's build…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizando a la compilación de este Mac…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour vers la version de ce Mac…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento alla build di questo Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのビルドに更新しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងធ្វើបច្ចុប្បន្នភាពទៅកំណែរបស់ Mac នេះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 빌드로 업데이트하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdaterer til denne Mac-ens bygg …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizowanie do kompilacji tego Maca…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizando para a versão deste Mac…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление до сборки этого Mac…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังอัปเดตเป็นบิลด์ของ Mac เครื่องนี้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in derlemesine güncelleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення до збірки цього Mac…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang cập nhật lên bản dựng của máy Mac này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新到这台 Mac 的版本…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新至這台 Mac 的版本…"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستُعاد محاولة التحديث قريبًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje će uskoro pokušati ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringen prøver igen om lidt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Update versucht es bald erneut"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update will try again soon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización se volverá a intentar pronto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour sera retentée bientôt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'aggiornamento verrà ritentato a breve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まもなく更新を再試行します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពនឹងព្យាយាមម្ដងទៀតក្នុងពេលឆាប់ៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "곧 업데이트를 다시 시도합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringen prøver igjen snart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja wkrótce spróbuje ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A atualização será tentada novamente em breve"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление скоро повторится"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จะลองอัปเดตอีกครั้งเร็ว ๆ นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme birazdan yeniden denenecek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення незабаром спробує ще раз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản cập nhật sẽ sớm thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新将很快重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新將很快重試"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التحديث إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažurirano na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateret til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiert auf %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizado a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis à jour vers %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornato a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に更新しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានធ្វើបច្ចុប្បន្នភាពទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 업데이트됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatert til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaktualizowano do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizado para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлено до %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตเป็น %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sürümüne güncellendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлено до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cập nhật lên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新到 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新至 %@"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل التحديث: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje nije uspjelo: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringen mislykkedes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update fehlgeschlagen: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update failed: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización falló: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la mise à jour : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento non riuscito: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新に失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពបានបរាជ័យ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 실패: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringen mislyktes: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja nie powiodła się: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na atualização: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตไม่สำเร็จ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося оновити: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật thất bại: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失敗：%@"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.rolledBack": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التراجع عن التحديث: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje je vraćeno: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringen blev rullet tilbage: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update zurückgesetzt: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update rolled back: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización revertida: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour annulée : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento annullato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新を元に戻しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពត្រូវបានត្រឡប់វិញ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트가 되돌려짐: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringen ble rullet tilbake: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja wycofana: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização revertida: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление отменено: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้อนกลับการอัปเดตแล้ว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme geri alındı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення скасовано: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã hoàn tác bản cập nhật: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已回滚：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已復原：%@"
+          }
+        }
+      }
+    },
     "agentPane.error.environment": {
       "extractionState": "manual",
       "localizations": {
@@ -914,534 +2486,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在 Finder 中顯示"
-          }
-        }
-      }
-    },
-    "agentPane.link.notFound": {
-      "comment": "Shown when a file chip in a chat reply could not be opened because no file of that name is in the chat's folders. %@ is the file name.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر العثور على %@ في مجلد هذه الدردشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće pronaći %@ u folderu ovog chata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kan ikke finde %@ i denne chats mappe."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wurde im Ordner dieses Chats nicht gefunden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can't find %@ in this chat's folder."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se encuentra %@ en la carpeta de este chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de trouver %@ dans le dossier de ce chat."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile trovare %@ nella cartella di questa chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットのフォルダに %@ が見つかりません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រកមិនឃើញ %@ នៅក្នុងថតរបស់ការជជែកនេះទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 채팅의 폴더에서 %@ 파일을 찾을 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finner ikke %@ i mappen til denne chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie można znaleźć %@ w folderze tego czatu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível encontrar %@ na pasta deste chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось найти %@ в папке этого чата."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่พบ %@ ในโฟลเดอร์ของแชทนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ bu sohbetin klasöründe bulunamadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося знайти %@ у папці цього чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không tìm thấy %@ trong thư mục của cuộc trò chuyện này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此聊天的文件夹中找不到 %@。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此聊天的資料夾中找不到 %@。"
-          }
-        }
-      }
-    },
-    "agentPane.link.denied": {
-      "comment": "Shown when a file chip in a chat reply points at a file that may hold secrets (keys, .env), which cmux never opens from a chat.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قد يحتوي هذا الملف على أسرار، لذا لا يفتحه cmux من الدردشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ova datoteka može sadržavati tajne, pa je cmux ne otvara iz chata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne fil kan indeholde hemmeligheder, så cmux åbner den ikke fra en chat."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Datei kann Geheimnisse enthalten, daher öffnet cmux sie nicht aus einem Chat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file may hold secrets, so cmux doesn't open it from a chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este archivo puede contener secretos, así que cmux no lo abre desde un chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce fichier peut contenir des secrets, cmux ne l'ouvre donc pas depuis un chat."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questo file potrebbe contenere segreti, quindi cmux non lo apre da una chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルには機密情報が含まれている可能性があるため、cmux はチャットから開きません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឯកសារនេះអាចមានព័ត៌មានសម្ងាត់ ដូច្នេះ cmux មិនបើកវាពីការជជែកទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 파일에는 비밀 정보가 있을 수 있으므로 cmux는 채팅에서 열지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne filen kan inneholde hemmeligheter, så cmux åpner den ikke fra en chat."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten plik może zawierać sekrety, więc cmux nie otwiera go z czatu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este arquivo pode conter segredos, então o cmux não o abre a partir de um chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот файл может содержать секреты, поэтому cmux не открывает его из чата."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไฟล์นี้อาจมีข้อมูลลับ cmux จึงไม่เปิดไฟล์นี้จากแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu dosya gizli bilgiler içerebilir, bu yüzden cmux onu bir sohbetten açmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей файл може містити секрети, тому cmux не відкриває його з чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tệp này có thể chứa thông tin bí mật, nên cmux không mở nó từ cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此文件可能包含机密信息，因此 cmux 不会从聊天中打开它。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此檔案可能包含機密資訊，因此 cmux 不會從聊天中開啟它。"
-          }
-        }
-      }
-    },
-    "agentPane.link.outside": {
-      "comment": "Shown when a file chip in a chat reply points outside the chat's folders and the setting keeps such paths as text.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هذا الملف خارج مجلدات الدردشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ova datoteka je izvan foldera chata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne fil ligger uden for chattens mapper."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Datei liegt außerhalb der Ordner des Chats."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This file is outside the chat's folders."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este archivo está fuera de las carpetas del chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce fichier se trouve en dehors des dossiers du chat."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questo file si trova fuori dalle cartelle della chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルはチャットのフォルダの外にあります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ឯកសារនេះនៅក្រៅថតរបស់ការជជែក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 파일은 채팅 폴더 밖에 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne filen ligger utenfor chattens mapper."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten plik znajduje się poza folderami czatu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este arquivo está fora das pastas do chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот файл находится вне папок чата."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไฟล์นี้อยู่นอกโฟลเดอร์ของแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu dosya sohbetin klasörlerinin dışında."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей файл розташований поза папками чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tệp này nằm ngoài các thư mục của cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此文件位于聊天文件夹之外。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此檔案位於聊天資料夾之外。"
-          }
-        }
-      }
-    },
-    "agentPane.link.openFailed": {
-      "comment": "Shown when a file chip in a chat reply was found but the app could not open it. %@ is the file name.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر فتح %@."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće otvoriti %@."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke åbne %@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ konnte nicht geöffnet werden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't open %@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo abrir %@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible d'ouvrir %@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile aprire %@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を開けませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចបើក %@ បានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 파일을 열 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke åpne %@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie można otworzyć %@."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível abrir %@."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось открыть %@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่สามารถเปิด %@ ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ açılamadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося відкрити %@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể mở %@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法打开 %@。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法開啟 %@。"
           }
         }
       }
@@ -3945,6 +4989,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟 ACP 檢查器需要焦點。"
+          }
+        }
+      }
+    },
+    "agentPane.sessionInfo.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب فتح معلومات الجلسة التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvaranje informacija o sesiji zahtijeva fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbning af sessionsoplysninger kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Öffnen der Sitzungsinfo ist Fokus erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Session Info requires focus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la información de la sesión requiere el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’ouverture des informations de session nécessite le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’apertura delle informazioni sulla sessione richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報を開くにはフォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបើកព័ត៌មានវគ្គត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보를 열려면 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpning av øktinformasjon krever fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwarcie informacji o sesji wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir as informações da sessão requer foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для открытия сведений о сеансе требуется фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปิดข้อมูลเซสชันต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum bilgisini açmak için odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для відкриття відомостей про сеанс потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở thông tin phiên cần có tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开会话信息需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟工作階段資訊需要焦點。"
+          }
+        }
+      }
+    },
+    "agentPane.sessionInfo.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معلومات الجلسة متوقفة في الإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informacije o sesiji su isključene u Postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsoplysninger er slået fra i Indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsinfo ist in den Einstellungen ausgeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Info is turned off in Settings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La información de la sesión está desactivada en Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les informations de session sont désactivées dans les Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le informazioni sulla sessione sono disattivate nelle Impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報は設定でオフになっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព័ត៌មានវគ្គត្រូវបានបិទនៅក្នុងការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보가 설정에서 꺼져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktinformasjon er slått av i Innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informacje o sesji są wyłączone w Ustawieniach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As informações da sessão estão desativadas nos Ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сведения о сеансе отключены в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลเซสชันถูกปิดอยู่ในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum bilgisi Ayarlar’da kapalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відомості про сеанс вимкнено в налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông tin phiên đang tắt trong Cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话信息已在设置中关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段資訊已在設定中關閉。"
           }
         }
       }
@@ -17835,6 +19141,137 @@
         }
       }
     },
+    "agentPane.error.gitStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف Git قبل أن ينتهي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git je zaustavljen prije nego što je završio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git blev stoppet, før den blev færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git wurde angehalten, bevor es fertig war."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git was stopped before it finished."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git se detuvo antes de terminar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git a été arrêté avant d’avoir terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git è stato interrotto prima di finire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git は終わる前に停止されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git ត្រូវបានបញ្ឈប់មុនពេលវាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git이 끝나기 전에 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git ble stoppet før den ble ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git został zatrzymany, zanim skończył."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Git foi interrompido antes de terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git был остановлен до завершения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git ถูกหยุดก่อนที่จะทำงานเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git bitmeden durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git зупинено до завершення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git đã bị dừng trước khi hoàn tất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git 在完成前被停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git 在完成前被停止。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -28185,268 +29622,6 @@
         }
       }
     },
-    "agentPane.error.daemonHeldByOtherBuild": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux belongs to %@, and this build may not use it. Quit that app, then try again."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux تابع لـ %@، ولا يمكن لهذا الإصدار استخدامه. أغلق هذا التطبيق ثم حاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux pripada aplikaciji %@ i ova verzija ga ne može koristiti. Zatvori tu aplikaciju pa pokušaj ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux tilhører %@, og denne build kan ikke bruge den. Afslut appen, og prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux gehört zu %@; dieser Build kann es nicht verwenden. Beende diese App und versuche es erneut."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux pertenece a %@ y esta compilación no puede usarlo. Cierra esa app y vuelve a intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux appartient à %@ et ce build ne peut pas l’utiliser. Quittez cette app, puis réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux appartiene a %@ e questa build non può usarlo. Chiudi quell’app e riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux は %@ が使用しています。このビルドでは使えないため、そのアプリを終了してからもう一度試してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux ជារបស់ %@ ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទកម្មវិធីនោះ រួចព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux는 %@에 속하므로 이 빌드에서 사용할 수 없습니다. 해당 앱을 종료한 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux tilhører %@, og denne versjonen kan ikke bruke den. Avslutt appen og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux należy do %@, a ta wersja nie może go użyć. Zamknij tę aplikację i spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux pertence a %@, e esta versão não pode usá-lo. Feche esse app e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux принадлежит приложению %@, и эта сборка не может его использовать. Закройте это приложение и повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux เป็นของ %@ และบิลด์นี้ใช้ไม่ได้ ปิดแอปนั้นแล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux %@ uygulamasına ait ve bu derleme onu kullanamıyor. O uygulamayı kapatıp tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux належить %@, і ця збірка не може його використовувати. Закрийте цю програму й спробуйте ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux thuộc về %@ và bản dựng này không thể sử dụng nó. Hãy thoát ứng dụng đó rồi thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux 属于 %@，此版本无法使用它。请退出该应用，然后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux 屬於 %@，此版本無法使用它。請結束該 App，然後再試一次。"
-          }
-        }
-      }
-    },
-    "agentPane.error.daemonRefused": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Another acpmux service is using this socket. It will reconnect when that service is ready."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تستخدم خدمة acpmux أخرى هذا المقبس. ستُعاد محاولة الاتصال عندما تصبح تلك الخدمة جاهزة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drugi acpmux servis koristi ovaj socket. Veza će se ponovo uspostaviti kada servis bude spreman."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En anden acpmux-tjeneste bruger denne socket. Der oprettes forbindelse igen, når tjenesten er klar."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein anderer acpmux-Dienst verwendet diesen Socket. Die Verbindung wird hergestellt, sobald er bereit ist."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otro servicio de acpmux está usando este socket. Se volverá a conectar cuando esté listo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un autre service acpmux utilise ce socket. La connexion reprendra dès que ce service sera prêt."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un altro servizio acpmux sta usando questo socket. La connessione verrà ripristinata quando sarà pronto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別の acpmux サービスがこのソケットを使用しています。そのサービスの準備ができると再接続します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សេវា acpmux មួយទៀតកំពុងប្រើ socket នេះ។ វានឹងភ្ជាប់ឡើងវិញ នៅពេលសេវានោះរួចរាល់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 acpmux 서비스가 이 소켓을 사용 중입니다. 해당 서비스가 준비되면 다시 연결합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En annen acpmux-tjeneste bruker denne socketen. Tilkoblingen gjenopptas når tjenesten er klar."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inna usługa acpmux używa tego gniazda. Po jej uruchomieniu połączenie zostanie wznowione."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Outro serviço acpmux está usando este socket. A conexão será retomada quando ele estiver pronto."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Другой сервис acpmux использует этот сокет. Подключение восстановится, когда сервис будет готов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บริการ acpmux อื่นกำลังใช้ซ็อกเก็ตนี้ ระบบจะเชื่อมต่อใหม่เมื่อบริการนั้นพร้อม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu soketi başka bir acpmux hizmeti kullanıyor. Hizmet hazır olduğunda yeniden bağlanılacak."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей сокет використовує інша служба acpmux. Підключення відновиться, коли служба буде готова."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Một dịch vụ acpmux khác đang sử dụng socket này. Kết nối sẽ tự khôi phục khi dịch vụ sẵn sàng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "另一个 acpmux 服务正在使用此套接字。该服务准备好后会重新连接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "另一個 acpmux 服務正在使用此 Socket。該服務準備好後會重新連線。"
-          }
-        }
-      }
-    },
     "agentPane.error.cause.exited": {
       "extractionState": "manual",
       "localizations": {
@@ -28967,137 +30142,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "acpmux 正在以新版本重新啟動。恢復後此聊天會自動連線。"
-          }
-        }
-      }
-    },
-    "agentPane.error.gitStopped": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم إيقاف Git قبل أن ينتهي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git je zaustavljen prije nego što je završio."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git blev stoppet, før den blev færdig."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git wurde angehalten, bevor es fertig war."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git was stopped before it finished."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git se detuvo antes de terminar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git a été arrêté avant d’avoir terminé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git è stato interrotto prima di finire."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git は終わる前に停止されました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git ត្រូវបានបញ្ឈប់មុនពេលវាបញ្ចប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git이 끝나기 전에 중지되었습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git ble stoppet før den ble ferdig."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git został zatrzymany, zanim skończył."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Git foi interrompido antes de terminar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git был остановлен до завершения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git ถูกหยุดก่อนที่จะทำงานเสร็จ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git bitmeden durduruldu."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git зупинено до завершення."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git đã bị dừng trước khi hoàn tất."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git 在完成前被停止。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git 在完成前被停止。"
           }
         }
       }
@@ -30019,1836 +31063,792 @@
         }
       }
     },
-    "agentPane.acpmuxDaemon.notRunning": {
+    "agentPane.error.daemonHeldByOtherBuild": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not running"
+            "value": "acpmux belongs to %@, and this build may not use it. Quit that app, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يعمل"
+            "value": "acpmux تابع لـ %@، ولا يمكن لهذا الإصدار استخدامه. أغلق هذا التطبيق ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije pokrenut"
+            "value": "acpmux pripada aplikaciji %@ i ova verzija ga ne može koristiti. Zatvori tu aplikaciju pa pokušaj ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kører ikke"
+            "value": "acpmux tilhører %@, og denne build kan ikke bruge den. Afslut appen, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Läuft nicht"
+            "value": "acpmux gehört zu %@; dieser Build kann es nicht verwenden. Beende diese App und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se está ejecutando"
+            "value": "acpmux pertenece a %@ y esta compilación no puede usarlo. Cierra esa app y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non lancé"
+            "value": "acpmux appartient à %@ et ce build ne peut pas l’utiliser. Quittez cette app, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non in esecuzione"
+            "value": "acpmux appartiene a %@ e questa build non può usarlo. Chiudi quell’app e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行されていません"
+            "value": "acpmux は %@ が使用しています。このビルドでは使えないため、そのアプリを終了してからもう一度試してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនកំពុងដំណើរការ"
+            "value": "acpmux ជារបស់ %@ ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទកម្មវិធីនោះ រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실행 중이 아님"
+            "value": "acpmux는 %@에 속하므로 이 빌드에서 사용할 수 없습니다. 해당 앱을 종료한 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kjører ikke"
+            "value": "acpmux tilhører %@, og denne versjonen kan ikke bruke den. Avslutt appen og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie działa"
+            "value": "acpmux należy do %@, a ta wersja nie może go użyć. Zamknij tę aplikację i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não está em execução"
+            "value": "acpmux pertence a %@, e esta versão não pode usá-lo. Feche esse app e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не запущена"
+            "value": "acpmux принадлежит приложению %@, и эта сборка не может его использовать. Закройте это приложение и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ได้ทำงาน"
+            "value": "acpmux เป็นของ %@ และบิลด์นี้ใช้ไม่ได้ ปิดแอปนั้นแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışmıyor"
+            "value": "acpmux %@ uygulamasına ait ve bu derleme onu kullanamıyor. O uygulamayı kapatıp tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не запущена"
+            "value": "acpmux належить %@, і ця збірка не може його використовувати. Закрийте цю програму й спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không chạy"
+            "value": "acpmux thuộc về %@ và bản dựng này không thể sử dụng nó. Hãy thoát ứng dụng đó rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未运行"
+            "value": "acpmux 属于 %@，此版本无法使用它。请退出该应用，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未執行"
+            "value": "acpmux 屬於 %@，此版本無法使用它。請結束該 App，然後再試一次。"
           }
         }
       }
     },
-    "agentPane.acpmuxDaemon.otherBuild": {
+    "agentPane.error.daemonRefused": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (not the app's build)"
+            "value": "Another acpmux service is using this socket. It will reconnect when that service is ready."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ليس إصدار التطبيق)"
+            "value": "تستخدم خدمة acpmux أخرى هذا المقبس. ستُعاد محاولة الاتصال عندما تصبح تلك الخدمة جاهزة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (nije verzija aplikacije)"
+            "value": "Drugi acpmux servis koristi ovaj socket. Veza će se ponovo uspostaviti kada servis bude spreman."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ikke appens build)"
+            "value": "En anden acpmux-tjeneste bruger denne socket. Der oprettes forbindelse igen, når tjenesten er klar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (nicht der Build der App)"
+            "value": "Ein anderer acpmux-Dienst verwendet diesen Socket. Die Verbindung wird hergestellt, sobald er bereit ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (no es la compilación de la app)"
+            "value": "Otro servicio de acpmux está usando este socket. Se volverá a conectar cuando esté listo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (pas le build de l’app)"
+            "value": "Un autre service acpmux utilise ce socket. La connexion reprendra dès que ce service sera prêt."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (non è la build dell’app)"
+            "value": "Un altro servizio acpmux sta usando questo socket. La connessione verrà ripristinata quando sarà pronto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（アプリのビルドではありません）"
+            "value": "別の acpmux サービスがこのソケットを使用しています。そのサービスの準備ができると再接続します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (មិនមែនជាកំណែរបស់កម្មវិធី)"
+            "value": "សេវា acpmux មួយទៀតកំពុងប្រើ socket នេះ។ វានឹងភ្ជាប់ឡើងវិញ នៅពេលសេវានោះរួចរាល់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (앱의 빌드가 아님)"
+            "value": "다른 acpmux 서비스가 이 소켓을 사용 중입니다. 해당 서비스가 준비되면 다시 연결합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ikke appens bygg)"
+            "value": "En annen acpmux-tjeneste bruker denne socketen. Tilkoblingen gjenopptas når tjenesten er klar."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (nie jest to kompilacja aplikacji)"
+            "value": "Inna usługa acpmux używa tego gniazda. Po jej uruchomieniu połączenie zostanie wznowione."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (não é a build do app)"
+            "value": "Outro serviço acpmux está usando este socket. A conexão será retomada quando ele estiver pronto."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (не сборка приложения)"
+            "value": "Другой сервис acpmux использует этот сокет. Подключение восстановится, когда сервис будет готов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ไม่ใช่บิลด์ของแอป)"
+            "value": "บริการ acpmux อื่นกำลังใช้ซ็อกเก็ตนี้ ระบบจะเชื่อมต่อใหม่เมื่อบริการนั้นพร้อม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (uygulamanın derlemesi değil)"
+            "value": "Bu soketi başka bir acpmux hizmeti kullanıyor. Hizmet hazır olduğunda yeniden bağlanılacak."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (не збірка застосунку)"
+            "value": "Цей сокет використовує інша служба acpmux. Підключення відновиться, коли служба буде готова."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (không phải bản dựng của ứng dụng)"
+            "value": "Một dịch vụ acpmux khác đang sử dụng socket này. Kết nối sẽ tự khôi phục khi dịch vụ sẵn sàng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（不是 App 的版本）"
+            "value": "另一个 acpmux 服务正在使用此套接字。该服务准备好后会重新连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（不是 App 的版本）"
+            "value": "另一個 acpmux 服務正在使用此 Socket。該服務準備好後會重新連線。"
           }
         }
       }
     },
-    "agentPane.acpmuxDaemon.restarting": {
+    "agentPane.link.notFound": {
+      "comment": "Shown when a file chip in a chat reply could not be opened because no file of that name is in the chat's folders. %@ is the file name.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (restarting…)"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (جارٍ إعادة التشغيل…)"
+            "value": "تعذّر العثور على %@ في مجلد هذه الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ponovno pokretanje…)"
+            "value": "Nije moguće pronaći %@ u folderu ovog chata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (genstarter…)"
+            "value": "Kan ikke finde %@ i denne chats mappe."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (wird neu gestartet …)"
+            "value": "%@ wurde im Ordner dieses Chats nicht gefunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't find %@ in this chat's folder."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (reiniciando…)"
+            "value": "No se encuentra %@ en la carpeta de este chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (redémarrage…)"
+            "value": "Impossible de trouver %@ dans le dossier de ce chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (riavvio in corso…)"
+            "value": "Impossibile trovare %@ nella cartella di questa chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（再起動中…）"
+            "value": "このチャットのフォルダに %@ が見つかりません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (កំពុងចាប់ផ្ដើមឡើងវិញ…)"
+            "value": "រកមិនឃើញ %@ នៅក្នុងថតរបស់ការជជែកនេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (다시 시작하는 중…)"
+            "value": "이 채팅의 폴더에서 %@ 파일을 찾을 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (starter på nytt …)"
+            "value": "Finner ikke %@ i mappen til denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ponowne uruchamianie…)"
+            "value": "Nie można znaleźć %@ w folderze tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (reiniciando…)"
+            "value": "Não foi possível encontrar %@ na pasta deste chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (перезапуск…)"
+            "value": "Не удалось найти %@ в папке этого чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (กำลังเริ่มใหม่…)"
+            "value": "ไม่พบ %@ ในโฟลเดอร์ของแชทนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (yeniden başlatılıyor…)"
+            "value": "%@ bu sohbetin klasöründe bulunamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (перезапуск…)"
+            "value": "Не вдалося знайти %@ у папці цього чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (đang khởi động lại…)"
+            "value": "Không tìm thấy %@ trong thư mục của cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（正在重新启动…）"
+            "value": "在此聊天的文件夹中找不到 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（正在重新啟動…）"
+            "value": "在此聊天的資料夾中找不到 %@。"
           }
         }
       }
     },
-    "agentPane.acpmuxDaemon.title": {
+    "agentPane.link.denied": {
+      "comment": "Shown when a file chip in a chat reply points at a file that may hold secrets (keys, .env), which cmux never opens from a chat.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux daemon"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة acpmux"
+            "value": "قد يحتوي هذا الملف على أسرار، لذا لا يفتحه cmux من الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux servis"
+            "value": "Ova datoteka može sadržavati tajne, pa je cmux ne otvara iz chata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "Denne fil kan indeholde hemmeligheder, så cmux åbner den ikke fra en chat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-Dienst"
+            "value": "Diese Datei kann Geheimnisse enthalten, daher öffnet cmux sie nicht aus einem Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file may hold secrets, so cmux doesn't open it from a chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servicio de acpmux"
+            "value": "Este archivo puede contener secretos, así que cmux no lo abre desde un chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Service acpmux"
+            "value": "Ce fichier peut contenir des secrets, cmux ne l'ouvre donc pas depuis un chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servizio acpmux"
+            "value": "Questo file potrebbe contenere segreti, quindi cmux non lo apre da una chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux デーモン"
+            "value": "このファイルには機密情報が含まれている可能性があるため、cmux はチャットから開きません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវា acpmux"
+            "value": "ឯកសារនេះអាចមានព័ត៌មានសម្ងាត់ ដូច្នេះ cmux មិនបើកវាពីការជជែកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 데몬"
+            "value": "이 파일에는 비밀 정보가 있을 수 있으므로 cmux는 채팅에서 열지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "Denne filen kan inneholde hemmeligheter, så cmux åpner den ikke fra en chat."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa acpmux"
+            "value": "Ten plik może zawierać sekrety, więc cmux nie otwiera go z czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serviço do acpmux"
+            "value": "Este arquivo pode conter segredos, então o cmux não o abre a partir de um chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Этот файл может содержать секреты, поэтому cmux не открывает его из чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการ acpmux"
+            "value": "ไฟล์นี้อาจมีข้อมูลลับ cmux จึงไม่เปิดไฟล์นี้จากแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hizmeti"
+            "value": "Bu dosya gizli bilgiler içerebilir, bu yüzden cmux onu bir sohbetten açmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Цей файл може містити секрети, тому cmux не відкриває його з чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ acpmux"
+            "value": "Tệp này có thể chứa thông tin bí mật, nên cmux không mở nó từ cuộc trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 守护进程"
+            "value": "此文件可能包含机密信息，因此 cmux 不会从聊天中打开它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 常駐程式"
+            "value": "此檔案可能包含機密資訊，因此 cmux 不會從聊天中開啟它。"
           }
         }
       }
     },
-    "agentPane.acpmuxDaemon.upToDate": {
+    "agentPane.link.outside": {
+      "comment": "Shown when a file chip in a chat reply points outside the chat's folders and the setting keeps such paths as text.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (up to date)"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (محدّث)"
+            "value": "هذا الملف خارج مجلدات الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ažurno)"
+            "value": "Ova datoteka je izvan foldera chata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (opdateret)"
+            "value": "Denne fil ligger uden for chattens mapper."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (aktuell)"
+            "value": "Diese Datei liegt außerhalb der Ordner des Chats."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is outside the chat's folders."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (actualizado)"
+            "value": "Este archivo está fuera de las carpetas del chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (à jour)"
+            "value": "Ce fichier se trouve en dehors des dossiers du chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (aggiornato)"
+            "value": "Questo file si trova fuori dalle cartelle della chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（最新）"
+            "value": "このファイルはチャットのフォルダの外にあります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (ទាន់សម័យ)"
+            "value": "ឯកសារនេះនៅក្រៅថតរបស់ការជជែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (최신)"
+            "value": "이 파일은 채팅 폴더 밖에 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (oppdatert)"
+            "value": "Denne filen ligger utenfor chattens mapper."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (aktualny)"
+            "value": "Ten plik znajduje się poza folderami czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (atualizado)"
+            "value": "Este arquivo está fora das pastas do chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (актуальна)"
+            "value": "Этот файл находится вне папок чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (เป็นปัจจุบัน)"
+            "value": "ไฟล์นี้อยู่นอกโฟลเดอร์ของแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (güncel)"
+            "value": "Bu dosya sohbetin klasörlerinin dışında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (актуальна)"
+            "value": "Цей файл розташований поза папками чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ (đã cập nhật)"
+            "value": "Tệp này nằm ngoài các thư mục của cuộc trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（已是最新）"
+            "value": "此文件位于聊天文件夹之外。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@（已是最新）"
+            "value": "此檔案位於聊天資料夾之外。"
           }
         }
       }
     },
-    "agentPane.daemonUpdate.notice.failed": {
+    "agentPane.link.openFailed": {
+      "comment": "Shown when a file chip in a chat reply was found but the app could not open it. %@ is the file name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحديث %1$@: %2$@"
+            "value": "تعذّر فتح %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće ažurirati %1$@: %2$@"
+            "value": "Nije moguće otvoriti %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke opdatere %1$@: %2$@"
+            "value": "Kunne ikke åbne %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konnte nicht aktualisiert werden: %2$@"
+            "value": "%@ konnte nicht geöffnet werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't update %1$@: %2$@"
+            "value": "Couldn't open %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo actualizar %1$@: %2$@"
+            "value": "No se pudo abrir %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de mettre à jour %1$@ : %2$@"
+            "value": "Impossible d'ouvrir %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile aggiornare %1$@: %2$@"
+            "value": "Impossibile aprire %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を更新できませんでした: %2$@"
+            "value": "%@ を開けませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាព %1$@ បានទេ៖ %2$@"
+            "value": "មិនអាចបើក %@ បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@을(를) 업데이트할 수 없음: %2$@"
+            "value": "%@ 파일을 열 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke oppdatere %1$@: %2$@"
+            "value": "Kunne ikke åpne %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się zaktualizować %1$@: %2$@"
+            "value": "Nie można otworzyć %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível atualizar %1$@: %2$@"
+            "value": "Não foi possível abrir %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось обновить %1$@: %2$@"
+            "value": "Не удалось открыть %@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อัปเดต %1$@ ไม่ได้: %2$@"
+            "value": "ไม่สามารถเปิด %@ ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ güncellenemedi: %2$@"
+            "value": "%@ açılamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося оновити %1$@: %2$@"
+            "value": "Не вдалося відкрити %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể cập nhật %1$@: %2$@"
+            "value": "Không thể mở %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法更新 %1$@：%2$@"
+            "value": "无法打开 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法更新 %1$@：%2$@"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.notice.rolledBack": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "احتفظ %1$@ بإصداره السابق: %2$@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ je zadržao prethodni build: %2$@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ beholdt sin tidligere build: %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ behält seinen vorherigen Build: %2$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ kept its previous build: %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ conservó su compilación anterior: %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ a conservé sa version précédente : %2$@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ha mantenuto la build precedente: %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ は以前のビルドのままです: %2$@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ បានរក្សាកំណែមុនរបស់វា៖ %2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@은(는) 이전 빌드를 유지했습니다: %2$@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ beholdt det forrige bygget: %2$@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ zachował poprzednią kompilację: %2$@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ manteve a versão anterior: %2$@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ остался на прежней сборке: %2$@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ ยังใช้บิลด์ก่อนหน้า: %2$@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ önceki derlemesinde kaldı: %2$@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ залишився на попередній збірці: %2$@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ vẫn giữ bản dựng trước: %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 保留了之前的版本：%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 保留了先前的版本：%2$@"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.updating": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ التحديث إلى إصدار هذا الـMac…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriranje na build ovog Maca…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdaterer til denne Macs build…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird auf den Build dieses Macs aktualisiert …"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updating to this Mac's build…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualizando a la compilación de este Mac…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mise à jour vers la version de ce Mac…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiornamento alla build di questo Mac…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacのビルドに更新しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងធ្វើបច្ចុប្បន្នភាពទៅកំណែរបស់ Mac នេះ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 빌드로 업데이트하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdaterer til denne Mac-ens bygg …"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualizowanie do kompilacji tego Maca…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizando para a versão deste Mac…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление до сборки этого Mac…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังอัปเดตเป็นบิลด์ของ Mac เครื่องนี้…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac'in derlemesine güncelleniyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновлення до збірки цього Mac…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang cập nhật lên bản dựng của máy Mac này…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在更新到这台 Mac 的版本…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在更新至這台 Mac 的版本…"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.retrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ستُعاد محاولة التحديث قريبًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriranje će uskoro pokušati ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdateringen prøver igen om lidt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Update versucht es bald erneut"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update will try again soon"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La actualización se volverá a intentar pronto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La mise à jour sera retentée bientôt"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L'aggiornamento verrà ritentato a breve"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まもなく更新を再試行します"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពនឹងព្យាយាមម្ដងទៀតក្នុងពេលឆាប់ៗ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "곧 업데이트를 다시 시도합니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdateringen prøver igjen snart"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualizacja wkrótce spróbuje ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A atualização será tentada novamente em breve"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление скоро повторится"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จะลองอัปเดตอีกครั้งเร็ว ๆ นี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Güncelleme birazdan yeniden denenecek"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновлення незабаром спробує ще раз"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản cập nhật sẽ sớm thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新将很快重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新將很快重試"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.updated": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم التحديث إلى %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažurirano na %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdateret til %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualisiert auf %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updated to %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualizado a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mis à jour vers %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiornato a %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に更新しました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានធ្វើបច្ចុប្បន្នភាពទៅ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@(으)로 업데이트됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdatert til %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaktualizowano do %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizado para %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновлено до %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดตเป็น %@ แล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sürümüne güncellendi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновлено до %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã cập nhật lên %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已更新到 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已更新至 %@"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل التحديث: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriranje nije uspjelo: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdateringen mislykkedes: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update fehlgeschlagen: %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update failed: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La actualización falló: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec de la mise à jour : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiornamento non riuscito: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新に失敗しました: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពបានបរាជ័យ៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 실패: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdateringen mislyktes: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualizacja nie powiodła się: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Falha na atualização: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось обновить: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดตไม่สำเร็จ: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Güncelleme başarısız oldu: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося оновити: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cập nhật thất bại: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新失败：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新失敗：%@"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.rolledBack": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم التراجع عن التحديث: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ažuriranje je vraćeno: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opdateringen blev rullet tilbage: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update zurückgesetzt: %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update rolled back: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actualización revertida: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mise à jour annulée : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiornamento annullato: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新を元に戻しました: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពត្រូវបានត្រឡប់វិញ៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트가 되돌려짐: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppdateringen ble rullet tilbake: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktualizacja wycofana: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualização revertida: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление отменено: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้อนกลับการอัปเดตแล้ว: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Güncelleme geri alındı: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оновлення скасовано: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã hoàn tác bản cập nhật: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新已回滚：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新已復原：%@"
-          }
-        }
-      }
-    },
-    "agentPane.sessionInfo.needsFocus": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتطلب فتح معلومات الجلسة التركيز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvaranje informacija o sesiji zahtijeva fokus."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbning af sessionsoplysninger kræver fokus."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zum Öffnen der Sitzungsinfo ist Fokus erforderlich."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening Session Info requires focus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir la información de la sesión requiere el foco."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’ouverture des informations de session nécessite le focus."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’apertura delle informazioni sulla sessione richiede il focus."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション情報を開くにはフォーカスが必要です。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបើកព័ត៌មានវគ្គត្រូវការការផ្ដោត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "세션 정보를 열려면 포커스가 필요합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpning av øktinformasjon krever fokus."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwarcie informacji o sesji wymaga fokusu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir as informações da sessão requer foco."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Для открытия сведений о сеансе требуется фокус."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การเปิดข้อมูลเซสชันต้องมีโฟกัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oturum bilgisini açmak için odak gerekir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Для відкриття відомостей про сеанс потрібен фокус."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở thông tin phiên cần có tiêu điểm."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开会话信息需要焦点。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟工作階段資訊需要焦點。"
-          }
-        }
-      }
-    },
-    "agentPane.sessionInfo.off": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "معلومات الجلسة متوقفة في الإعدادات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Informacije o sesiji su isključene u Postavkama."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessionsoplysninger er slået fra i Indstillinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzungsinfo ist in den Einstellungen ausgeschaltet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session Info is turned off in Settings."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La información de la sesión está desactivada en Ajustes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les informations de session sont désactivées dans les Réglages."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le informazioni sulla sessione sono disattivate nelle Impostazioni."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション情報は設定でオフになっています。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ព័ត៌មានវគ្គត្រូវបានបិទនៅក្នុងការកំណត់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "세션 정보가 설정에서 꺼져 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Øktinformasjon er slått av i Innstillinger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Informacje o sesji są wyłączone w Ustawieniach."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "As informações da sessão estão desativadas nos Ajustes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сведения о сеансе отключены в настройках."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ข้อมูลเซสชันถูกปิดอยู่ในการตั้งค่า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oturum bilgisi Ayarlar’da kapalı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відомості про сеанс вимкнено в налаштуваннях."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thông tin phiên đang tắt trong Cài đặt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会话信息已在设置中关闭。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作階段資訊已在設定中關閉。"
+            "value": "無法開啟 %@。"
           }
         }
       }
