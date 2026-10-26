@@ -893,6 +893,9 @@ extension CloudWelcomeMediaCarousel {
         /// thread for seconds inside a TimelineView body.
         private(set) var playhead: Playhead?
         @ObservationIgnored private var playheadObservation: CloudWelcomePlayheadObservation?
+        /// Every looped item shares the template's duration, so it is read from
+        /// the player only until it is known, never on each loop wrap.
+        @ObservationIgnored private var movieDuration: Double?
         private(set) var index = 0
         private var manuallyPaused = false
         private var reduceMotion = false
@@ -967,6 +970,7 @@ extension CloudWelcomeMediaCarousel {
             playheadObservation?.cancel()
             playheadObservation = nil
             playhead = nil
+            movieDuration = nil
         }
 
         /// AVFoundation calls back on the main queue a few times a second and
@@ -974,6 +978,7 @@ extension CloudWelcomeMediaCarousel {
         private func observePlayhead(of player: AVPlayer) {
             playheadObservation?.cancel()
             playhead = nil
+            movieDuration = nil
             let interval = CMTime(seconds: Self.playheadSampleInterval, preferredTimescale: 600)
             let observed = ObjectIdentifier(player)
             let token = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -981,9 +986,11 @@ extension CloudWelcomeMediaCarousel {
                 MainActor.assumeIsolated {
                     guard let self, let player = self.player, ObjectIdentifier(player) == observed else { return }
                     let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
+                    let duration = self.movieDuration ?? player.currentItem?.duration.seconds ?? .nan
+                    if duration.isFinite, duration > 0 { self.movieDuration = duration }
                     self.recordPlayhead(
                         seconds: time.seconds,
-                        duration: player.currentItem?.duration.seconds ?? .nan,
+                        duration: duration,
                         rate: rate,
                         at: Date()
                     )
