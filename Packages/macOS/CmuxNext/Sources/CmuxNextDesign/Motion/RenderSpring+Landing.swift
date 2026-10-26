@@ -23,14 +23,9 @@ extension RenderSpring {
         private var traces: [(name: String, id: ObjectIdentifier)] = []
         /// Every spring this landing waits for has ended.
         private(set) var settled = false
-        /// The call's place in call order, which orders the completions one call supersedes.
-        let serial: Int
-        private static var lastSerial = 0
 
         init(_ completion: Completion?) {
             self.completion = completion
-            Self.lastSerial &+= 1
-            serial = Self.lastSerial
         }
 
         /// Opens the span `name` (a retarget of an open span keeps it) and closes it at the landing.
@@ -41,7 +36,7 @@ extension RenderSpring {
 
         /// This landing also settles only after `earlier` does, whose springs still add to the
         /// presented value of a key path this one animates.
-        func wait(for earlier: Landing) {
+        func settles(after earlier: Landing) {
             guard earlier !== self, !earlier.settled, waitsOn.insert(ObjectIdentifier(earlier)).inserted else { return }
             pending += 1
             earlier.dependents.append(self)
@@ -81,10 +76,12 @@ extension RenderSpring {
             done(finished)
         }
 
-        /// The newest landing of each key path on one layer, kept on the layer like its spring serial.
+        /// The newest landing of each key path on one layer, oldest call first, kept on the layer
+        /// like its spring serial. Calls on one value meet only on its layer, so this is the call
+        /// order the completions keep.
         final class Table: NSObject {
             private static let key = "cmux.renderSpring.landings"
-            private var newest: [String: Landing] = [:]
+            private var newest: [(keyPath: String, landing: Landing)] = []
 
             /// The table of `layer`, made on first use.
             static func on(_ layer: CALayer) -> Table {
@@ -95,21 +92,19 @@ extension RenderSpring {
             }
 
             /// `landing` takes over `keyPath` and returns the unsettled landings of related key
-            /// paths (``RenderSpring/related(_:_:)``), which it supersedes. When `waits` (the key
-            /// path animates), `landing` also waits until they settle. Runs no completion, so the
-            /// caller supersedes after every key path of the call is taken.
+            /// paths (``RenderSpring/related(_:_:)``), oldest first, which it supersedes. When
+            /// `waits` (the key path animates), `landing` also settles only after they do. Runs no
+            /// completion, so the caller supersedes after every key path of the call is taken.
             func take(_ keyPath: String, for landing: Landing, waits: Bool) -> [Landing] {
+                newest.removeAll { $0.landing.settled }
                 var taken: [Landing] = []
-                for (path, earlier) in newest {
-                    if earlier.settled {
-                        newest[path] = nil
-                        continue
-                    }
-                    guard earlier !== landing, RenderSpring.related(path, keyPath) else { continue }
+                for (path, earlier) in newest where earlier !== landing && RenderSpring.related(path, keyPath) {
+                    guard !taken.contains(where: { $0 === earlier }) else { continue }
                     taken.append(earlier)
-                    if waits { landing.wait(for: earlier) }
+                    if waits { landing.settles(after: earlier) }
                 }
-                newest[keyPath] = waits ? landing : nil
+                newest.removeAll { $0.keyPath == keyPath }
+                if waits { newest.append((keyPath: keyPath, landing: landing)) }
                 return taken
             }
         }

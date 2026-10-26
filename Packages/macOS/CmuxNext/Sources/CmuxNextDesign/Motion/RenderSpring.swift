@@ -134,9 +134,9 @@ public struct RenderSpring {
             }
         }
         CATransaction.commit()
-        // The calls this one took over end first, not finished, oldest first. They run after the
-        // commit, so a completion that animates the layer again takes over a fully set-up call.
-        for earlier in superseded.sorted(by: { $0.serial < $1.serial }) { earlier.supersede(by: landing) }
+        // The calls this one took over end first, not finished, oldest first on each layer. They run
+        // after the commit, so a completion that animates the layer again takes over a set-up call.
+        for earlier in superseded { earlier.supersede(by: landing) }
         // Nothing animates: the values are on screen in this frame, and the call lands now.
         if animated == nil { landing.springsDidEnd() }
     }
