@@ -597,6 +597,12 @@
       "row": "blocking_allow_escapes",
       "allow": 2,
       "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes."
     }
   ],
   "observer_wrappers": [

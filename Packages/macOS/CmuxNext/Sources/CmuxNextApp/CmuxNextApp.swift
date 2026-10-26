@@ -91,7 +91,6 @@ public struct CmuxNextApp {
         let inputTap = InputEventTap()
         // The design kit's popups, overlay hosts and tooltip subscribe to it too, before the delegate
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
-        NativePopupHost.appInputTap = inputTap
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }

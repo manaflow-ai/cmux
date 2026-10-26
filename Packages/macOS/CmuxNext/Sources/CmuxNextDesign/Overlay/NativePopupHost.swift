@@ -33,16 +33,14 @@ public final class NativePopupHost {
     /// While the popup shows: the tap observer of clicks (one outside the popup closes it) and the
     /// Escape intercept (``InputEventTap/InterceptOrder/popup``, after a modal overlay's).
     private var subscriptions: [InputSubscription] = []
-    /// The app's input tap popups subscribe to, set once by the App's composition root before any
-    /// window shows: the popups' owners in many packages make their hosts with no tap of their own.
-    public static var appInputTap: InputEventTap?
     /// The tap this popup subscribes to while it shows.
     var inputTap: InputEventTap?
 
-    /// A host for `panel` that subscribes to `input` (nil: ``appInputTap``).
+    /// A host for `panel` that subscribes to `input` (nil: the overlay hosts' tap,
+    /// ``WindowOverlayHost/appInputTap``).
     public init(panel: NSPanel, input: InputEventTap? = nil) {
         self.panel = panel
-        inputTap = input ?? Self.appInputTap
+        inputTap = input ?? WindowOverlayHost.appInputTap
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
