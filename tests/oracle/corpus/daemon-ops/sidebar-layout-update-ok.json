@@ -39,9 +39,9 @@
         "method": "sidebar_layout.update",
         "params": {
           "op": {
-            "kind": "section.add",
-            "section": {},
-            "index": 0
+            "kind": "item.update",
+            "id": "itm_account",
+            "shows_label": true
           }
         },
         "idempotencyKey": "sidebar-layout-update-ok.call"
@@ -54,7 +54,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the old layout reducer shows the account item's label"
     }
   ],
   "invariants": [

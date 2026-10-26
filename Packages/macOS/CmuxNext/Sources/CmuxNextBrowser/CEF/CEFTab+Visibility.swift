@@ -18,6 +18,13 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return .hidden(pages.contains(where: \.isVisible) ? "page_window_misplaced" : "page_window_missing")
     }
 
+    /// Whether this tab is the one its pane host shows, not hidden by the content lifecycle, in a visible
+    /// window: Chrome's `WebContents::GetVisibility() == Visibility::VISIBLE` for its startup tab.
+    var isShownInVisibleWindow: Bool {
+        guard !isClosed, host.visibleTab === self, !isContentHidden, let window = container.window else { return false }
+        return window.isVisible
+    }
+
     /// Whether `window` is the page window over this tab's content view: a child of the
     /// container's window at the host view's screen rect, as ``contentVisibility`` finds it.
     ///
@@ -27,6 +34,16 @@ extension CEFTab: BrowserContentVisibilityReporting {
         guard !isClosed, let owner = container.window, window.parent === owner,
               host.visibleTab === self, host.hostView.superview === container else { return false }
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
+    }
+
+    /// Chromium Host: whether this tab's page view (``ChromiumHostPageView/InputTarget/view``) is
+    /// `window`'s first responder and its host reports the chords the page leaves unhandled
+    /// (``ChromiumHostPageView/hostReportsUnhandledKeys``, p01-process-030), so the page gets
+    /// page-ownable keys first.
+    public func hostedPageHasKeys(in window: NSWindow) -> Bool {
+        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view,
+              page.hostReportsUnhandledKeys else { return false }
+        return window.firstResponder === page
     }
 
     /// A page window sits at the host view's screen rect to within 2 points.

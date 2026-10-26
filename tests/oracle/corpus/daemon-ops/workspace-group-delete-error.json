@@ -44,13 +44,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "resource.not_found"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "workspace_group",
+          "id": "oracle-missing-group"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "a group id that names no workspace group"
+      "note": "a group id that names no workspace group (state/personal.rs GroupDelete, state_not_found)"
     }
   ],
   "invariants": [

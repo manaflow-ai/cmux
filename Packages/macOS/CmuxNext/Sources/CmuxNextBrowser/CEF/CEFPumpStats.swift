@@ -9,13 +9,15 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var workRuns = 0
     /// `OnScheduleMessagePumpWork(0)` requests (and cmux's own "pump now").
     public var immediateRequests = 0
-    /// `OnScheduleMessagePumpWork(delay > 0)` requests.
+    /// `OnScheduleMessagePumpWork(delay > 0)` requests, and the fork's absolute run times
+    /// (`cmux_on_schedule_delayed`, p14-energy-046).
     public var delayedRequests = 0
     /// Timer fires that arrived while `CefDoMessageLoopWork` was already
     /// running (a nested run loop) and were deferred.
     public var reentrantFires = 0
-    /// `CefDoMessageLoopWork` calls that used CEF's whole 10 ms time slice
-    /// (the fork asks for "now" itself when work remains).
+    /// `CefDoMessageLoopWork` calls that used the fork's whole time slice
+    /// (``CEFPumpSchedule/timeSlice(forkAPI:)``: 2 ms from fork API 26,
+    /// else 10 ms; the fork asks for "now" itself when work remains).
     public var longWorkRuns = 0
     /// Total time inside `CefDoMessageLoopWork`, in seconds.
     public var workSeconds: Double = 0
@@ -35,11 +37,11 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var deferredForInput = 0
     /// Each pass's main-thread time while the input policy runs.
     public var passTimes = InputLatencyHistogram()
-    /// Passes for a delayed fire date that CEF answered during the pass, on the main thread, with a
-    /// request under 2 ms (``EarlyPassWatch``): the pass came before Chromium's task was due, because CEF
-    /// truncates each delay to whole milliseconds against a stale `recent_now` (the re-ask at the end of
-    /// `CefDoMessageLoopWork`), so one delayed task cost a second main wake. 0 once the fork sends
-    /// absolute run times (p14-energy-046).
+    /// Passes for a delayed fire date that came before Chromium's task was due (``EarlyPassWatch``), so one
+    /// delayed task cost a second main wake. On the whole-millisecond path CEF truncates each delay against
+    /// a stale `recent_now`, and such a pass ends with a re-ask under 2 ms. On the fork's absolute run times
+    /// (p14-energy-046) the pass began before the run time it serves, or Chromium reported that run time,
+    /// or an earlier one, again during the pass.
     public var earlyPasses = 0
 
     /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
@@ -52,43 +54,64 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds.
     ///
     /// - Returns: Whether it used CEF's whole time slice (a ``longWorkRuns`` pass; `cef.pump` end `arg0` 1).
-    mutating func recordWorkRun(elapsed: TimeInterval) -> Bool {
-        let longRun = elapsed >= CEFPumpSchedule.timeSlice
+    mutating func recordWorkRun(elapsed: TimeInterval, timeSlice: TimeInterval = CEFPumpSchedule.timeSlice) -> Bool {
+        let longRun = elapsed >= timeSlice
         workRuns += 1
         workSeconds += elapsed
         if longRun { longWorkRuns += 1 }
         return longRun
     }
 
-    /// Decides which passes count as ``earlyPasses``: only CEF's own re-ask during the pass counts. A
-    /// request after the pass is a Chromium thread's or cmux's, not the truncated re-ask, and a pass that
-    /// used CEF's whole time slice is not early: the fork asks for "now" because work is left.
+    /// Decides which passes count as ``earlyPasses``. Only a pass for a delayed fire date can be early,
+    /// only CEF's own requests during the pass count (one after it is a Chromium thread's or cmux's), and
+    /// a pass that used CEF's whole time slice is not early: the fork asks for "now" because work is left.
+    ///
+    /// - Whole milliseconds: CEF re-asked under ``earlyReask`` ms during the pass. The truncated delay
+    ///   cannot say which task it is, so a near re-ask is the sign.
+    /// - Absolute run times: the pass began before the run time it serves, or Chromium reported a run
+    ///   time at or before it during the pass (the task was not due). A later run time is the next task,
+    ///   however close, and a "now" is posted work, not this task.
     nonisolated struct EarlyPassWatch: Equatable, Sendable {
-        /// The largest early re-ask (exclusive), in ms.
+        /// The largest early re-ask (exclusive) on the whole-millisecond path, in ms.
         static let earlyReask: Int64 = 2
 
-        /// The running pass serves a delayed fire date.
-        private var delayedPassRuns = false
-        /// CEF asked for under ``earlyReask`` ms during that pass.
-        private var reasked = false
+        /// The pump gets the fork's absolute run times (`cmux_shim_set_schedule_delayed` returned 1).
+        let absoluteRunTimes: Bool
+        /// The fire date the running pass serves; nil when it serves none.
+        private var servedRunTime: TimeInterval?
+        /// The running pass is early so far.
+        private var early = false
 
-        mutating func passBegan(servesFireDate: Bool) {
-            delayedPassRuns = servesFireDate
-            reasked = false
+        init(absoluteRunTimes: Bool = false) {
+            self.absoluteRunTimes = absoluteRunTimes
+        }
+
+        /// `servedRunTime`: the fire date the pass serves (nil: none); `start`: the pass's clock reading.
+        mutating func passBegan(serving servedRunTime: TimeInterval?, at start: TimeInterval) {
+            self.servedRunTime = servedRunTime
+            early = false
+            if absoluteRunTimes, let servedRunTime, start < servedRunTime { early = true }
         }
 
         /// True when the pass that just ended was early.
         mutating func passEnded(usedWholeSlice: Bool) -> Bool {
             defer {
-                delayedPassRuns = false
-                reasked = false
+                servedRunTime = nil
+                early = false
             }
-            return delayedPassRuns && reasked && !usedWholeSlice
+            return servedRunTime != nil && early && !usedWholeSlice
         }
 
-        /// A CEF request made on the main thread.
+        /// A whole-millisecond CEF request made on the main thread (0 for "now").
         mutating func request(milliseconds: Int64) {
-            if delayedPassRuns, milliseconds < Self.earlyReask { reasked = true }
+            guard !absoluteRunTimes, servedRunTime != nil, milliseconds < Self.earlyReask else { return }
+            early = true
+        }
+
+        /// A fork run time CEF reported on the main thread (``CEFPumpSchedule/runTime(nanos:)``).
+        mutating func request(runTime: TimeInterval) {
+            guard absoluteRunTimes, let servedRunTime, runTime <= servedRunTime else { return }
+            early = true
         }
     }
 

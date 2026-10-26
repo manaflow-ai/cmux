@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextLayout
+import CmuxNextSignposts
 import CmuxNextTabs
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -20,16 +23,23 @@ import CmuxNextCompat
 /// every drag ends and the source strip gets its tab back unless it moved.
 ///
 /// A frame client runs only while the ghost animates or a columns screen
-/// auto-scrolls, and is invalidated when the drag ends.
+/// auto-scrolls, and is invalidated when the drag ends. With `motion.renderServer`
+/// on the ghost's springs run in Core Animation and the client runs only while
+/// the pointer auto-scrolls a columns screen or a dwell is armed.
 final class TabDragSession: NSObject {
     unowned let services: AppServices
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
     var resignObserver: MainActorObservation?
+    /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
+    let motionSignposter: Signposter
 
-    init(services: AppServices) {
+    /// - Parameter motionSignposter: The `motion` category's signposter (the app's: ``Signposter/motion``; tests pass
+    ///   one on their own trace runtime).
+    init(services: AppServices, motionSignposter: Signposter = .motion) {
         self.services = services
+        self.motionSignposter = motionSignposter
         super.init()
     }
 
@@ -72,7 +82,9 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
+        let rendersOnServer = LayoutTunables.motionRenderServer.value
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass,
+                                      sourceWindow: window?.window, rendersOnServer: rendersOnServer)
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
                                         rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
@@ -97,8 +109,13 @@ final class TabDragSession: NSObject {
             Self.endPresentation(item, in: pane)
         })
         let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
-        drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
-            self?.handle(event) ?? event
+        // The drag's events, for the drag only: an intercept in the drag order (after the key router, before
+        // AppKit dispatches), in every window, since the ghost crosses them. Chrome's Mac tab drag does the
+        // same with a local monitor that lives for the move loop and ends it at the release or Escape
+        // (components/remote_cocoa/app_shim/window_move_loop.mm, CocoaWindowMoveLoop::Run); here that
+        // drag-lifetime monitor is routed through the one input tap.
+        drag.input = services.inputTap.subscribe(class: Self.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
+            self?.handle(event) ?? .pass
         }
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
             self?.finish(commit: false)
@@ -106,11 +123,17 @@ final class TabDragSession: NSObject {
         self.drag = drag
         focusDragBegan(item, from: pane)
         ghost.show()
-        drag.link = ghost.makeFrameClient(owner: "TabDrag.ghost") { [weak self, weak drag] tick in
+        drag.link = ghost.makeFrameClient(owner: rendersOnServer ? "TabDrag.autoscroll" : "TabDrag.ghost") { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
             return self.tick(drag, elapsed: tick.elapsed)
         }
-        drag.link?.activate()
+        // On the render server the landing's last spring closes the ghost.
+        ghost.onRest = { [weak self, weak drag] in
+            guard let self, let drag, self.landing === drag else { return }
+            self.finishLanding()
+        }
+        // The render server wakes it only for an auto-scroll or a dwell (`wake(_:over:)`).
+        if !rendersOnServer { drag.link?.activate() }
         update(point)
         loadThumbnail(previewTab, into: drag)
     }
@@ -118,13 +141,13 @@ final class TabDragSession: NSObject {
     func loadThumbnail(_ tab: String?, into drag: Drag) {
         guard let tab else { return }
         let cache = services.cache
-        Task { [weak drag] in
+        Task { [weak self, weak drag] in
             let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true),
                                                      key: tab, cache: cache)
             guard let drag, let image else { return }
             drag.ghost.setThumbnail(image)
             drag.motion.hasPreview = true
-            drag.link?.activate()
+            self?.redraw(drag)
         }
     }
 
@@ -154,25 +177,31 @@ final class TabDragSession: NSObject {
 
     // MARK: Events
 
-    func handle(_ event: NSEvent) -> NSEvent? {
+    /// The tap classes a drag hears: its moves, the buttons (the release, and a press after a lost
+    /// release) and keys (Escape). ``handle(_:)`` passes every other event of these classes on.
+    static let dragInput: InputEventClasses = [.drag, .button, .key]
+
+    /// One event of the drag; `.consume` keeps it from every later intercept and responder.
+    func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
             update(Self.screenPoint(of: event))
-            return nil
+            return .consume
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
             drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
-            return nil
+            return .consume
         case .leftMouseDown:
-            // A lost mouse-up (another tracking loop ate it): end safely.
+            // A lost mouse-up (a nested tracking loop dequeued it, so sendEvent and the tap never saw
+            // it): end safely, and the press goes on to what it hit.
             finish(commit: false)
-            return event
+            return .pass
         case .keyDown where event.keyCode == 53:
             finish(commit: false)
-            return nil
+            return .consume
         default:
-            return event
+            return .pass
         }
     }
 
@@ -191,7 +220,8 @@ final class TabDragSession: NSObject {
         drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let context = liveContext(drag)
-        let hit = hitTest(point, drag: drag, context: context)
+        let order = windowOrder(for: drag)
+        let hit = hitTest(point, drag: drag, context: context, order: order)
         // The layout adapter's preview is ended by `outline`, so a move from
         // a pane zone to a strip slot animates instead of fading out and in.
         if let previous = drag.winner, previous.provider !== hit.winner?.provider, !(previous.provider is LayoutTabDropTarget) {
@@ -202,8 +232,8 @@ final class TabDragSession: NSObject {
                                                   context: context)
         drag.outcome = drag.resolution.outcome
         TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
-        present(drag)
-        wake(drag)
+        present(drag, order: order)
+        wake(drag, over: hit.window)
     }
 
     struct Hit {
@@ -214,9 +244,9 @@ final class TabDragSession: NSObject {
     /// The first surface that answers at `point` wins, whatever its verdict:
     /// a stay or a refusal is previewed too, never skipped (tab-dnd). The
     /// sidebar and the layout answer for every point of their window.
-    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext) -> Hit {
+    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext, order: [TabDragWindowPick.Candidate]) -> Hit {
         drag.noTargetReason = nil
-        guard let controller = window(at: point) else { return Hit() }
+        guard let controller = window(at: point, in: order) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
         // A tab never crosses between an incognito window and a normal one:
         // that window offers no drop target.
@@ -239,14 +269,40 @@ final class TabDragSession: NSObject {
     /// Chromium page windows, the overlay panel and the ghost are looked
     /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
+        window(at: point, in: windowOrder(source: nil, ghost: nil))
+    }
+
+    /// Frontmost app window containing `point` in `order` (one walk of the windows serves a pointer event).
+    func window(at point: CGPoint, in order: [TabDragWindowPick.Candidate]) -> WindowController? {
+        guard let id = TabDragWindowPick.frontmost(at: point, in: order) else { return nil }
+        return services.windows.controllers.first { $0.state.id == id }
+    }
+
+    /// The app's windows front to back, read once per pointer event: `drag`'s ghost and the source
+    /// window's own children (its pages, its overlay) never hide the ghost's overlay.
+    func windowOrder(for drag: Drag) -> [TabDragWindowPick.Candidate] {
+        windowOrder(source: drag.source.window?.window, ghost: drag.ghost.panel)
+    }
+
+    func windowOrder(source: NSWindow?, ghost: NSWindow?) -> [TabDragWindowPick.Candidate] {
         let controllers = services.windows.controllers
-        let ordered = NSApp.orderedWindows.map { window in
+        return NSApp.orderedWindows.map { window in
             TabDragWindowPick.Candidate(frame: window.frame,
                                         controllerID: controllers.first { $0.window === window }.map { $0.state.id },
-                                        isVisible: window.isVisible && !window.isMiniaturized)
+                                        isVisible: window.isVisible && !window.isMiniaturized,
+                                        occludes: window !== ghost && !Self.isChild(window, of: source))
         }
-        guard let id = TabDragWindowPick.frontmost(at: point, in: ordered) else { return nil }
-        return controllers.first { $0.state.id == id }
+    }
+
+    /// Whether `window` is a child window of `parent`, at any depth.
+    static func isChild(_ window: NSWindow, of parent: NSWindow?) -> Bool {
+        guard let parent else { return false }
+        var current = window.parent
+        while let next = current {
+            if next === parent { return true }
+            current = next.parent
+        }
+        return false
     }
 
     /// Drop targets of `controller` in priority order: sidebar, the strips

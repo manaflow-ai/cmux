@@ -78,7 +78,8 @@ extension CloudService {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
-        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(),
+                          delegateQueue: .sessionDelegate("com.cmuxterm.next.cloud.app-server", qos: .userInitiated))
     }()
 }
 

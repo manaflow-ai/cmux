@@ -22,7 +22,7 @@ import os
 /// before logging it leaves the projection (rebuild) and its text returns to
 /// the field.
 @MainActor
-final class HomeProjection: @preconcurrency ChatIntents {
+final class HomeProjection: ChatIntents {
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID

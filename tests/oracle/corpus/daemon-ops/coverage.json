@@ -4,52 +4,46 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 158,
+  "covered": 164,
   "verdicts": "not run",
   "excluded": {
-    "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
-    "chief.profile.adopt": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
+    "agent.message.release": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
+    "agent.message.unsend": "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it",
+    "browser.activate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.back": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.forward": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.key": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.mouse": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.input.text": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
     "column.update": "placeholders params.column: p15-oracle-066 tunes the success case",
-    "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "conversation.typing": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "frontend_projection.put": "placeholders params.frontend_id, params.window_id, target.frontend_projection: p15-oracle-070 tunes the success case",
-    "git.checkpoint.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.checkpoint.pin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.checkpoint.unpin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.commit": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.push": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.apply": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.remove": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "history.backups.purge": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
-    "history.entries.remove": "placeholders params.ids[0]: p15-oracle-070 tunes the success case",
-    "history.restore": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
-    "history.visit.import": "placeholders params.path: p15-oracle-070 tunes the success case",
-    "notification.ack": "placeholders params.client_id: p15-oracle-070 tunes the success case",
-    "pairing_request.resolve": "placeholders target.pairing_request: p15-oracle-070 tunes the success case",
+    "conversation.draft": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and the case connection acts as the person. p15-oracle-240 gives driver_daemon.py a `connection: agent` step bound to the mock conversation's agent",
+    "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "git.checkpoint.create": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.checkpoint.pin": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.checkpoint.unpin": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.commit": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.push": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.apply": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.create": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.remove": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "history.backups.purge": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.restore": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
+    "history.trail.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.visit.import": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+    "history.visit.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
     "pane.split_ratio.set": "placeholders params.split_id: p15-oracle-066 tunes the success case",
-    "participant.avatar.set": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
-    "project.add": "placeholders params.path: p15-oracle-068 tunes the success case",
-    "project.observe": "placeholders params.entries[0].path: p15-oracle-068 tunes the success case",
-    "project.remove": "placeholders params.path: p15-oracle-068 tunes the success case",
-    "project.update": "placeholders params.path: p15-oracle-068 tunes the success case",
+    "project.add": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
     "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
     "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
     "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
-    "sidebar.group.ungroup": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.group.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.item.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.item.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.move": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "sidebar.pin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "sidebar.section.move": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.section.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.section.update": "placeholders params.id: p15-oracle-062 tunes the success case",
-    "sidebar.unpin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "window_record.delete": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
-    "window_record.put": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case"
+    "workspace.agent_folder.set": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "workspace.ensure_app": "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-245 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)"
   },
   "missing": [],
   "families": {
@@ -64,7 +58,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 36,
+  "placeholder_operations": 7,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -75,14 +69,17 @@
         "success": "daemon-ops/agent-message-mark-ok",
         "error": "daemon-ops/agent-message-mark-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-message"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "ids",
-        "rule": "value has too few items"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.ids[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "agent.message.release": {
@@ -96,11 +93,14 @@
         "fx-message"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "message_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "agent.message.send": {
       "family": "chief",
@@ -112,11 +112,12 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "body",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "agent.message.unsend": {
       "family": "chief",
@@ -129,11 +130,14 @@
         "fx-message"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "message_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "agent.report": {
       "family": "chief",
@@ -145,11 +149,12 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "terminal_id",
-        "rule": "resource id has the wrong type prefix"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "browser.activate": {
       "family": "browser",
@@ -166,6 +171,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -196,6 +202,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -282,6 +289,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -311,6 +319,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -340,6 +349,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -369,6 +379,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -398,6 +409,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -427,6 +439,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -493,6 +506,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -577,11 +591,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.adopt": {
       "family": "chief",
@@ -591,12 +607,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "participant_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.participant_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "chief.profile.avatar.set": {
@@ -609,11 +625,13 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.create": {
       "family": "chief",
@@ -623,11 +641,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "display_name",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "chief.profile.delete": {
       "family": "chief",
@@ -639,11 +658,12 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "chief.profile.undo": {
       "family": "chief",
@@ -652,14 +672,17 @@
         "error": "daemon-ops/chief-profile-undo-error"
       },
       "fixture": [
-        "fx-chief"
+        "fx-chief",
+        "rename"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.update": {
       "family": "chief",
@@ -671,11 +694,12 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "chief.stop": {
       "family": "chief",
@@ -685,11 +709,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "closed.delete": {
       "family": "tab",
@@ -744,14 +770,17 @@
         "success": "daemon-ops/conversation-draft-ok",
         "error": "daemon-ops/conversation-draft-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "gap": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and the case connection acts as the person. p15-oracle-240 gives driver_daemon.py a `connection: agent` step bound to the mock conversation's agent",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "conversation.send": {
@@ -760,14 +789,16 @@
         "success": "daemon-ops/conversation-send-ok",
         "error": "daemon-ops/conversation-send-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "conversation.typing": {
@@ -776,14 +807,16 @@
         "success": "daemon-ops/conversation-typing-ok",
         "error": "daemon-ops/conversation-typing-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "credential.rotate": {
@@ -794,11 +827,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "frontend_projection.put": {
       "family": "misc",
@@ -812,10 +848,10 @@
         "field": "frontend_id",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": [
-        "params.frontend_id",
-        "params.window_id",
-        "target.frontend_projection"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "git.checkpoint.create": {
@@ -824,16 +860,27 @@
         "success": "daemon-ops/git-checkpoint-create-ok",
         "error": "daemon-ops/git-checkpoint-create-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
         "code": "validation.invalid",
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "git.checkpoint.pin": {
       "family": "git",
@@ -842,18 +889,27 @@
         "error": "daemon-ops/git-checkpoint-pin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "checkpoint"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "checkpoint_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.checkpoint_id",
-        "params.pin_id"
+      "placeholders": [],
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
       ],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.checkpoint.unpin": {
       "family": "git",
@@ -862,18 +918,28 @@
         "error": "daemon-ops/git-checkpoint-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "checkpoint",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "checkpoint_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.checkpoint_id",
-        "params.pin_id"
+      "placeholders": [],
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
       ],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.commit": {
       "family": "git",
@@ -881,16 +947,26 @@
         "success": "daemon-ops/git-commit-ok",
         "error": "daemon-ops/git-commit-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "message",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.push": {
       "family": "git",
@@ -898,16 +974,26 @@
         "success": "daemon-ops/git-push-ok",
         "error": "daemon-ops/git-push-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.apply": {
       "family": "git",
@@ -915,16 +1001,26 @@
         "success": "daemon-ops/git-worktree-apply-ok",
         "error": "daemon-ops/git-worktree-apply-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.create": {
       "family": "git",
@@ -932,16 +1028,26 @@
         "success": "daemon-ops/git-worktree-create-ok",
         "error": "daemon-ops/git-worktree-create-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.remove": {
       "family": "git",
@@ -950,15 +1056,27 @@
         "error": "daemon-ops/git-worktree-remove-error"
       },
       "fixture": [
-        "fx-workspace"
+        "worktree"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "history.backups.purge": {
       "family": "misc",
@@ -968,12 +1086,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "restore_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": [
-        "params.restore_id"
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.clear": {
@@ -1002,8 +1121,9 @@
         "field": "ids",
         "rule": "value has too few items"
       },
-      "placeholders": [
-        "params.ids[0]"
+      "placeholders": [],
+      "tuned": [
+        "success"
       ]
     },
     "history.restore": {
@@ -1014,12 +1134,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "restore_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.restore_id"
+      "placeholders": [],
+      "gap": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.site.remove": {
@@ -1030,11 +1151,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "host",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "history.trail.record": {
       "family": "misc",
@@ -1044,11 +1166,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "window",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "history.visit.import": {
       "family": "misc",
@@ -1058,12 +1183,15 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
       "placeholders": [
         "params.path"
+      ],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.visit.record": {
@@ -1074,11 +1202,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "history.visit.remove": {
       "family": "misc",
@@ -1102,11 +1233,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "keybindings.remove": {
       "family": "misc",
@@ -1114,13 +1248,17 @@
         "success": "daemon-ops/keybindings-remove-ok",
         "error": "daemon-ops/keybindings-remove-error"
       },
-      "fixture": [],
+      "fixture": [
+        "bind"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "command",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "keybindings.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "keybindings.reset": {
       "family": "misc",
@@ -1144,11 +1282,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "command",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "keybindings.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "layout.bulk": {
       "family": "layout",
@@ -1176,12 +1316,12 @@
         "fx-notification"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "client_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": [
-        "params.client_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "notification.clear": {
@@ -1220,12 +1360,15 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "decision",
-        "rule": "value is outside the allowed enum"
+        "code": "origin.forbidden"
       },
       "placeholders": [
         "target.pairing_request"
+      ],
+      "gap": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "palette_usage.forget": {
@@ -1471,12 +1614,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "participant_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.participant_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "project.add": {
@@ -1487,13 +1630,23 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
-      ]
+      "placeholders": [],
+      "gap": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "project.observe": {
       "family": "git",
@@ -1507,8 +1660,9 @@
         "field": "source",
         "rule": "value must be a string"
       },
-      "placeholders": [
-        "params.entries[0].path"
+      "placeholders": [],
+      "tuned": [
+        "success"
       ]
     },
     "project.remove": {
@@ -1517,14 +1671,16 @@
         "success": "daemon-ops/project-remove-ok",
         "error": "daemon-ops/project-remove-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "project.source.update": {
@@ -1533,13 +1689,18 @@
         "success": "daemon-ops/project-source-update-ok",
         "error": "daemon-ops/project-source-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "source",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "project.sync": {
       "family": "git",
@@ -1547,13 +1708,18 @@
         "success": "daemon-ops/project-sync-ok",
         "error": "daemon-ops/project-sync-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "existing",
         "rule": "value must be an array"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "project.update": {
       "family": "git",
@@ -1561,14 +1727,16 @@
         "success": "daemon-ops/project-update-ok",
         "error": "daemon-ops/project-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "room.create": {
@@ -1579,11 +1747,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "room.delete": {
       "family": "chief",
@@ -1595,11 +1764,12 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "room.follow": {
       "family": "chief",
@@ -1611,11 +1781,12 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "room.move": {
       "family": "chief",
@@ -1627,11 +1798,12 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "room.pin": {
       "family": "chief",
@@ -1644,11 +1816,12 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "room.unpin": {
       "family": "chief",
@@ -1657,14 +1830,18 @@
         "error": "daemon-ops/room-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-room",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "room.update": {
       "family": "chief",
@@ -1676,11 +1853,12 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "saved_tab_group.delete": {
       "family": "tab",
@@ -2113,11 +2291,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "if_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "settings.agent_refused"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "settings.set": {
       "family": "misc",
@@ -2141,11 +2321,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "refs",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.apply": {
       "family": "sidebar",
@@ -2155,11 +2337,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "ops",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.group.create": {
       "family": "sidebar",
@@ -2169,11 +2353,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.group.ungroup": {
       "family": "sidebar",
@@ -2181,14 +2367,16 @@
         "success": "daemon-ops/sidebar-group-ungroup-ok",
         "error": "daemon-ops/sidebar-group-ungroup-error"
       },
-      "fixture": [],
+      "fixture": [
+        "make-group"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.group.update": {
@@ -2197,14 +2385,16 @@
         "success": "daemon-ops/sidebar-group-update-ok",
         "error": "daemon-ops/sidebar-group-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "make-group"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.item.add": {
@@ -2215,11 +2405,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.item.remove": {
       "family": "sidebar",
@@ -2229,12 +2421,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.item.remove_ref": {
@@ -2245,11 +2437,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "ref",
-        "rule": "value must be an object"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.item.update": {
       "family": "sidebar",
@@ -2259,12 +2453,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.move": {
@@ -2275,12 +2469,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.pin": {
@@ -2291,12 +2485,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.reset": {
@@ -2305,13 +2499,20 @@
         "success": "daemon-ops/sidebar-reset-ok",
         "error": "daemon-ops/sidebar-reset-error"
       },
-      "fixture": [],
+      "fixture": [
+        "remove-home",
+        "add-section"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "oracle_unknown",
         "rule": "request contains unknown parameters"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.section.add": {
       "family": "sidebar",
@@ -2321,11 +2522,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar.section.move": {
       "family": "sidebar",
@@ -2335,12 +2538,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.section.remove": {
@@ -2351,12 +2554,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.section.update": {
@@ -2367,12 +2570,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar.unpin": {
@@ -2381,14 +2584,17 @@
         "success": "daemon-ops/sidebar-unpin-ok",
         "error": "daemon-ops/sidebar-unpin-error"
       },
-      "fixture": [],
+      "fixture": [
+        "adopt-remote",
+        "pin-remote"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "items",
-        "rule": "value must be an array"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.items[0]"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "sidebar_layout.update": {
@@ -2399,11 +2605,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.ensure": {
       "family": "sidebar",
@@ -2411,13 +2619,19 @@
         "success": "daemon-ops/sidebar-view-ensure-ok",
         "error": "daemon-ops/sidebar-view-ensure-error"
       },
-      "fixture": [],
+      "fixture": [
+        "write-config",
+        "config-written",
+        "reload-config"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "cols",
-        "rule": "value must be an unsigned 16-bit integer"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.input": {
       "family": "sidebar",
@@ -2426,14 +2640,19 @@
         "error": "daemon-ops/sidebar-view-input-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "data_base64",
-        "rule": "value must use canonical base64"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.reload": {
       "family": "sidebar",
@@ -2442,14 +2661,19 @@
         "error": "daemon-ops/sidebar-view-reload-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "sidebar_view.resize": {
       "family": "sidebar",
@@ -2458,14 +2682,19 @@
         "error": "daemon-ops/sidebar-view-resize-error"
       },
       "fixture": [
-        "fx-sidebar-view"
+        "write-config",
+        "config-written",
+        "reload-config",
+        "ensure-view"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "cols",
-        "rule": "value must be an unsigned 16-bit integer"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "stash.create": {
       "family": "git",
@@ -2473,13 +2702,20 @@
         "success": "daemon-ops/stash-create-ok",
         "error": "daemon-ops/stash-create-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-browser-profile",
+        "fx-app-browser"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "tabs",
         "rule": "value has too few items"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "stash.delete": {
       "family": "git",
@@ -2489,7 +2725,8 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split",
+        "fx-browser-profile",
+        "fx-app-browser",
         "fx-stash"
       ],
       "error": {
@@ -2497,7 +2734,10 @@
         "field": "stash",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "stash.import": {
       "family": "git",
@@ -2511,7 +2751,10 @@
         "field": "source",
         "rule": "value is outside the allowed enum"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "stash.restore": {
       "family": "git",
@@ -2521,7 +2764,8 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split",
+        "fx-browser-profile",
+        "fx-app-browser",
         "fx-stash"
       ],
       "error": {
@@ -2529,7 +2773,10 @@
         "field": "stash",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "success"
+      ]
     },
     "tab.close": {
       "family": "tab",
@@ -2946,15 +3193,16 @@
         "success": "daemon-ops/window-record-delete-ok",
         "error": "daemon-ops/window-record-delete-error"
       },
-      "fixture": [],
+      "fixture": [
+        "put"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "install_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.install_id",
-        "params.window_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "window_record.put": {
@@ -2965,13 +3213,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "install_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": [
-        "params.install_id",
-        "params.window_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "workspace.agent_folder.set": {
@@ -2987,19 +3234,11 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
-      ],
-      "requires": {
-        "success": [
-          "resource_api",
-          "gui"
-        ],
-        "error": [
-          "resource_api"
-        ]
-      }
+      ]
     },
     "workspace.close": {
       "family": "workspace",
@@ -3042,19 +3281,11 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "gap": "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-245 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)",
       "tuned": [
         "error",
         "success"
-      ],
-      "requires": {
-        "success": [
-          "resource_api",
-          "gui"
-        ],
-        "error": [
-          "resource_api"
-        ]
-      }
+      ]
     },
     "workspace.ensure_home": {
       "family": "workspace",

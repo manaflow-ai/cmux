@@ -44,7 +44,7 @@ extension AppServices {
     /// with the administrator's policy and the machine create confirmation already in place.
     var cloud: CloudService {
         if let cloudIfBuilt { return cloudIfBuilt }
-        let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork)
+        let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork, work: work)
         cloudIfBuilt = cloud
         cloud.applyPolicy(disabled: cloudPolicyDisabled)
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.

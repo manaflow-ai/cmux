@@ -17,7 +17,7 @@ extension SidebarContainerView {
     /// in the normal case this never fires.
     func armWidthMotionWatchdog(_ token: MotionSpring) {
         let due = Duration.seconds(Motion.sidebar.duration(token)) + Self.widthMotionSlack
-        widthMotionWatchdog.schedule(after: due) { @MainActor [weak self] in
+        widthMotionWatchdog.scheduleOnMain(after: due) { [weak self] in
             guard let self, self.isWidthAnimating else { return }
             self.isWidthAnimating = false
             self.refreshHover()

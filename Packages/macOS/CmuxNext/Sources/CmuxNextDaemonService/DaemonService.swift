@@ -31,7 +31,8 @@ public final class DaemonService {
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool
     /// Where this machine's daemon connections count their wire traffic (``DaemonWireStats``,
-    /// `debug.daemon.wire`): the app's recorder in Debug and bench builds, else nil.
+    /// `debug.daemon.wire`): the app's recorder in Debug and bench builds and opted-in release
+    /// builds, else nil.
     let wireStats: DaemonWireStats?
     public let store: DaemonStore
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
@@ -90,7 +91,7 @@ public final class DaemonService {
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
     ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
-    ///     its recorder (nil in a release build, which counts nothing).
+    ///     its recorder (nil in a release build without field data opt-in, which counts nothing).
     ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
     ///     attachment this service opens; nil (tests) watches nothing.
     ///   - crashKeys: The app's crash keys, for the local daemon's service only: its store names its connection
@@ -161,8 +162,9 @@ public final class DaemonService {
     /// `resolvedTerminalEnvironment` over it, goes to the daemon process and
     /// to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
-    /// (`DaemonService.prestart`); without one the first attempt starts here.
-    public func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
+    /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
+    /// `work` (the app's one ``BackgroundWork``).
+    public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
@@ -174,7 +176,7 @@ public final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(build: launch.build,
+                launcher = try DaemonLauncher.forApp(work: work, build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
@@ -391,7 +393,7 @@ public final class DaemonService {
         startupDeadlineTimer?.cancel()
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
-        timer.schedule(after: startupDeadline) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: startupDeadline) { [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()

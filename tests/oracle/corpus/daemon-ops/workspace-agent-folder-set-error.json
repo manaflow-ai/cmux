@@ -65,13 +65,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "origin.forbidden"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "Gate A2: an agent connection may not choose where agents run; origin.forbidden with details.required user before any handler runs (request_origin.rs require_origin)"
+      "note": "Gate A2: an agent connection may not choose where agents run (request_origin.rs require_origin), refused before any handler runs"
     }
   ],
   "invariants": [

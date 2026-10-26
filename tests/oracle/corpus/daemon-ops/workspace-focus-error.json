@@ -43,13 +43,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "selector.not_found"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "workspace",
+          "selector": "ws_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "a well-formed workspace id that names no workspace"
+      "note": "a well-formed workspace id that names no workspace (resource/error.rs not_found)"
     }
   ],
   "invariants": [

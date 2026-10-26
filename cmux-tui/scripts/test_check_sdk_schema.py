@@ -479,18 +479,28 @@ class LiveSchemaTests(unittest.TestCase):
         )
 
     def test_protocol_key_input_maps_to_the_named_terminal_key_input_type(self) -> None:
-        runtime_field = CHECKER.runtime_command_fields()["clear-history"]["fallback_key"]
         schema_type = self.ir.command("clear-history")["request"]["fields"][
             "fallback_key"
         ]["type"]
         self.assertEqual(
-            CHECKER._runtime_type_shape(runtime_field.rust_type),
+            CHECKER._runtime_type_shape("Option<ProtocolKeyInput>"),
             "ref<TerminalKeyInput>",
         )
         self.assertEqual(
             CHECKER._schema_type_shape(schema_type, self.ir.types),
             "ref<TerminalKeyInput>",
         )
+
+    def test_generated_family_commands_are_served_without_hand_written_fields(self) -> None:
+        # p05-ipc-026: terminal-io's Command variants come from the schema
+        # (crates/cmux-ipc/server-families.json), so server.rs has none.
+        generated = CHECKER.generated_command_names()
+        self.assertIn("clear-history", generated)
+        self.assertIn("send", generated)
+        self.assertFalse(generated & set(CHECKER.runtime_command_fields()))
+        document = copy.deepcopy(self.document)
+        document["commands"]["send"]["request"]["fields"]["paste"]["presence"] = "required"
+        self.validate(document, self.inventory)
 
     def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
         fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
@@ -621,13 +631,13 @@ class LiveSchemaTests(unittest.TestCase):
 
     def test_missing_request_field_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
-        document["commands"]["send"]["request"]["fields"].pop("surface")
+        document["commands"]["resize-surface"]["request"]["fields"].pop("rows")
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field"):
             self.validate(document, self.inventory)
 
     def test_wrong_request_field_presence_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
-        document["commands"]["send"]["request"]["fields"]["paste"]["presence"] = "required"
+        document["commands"]["resize-surface"]["request"]["fields"]["rows"]["presence"] = "optional"
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
             self.validate(document, self.inventory)
 
@@ -905,6 +915,56 @@ struct SurfaceParams {
         document = copy.deepcopy(self.document)
         document["events"]["bell"]["streams"] = ["attach-byte"]
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "event stream drift"):
+            self.validate(document, self.inventory)
+
+    def test_agent_inventory_requests_come_from_the_enums_their_handlers_decode(self) -> None:
+        commands = CHECKER.handler_command_fields(
+            {"agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"}
+        )
+        presence = {
+            name: {field: CHECKER._runtime_field_presence(value) for field, value in fields.items()}
+            for name, fields in commands.items()
+        }
+        self.assertEqual(
+            presence,
+            {
+                "agent-inventory": {"expected_machine_id": ("optional", False)},
+                "agent-inventory-refresh": {"expected_machine_id": ("required", False)},
+                "agent-inventory-watch": {
+                    "expected_machine_id": ("required", False),
+                    "enabled": ("required", False),
+                    "expected_watch_id": ("optional", False),
+                    "admission_receipt": ("optional", False),
+                },
+            },
+        )
+
+    def test_agent_inventory_watch_field_type_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory-watch"]["request"]["fields"]["enabled"]["type"] = {
+            "kind": "scalar",
+            "name": "string",
+        }
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "type drift"):
+            self.validate(document, self.inventory)
+
+    def test_agent_inventory_watch_fence_presence_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        fields = document["commands"]["agent-inventory-watch"]["request"]["fields"]
+        fields["expected_machine_id"]["presence"] = "optional"
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
+
+    def test_present_non_null_option_is_optional_and_not_nullable(self) -> None:
+        refusing = CHECKER.RuntimeField(
+            "Option<String>", ('default, deserialize_with = "present_non_null"',)
+        )
+        self.assertEqual(CHECKER._runtime_field_presence(refusing), ("optional", False))
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory"]["request"]["fields"]["expected_machine_id"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
             self.validate(document, self.inventory)
 
 

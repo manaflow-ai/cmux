@@ -1262,6 +1262,11 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - For a flow-marked commit, the first tick whose target >= max(commit, gpu_done when 048 is present)
     writes frame.present_estimate (flow, target, flag "estimated").
   - With the link idle, it asks for one tick while recording only.
+  - As built: `FramePresentEstimate` writes frame.commit once per main run-loop turn end, from one observer
+    after Core Animation's (arg0 the first flow it carries, arg1 how many). frame.tick names its display
+    (arg1: display id in the high 32 bits, nanoseconds to the target in the low 32). Presents are per
+    display: a flow is presented by its window's display, and the one tick is asked of that display. The
+    typing probe's echo commit (019, the contents mark) marks the flow.
   - Covers perf-hot frame-tick.
 - Acceptance:
   - Off: one load in `deliver`.
@@ -1331,6 +1336,22 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Acceptance: The off path is one load (review). Fork CI passes. The gitlink bump is in the same push as
   049.
 - Test phase: fleet: GhosttyNextKit build and the cmux compile.
+- As built (ghostty-next branch `cp/p09-observability-048`; 049 writes against this interface):
+  - `ghostty_set_trace_hook(const ghostty_trace_hook_s*)`. The record `{callback, ctx}` is owned by the
+    embedder and never changes or is freed while the process runs. The fork keeps one atomic pointer to it,
+    so a callback and its ctx can never be paired wrongly. NULL, or a NULL callback, turns the hook off.
+  - `ghostty_trace_hook_cb(void* ctx, ghostty_trace_event_e event, uint64_t surface, uint64_t seq)`.
+    `surface` is `ghostty_surface_trace_id(surface)`: nonzero and never reused. The surface pointer is not
+    used, because a present queued to main can arrive after `ghostty_surface_free`, when a new surface can
+    have the same address.
+  - Events: `FRAME_BEGIN` (seq = the number the frame gets if the draw commits) and `FRAME_END` (seq = the
+    committed frame, or 0 when nothing was drawn). They come from Metal `drawFrameStart`/`drawFrameEnd`,
+    not from Thread.zig, so the main-thread display-pass draws are included. `GPU_DONE` comes from the
+    completed handler. `CONTENTS_SET` comes when the frame's IOSurface becomes the layer contents (one
+    frame can be reported twice in a host-size change: count the first). `IO_WRITE` (seq = byte count)
+    comes before a MANUAL surface's `io_write_cb`. `SURFACE_DESTROY` comes after `ghostty_surface_free`.
+  - The gitlink and the CmuxGhosttyKit pin stay where they are: the bump is made with 049, after the fork
+    PR is merged and its GhosttyNextKit release is out.
 
 ### 049 cmux registers the Ghostty hook
 - Files: S/CmuxNextTerminal/GhosttyTraceHook.swift, S/CmuxNextTerminal/TerminalSurfaceView.swift.
@@ -1339,6 +1360,10 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   installed at start. When nothing uses it, the pointer is null. At the IOSurface handoff it also calls
   the surface's `TerminalEchoStage.contentsSet()` (p04-input-006), and `TerminalEchoStages.makeStage()`
   then makes echo stages in Release too (today only DEBUG and bench builds, which have the swizzle).
+  The contents mark goes through `TypingLatencyProbe.mark(.contents, surface:)`, so 037's
+  `FramePresentEstimate` dates the echo's present with no extra call. Only a frame handed to its layer
+  before its GPU work ends marks its commit with `awaitsGPU: true` and calls
+  `FramePresentEstimate.gpuDidFinish(flow:atNanos:)` from the Metal completion handler (on main).
 - Acceptance:
   - 0 allocations (synthetic call test).
   - In a STRESS trace, ghostty.render falls between app.output.parsed and frame.commit.
@@ -1346,18 +1371,26 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 
 ### 050 In-repo CEF shim: tracing exports (no fork)
 - Files: Packages/macOS/CmuxNext/CEFShim/src/shim_tracing.mm, S/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h.
-- Change: `cmux_cef_begin_tracing(categories, buffer_kb)`, `cmux_cef_end_tracing(path, done_cb)` and
-  `cmux_cef_now_trace_us()` wrap the stock CEF API (`include/cef_trace.h`). They post to the browser UI
-  thread. The output is legacy JSON; CEF's public API has no proto end, and this reason is written in the
-  code.
+- Change: `cmux_cef_begin_tracing(categories, started_fn, ctx)`, `cmux_cef_end_tracing(path, written_fn, ctx)`
+  and `cmux_cef_now_trace_us()` wrap the stock CEF API (`include/cef_trace.h`). They post to the browser UI
+  thread, and each callback runs once (the failure value when CEF refuses or drops the request). The output
+  is legacy JSON; CEF's public API has no proto end, and this reason is written in the code.
+  - No buffer size: `CefBeginTracing` builds `TraceConfig(categories, "")`, so Chromium's default
+    record-until-full buffer applies. A set size needs the CEF fork (TraceConfig JSON
+    `trace_buffer_size_in_kb`).
+  - The written path means Chromium finished the recording, not that the file exists or is complete
+    (Chromium ignores open and write errors). The caller stats and parses it off the main thread.
 - Acceptance: The header declares the 3 functions. A Release-build embedder case writes JSON.
-- Test phase: fleet: `cmux-ci build cmux`; a shim test.
+  - Open: the embedder case is not written yet. 051's fleet Release run `cmux trace record --chromium` is
+    the first real run of these exports.
+- Test phase: fleet: `cmux-ci build cmux`; `scripts/cmux-next/test-shim-tracing-cpp.sh`.
 
 ### 051 Chromium tracing in Release (role-aware)
 - Files: S/CmuxNextBrowser/CEF/CEFShimLibrary.swift, S/CmuxNextBrowser/CEF/CEFTracing.swift, S/CmuxNextControl/Diagnostics/ControlRouter+Trace.swift.
 - Change: `trace.start chromium:true` begins tracing (toplevel, cc, viz, gpu, input, latencyInfo,
-  benchmark; 64 MB) in-process, or through the host wire TRACE_START (104) when the Chromium host is on. It
-  records the clock offset in meta.json and ends into the recording directory.
+  benchmark; Chromium's default buffer, because 050 has no buffer size on stock CEF) in-process, or
+  through the host wire TRACE_START (104) when the Chromium host is on. It records the clock offset in
+  meta.json and ends into the recording directory.
 - Acceptance: Host mode off and on both produce JSON. The offset is in meta.json. A missing host symbol
   reports unsupported.
 - Test phase: fleet Release: `cmux trace record --chromium`; trace.py shows the GPU and renderer tracks.

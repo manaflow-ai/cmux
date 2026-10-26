@@ -1,37 +1,29 @@
 {
-  "$comment": "p15-oracle-064: the workspace family's 26 mutations (workspace, workspace_checklist, workspace_group, workspace_log, workspace_progress, workspace_status; gen_daemon_ops.py reads this file, run it after an edit). Untuned operations keep the generated request: their success reaches the handler on the standard fixture and their error is the catalog check's validation.invalid. The tuned ones reach a handler-level refusal (an unknown fixture object, a URL or app the handler refuses, Gate A2) or need a precondition the generated request lacks. Two successes need the app product: workspace.agent_folder.set is a user-only operation (request_origin.rs USER_ONLY_OPERATIONS; origin user is only the verified app connection, server/client_hello.rs), and workspace.ensure_app needs an installed app (the app bundle ships the first-party apps, installed by default; the VM daemon has none beside its binary).",
+  "$comment": "p15-oracle-064: the workspace family's 26 mutations (workspace, workspace_checklist, workspace_group, workspace_log, workspace_progress, workspace_status; gen_daemon_ops.py reads this file, run it after an edit). Untuned operations keep the generated request: their success reaches the handler on the standard fixture and their error is the catalog check's validation.invalid. The tuned ones reach a handler-level refusal (an unknown fixture object, a URL or app the handler refuses, Gate A2) and assert its typed details where the refusal has them (the checklist store's refusal has only a prose reason), or need a precondition the generated request lacks. Two successes no product runs yet carry a gap naming the task that closes it: workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS) while driver_daemon.py's connection derives origin agent (p15-oracle-237), and workspace.ensure_app needs an installed first-party app, of which the case daemon has none (p15-oracle-245).",
   "operations": {
     "workspace.agent_folder.set": {
       "success": {
         "params": {"path": "/usr"},
-        "requires": ["gui"],
-        "untested": [
-          "origin user: the daemon product's driver connects as an agent (no install-key hello), so only the app product's verified connection may set the folder"
-        ],
+        "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
         "note": "the verified app sets an existing canonical folder that is not the home folder or above it (state/agent_folder.rs validate)"
       },
       "error": {
-        "requires": [],
-        "untested": [],
         "error": "origin.forbidden",
-        "note": "Gate A2: an agent connection may not choose where agents run; origin.forbidden with details.required user before any handler runs (request_origin.rs require_origin)"
+        "details": {"derived": "agent", "required": "user"},
+        "note": "Gate A2: an agent connection may not choose where agents run (request_origin.rs require_origin), refused before any handler runs"
       }
     },
     "workspace.ensure_app": {
       "success": {
         "params": {"app": "cmux/notes"},
-        "requires": ["gui"],
-        "untested": [
-          "an installed app: the app bundle's first-party directory holds cmux/notes, installed and enabled by default (apps/catalog.rs defaults); the VM daemon has no apps/first-party beside its binary"
-        ],
+        "gap": "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-245 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)",
         "note": "the first call makes the app's one workspace with its app tab (state/app_workspaces.rs)"
       },
       "error": {
-        "requires": [],
-        "untested": [],
         "params": {"app": "oracle/not-installed"},
         "error": "validation.invalid",
-        "note": "a well-formed app id that is not installed and enabled here: validation.invalid, field app (state/app_workspaces.rs state_ensure_app)"
+        "details": {"field": "app", "reason": "app oracle/not-installed is not installed and enabled"},
+        "note": "a well-formed app id that is not installed and enabled here (state/app_workspaces.rs state_ensure_app)"
       }
     },
     "workspace.open_url": {
@@ -46,7 +38,8 @@
         "before": [],
         "params": {"url": "about:blank"},
         "error": "validation.invalid",
-        "note": "only an http or https URL with a host opens (open_url.rs rule 1): validation.invalid, field url"
+        "details": {"field": "url", "reason": "the URL must be an http or https URL with a host, at most 8192 bytes"},
+        "note": "only an http or https URL with a host opens (resource_router/open_url.rs rule 1)"
       }
     },
     "workspace.place": {
@@ -57,49 +50,54 @@
       "error": {
         "params": {"group": "oracle-missing-group"},
         "error": "resource.not_found",
-        "note": "a group id that names no workspace group (state/personal.rs Place)"
+        "details": {"scope": "workspace_group", "id": "oracle-missing-group"},
+        "note": "a group id that names no workspace group (state/personal.rs Place, state_not_found)"
       }
     },
     "workspace_checklist.remove": {
       "error": {
         "params": {"item": "oracle-missing-item"},
         "error": "validation.invalid",
-        "note": "an item id the workspace's checklist does not have reaches the store, which refuses it as a bad request (workspace_checklist_store.rs require_item: validation.invalid, unknown checklist item), not resource.not_found"
+        "note": "an item id the workspace's checklist does not have reaches the store, which refuses it as a bad request (workspace_checklist_store.rs require_item: validation.invalid, unknown checklist item), not resource.not_found; the refusal has a prose reason only, so the case asserts the code"
       }
     },
     "workspace_checklist.update": {
       "error": {
         "params": {"item": "oracle-missing-item"},
         "error": "validation.invalid",
-        "note": "an item id the workspace's checklist does not have reaches the store, which refuses it as a bad request (workspace_checklist_store.rs require_item: validation.invalid, unknown checklist item), not resource.not_found"
+        "note": "an item id the workspace's checklist does not have reaches the store, which refuses it as a bad request (workspace_checklist_store.rs require_item: validation.invalid, unknown checklist item), not resource.not_found; the refusal has a prose reason only, so the case asserts the code"
       }
     },
     "workspace_group.delete": {
       "error": {
         "params": {"workspace_group": "oracle-missing-group"},
         "error": "resource.not_found",
-        "note": "a group id that names no workspace group"
+        "details": {"scope": "workspace_group", "id": "oracle-missing-group"},
+        "note": "a group id that names no workspace group (state/personal.rs GroupDelete, state_not_found)"
       }
     },
     "workspace_group.move": {
       "error": {
         "params": {"workspace_group": "oracle-missing-group"},
         "error": "resource.not_found",
-        "note": "a group id that names no workspace group"
+        "details": {"scope": "workspace_group", "id": "oracle-missing-group"},
+        "note": "a group id that names no workspace group (state/personal.rs GroupMove, typed unknown personal group)"
       }
     },
     "workspace_group.update": {
       "error": {
         "params": {"workspace_group": "oracle-missing-group"},
         "error": "resource.not_found",
-        "note": "a group id that names no workspace group"
+        "details": {"scope": "workspace_group", "id": "oracle-missing-group"},
+        "note": "a group id that names no workspace group (state/personal.rs GroupUpdate, typed unknown personal group)"
       }
     },
     "workspace.focus": {
       "error": {
         "target": {"workspace": "ws_00000000000000000000000000000000"},
         "error": "selector.not_found",
-        "note": "a well-formed workspace id that names no workspace"
+        "details": {"scope": "workspace", "selector": "ws_00000000000000000000000000000000"},
+        "note": "a well-formed workspace id that names no workspace (resource/error.rs not_found)"
       }
     }
   }

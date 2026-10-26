@@ -38,8 +38,13 @@
       "args": {
         "method": "sidebar.move",
         "params": {
-          "items": {},
-          "to": {}
+          "items": [
+            "itm_oracle_missing"
+          ],
+          "to": {
+            "section": "sec_top",
+            "before": "itm_home"
+          }
         },
         "idempotencyKey": "sidebar-move-error.call"
       },
@@ -51,7 +56,7 @@
         "before",
         "settled"
       ],
-      "note": "items breaks its catalog type (value must be an array); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_item) and writes nothing"
     }
   ],
   "invariants": [
@@ -60,8 +65,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.items[0] is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

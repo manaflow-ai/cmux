@@ -26,14 +26,39 @@ public struct CEFPageSchemes {
         /// no group and keeps Chromium's default of one process per origin, as every `solo` and
         /// `secrets` page does.
         public var processGroup: String?
+        /// The most main frames one renderer this page shares takes (PL-memory's
+        /// `cmux-page-scheme-process-per-site` entry for its host, ``siteCaps(_:)``). Nil: the page has no
+        /// entry and never joins a live renderer, as every `solo` and `secrets` page.
+        public var mainFrameCap: Int?
         public init(root: URL, csp: String, dynamicPrefixes: [String] = [], entry: String = "index.html",
-                    processGroup: String? = nil) {
+                    processGroup: String? = nil, mainFrameCap: Int? = nil) {
             self.root = root
             self.csp = csp
             self.dynamicPrefixes = dynamicPrefixes
             self.entry = entry
             self.processGroup = processGroup
+            self.mainFrameCap = mainFrameCap
         }
+    }
+
+    /// The main-frame cap of a shared cmux page renderer. Chrome gives every NTP one renderer with no
+    /// cap (ChromeContentBrowserClient::ShouldUseProcessPerSite); 8 bounds how many pages one renderer
+    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
+    public nonisolated static let sharedRendererMainFrames = 8
+
+    /// PL-memory's sharing table for `entries`, sorted by site so the switch is the same on every
+    /// launch: one entry per page host that has a cap (`cmux.agent:8`), and one per process group of
+    /// those pages (`privileged:8`). The fork uses a host's own entry first, then its registered
+    /// group's (webui-DESIGN.md 3.2), so a host entry shares only between pages of one host and a
+    /// group entry shares across the group's hosts.
+    static func siteCaps(_ entries: [String: Entry]) -> [CEFSwitches.PageSiteCap] {
+        var caps: [String: Int] = [:]
+        for (id, entry) in entries {
+            guard let cap = entry.mainFrameCap else { continue }
+            caps[id] = cap
+            if let group = entry.processGroup { caps[group] = min(caps[group] ?? cap, cap) }
+        }
+        return caps.map { CEFSwitches.PageSiteCap(site: $0.key, mainFrames: $0.value) }.sorted { $0.site < $1.site }
     }
 
     /// Page id (`cmux.agent`) to its entry.

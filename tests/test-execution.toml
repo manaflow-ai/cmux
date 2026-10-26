@@ -1798,6 +1798,11 @@ lane = "manual"
 reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_display_links."
 
 [[test]]
+path = "tests/test_check_concurrency_workspace_opens.py"
+lane = "manual"
+reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_workspace_opens."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
@@ -1933,3 +1938,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. script-storm-bench.py --hidden N
 path = "tests/test_bench_idle.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. bench_idle.py and bench_launch.py order are fleet benches, not gates; run python3 -I tests/test_bench_idle.py yourself after changing bench_idle.py, the launch order check or DebugLayoutCounters' hidden counters (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_perf_signposts_presented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. perf-signposts.py is a fleet and local report; run python3 -I tests/test_perf_signposts_presented.py yourself after changing it (under 1 s, no app, no build)."

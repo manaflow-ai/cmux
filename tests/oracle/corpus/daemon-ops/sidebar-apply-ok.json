@@ -39,7 +39,25 @@
         "method": "sidebar.apply",
         "params": {
           "ops": [
-            {}
+            {
+              "op": "section.add",
+              "section": {
+                "id": "sec_oracle",
+                "kind": {
+                  "type": "custom"
+                },
+                "title": "Oracle"
+              }
+            },
+            {
+              "op": "move",
+              "items": [
+                "itm_app_store"
+              ],
+              "to": {
+                "section": "sec_oracle"
+              }
+            }
           ]
         },
         "idempotencyKey": "sidebar-apply-ok.call"
@@ -52,7 +70,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "two reducer ops commit as one: a new custom section and an item moved into it"
     }
   ],
   "invariants": [

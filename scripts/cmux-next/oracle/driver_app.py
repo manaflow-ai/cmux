@@ -843,6 +843,10 @@ class CaseRun:
         if kind == "error":
             if detail != expect["error"]:
                 raise CaseError("Failure", f"expected error {expect['error']}, got {detail}", step_id)
+            if "errorDetails" in expect:
+                # The app's control, cli and mcp replies reach this driver as a typed code only.
+                raise CaseError("Crash", f"errorDetails: the {step['op']} reply gives this driver no error details",
+                                step_id)
             return
         receipt = expect.get("receipt")
         if receipt is not None:
@@ -1052,7 +1056,12 @@ class AppSession:
             shutil.rmtree(self.paths.root, ignore_errors=True)
 
 
-def open_session(session_ctx: Dict[str, Any]) -> AppSession:
+def open_session(session_ctx: Dict[str, Any]) -> Any:
+    if session_ctx.get("facets") == "v0":
+        # facets_v0.py capture: the push base has no debug.oracle.* methods, so v0 reads its own (p15-oracle-006).
+        import driver_app_v0
+
+        return driver_app_v0.open_session(session_ctx)
     return AppSession(session_ctx)
 
 

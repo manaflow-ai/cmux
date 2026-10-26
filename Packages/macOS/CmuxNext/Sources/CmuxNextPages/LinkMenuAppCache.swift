@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextCompat
 
+// memory: fixed keys are the URL schemes and file types a person right-clicks, each with at most
+// `LinkMenu.appLimit` app URLs; icons are one 16 pt image per installed app that opens one of them.
 /// The LaunchServices answers of the link and path menus (``LinkMenu``), kept per key so a
 /// right-click does not ask LaunchServices again on the main thread. Each right-click on a link
 /// asked for every app that opens it, the default one, and an icon per app (up to 24), all

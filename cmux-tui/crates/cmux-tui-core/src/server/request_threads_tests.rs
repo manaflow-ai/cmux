@@ -14,6 +14,7 @@ use cmux_threads::{BlockingKind, ThreadQos};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
 
+use super::super::terminal_io_wire::ClearHistoryParams;
 use super::super::{
     BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, MessageWriter,
     QueuedSink, Request, serve_websocket,
@@ -123,7 +124,7 @@ fn a_clear_history_worker_is_a_user_initiated_request_thread() {
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let mut clear = Some(Request {
         id: Some(json!(1)),
-        cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        cmd: Command::ClearHistory(ClearHistoryParams { surface: surface.id, fallback_key: None }),
     });
     let held = surface.with_terminal(|_| {
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));

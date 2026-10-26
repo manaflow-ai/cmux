@@ -41,7 +41,7 @@ import Testing
         runner.postFiles(priority, shutdown: .skipOnShutdown) { report.yield(Seen.here()) }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        #expect(seen.queue == "test.mbr.files.\(WorkPriority(priority))")
+        #expect(seen.queue.hasPrefix("test.mbr.files.\(WorkPriority(priority))."), "ran on \(seen.queue)")
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 

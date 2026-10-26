@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 public import CmuxNextRemoteFetch
 
@@ -20,6 +20,11 @@ public protocol BrowserFaviconLoading: AnyObject {
 /// own cache, so one profile (or an incognito session) never sees another's icons.
 /// Decoded icons are redrawn at most ``maximumPixels`` square, so a cached
 /// icon costs at most 16 KiB however large the file was.
+///
+/// Its ``MemoryConsumer`` calls scale how many icons each profile keeps (``entriesPerProfile`` at
+/// 100 %, none at 0 %), as Chrome's caches follow `base/memory_coordinator/memory_consumer.h`. It does
+/// not register itself: `TabFaviconStore` holds the same decoded images for the tab strips, so that
+/// store registers "browser-favicons" for both caches and drives these calls (`memoryBrowserCaches`).
 public final class BrowserFaviconLoader: BrowserFaviconLoading {
     public static let shared = BrowserFaviconLoader()
     /// Largest favicon body read (large touch icons are well under this).
@@ -34,8 +39,19 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         var url: URL
     }
 
+    /// One kept icon and its decoded pixels, counted once when it is kept.
+    private struct Cached {
+        let image: NSImage
+        let bytes: Int
+    }
+
     private var fetcher: GuardedRemoteFetch
-    private var caches: [BrowserProfileID: LRUCache<URL, NSImage>] = [:]
+    private var caches: [BrowserProfileID: LRUCache<URL, Cached>] = [:]
+    /// The decoded bytes and the count of every kept icon, updated on every keep and drop.
+    private var keptBytes = 0
+    private var keptCount = 0
+    /// The limit `TabFaviconStore` passed on last (100 % until the consumer registers).
+    private(set) var memoryLimit = MemoryLimit.default
     private var inFlight: [Key: Task<NSImage?, Never>] = [:]
 
     /// A loader that fetches nothing until ``useResolver(_:)``.
@@ -64,12 +80,17 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
 
     /// The cached icon, without fetching (nil when not loaded yet).
     public func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage? {
-        caches[profile]?.value(for: url)
+        caches[profile]?.value(for: url)?.image
+    }
+
+    /// Whether `profile` keeps an icon for `url`, without marking it used.
+    public func keepsFavicon(at url: URL, profile: BrowserProfileID) -> Bool {
+        caches[profile]?.peek(url) != nil
     }
 
     public func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage? {
         guard GuardedRemoteFetch.allows(url) else { return nil }
-        if let cached = caches[profile]?.value(for: url) { return cached }
+        if let cached = caches[profile]?.value(for: url) { return cached.image }
         let key = Key(profile: profile, url: url)
         if let task = inFlight[key] { return await task.value }
         let fetcher = fetcher
@@ -81,7 +102,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         inFlight[key] = task
         let image = await task.value
         inFlight[key] = nil
-        if let image { caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url) }
+        if let image { keep(image, at: url, profile: profile) }
         return image
     }
 
@@ -90,14 +111,41 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// `profile` gets it without a second, cookieless fetch. Nil when it does not decode.
     public func store(_ data: Data, at url: URL, profile: BrowserProfileID) -> NSImage? {
         guard let image = Self.decode(data) else { return nil }
-        caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url)
+        keep(image, at: url, profile: profile)
         return image
     }
 
     /// Drops every icon cached for `profile` (a profile deleted, an
     /// incognito session ended).
     public func forget(profile: BrowserProfileID) {
-        caches[profile] = nil
+        guard var cache = caches.removeValue(forKey: profile) else { return }
+        while let dropped = cache.removeLeastRecentlyUsed() { didDrop(dropped) }
+    }
+
+    /// How many icons each profile may keep now: ``entriesPerProfile`` scaled by ``memoryLimit``.
+    var entriesPerProfileLimit: Int { memoryLimit.scale(Self.entriesPerProfile) }
+
+    /// Keeps `image` as `profile`'s most recent icon for `url`; past the limit the least recently
+    /// used go (at limit 0, `image` itself).
+    private func keep(_ image: NSImage, at url: URL, profile: BrowserProfileID) {
+        let entry = Cached(image: image, bytes: Self.decodedBytes(image))
+        keptBytes += entry.bytes
+        keptCount += 1
+        let limit = entriesPerProfileLimit
+        for dropped in caches[profile, default: LRUCache(capacity: Self.entriesPerProfile, limit: limit)].set(entry, for: url) {
+            didDrop(dropped)
+        }
+    }
+
+    private func didDrop(_ entry: Cached) {
+        keptBytes -= entry.bytes
+        keptCount -= 1
+    }
+
+    /// The pixels behind a decoded icon (``decode(_:)`` makes one representation of at most
+    /// ``maximumPixels`` square), 4 bytes each; read from the representation's size, no draw.
+    private static func decodedBytes(_ image: NSImage) -> Int {
+        image.representations.reduce(0) { $0 + $1.pixelsWide * $1.pixelsHigh * 4 }
     }
 
     /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best
@@ -130,4 +178,33 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         return context.makeImage()
     }
 
+}
+
+extension BrowserFaviconLoader: MemoryConsumer {
+    /// Lowers or raises each profile's cap to `limit` of ``entriesPerProfile``. Frees nothing: a new
+    /// icon past the cap pushes the least recently used out.
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        memoryLimit = limit
+        let entries = entriesPerProfileLimit
+        for profile in Array(caches.keys) { caches[profile]?.setLimit(entries) }
+    }
+
+    /// Drops each profile's least recently used icons down to the slice's limit, one at a time until
+    /// the slice expires; a profile left with none goes too.
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        for profile in Array(caches.keys) {
+            while caches[profile]?.isOverLimit == true {
+                if slice.isExpired { return .more }
+                if let dropped = caches[profile]?.removeLeastRecentlyUsed() { didDrop(dropped) }
+            }
+            if caches[profile]?.count == 0 { caches[profile] = nil }
+        }
+        return .done
+    }
+
+    /// The kept icons' decoded pixels, from two counters.
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: keptBytes, entries: keptCount)
+    }
 }

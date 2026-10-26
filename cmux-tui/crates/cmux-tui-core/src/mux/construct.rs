@@ -148,9 +148,30 @@ impl Mux {
     pub(crate) fn from_workspace_registry(
         session: String,
         surface_options: SurfaceOptions,
+        registry: WorkspaceRegistry,
+        provider_workspace: ProviderWorkspaceState,
+        test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::from_workspace_registry_with(
+            session,
+            surface_options,
+            registry,
+            provider_workspace,
+            test_surface_runtime,
+            crate::memory::MemorySetup::from_env(),
+        )
+    }
+
+    /// [`Self::from_workspace_registry`] with the memory registry and the
+    /// scrollback pressure feature given (tests inject both).
+    #[track_caller]
+    fn from_workspace_registry_with(
+        session: String,
+        surface_options: SurfaceOptions,
         mut registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        memory_setup: crate::memory::MemorySetup,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -189,8 +210,12 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        // The owner's memory registry: every memory consumer of this owner
+        // registers here, and its kernel source starts on first use.
+        let crate::memory::MemorySetup { memory, scrollback_pressure } = memory_setup;
         let output_store = crate::output_store::OutputStore::new(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
+            scrollback_pressure,
         );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
@@ -203,9 +228,6 @@ impl Mux {
             label: "mux".to_owned(),
             ..cmux_threads::work::WorkConfig::default()
         })?;
-        // The owner's memory registry: every memory consumer of this owner
-        // registers here, and its kernel source starts on first use.
-        let memory = Arc::new(crate::memory::DaemonMemory::new());
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -411,6 +433,7 @@ impl Mux {
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            cold_scrollback_wake: OnceLock::new(),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(
@@ -508,6 +531,28 @@ impl Mux {
 
     pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
         self.initial_bootstrap.lock().unwrap()
+    }
+
+    /// A persistent mux whose memory registry and scrollback pressure
+    /// feature the test sets.
+    #[cfg(test)]
+    #[track_caller]
+    pub(crate) fn open_persistent_with_memory_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        memory_setup: crate::memory::MemorySetup,
+    ) -> anyhow::Result<Arc<Self>> {
+        let session = session.into();
+        let registry = WorkspaceRegistry::open(state_root, &session)?;
+        Self::from_workspace_registry_with(
+            session,
+            surface_options,
+            registry,
+            ProviderWorkspaceState::default(),
+            false,
+            memory_setup,
+        )
     }
 
     #[cfg(test)]

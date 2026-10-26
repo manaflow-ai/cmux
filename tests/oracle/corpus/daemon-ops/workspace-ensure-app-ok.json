@@ -18,12 +18,10 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root",
-    "the daemon the cmux app started, reached over the app's verified connection (origin user)"
+    "no other cmux-tui on the state root"
   ],
   "requires": [
-    "resource_api",
-    "gui"
+    "resource_api"
   ],
   "platforms": [
     "linux",
@@ -63,6 +61,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "an installed app: the app bundle's first-party directory holds cmux/notes, installed and enabled by default (apps/catalog.rs defaults); the VM daemon has no apps/first-party beside its binary"
+    "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-245 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)"
   ]
 }

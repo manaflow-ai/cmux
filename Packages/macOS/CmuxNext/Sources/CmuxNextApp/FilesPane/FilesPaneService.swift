@@ -5,6 +5,7 @@ import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextHibernation
 import CmuxNextIcons
+import CmuxNextPages
 import UniformTypeIdentifiers
 
 extension InternalPageID {
@@ -29,15 +30,23 @@ final class FilesPaneService: InternalPageProvider {
 
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
-    private let icons = FileIconProvider()
+    /// Icons and thumbnails for every Files tab, held to a share of the image cache budget; with
+    /// `memoryFileHomeCaches` also a memory consumer.
+    private let icons: FileIconProvider
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
     private var volumeWatch: [Task<Void, Never>] = []
     private var titleWatch: [String: Task<Void, Never>] = [:]
-    /// The folder the next new tab opens on (``open(folder:focus:)``); home when nil.
-    private var pendingFolder: URL?
-    /// The item the next new tab selects (``reveal(_:focus:)``).
-    private var pendingSelection: URL?
+    /// What a new tab opens on.
+    private struct OpenRequest {
+        /// The folder (``open(folder:focus:)``); home when nil.
+        var folder: URL?
+        /// The item it selects (``reveal(_:focus:)``).
+        var selection: URL?
+    }
+
+    /// What each open asked for, for the tab it opened.
+    private let opens = PageOpenRequests<OpenRequest>()
     /// The shared file menu's Open as Text, Open With and Share rows for the pane's context menu.
     private lazy var fileMenu = FileActionsMenu(actions: .init(
         openInCmux: { [weak self] url in self?.services?.linkOpener.openFile(url, from: self?.services?.windows.active?.focusedPane) },
@@ -46,6 +55,9 @@ final class FilesPaneService: InternalPageProvider {
 
     init(services: AppServices) {
         self.services = services
+        let memory = AppMemoryConsumers(services: services)
+        icons = FileIconProvider(thumbnailBytes: memory.filesThumbnailBytes)
+        if let registry = memory.fileCacheRegistry { icons.registerMemoryConsumer(with: registry) }
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
@@ -62,13 +74,13 @@ final class FilesPaneService: InternalPageProvider {
     var icon: IconName? { .folder }
 
     func title(for key: String) -> String {
-        guard let folder = tabs[key]?.model.folder else { return title }
+        guard let folder = tabs[key]?.model.folder ?? opens.kept(for: key)?.folder else { return title }
         return folder.path == "/" ? "/" : FileManager.default.displayName(atPath: folder.path)
     }
 
     func history(for key: String) -> (any PageHistory)? { tabs[key]?.history }
 
-    func route(for key: String) -> String? { tabs[key]?.model.folder.path }
+    func route(for key: String) -> String? { (tabs[key]?.model.folder ?? opens.kept(for: key)?.folder)?.path }
 
     func restore(_ route: String, for key: String) {
         guard tabs[key] == nil, route.hasPrefix("/") else { return }
@@ -78,10 +90,12 @@ final class FilesPaneService: InternalPageProvider {
     /// Opens a new Files tab on `folder` (default: home) after the active
     /// window's focused tab; `focus` false for automation (no focus change).
     func open(folder: URL? = nil, focus: Bool) throws {
+        try open(OpenRequest(folder: folder), focus: focus)
+    }
+
+    private func open(_ request: OpenRequest, focus: Bool) throws {
         guard let services, let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        pendingFolder = folder
-        guard services.pages.openNew(.filesPane, in: window, focus: focus) != nil else {
-            pendingFolder = nil
+        guard opens.open(request, { services.pages.openNew(.filesPane, in: window, focus: focus) }) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
     }
@@ -90,13 +104,7 @@ final class FilesPaneService: InternalPageProvider {
     /// a docked Home or chat, never in it. A folder opens on itself.
     func reveal(_ item: URL, focus: Bool) throws {
         let isFolder = FileOpenKind(url: item) == .folder
-        pendingSelection = isFolder ? nil : item
-        do {
-            try open(folder: isFolder ? item : item.deletingLastPathComponent(), focus: focus)
-        } catch {
-            pendingSelection = nil
-            throw error
-        }
+        try open(OpenRequest(folder: isFolder ? item : item.deletingLastPathComponent(), selection: isFolder ? nil : item), focus: focus)
     }
 
     private func makeTab(_ folder: URL) -> Tab {
@@ -109,8 +117,9 @@ final class FilesPaneService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        var tab = tabs[key] ?? makeTab(pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser)
-        pendingFolder = nil
+        // The running open's request is the new tab's: a tab it did not open has its model already.
+        let request = opens.take(for: key) ?? (tabs[key] == nil ? opens.running : nil)
+        var tab = tabs[key] ?? makeTab(request?.folder ?? FileManager.default.homeDirectoryForCurrentUser)
         if tab.discarded {
             // The discard stopped the folder watch: list the folder again (selection kept), which watches it again.
             tab.discarded = false
@@ -118,8 +127,7 @@ final class FilesPaneService: InternalPageProvider {
             // task-owner: one listing of the tab's folder; the model's generation drops it when a newer one starts
             Task { await model.reload() }
         }
-        if let selection = pendingSelection {
-            pendingSelection = nil
+        if let selection = request?.selection {
             let model = tab.model
             // task-owner: one listing; ends when the item is selected
             Task { await model.open(selection.deletingLastPathComponent(), select: selection) }
@@ -142,6 +150,7 @@ final class FilesPaneService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         titleWatch.removeValue(forKey: key)?.cancel()
+        opens.forget(key)
         tabs.removeValue(forKey: key)?.view?.stop()
     }
 

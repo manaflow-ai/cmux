@@ -440,7 +440,7 @@ patch files (10 app, 10 daemon) applied in the job worktree (task 026); nothing 
 | MQ-daemon-ops | `jq -r '.operations\|to_entries[]\|select(.value.class=="mutation")\|.key' cmux-tui/spec/resource-operations-v2.json \| cut -d. -f1 \| sort \| uniq -c` | family group (tasks 061-070) |
 | MQ-actions | `jq -r --slurpfile g scripts/cmux-next/every-action-gaps.json '.actions[].id as $i \| select(($g[0].excluded\|has($i))\|not) \| $i' plans/cmux-next/action-surfaces.json \| sed -E 's/^([a-z]+)[A-Z.].*/\1/' \| sort \| uniq -c \| sort -rn` | family block of 50-120 ids (072-081) |
 | MQ-action-gaps | `jq -r '.gaps\|keys[]' scripts/cmux-next/every-action-gaps.json \| sed -E 's/^([a-zA-Z]+)[.].*/\1/' \| sort \| uniq -c` | fixture family (082-087) |
-| MQ-linux-errors | per target T of `jq -r '.waves[][]' linux-tier.json`: `CMUX_SWIFTPM_TARGET_LINUX=1 swift build --target $T -j 240 2>&1 \| grep -E '^/.+\.swift:[0-9]+:[0-9]+: error:' \| sed -E 's/:[0-9]+:[0-9]+: error:.*//' \| sort \| uniq -c`, or `swift-tier.sh --errors-queue` | file cluster <= 400 lines in one target |
+| MQ-linux-errors | per target T of `jq -r '.waves[][]' linux-tier.json`: `scripts/cmux-next/linux/swift-tier.sh build --target $T -j 240 2>&1 \| grep -E '^/.+\.swift:[0-9]+:[0-9]+: error:' \| sed -E 's/:[0-9]+:[0-9]+: error:.*//' \| sort \| uniq -c`, or `swift-tier.sh --errors-queue` (a bare `swift build` in the Linux mode first needs `compile-xcstrings.py`, or every catalog target shows zero errors) | file cluster <= 400 lines in one target |
 | MQ-linux-imports | `python3 scripts/cmux-next/linux/tier-imports.py` with the regex `^\s*(@[A-Za-z_]+ )*(public \|package \|internal )?import (struct \|class \|enum \|func \|typealias \|protocol \|var \|let )?(AppKit\|SwiftUI\|WebKit\|QuartzCore\|Carbon\|os\|OSLog\|Darwin\|CoreGraphics\|CoreFoundation\|CryptoKit\|Security\|MachO\|XPC\|MetricKit\|SystemConfiguration\|Compression\|CommonCrypto\|Network\|IOKit\|UniformTypeIdentifiers\|CoreServices\|LocalAuthentication\|CFNetwork\|SQLite3\|ImageIO\|CmuxNextDesign\|CmuxNextIcons)(\.[A-Za-z]+)*\s*$` plus symbol tokens `URLSession`, `FSEvent`, `sysctl`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `DistributedNotificationCenter` | target |
 | MQ-linux-test-imports | `git grep -lE 'import (AppKit\|QuartzCore\|Carbon\|WebKit\|SwiftUI\|CmuxNextDesign\|CmuxNextIcons\|CmuxNextSidebar\|CmuxNextLayout\|CmuxNextTabs\|CmuxNextBridge)' -- Packages/macOS/CmuxNext/Tests/{CmuxNextActionsTests,CmuxNextControlTests,CmuxNextSettingsTests,CmuxNextCompatTests,CmuxNextSignpostsTests,CmuxNextDaemonTests,CmuxNextFilesTests}` | batch into *AppKitTests (task 143) |
 | MQ-settings-design | `git grep -l 'import CmuxNext\(Design\|Icons\)' -- Packages/macOS/CmuxNext/Sources/CmuxNextSettings Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests`, grouped by the Design type used | type family (task 231) |
@@ -571,6 +571,13 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 026 | 20 seeded mutants as patch files | M | 18-30 | 050, 024 | |
 | 060 | gen_daemon_ops.py | L | 12-20 | 023, 200 | MQ-daemon-ops |
 | 061-070 | Daemon-op families | M | 18-48 | 060 | MQ-daemon-ops |
+| 237 | Driver user connection (install-key hello) | M | 20-36 | 023, 200, 070 | MQ-daemon-ops |
+| 238 | Driver loopback pairing step | S | 20-36 | 023, 200, 070 | MQ-daemon-ops |
+| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061 | MQ-daemon-ops |
+| 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
+| 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
+| 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | Case daemon with installed first-party apps | S | 20-30 | 023, 200, 064 | MQ-daemon-ops |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -875,6 +882,82 @@ The 10 app and 10 daemon faults of the draft as patches applied in the job workt
 coverage.json; regeneration stable. **061-070** family tuning as in the draft (browser 17, sidebar 22, session 11 + graceful restart, workspace 26,
 terminal 9 on both holder arms, layout 25, tab 21, git/project/stash 18 on generated repo, chief/agents 24 with mock, misc 28). Each: success + error
 case, both arms where listed, green twice on the VM.
+
+The 17 success cases a family tuning cannot run on the plain case connection are excluded with a gap that names one
+of these three follow-ups; gen_daemon_ops.py refuses a gap that names no WORK.tsv task or only the family task and its
+dependencies (done before the family task, so they close nothing).
+
+**237 Driver user connection.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `gen_daemon_ops.py`,
+`misc/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
+<hex key>`, never argv or env; `local_owner/install_key.rs`). A step with `connection: user` runs on a second connection that
+sends `client-hello {role: main, install_id}` and answers the nonce with the install-key proof (step 2,
+`server/client_hello.rs` prove), so it derives origin user; the default connection stays agent. The success cases of
+credential.rotate, history.backups.purge, history.trail.record, history.visit.import (a History.sqlite visit log under
+`$CASE_ROOT` first), history.visit.record, history.visit.title and history.restore (record a visit, remove it, restore the
+removal's restore_id) lose their gaps. Acceptance: the 7 cases pass; a wrong proof leaves the connection agent (selftest).
+Test: VM, the 7 cases green twice; `gen_daemon_ops.py --check`.
+
+**238 Driver loopback pairing.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `misc/_tuning.json`.
+The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairing.open` step connects as an unpaired peer
+(`server/websocket_listener.rs` begin_pairing) and waits until the facet lists the pairing request; the
+pairing_request.resolve success case rejects it by a `$step:` reference. Test: VM, the case green twice, no pairing left.
+
+**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`. driver_app.py runs a
+`requires: chromium` case's resource.call steps on the app's own daemon, whose browser host is the cmux-browser provider,
+in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 9 engine success
+cases (browser.activate/back/forward/reload/navigate, browser.input.key/text/mouse/wheel) lose their gaps; mouse and wheel
+also need a presented frame token from a stream step (204). Test: fleet, the 9 cases green twice.
+
+**240 Driver: errorDetails, mock agent, chief connections.** Files: `driver_daemon.py`, `mock_chief.py`,
+`chief/_tuning.json`. (1) A resource.call step's `expect.errorDetails` is checked with
+`case_checks.error_details_mismatch` against the typed error's `details` (the SDK `ResourceError.details`); a
+mismatch fails the step with the pointer. No driver on the branch checks it before this task. (2) A case with
+`fixture.agent: mock` runs `mock_chief.MockAgent(<case run dir>)`: `start()` before the daemon (its environment
+joins the case env: `CMUX_TUI_CHIEF_TOOLS_SOCKET`), `ready(command)` once the daemon answers (the mock
+conversation, a v1 `conversation-create`), `close()` at teardown, inside the I6 proof. (3) A step with
+`connection: agent` runs on a second connection bound to the mock conversation's agent participant
+(`conversation-agent-token`, `conversation-bind`), so conversation.draft's success case loses its gap. (4) With
+237's `connection: user` (the verified-app actor), agent.message.unsend's success takes back the fixture message,
+and agent.message.release's success approves a held delivery made by a `cmux agent message send` that the
+fixture terminal runs into another workspace (a terminal actor, cross_workspace hold). Acceptance: the 48 chief
+cases green twice with no Skip line left for the chief family; a wrong errorDetails value fails its case
+(negative control). Test: VM, the chief family twice; `gen_daemon_ops.py --check`.
+
+**241 Typed refusals the chief family found.** agent.report of an unknown terminal answers operation.failed with
+`operation: resource.runtime` and the reason `unknown terminal <id>` (an anyhow context, agent_reports.rs), while
+agent.message.send answers `resource.not_found {scope: terminal, id}` for the same id. room.create with an empty
+name answers validation.invalid with only a prose reason, and room.delete of the default room operation.failed
+`resource.runtime` with a prose reason. Change: agent.report answers resource.not_found {scope: terminal, id} (the
+catalog gains the code); room.create's refusal names `field: name`; room.delete's names `operation: room.delete`
+and a reason token (`default_room`). chief/_tuning.json then asserts those keys. Test: the cmux-tui-core tests of
+the three handlers; VM, the three error cases.
+
+**242 normalize.py snapshot-v1 keywords.** `normalize.py --lint-schema --schema schemas/oracle/snapshot-v1.schema.json`
+refuses x-oracle-decimal, x-oracle-open-keys, x-oracle-id-unpatterned and the list form of x-oracle-id-kind, which
+snapshot-v1 uses, so every daemon case fails at canonicalization. Change: implement them (the schema's $comment
+says what each means). Test: `normalize.py --lint-schema` clean on snapshot-v1; `normalize.py --selftest`.
+
+**243 Driver builds fixture.repo.** Files: `driver_daemon.py`, `hermetic_env.py`, `oracle.py`, `gen_daemon_ops.py`,
+`git/_tuning.json`. Before the first step of a case with `fixture.repo`, driver_daemon.py runs `make_repo.build_for_case`
+for `tests/oracle/fixtures/git/<repo>.json` under the case root, with HOME the case's own folder (git_ops/worktree.rs writes
+`~/.cmux/worktrees`), and expands `$CASE_ROOT` in step params. The daemon product then offers `git_repo` (oracle.py
+PRODUCTS) and REPO_GAP goes away, so the 8 git operations are covered. Test: VM, the 18 git family cases green twice;
+`gen_daemon_ops.py --check`.
+
+**244 A case folder the project store takes.** Files: `hermetic_env.py`, `make_repo.py`, `git/_tuning.json`. Every case
+root is under /tmp and state/projects.rs refuses every path under /tmp, /var/folders and the home folder, so project.add's
+success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
+hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
+folder left after the run.
+
+**245 Case daemon with installed first-party apps.** Files: `hermetic_env.py`, `driver_daemon.py`,
+`workspace/_tuning.json`. The case daemon finds first-party packages in the app bundle, else in `apps/first-party` beside
+its binary (first_party_dir.rs resolve), and the oracle build has neither, so no app is installed and
+workspace.ensure_app's success cannot run. Stage each `first-party-apps/<name>` package (its manifest, `dist/`, `assets/`
+and `catalog/`, as sync-app-runtime.sh copies them) under the case root and start the daemon with
+`CMUX_APPS_FIRST_PARTY_DIR` naming that folder (the oracle profile has debug assertions, so a standalone daemon takes it);
+the default set then installs cmux/notes and workspace.ensure_app's success loses its gap. Test: VM, the two
+workspace.ensure_app cases green twice; no staged folder left after the run.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

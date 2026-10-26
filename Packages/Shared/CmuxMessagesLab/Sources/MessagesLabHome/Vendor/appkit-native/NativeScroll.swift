@@ -57,18 +57,18 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         contentView = clip
         documentView = document
         verticalScroller = SequenceScroller()
-        let nc = NotificationCenter.default
         // a block observer on queue: .main (inline for the clip's post on main), not a selector:
         // a selector into this main-actor view trapped on a post off main . Tokens kept and removed.
+        // cmux: MainQueueObservation (main-actor handlers, each removed when it goes); the live-scroll pair moves
+        // from queue nil (the posting thread) to .main, inline for AppKit's posts on main.
         observers = [
-            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] n in self?.clipMoved(n) },
-            nc.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(true) },
-            nc.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: self, queue: nil) { [weak self] _ in self?.setLive(false) },
+            MainQueueObservation(NSView.boundsDidChangeNotification, object: clip) { [weak self] _ in self?.clipMoved() },
+            MainQueueObservation(NSScrollView.willStartLiveScrollNotification, object: self) { [weak self] _ in self?.setLive(true) },
+            MainQueueObservation(NSScrollView.didEndLiveScrollNotification, object: self) { [weak self] _ in self?.setLive(false) },
         ]
     }
     required init?(coder: NSCoder) { fatalError() }
-    private var observers: [NSObjectProtocol] = []
-    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+    private var observers: [MainQueueObservation] = []
 
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
@@ -128,7 +128,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
 
     // MARK: Clip view -> model
 
-    private func clipMoved(_ n: Notification) {  // no selector
+    private func clipMoved() {  // no selector (cmux: no notification parameter)
         if PacingLog.shared.isOn { logClip() }
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
@@ -417,7 +417,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The next page in the direction of the move gets its row bitmaps off main now: the rows a
     /// following click (or a scroll) shows first are ready when it comes.
     private func prerenderPage(beyond dir: Int) {
-        guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
+        guard let r = collection as? RowRecycler else { return } // cmux: no RowBitmaps.prerenderEnabled (p10-stability-041)
         let b = r.bounds, h = b.height
         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
         let n = r.layout.model.count
@@ -601,7 +601,7 @@ final class SequenceScroller: NSScroller {
     /// Pointer in the scroller strip while the thumb shows (wide thumb and track).
     private(set) var expanded = false
     private var pointerInside = false
-    private var hideTimer: Timer?, showTimer: Timer?
+    private var hideTimer: MainRunLoopTimer?, showTimer: MainRunLoopTimer?  // cmux: main-actor actions
     static let showDelay: TimeInterval = 0, fadeInTime: TimeInterval = 0.24
     /// Our own delay from a main-thread timer firing to the first changed frame on screen (the
     /// timer's run-loop turn, the commit, one render frame): 2 frames at 120 Hz, measured on the
@@ -625,7 +625,7 @@ final class SequenceScroller: NSScroller {
     static let dragReleaseHold: TimeInterval = 0.53
     /// Legacy scrollers (the system setting): always shown, never faded.
     var legacy: Bool { NSScroller.preferredScrollerStyle == .legacy }
-    private var styleObserver: NSObjectProtocol?
+    private var styleObserver: MainQueueObservation?  // cmux
     private var wheelMonitor: Any?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -639,7 +639,7 @@ final class SequenceScroller: NSScroller {
             }
         }
         if styleObserver == nil {
-            styleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            styleObserver = MainQueueObservation(NSScroller.preferredScrollerStyleDidChangeNotification, object: nil) { [weak self] _ in
                 self?.applyStyle()
             }
         }
@@ -659,7 +659,7 @@ final class SequenceScroller: NSScroller {
     /// Messages widens the thumb 0.075 s after the pointer enters the strip (four lossless
     /// takes: 0.074-0.083 s from the entry to the first wide frame), less our timer-to-screen delay.
     static let expandDelay: TimeInterval = 0.075 - timerToScreen
-    private var expandTimer: Timer?
+    private var expandTimer: MainRunLoopTimer?  // cmux
     override func mouseEntered(with event: NSEvent) {
         pointerInside = true
         guard shown else { return }
@@ -668,7 +668,7 @@ final class SequenceScroller: NSScroller {
         if !legacy, alphaValue < 1, showTimer?.isValid != true { alphaValue = 1 }
         guard !expanded else { return }
         expandTimer?.invalidate()
-        expandTimer = Timer.scheduledTimer(withTimeInterval: Self.expandDelay, repeats: false) { [weak self] _ in
+        expandTimer = MainRunLoopTimer(after: Self.expandDelay) { [weak self] in
             guard let self, self.pointerInside || self.dragging, self.shown else { return }
             self.expanded = true
             self.needsDisplay = true
@@ -692,7 +692,7 @@ final class SequenceScroller: NSScroller {
             alphaValue = 0
             needsDisplay = true
             showTimer?.invalidate()
-            showTimer = Timer.scheduledTimer(withTimeInterval: Self.showDelay, repeats: false) { [weak self] _ in
+            showTimer = MainRunLoopTimer(after: Self.showDelay) { [weak self] in
                 guard let self, self.shown else { return }
                 NSAnimationContext.runAnimationGroup { c in
                     c.duration = Self.fadeInTime
@@ -741,7 +741,7 @@ final class SequenceScroller: NSScroller {
             a.isRemovedOnCompletion = false
             layer.add(a, forKey: Self.hideKey)
         }
-        hideTimer = Timer.scheduledTimer(withTimeInterval: max(0, hold) + fade, repeats: false) { [weak self] _ in
+        hideTimer = MainRunLoopTimer(after: max(0, hold) + fade) { [weak self] in
             guard let self, !self.dragging, !self.pointerInside, !self.legacy else { self?.cancelHide(); return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
             self.alphaValue = 0

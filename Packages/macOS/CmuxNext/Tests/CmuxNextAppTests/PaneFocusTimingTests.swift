@@ -139,6 +139,24 @@ struct PaneFocusTimingTests {
         #expect(ages[1] == .max, "no input event: all ones")
     }
 
+    /// A click's move takes the age of the click being dispatched (`InputDispatchContext`, the action run's input),
+    /// not `NSApp.currentEvent`: once the dispatch ends, a move (a socket `pane.focus`) has no input age.
+    @Test func theClickBeingDispatchedIsTheInputAge() throws {
+        _ = NSApplication.shared
+        let (focus, _, log) = coordinator()
+        let dispatch = InputDispatchContext()
+        focus.inputDispatch = dispatch
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
+                                                    timestamp: CACurrentMediaTime() - 0.003, windowNumber: 0, context: nil,
+                                                    eventNumber: 0, clickCount: 1, pressure: 1))
+        dispatch.dispatching(click) { focus.send(.focusPane("right", source: .mouse)) }
+        focus.send(.focusPane("left", source: .mouse))
+        let ages = log.records.filter { $0.phase == .asyncBegin }.map(\.arg0)
+        try #require(ages.count == 2)
+        #expect(ages[0] >= 3_000 && ages[0] < 1_000_000, "the click 3 ms old: \(ages[0]) µs (all ones: no input stage)")
+        #expect(ages[1] == .max, "no event being dispatched: all ones")
+    }
+
     /// A bare key the key router runs (a page that owns bare keys, KeyRouter+BareKeys) carries its own age into
     /// the move its binding makes: the router runs the binding inside its key-input scope, which the window's
     /// coordinator reads. Without that scope the begin's arg0 is all ones.

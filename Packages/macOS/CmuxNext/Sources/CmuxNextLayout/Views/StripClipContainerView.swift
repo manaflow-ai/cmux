@@ -32,7 +32,7 @@ import QuartzCore
 /// (`ScreenContentView.landStripWhereItShows()`), as Chrome targets input on committed geometry.
 final class StripClipContainerView: NSView {
     /// The layer key path the pan sets and the fling springs.
-    static let translationKeyPath = "sublayerTransform.translation.x"
+    static let translationKey = RenderSpringKey<CGFloat>.sublayerTranslationX
 
     /// A fling on the render server: one additive spring of the translation (on this layer and on
     /// ``companion``) from `displacement` to rest, started at `velocity`. Its
@@ -126,7 +126,7 @@ final class StripClipContainerView: NSView {
     func startFling(from displacement: CGFloat, velocity: CGFloat, spring: RenderSpring,
                     landed: @escaping @MainActor @Sendable () -> Void) -> Bool {
         if fling != nil { stopFling() }
-        guard let layer, displacement != 0 || velocity != 0, spring.animates(Self.translationKeyPath, in: self) else {
+        guard let layer, displacement != 0 || velocity != 0, spring.animates(Self.translationKey.path, in: self) else {
             setTranslation(0)
             return false
         }
@@ -136,12 +136,12 @@ final class StripClipContainerView: NSView {
         // Each model starts `displacement` from rest; the springs carry it back to zero.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in layers { sublayer.setValue(NSNumber(value: Double(displacement)), forKeyPath: Self.translationKeyPath) }
+        for sublayer in layers { Self.translationKey.set(displacement, on: sublayer) }
         CATransaction.commit()
         translation = 0
         translationSets += 1
         fling = Fling(displacement: displacement, velocity: velocity, begin: now(), spring: spring.parameters, serial: serial)
-        let moves = layers.map { RenderSpring.Move($0, Self.translationKeyPath, to: CGFloat(0), velocity: velocity) }
+        let moves = layers.map { RenderSpring.Move($0, Self.translationKey, to: CGFloat(0), velocity: velocity) }
         spring.animateGroup(moves, in: self) { [weak self] finished in
             guard let self, finished, self.fling?.serial == serial else { return }
             self.fling = nil
@@ -159,8 +159,8 @@ final class StripClipContainerView: NSView {
         guard fling != nil else { return (translation, 0) }
         let shown = self.shown
         fling = nil
-        if let layer { RenderSpring.stop(layer, Self.translationKeyPath) }
-        if let companion { RenderSpring.stop(companion, Self.translationKeyPath) }
+        if let layer { RenderSpring.stop(layer, Self.translationKey.path) }
+        if let companion { RenderSpring.stop(companion, Self.translationKey.path) }
         writeModel(shown.translation)
         return shown
     }
@@ -176,8 +176,8 @@ final class StripClipContainerView: NSView {
         translationSets += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.setValue(NSNumber(value: Double(value)), forKeyPath: Self.translationKeyPath)
-        companion?.setValue(NSNumber(value: Double(value)), forKeyPath: Self.translationKeyPath)
+        if let layer { Self.translationKey.set(value, on: layer) }
+        if let companion { Self.translationKey.set(value, on: companion) }
         CATransaction.commit()
         updateShowsMoved()
     }

@@ -39,8 +39,8 @@
         "method": "sidebar.item.remove_ref",
         "params": {
           "ref": {
-            "kind": "oracle",
-            "value": "oracle"
+            "kind": "app",
+            "value": "cmux/home"
           }
         },
         "idempotencyKey": "sidebar-item-remove-ref-ok.call"
@@ -53,7 +53,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "every item that shows the Home app goes (Remove from Sidebar)"
     }
   ],
   "invariants": [

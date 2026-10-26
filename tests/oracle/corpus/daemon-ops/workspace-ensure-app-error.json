@@ -44,13 +44,17 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "field": "app",
+          "reason": "app oracle/not-installed is not installed and enabled"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "a well-formed app id that is not installed and enabled here: validation.invalid, field app (state/app_workspaces.rs state_ensure_app)"
+      "note": "a well-formed app id that is not installed and enabled here (state/app_workspaces.rs state_ensure_app)"
     }
   ],
   "invariants": [

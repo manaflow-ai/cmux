@@ -6,9 +6,19 @@
 pub(super) mod machine_catalog;
 
 use super::*;
-use cmux_threads::work::{Lane, Priority, Shutdown};
+use crate::diagnostics::{LockCaller, LockCallerScope};
 use crate::event_cause::EventCause;
 use crate::request_origin::page_router_table;
+use cmux_threads::work::{Lane, Priority, Shutdown};
+
+/// The caller class the lock acquisitions of `writer`'s connection count
+/// under until this drops (`debug-daemon-locks`): the verified app is the
+/// frontend, every other connection automation. The origin gate keeps the
+/// class on the writer, so this reads an atomic and takes no lock.
+/// Scheduling telemetry only: no permission reads it.
+pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
+    LockCallerScope::enter(writer.lock_caller.get())
+}
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -40,6 +50,12 @@ pub(super) fn handle_connection_frame_at(
     // Every handler this frame reaches runs on the reader's request path
     // (`crate::request_path`): its blocking work is counted at its caller.
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // The lock acquisitions this frame's handlers make count under its
+    // connection's caller class (`debug-daemon-locks`).
+    let _lock_caller = match transport {
+        ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
+        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(writer),
+    };
     // Every frame is watched on this thread until its handler returns: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
     // named by the handler it is in. A `Command` handed to the scheduler is
@@ -276,7 +292,7 @@ pub(super) fn handle_request_with_cancellation(
         cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
     );
     let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
-    if let Command::UrlOpen { terminal_id, url } = cmd {
+    if let Command::UrlOpen(terminal_io_wire::UrlOpenParams { terminal_id, url }) = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }
     if let Command::ChiefInspect(params) = cmd {
@@ -302,7 +318,7 @@ pub(super) fn handle_request_with_cancellation(
     {
         return span.reply(|| send_request_error(writer, id, "server lifecycle is not ready"));
     }
-    if let Command::VtState { surface } = &cmd {
+    if let Command::VtState(terminal_io_wire::VtStateParams { surface }) = &cmd {
         let reply = vt_state_command_reply(mux, id.as_ref(), *surface, writer);
         return span.reply(|| {
             match reply.and_then(|text| Ok(writer.send_serialized_control(text)?)) {
@@ -356,7 +372,12 @@ pub(super) fn handle_request_with_cancellation(
 fn sized_browser_attach(mux: &Mux, cmd: &Command) -> bool {
     matches!(
         cmd,
-        Command::AttachSurface { surface: Some(surface), cols: Some(_), rows: Some(_), .. }
+        Command::AttachSurface(terminal_io_wire::AttachSurfaceParams {
+            surface: Some(surface),
+            cols: Some(_),
+            rows: Some(_),
+            ..
+        })
             if mux.surface(*surface).is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
     )
 }
@@ -376,11 +397,13 @@ fn start_sized_browser_attach(
     writer: &MessageWriter,
 ) -> bool {
     let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let reply = reply.hand_to_worker();
     let posted = mux.work.post(
         Priority::UserBlocking,
         Lane::System,
         Shutdown::ContinueOnShutdown,
         move || {
+            let reply = reply.start();
             let result =
                 handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
             reply.reply(|| {
