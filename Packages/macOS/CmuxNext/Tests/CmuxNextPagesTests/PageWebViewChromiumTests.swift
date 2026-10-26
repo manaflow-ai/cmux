@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import Foundation
@@ -291,6 +292,42 @@ extension PageWebViewChromiumTests {
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
         view.close()
+    }
+
+    // MARK: The Chromium browser ended (fallback storm)
+
+    /// Eight Chromium pages, the first in a window and the others hidden (no window), all showing
+    /// in Chromium, and the window that shows the first.
+    private func eightPages(_ hosting: FakeChromiumHosting) async throws -> (views: [PageWebView], window: NSWindow) {
+        var views: [PageWebView] = []
+        for _ in 0..<8 {
+            let view = try makeView(hosting)
+            view.chromiumClock = PageTestClock.never
+            await view.chromiumStart?.value
+            views.append(view)
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(views[0])
+        #expect(views.allSatisfy(\.showsChromium))
+        return (views, window)
+    }
+
+    private func onWebKit(_ views: [PageWebView]) -> Int {
+        views.filter { $0.engineDecision.engine == .webKit }.count
+    }
+
+    /// The browser under eight pages ends: no page reopens in WebKit in that turn, before the
+    /// helper-app supervisor could bring Chromium back. At base all eight reopened at once.
+    @Test func aBrowserEndReopensNoPageInWebKitInItsTurn() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (views, window) = try await eightPages(hosting)
+        for page in hosting.made { page.onEvent?(.ended) }
+        #expect(onWebKit(views) == 0)
+        #expect(views.allSatisfy { $0.webKitView.isHidden })
+        views.forEach { $0.close() }
+        window.close()
     }
 }
 
