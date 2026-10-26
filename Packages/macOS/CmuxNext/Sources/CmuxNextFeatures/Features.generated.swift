@@ -354,6 +354,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.
+    public static let memoryBackdropImages = Feature(
+        index: 19,
+        name: "memoryBackdropImages",
+        owner: "PL-memory",
+        description: "Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The browser's favicon caches join the memory coordinator: each profile keeps fewer icons as the memory limit falls and none at critical memory pressure, so an icon dropped then is fetched again the next time a page asks for it.
     public static let memoryBrowserCaches = Feature(
         index: 20,
@@ -1031,6 +1048,7 @@ nonisolated extension Feature {
         .ipcMethodLatencyFieldData,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
+        .memoryBackdropImages,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
@@ -1093,6 +1111,7 @@ nonisolated extension Feature {
         .ipcMethodLatencyFieldData,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
+        .memoryBackdropImages,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
