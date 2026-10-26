@@ -15,7 +15,7 @@ public final class AgentActivityHostView: NSView {
     /// element makes the main actor and WebKit do redundant work while the page is catching up.
     private var statePushScheduled = false
     /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme and when
-    /// the view's place settles (``paneMotionWillRest(sizeChange:)``, ``paneMotionDidSettle()``).
+    /// the view's place settles (``paneMotionWillRest(sizeChange:)``, ``paneMotionDidSettle()``, ``panePlacementDidSettle()``).
     private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
         self?.webView.evaluateJavaScript($0, completionHandler: nil)
     }
@@ -145,8 +145,8 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
     }
 }
 
-/// The page's glass follows the pane's springs at their start and landing, never per frame (`GlassBackdropFeed`).
-extension AgentActivityHostView: PaneMotionTargeting, PaneMotionSettling {
+/// The page's glass follows the pane's springs at their start and landing and its moves when they end, never per frame (`GlassBackdropFeed`).
+extension AgentActivityHostView: PaneMotionTargeting, PaneMotionSettling, PanePlacementFollowing {
     public func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         glassFeed.layoutWillRest()
         return .top
@@ -154,5 +154,9 @@ extension AgentActivityHostView: PaneMotionTargeting, PaneMotionSettling {
 
     public func paneMotionDidSettle() {
         glassFeed.landed()
+    }
+
+    public func panePlacementDidSettle() {
+        glassFeed.placementSettled()
     }
 }

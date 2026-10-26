@@ -5,29 +5,35 @@ import Testing
 import CmuxNextWakeups
 
 /// The glass feed evaluates no script per frame of a motion (chrome-parity p03-rendering-037): a page's
-/// place in its window is pushed when it is final, at a spring's start and landing, at a live window
-/// resize's end, and for a new size at rest. Frame and bounds changes of the page or its ancestors push
-/// nothing by themselves, and the feed observes no notification.
+/// place in its window is pushed when it is final, at a render-server spring's start, at a spring's landing,
+/// when a move of its pane ended, at a live window resize's end, and for a new size at rest. Frame and bounds
+/// changes of the page or its ancestors push nothing by themselves, and the feed observes no notification.
 @MainActor @Suite struct GlassBackdropFeedTests {
-    /// A feed over a shown window's page, with its own frames.
+    /// A feed over a shown window's page, with its own frames and live-resize state.
     @MainActor
     private struct Rig {
         let window: GlassFeedWindow
         let feed: GlassBackdropFeed
         let frames: FrameScheduler
         let scripts: Scripts
+        let resize: LiveResize
+        let stills: GlassBackdropImages
         private var timestamp = 0.0
 
         init(art: URL, mode: @escaping @MainActor () -> GlassLensMode = { .lens }) async throws {
             let stills = GlassBackdropImages(maxPixelSize: 64)
-            let window = try await GlassFeedWindow(art: art, store: BackdropImageStore(maxPixelSize: 64), stills: stills, own: .visible)
+            let resize = LiveResize()
+            let window = try await GlassFeedWindow(art: art, store: BackdropImageStore(maxPixelSize: 64), stills: stills, own: .visible,
+                                                   liveResize: { _ in resize.isOn })
             let frames = FrameScheduler.testing(mediaTime: { 500 }) { _ in GlassFeedLink() }
             let scripts = Scripts()
             self.window = window
             self.frames = frames
             self.scripts = scripts
+            self.resize = resize
+            self.stills = stills
             feed = GlassBackdropFeed(host: window.page, zoom: { 1 }, images: stills, mode: mode,
-                                     scheduler: { _ in frames }) { scripts.all.append($0) }
+                                     scheduler: { _ in frames }, liveResize: { _ in resize.isOn }) { scripts.all.append($0) }
         }
 
         /// One display frame.
@@ -35,9 +41,19 @@ import CmuxNextWakeups
             timestamp += 1
             frames.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
         }
+
+        /// The rect a page with nothing yet would get for the page's place now.
+        func rectNow() -> GlassBackdropRect? {
+            let probe = GlassBackdropFeed(host: window.page, zoom: { 1 }, images: stills, mode: { .lens },
+                                          scheduler: { _ in frames }) { _ in }
+            probe.refresh(newDocument: true)
+            return probe.sent?.rect
+        }
     }
 
-    @Test func aPageMovingEveryFrameIsPushedOnlyWhenItLands() async throws {
+    /// A strip camera or a pan moves the page every frame and pushes nothing; the end of the move
+    /// (`PanePlacementFollowing`) pushes its place once, without the image.
+    @Test func aPageMovingEveryFrameIsPushedOnceWhenTheMoveEnds() async throws {
         let art = try GlassBackdropTests.artFile()
         defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
         var rig = try await Rig(art: art)
@@ -46,51 +62,103 @@ import CmuxNextWakeups
         #expect(rig.scripts.all.count == 1, "the new document got no still")
 
         for step in 1...20 {
-            rig.window.page.frame.origin.x = 20 + CGFloat(step) // the page moves on a CPU spring
+            rig.window.page.frame.origin.x = 20 + CGFloat(step) // the page moves on the strip camera
             rig.window.content.frame.origin.y = CGFloat(step) // and its ancestor with it
             rig.frame()
         }
-        #expect(rig.scripts.all.count == 1, "frames of the motion evaluated \(rig.scripts.all.count - 1) scripts")
+        #expect(rig.scripts.all.count == 1, "frames of the move evaluated \(rig.scripts.all.count - 1) scripts")
 
-        rig.feed.landed()
+        rig.feed.placementSettled()
         rig.frame()
-        #expect(rig.scripts.all.count == 2, "the landing pushed no place")
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "the end of the move pushed \(rig.scripts.all.count - 1) scripts, not one")
         #expect(rig.scripts.all.last?.contains("\"rect\"") == true)
         #expect(rig.scripts.all.last?.contains("\"image\"") == false, "a move resent the image")
+        #expect(rig.feed.sent?.rect == rig.rectNow(), "the push did not carry the place the move ended at")
+    }
+
+    /// An origin-only move at rest (a column close with no animation) pushes once when the
+    /// layout says the place settled; in a pane motion or a live resize the settle waits for their end.
+    @Test func aMoveAtRestPushesOnceAndOneInMotionWaits() async throws {
+        let art = try GlassBackdropTests.artFile()
+        defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
+        var rig = try await Rig(art: art)
+        defer { rig.window.window.close() }
+        rig.feed.refresh(newDocument: true)
+
+        rig.window.page.frame.origin.x = 30
+        rig.feed.placementSettled()
+        rig.feed.placementSettled()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "a move at rest pushed \(rig.scripts.all.count - 1) scripts, not one")
+        #expect(rig.feed.sent?.rect == rig.rectNow())
+
+        rig.resize.isOn = true
+        rig.window.page.frame.origin.x = 10
+        rig.feed.placementSettled()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "a settle in a live resize pushed")
+        rig.resize.isOn = false
+
+        let placement = SpringingPlacement(frame: rig.window.content.bounds)
+        rig.window.content.addSubview(placement)
+        placement.addSubview(rig.window.page)
+        rig.feed.placementSettled()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "a settle in a pane motion pushed")
     }
 
     /// A render-server spring places the page at rest in the key's turn (`PaneHostView.placeAtRest`): the push
-    /// at its start carries the rest, and the landing sends nothing. A CPU spring pushes once at the start and
-    /// once at the landing. Either way at most two scripts per spring.
-    @Test func aSpringEvaluatesAtMostTwoScripts() async throws {
+    /// at its start carries the rest, and the landing sends nothing. A CPU spring's frame is still on its way
+    /// at its start: only the landing pushes, with the rest. Either way at most two scripts per spring.
+    @Test func aSpringPushesTheRestPlaceAtMostTwice() async throws {
         let art = try GlassBackdropTests.artFile()
         defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
         var rig = try await Rig(art: art)
         defer { rig.window.window.close() }
         rig.feed.refresh(newDocument: true)
         let page = rig.window.page
+        let placement = SpringingPlacement(frame: rig.window.content.bounds)
+        rig.window.content.addSubview(placement)
+        placement.addSubview(page)
 
         // On the render server: announced, then the frame is set once, to rest.
+        placement.onRenderServer = true
         rig.feed.layoutWillRest()
         page.frame = NSRect(x: 160, y: 20, width: 140, height: 80)
+        rig.feed.hostDidLayout()
+        rig.frame()
+        #expect(rig.scripts.all.count == 2, "the render-server spring's start pushed no place")
+        #expect(rig.feed.sent?.rect == rig.rectNow(), "the start's push is not the rest place")
         for _ in 1...10 { rig.frame() }
+        placement.restOffset = .zero
         rig.feed.landed()
         rig.frame()
         #expect(rig.scripts.all.count == 2, "a render-server spring evaluated \(rig.scripts.all.count - 1) scripts")
 
-        // On the CPU: the start's push sees the first frame's place, the landing's the rest.
-        rig.feed.layoutWillRest()
+        // On the CPU: the start pushes nothing (its frame is the first frame's), the landing pushes the rest.
+        placement.onRenderServer = false
+        placement.restOffset = CGVector(dx: -100, dy: 0)
         page.frame.origin.x = 150
+        rig.feed.layoutWillRest()
         rig.frame()
+        #expect(rig.scripts.all.count == 2, "the CPU spring's start pushed a place the page is only passing")
         for step in 1...10 {
             page.frame.origin.x = 150 - CGFloat(step * 10)
+            page.frame.size.width = 140 - CGFloat(step * 2)
+            rig.feed.hostDidLayout()
             rig.frame()
         }
+        #expect(rig.scripts.all.count == 2, "the CPU spring's frames evaluated \(rig.scripts.all.count - 2) scripts")
+        placement.restOffset = .zero
         rig.feed.landed()
         rig.frame()
-        #expect(rig.scripts.all.count == 4, "a CPU spring evaluated \(rig.scripts.all.count - 2) scripts")
+        #expect(rig.scripts.all.count == 3, "a CPU spring evaluated \(rig.scripts.all.count - 2) scripts, not one")
+        #expect(rig.feed.sent?.rect == rig.rectNow(), "the landing's push is not the rest place")
     }
 
+    /// A live window resize lays the page out and resizes the art every frame and pushes nothing; its end
+    /// pushes once.
     @Test func aWindowResizePushesOnceAtItsEnd() async throws {
         let art = try GlassBackdropTests.artFile()
         defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
@@ -98,18 +166,22 @@ import CmuxNextWakeups
         defer { rig.window.window.close() }
         rig.feed.refresh(newDocument: true)
 
+        rig.resize.isOn = true
         for step in 1...20 {
             rig.window.content.frame.size.width = 320 + CGFloat(step * 4)
+            rig.window.backdrop.setFrameSize(NSSize(width: 320 + CGFloat(step * 4), height: 200))
             rig.window.page.frame.size.width = 120 + CGFloat(step * 2)
+            rig.feed.hostDidLayout()
             rig.frame()
         }
         #expect(rig.scripts.all.count == 1, "the resize's frames evaluated \(rig.scripts.all.count - 1) scripts")
 
+        rig.resize.isOn = false
         rig.window.backdrop.viewDidEndLiveResize() // AppKit tells every view in the window
-        rig.window.page.viewDidEndLiveResize()
         rig.frame()
         rig.frame()
         #expect(rig.scripts.all.count == 2, "the resize's end pushed \(rig.scripts.all.count - 1) scripts, not one")
+        #expect(rig.feed.sent?.rect == rig.rectNow(), "the resize's end did not push the place it ended at")
     }
 
     /// The art taking a new size at rest (a programmatic window resize, full screen) moves the page's rect; in a
@@ -171,10 +243,11 @@ import CmuxNextWakeups
         rig.feed.landed()
         rig.frame()
         #expect(rig.scripts.all.count == 3, "the landing did not push the size the page rests at")
+        #expect(rig.feed.sent?.rect == rig.rectNow())
     }
 
-    /// A page with no still asks for no frame when a spring or a layout moves it; one that gets a still
-    /// and then loses it (plain glass) drops it once.
+    /// A page with no still asks for no frame when a spring, a move or a layout moves it; one that gets a
+    /// still and then loses it (plain glass) drops it once.
     @Test func aPageWithNoStillSchedulesNoFrame() async throws {
         let art = try GlassBackdropTests.artFile()
         defer { try? FileManager.default.removeItem(at: art.deletingLastPathComponent()) }
@@ -185,6 +258,7 @@ import CmuxNextWakeups
         rig.window.page.frame.size.width = 200
         rig.feed.layoutWillRest()
         rig.feed.hostDidLayout()
+        rig.feed.placementSettled()
         rig.feed.landed()
         #expect(!rig.frames.hasLink, "a page with no still asked for a frame")
         #expect(rig.scripts.all.isEmpty)
@@ -196,6 +270,7 @@ import CmuxNextWakeups
         rig.feed.refresh()
         #expect(rig.scripts.all.count == 2, "plain glass did not drop the still")
         rig.feed.landed()
+        rig.feed.placementSettled()
         rig.frame()
         #expect(rig.scripts.all.count == 2, "a page with no still was pushed again")
     }
@@ -207,7 +282,16 @@ private final class GlassChoice {
     var mode = GlassLensMode.plain
 }
 
-/// A pane host on a layout spring (`RestingPlacement`): its content is in pane motion.
+/// The live window resize a test switches (the feed's and the backdrop's `liveResize` seam).
+@MainActor
+private final class LiveResize {
+    var isOn = false
+}
+
+/// A pane host on a layout spring (`RestingPlacement`): its content is in pane motion. On the render server its
+/// frame is at rest from the spring's start (`PaneHostView.placeAtRest`).
 private final class SpringingPlacement: NSView, RestingPlacement {
     var restOffset = CGVector(dx: 8, dy: 0)
+    var onRenderServer = false
+    var framePlacedAtRest: Bool { onRenderServer || !isOnLayoutSpring }
 }

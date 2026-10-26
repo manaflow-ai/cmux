@@ -10,14 +10,20 @@ public import CmuxNextDesignTokens
 /// The owner calls ``refresh(newDocument:)`` after every theme push (with `newDocument` once a new
 /// document loaded). A change of the art pushes again on the next display frame. A change of the
 /// view's place in the window pushes when the place is final, never per frame of a motion
-/// (chrome-parity p03-rendering-037): at a layout spring's start (``layoutWillRest()``, where the
-/// render server's spring rests), at its landing (``landed()``), when the backdrop's art takes a new
-/// size at rest or at a live window resize's end (``WindowMaterialView``), and for a new size of the view
-/// at rest (``hostDidLayout()``). So a split, close or zoom spring evaluates at most two
-/// scripts per page, and a window resize one. Chromium sends a renderer its new visual properties
-/// once per synchronized commit, not per animation frame (`content/browser/renderer_host/
-/// render_widget_host_impl.cc`, `SynchronizeVisualProperties`). Under `plain` glass, or with no
-/// still to lens, it does nothing and watches nothing.
+/// (chrome-parity p03-rendering-037): at a render-server spring's start, whose frame is at rest
+/// from then (``layoutWillRest()``), at a spring's landing (``landed()``), when a move of the pane
+/// in the window ended (a strip or canvas camera, a pan, ``placementSettled()``), when the backdrop's
+/// art takes a new size at rest or at a live window resize's end (``WindowMaterialView``), and for a
+/// new size of the view at rest (``hostDidLayout()``). So a split, close or zoom spring evaluates at
+/// most two scripts per page, and a window resize one.
+///
+/// This differs from Chromium on purpose. `RenderWidgetHostImpl::SynchronizeVisualProperties`
+/// (`content/browser/renderer_host/render_widget_host_impl.cc`) sends every size or screen-rect
+/// change, one message in flight until the renderer acks it, because the renderer must draw at its
+/// new size. The lens rect is not a size the page draws at: it only aligns the refracted art, and
+/// each push is a script that restyles every lens on the page's main thread. So during a motion the
+/// lens keeps its last rect (off by the distance moved until the landing) and costs the page nothing.
+/// Under `plain` glass, or with no still to lens, it does nothing.
 ///
 /// ```swift
 /// let feed = GlassBackdropFeed(host: pageView, zoom: { pageView.pageZoom }) { pageView.evaluate($0) }
@@ -31,6 +37,7 @@ public final class GlassBackdropFeed {
     private let images: GlassBackdropImages
     private let mode: @MainActor () -> GlassLensMode
     private let scheduler: @MainActor (NSView) -> FrameScheduler
+    private let liveResize: @MainActor (NSView) -> Bool
     /// What the page has; nil for a document that got nothing yet.
     private(set) var sent: GlassBackdropPayload?
     private weak var source: WindowMaterialView?
@@ -45,16 +52,19 @@ public final class GlassBackdropFeed {
     ///   - images: Where stills are encoded and shared.
     ///   - mode: The glass mode pages draw now.
     ///   - scheduler: The frame scheduler of the host's window (``FrameScheduler/forView(_:)``; tests pass their own).
+    ///   - liveResize: Whether a view is in a live window resize (`NSView.inLiveResize`; tests pass their own).
     ///   - evaluate: Runs a script in the page's main frame.
     public init(host: NSView, zoom: @escaping @MainActor () -> Double, images: GlassBackdropImages = .shared,
                 mode: @escaping @MainActor () -> GlassLensMode = { .current },
                 scheduler: @escaping @MainActor (NSView) -> FrameScheduler = { FrameScheduler.forView($0) },
+                liveResize: @escaping @MainActor (NSView) -> Bool = { $0.inLiveResize },
                 evaluate: @escaping @MainActor (String) -> Void) {
         self.host = host
         self.zoom = zoom
         self.images = images
         self.mode = mode
         self.scheduler = scheduler
+        self.liveResize = liveResize
         self.evaluate = evaluate
     }
 
@@ -72,10 +82,11 @@ public final class GlassBackdropFeed {
         update()
     }
 
-    /// A layout spring starts or retargets: the host's owner hears it (`PaneMotionTargeting`) in the turn that
-    /// places the host at rest (`PaneHostView.placeAtRest`), so the push on the next frame carries the rest place.
+    /// A layout spring starts or retargets (`PaneMotionTargeting`). On the render server the host's frame is
+    /// set at rest in this turn (`PaneHostView.placeAtRest`), so the push on the next frame carries the rest
+    /// place. A CPU spring's frame is still on its way: its landing pushes (``landed()``).
     public func layoutWillRest() {
-        guard lenses else { return }
+        guard lenses, host?.enclosingFramePlacedAtRest == true else { return }
         setNeedsUpdate()
     }
 
@@ -83,6 +94,14 @@ public final class GlassBackdropFeed {
     /// where it rests. The push on the next frame sends nothing when the page already has this place.
     public func landed() {
         guard lenses else { return }
+        setNeedsUpdate()
+    }
+
+    /// The pane's place in the window changed and the layout's motion ended (`PanePlacementFollowing`): a
+    /// strip or canvas camera landed, a pan ended, a close moved the pane with no animation. In a pane motion
+    /// or a live window resize it waits for ``landed()`` or the resize's end.
+    public func placementSettled() {
+        guard lenses, let host, atRest(host) else { return }
         setNeedsUpdate()
     }
 
@@ -94,9 +113,12 @@ public final class GlassBackdropFeed {
         let size = host.bounds.size
         guard size != laidOutSize else { return }
         laidOutSize = size
-        guard lenses, !host.inLiveResize, !host.isInPaneMotion else { return }
+        guard lenses, atRest(host) else { return }
         setNeedsUpdate()
     }
+
+    /// Neither a live window resize nor a pane motion moves `host` now.
+    private func atRest(_ host: NSView) -> Bool { !liveResize(host) && !host.isInPaneMotion }
 
     /// Whether the page has a still whose place a geometry change moves.
     private var lenses: Bool { sent?.key != nil }
@@ -136,7 +158,7 @@ public final class GlassBackdropFeed {
                                   tint: GlassBackdropPayload.css(backdrop.tintColor)), image: dataURL)
     }
 
-    /// Nothing to lens: the page drops its still once, and nothing is watched.
+    /// Nothing to lens: the page drops its still once.
     private func clear() {
         follow(nil)
         guard let sent, sent.key != nil else { return }

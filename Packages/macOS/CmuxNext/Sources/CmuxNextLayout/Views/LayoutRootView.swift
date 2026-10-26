@@ -592,8 +592,13 @@ public final class LayoutRootView: NSView {
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
-        // The landing frame synced while still in motion: the window hears the rest now (catchers).
-        if !moving { reportInteractiveRects() }
+        guard !moving else { return }
+        // The landing frame synced while still in motion: the window hears the rest now (catchers), and content
+        // that follows its pane's place in the window hears it once (`PanePlacementFollowing`).
+        reportInteractiveRects()
+        for screen in screenViews.values where !screen.isHidden {
+            for host in screen.displayedHosts { host.settlePlacement() }
+        }
     }
 
     /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).

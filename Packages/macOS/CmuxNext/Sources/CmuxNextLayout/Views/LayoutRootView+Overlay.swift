@@ -73,6 +73,7 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var stripPlanes: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
+        let inMotion = isInLayoutMotion
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
@@ -102,7 +103,7 @@ extension LayoutRootView {
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX - shift, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
-                host.noteWindowFrame()
+                host.noteWindowFrame(inMotion: inMotion)
                 overlayHostsPlaced += 1
             }
         }

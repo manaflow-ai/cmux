@@ -247,7 +247,8 @@ struct GlassFeedWindow {
     let page: NSView
 
     /// Loads `art` into the backdrop and encodes its still in `stills`, so a push carries it at once.
-    init(art: URL, store: BackdropImageStore, stills: GlassBackdropImages, own: Visibility) async throws {
+    init(art: URL, store: BackdropImageStore, stills: GlassBackdropImages, own: Visibility,
+         liveResize: @escaping @MainActor (NSView) -> Bool = { $0.inLiveResize }) async throws {
         _ = NSApplication.shared
         let frame = NSRect(x: 0, y: 0, width: 320, height: 200)
         window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: true)
@@ -257,7 +258,7 @@ struct GlassFeedWindow {
                                          read: { _ in own }).node
         content = NSView(frame: frame)
         window.contentView = content
-        let backdrop = WindowMaterialView(frame: frame, images: store, videos: BackdropVideoPlayers())
+        let backdrop = WindowMaterialView(frame: frame, images: store, videos: BackdropVideoPlayers(), liveResize: liveResize)
         self.backdrop = backdrop
         content.addSubview(backdrop)
         var look = WindowBackdrop(backgroundOpacity: 0.5, backgroundBlur: 0)
