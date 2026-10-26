@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextInput
 
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the pointer. Scrolls follow
 /// `layout.scrollModifier` (``LayoutModel/scrollModifier``):
@@ -68,6 +69,20 @@ extension LayoutRootView: ScrollGestureOwning {
         }
     }
 
+    /// The root's intercept on the app's input tap while it is live: scrolls, magnify and button presses,
+    /// at ``InputEventTap/InterceptOrder/layout`` (after a modal overlay, a popup and a drag session).
+    /// It hears every window: the root's own divider catcher panels are panels, which a window scope leaves
+    /// out, and ``scrollOrigin(of:at:in:)`` and the button routing drop another window's event in O(1).
+    /// Chrome routes a wheel event to the widget under the pointer the same way, before the page sees it
+    /// (content/browser/renderer_host/render_widget_host_input_event_router.cc, RouteMouseWheelEvent).
+    func subscribeInput() -> InputSubscription? {
+        inputTap?.subscribe(class: [.scroll, .gesture, .button], phase: .intercept(order: .layout)) { [weak self] event in
+            guard let self else { return .pass }
+            return handleMonitored(event) == nil ? .consume : .pass
+        }
+    }
+
+    /// The tap intercept's routing of one event: nil when the layout consumed it.
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
         if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
         guard event.window === window, window != nil else { return event }
@@ -89,19 +104,19 @@ extension LayoutRootView: ScrollGestureOwning {
         }
     }
 
-    /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
+    /// The intercept's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
     /// at `location` (that window's coordinates). Apart from ``handleMonitored(_:)`` so tests can
     /// send an event from a page or catcher window, which a synthesized event cannot carry.
     /// Returns the event when it goes on, nil when the layout consumed it.
     ///
     /// The entry point for synthetic scrolls (`debug.mouse`, benches): it must stay behavior-equal to the
-    /// monitor path, which calls it for every real scroll.
+    /// intercept path, which calls it for every real scroll.
     public func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
         guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window) else { return event }
         return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
     }
 
-    /// Where a monitored scroll event came from, as the layout of one window routes it.
+    /// Where an intercepted scroll event came from, as the layout of one window routes it.
     struct ScrollOrigin: Equatable {
         /// The event's point in the layout's window.
         var locationInWindow: NSPoint

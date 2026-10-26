@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextInput
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -30,7 +31,12 @@ public final class LayoutRootView: NSView {
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
-    private var eventMonitor: Any?
+    /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
+    /// routing directly).
+    let inputTap: InputEventTap?
+    /// The scroll, magnify and button intercept (``InputEventTap/InterceptOrder/layout``), held while
+    /// the root is live (`setLive`).
+    private var inputIntercept: InputSubscription?
     /// Key-window observers of the current window (`observeKeyWindow()`).
     var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
@@ -135,11 +141,15 @@ public final class LayoutRootView: NSView {
     /// tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
+    /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
+    /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
-                rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
+                rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
+                input: InputEventTap? = nil) {
         self.model = model
+        inputTap = input
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
                                          rendersMotionOnServer: rendersMotionOnServer)
@@ -181,7 +191,7 @@ public final class LayoutRootView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observationTask?.cancel()
-            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            inputIntercept?.cancel()
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
         }
@@ -581,10 +591,8 @@ public final class LayoutRootView: NSView {
     private func setLive(_ live: Bool) {
         guard live != isLive else { return }
         isLive = live
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
-        }
+        inputIntercept?.cancel()
+        inputIntercept = nil
         driver.detach()
         if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
@@ -600,9 +608,7 @@ public final class LayoutRootView: NSView {
             }
             driver.attach(to: self)
             if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-                self?.handleMonitored(event) ?? event
-            }
+            inputIntercept = subscribeInput()
         }
         updateVisibility()
         // The layout changes it saw while parked: one overlay sync now.
