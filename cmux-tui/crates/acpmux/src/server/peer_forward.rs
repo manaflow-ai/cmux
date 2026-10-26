@@ -237,6 +237,11 @@ async fn forward_inner(
                         }
                     })?;
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        // What the client reads of a peer's chat is kept here too, so the chat
+        // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
+        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) {
+            hub.capture_peer_page(&peer.name, &id, params, &result);
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
