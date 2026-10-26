@@ -75,12 +75,20 @@ setChipHost(
 );
 
 /// The composer's staged chips and its send's wait, as Composer.tsx keeps them.
-let state: { attachments: ComposerAttachment[]; reading: number; remove(id: string): void } | undefined;
+let state:
+  | {
+      attachments: ComposerAttachment[];
+      reading: number;
+      remove(id: string): void;
+      add(chip: ComposerAttachment): void;
+    }
+  | undefined;
 function Harness({ initial, local }: { initial: ComposerAttachment[]; local: boolean }) {
   const [attachments, setAttachments] = useState(initial);
   const reading = useVideoInfo(attachments, setAttachments, local);
   const remove = (id: string) => setAttachments((current) => current.filter((chip) => chip.id !== id));
-  state = { attachments, reading, remove };
+  const add = (chip: ComposerAttachment) => setAttachments((current) => [...current, chip]);
+  state = { attachments, reading, remove, add };
   return <AttachmentStrip attachments={attachments} onRemove={remove} />;
 }
 
@@ -222,6 +230,38 @@ try {
     // Its late answer adds nothing back.
     await act(async () => calls[0]!.answer(INFO));
     expect(state?.attachments).toEqual([]);
+  });
+
+  test("a chip removed and added again in the same composer takes only its own read's answer", async () => {
+    await render([video()], true, "same-composer");
+    await act(async () => state!.remove(video().id));
+    await act(async () => state!.add(video()));
+    const [first, second] = calls.filter((call) => call.method === "video.info");
+    expect(second).toBeDefined();
+    expect(state?.reading).toBe(1);
+    // The first read answers late, with another poster: the new chip does not take it.
+    await act(async () => first!.answer({ ...INFO, durationMs: 1_000, poster: "data:image/jpeg;base64,old" }));
+    expect(state?.attachments[0]?.video).toBeUndefined();
+    expect(state?.reading).toBe(1);
+    await act(async () => second!.answer(INFO));
+    expect(state?.attachments[0]?.video).toEqual(INFO);
+    expect(state?.reading).toBe(0);
+  });
+
+  test("a chat that turns remote while its video is read ends the read: a late answer adds nothing", async () => {
+    await render([video()], true, "turns-remote");
+    expect(state?.reading).toBe(1);
+    await act(async () => {
+      root.render(<Harness key="turns-remote" initial={[]} local={false} />);
+    });
+    expect(state?.reading).toBe(0);
+    await act(async () => calls[0]!.answer(INFO));
+    expect(state?.attachments[0]?.video).toBeUndefined();
+    // Back on this Mac, the chip is read again.
+    await act(async () => {
+      root.render(<Harness key="turns-remote" initial={[]} local />);
+    });
+    expect(calls.filter((call) => call.method === "video.info").length).toBe(2);
   });
 
   test("a read that takes past the deadline lets the send go; a late answer still draws the poster", async () => {

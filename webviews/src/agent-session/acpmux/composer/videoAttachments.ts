@@ -79,58 +79,71 @@ export function useVideoReading(id: string): boolean {
   return useSyncExternalStore(subscribe, readingNow, readingNow).has(id);
 }
 
+/// A read out now: the chip object it was asked for (its answer goes on that chip only), and while
+/// the send still waits for it, its deadline.
+type Read = { chip: ComposerAttachment & { path: string }; deadline?: ReturnType<typeof setTimeout> };
+
+/// The send stops waiting for read `token`; a later answer may still go on its chip.
+function settle(reads: Map<symbol, Read>, token: symbol) {
+  const read = reads.get(token);
+  if (!read?.deadline) return;
+  clearTimeout(read.deadline);
+  read.deadline = undefined;
+  setReading(read.chip.id, token, false);
+}
+
+/// Read `token` is over: its answer, whenever it comes, goes nowhere.
+function drop(reads: Map<symbol, Read>, token: symbol) {
+  settle(reads, token);
+  reads.delete(token);
+}
+
 /// Reads the video of each staged video chip that has none yet, while `enabled` (a chat on this Mac,
 /// whose files the host may read), and puts it on the chip. Answers how many staged chips are still
-/// being read, for the send's wait (useSendWhenAttached): a removed chip, a refusal, the deadline or
-/// the composer going away ends it.
+/// being read, for the send's wait (useSendWhenAttached). A read's answer goes only on the chip object
+/// it was asked for, while that object is still staged and the chat still on this Mac: a chip removed
+/// (or removed and added again, a new object with the same id), the chat turning remote or another
+/// chat's chips, and the composer going away end it, and a refusal or the deadline ends the wait.
 export function useVideoInfo(
   attachments: readonly ComposerAttachment[],
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   enabled: boolean,
 ): number {
   /// The chips asked (each chip object once: one added again, or replaced without its video, is a
-  /// new object and is asked again), and the reads this composer has out, to end on unmount.
+  /// new object and is asked again), and the reads this composer has out.
   const asked = useRef(new WeakSet<ComposerAttachment>());
-  const out = useRef(new Map<symbol, { id: string; deadline: ReturnType<typeof setTimeout> }>());
-  const mounted = useRef(true);
+  const out = useRef(new Map<symbol, Read>());
   const shown = useSyncExternalStore(subscribe, readingNow, readingNow);
   useEffect(() => {
-    mounted.current = true;
     const reads = out.current;
     return () => {
-      mounted.current = false;
-      for (const [token, { id, deadline }] of reads) {
-        clearTimeout(deadline);
-        setReading(id, token, false);
-      }
-      reads.clear();
+      for (const token of reads.keys()) drop(reads, token);
     };
   }, []);
   useEffect(() => {
+    const reads = out.current;
+    const staged = new Set(enabled ? attachments : []);
+    for (const [token, { chip }] of reads) {
+      if (staged.has(chip)) continue;
+      drop(reads, token);
+      // Asked again if it comes back (the chat back on this Mac).
+      asked.current.delete(chip);
+    }
     if (!enabled) return;
     for (const chip of attachments) {
       if (!isVideoAttachment(chip) || chip.video || asked.current.has(chip)) continue;
       asked.current.add(chip);
-      const { id, path } = chip;
-      const token = Symbol(id);
-      const end = () => {
-        const read = out.current.get(token);
-        if (read) clearTimeout(read.deadline);
-        out.current.delete(token);
-        setReading(id, token, false);
-      };
-      setReading(id, token, true);
+      const token = Symbol(chip.id);
+      setReading(chip.id, token, true);
       // The send waits no longer than this; a late answer still draws the poster.
-      out.current.set(token, { id, deadline: setTimeout(end, VIDEO_INFO_DEADLINE_MS) });
-      void callChipHost("video.info", { src: path }).then((answer) => {
-        end();
+      reads.set(token, { chip, deadline: setTimeout(() => settle(reads, token), VIDEO_INFO_DEADLINE_MS) });
+      void callChipHost("video.info", { src: chip.path }).then((answer) => {
+        if (!reads.has(token)) return;
+        drop(reads, token);
         const video = parseVideoInfo(answer);
-        // An answer after its deadline still draws the poster, unless the composer went away.
-        if (!video || !mounted.current) return;
+        if (!video) return;
         setAttachments((current) =>
-          current.some((staged) => staged.id === id && staged.path === path && !staged.video)
-            ? current.map((staged) => (staged.id === id && staged.path === path ? { ...staged, video } : staged))
-            : current,
+          current.includes(chip) ? current.map((staged) => (staged === chip ? { ...staged, video } : staged)) : current,
         );
       });
     }
