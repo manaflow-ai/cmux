@@ -186,6 +186,23 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// [`private_state_rw`] for a state file that must already exist: it is never
+/// created (an upload's partial file, which a finish or a cancel may have just
+/// taken away).
+#[cfg(unix)]
+pub(crate) fn private_state_existing_rw(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
 /// Open or create an owner-only regular state file for append without
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
@@ -307,6 +324,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_existing_rw(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_existing_rw(path)?)
 }
 
 #[cfg(windows)]

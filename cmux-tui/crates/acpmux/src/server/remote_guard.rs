@@ -61,7 +61,8 @@
 //!   does not. The app sends it over the unix socket after the person's
 //!   gesture, but a LocalApp page could send it itself with no gesture: that
 //!   is accepted, since the page can already prompt the agent, and it writes
-//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//!   owner-only into a fresh folder under `uploads`, only while the disk
+//!   keeps room (`hub/file_uploads.rs`).
 //! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
 //!   daemon's chats and their workflows' args.
 //! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`

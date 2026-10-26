@@ -198,11 +198,20 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
 /// Open or create a state file for read/write without following a reparse
 /// point, narrowing a wider DACL before it can be used as daemon.lock.
 pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
+    open_rw_as(path, OPEN_ALWAYS)
+}
+
+/// [`open_rw`] for a state file that must already exist: it is never created.
+pub(crate) fn open_existing_rw(path: &Path) -> io::Result<File> {
+    open_rw_as(path, OPEN_EXISTING)
+}
+
+fn open_rw_as(path: &Path, disposition: u32) -> io::Result<File> {
     use std::os::windows::fs::MetadataExt;
 
     let file = open_owner_only(
         path,
-        OPEN_ALWAYS,
+        disposition,
         GENERIC_READ | GENERIC_WRITE | 0x80 | WRITE_SECURITY_ACCESS,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     )?;

@@ -168,9 +168,10 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     row
 }
 
-/// Free and total bytes of the disk that holds `path`.
+/// Free and total bytes of the disk that holds `path` (also the room an upload checks for,
+/// `hub/file_uploads.rs`).
 #[cfg(unix)]
-fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -179,11 +180,11 @@ fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
         return None;
     }
     let unit = s.f_frsize as u64;
-    Some((s.f_bavail as u64 * unit, s.f_blocks as u64 * unit))
+    Some(((s.f_bavail as u64).saturating_mul(unit), (s.f_blocks as u64).saturating_mul(unit)))
 }
 
 #[cfg(not(unix))]
-fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
     None
 }
 
