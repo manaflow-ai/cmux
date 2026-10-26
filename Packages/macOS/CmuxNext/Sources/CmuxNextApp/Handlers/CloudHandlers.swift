@@ -78,6 +78,8 @@ enum CloudHandlers {
     /// Runs Cloud work off the action; a thrown error becomes a sheet.
     static func run(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
+        // task-owner: the action's Cloud work, ended by its answer or its failure sheet
+        // main-hop-allow: the person's Cloud action rest (userBlocking, p06 rule 2): `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         Task {
             do { try await work() } catch CloudMachineCreateFlow.Failure.declined {
                 // The person said no in the confirmation: nothing to report.
@@ -94,6 +96,8 @@ enum CloudHandlers {
     static func runTracked(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
         let interactive = !context.services.registry.isCapturingRefusal
+        // task-owner: the action run; a capturing caller awaits it through the registry
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         let task: ActionWork = Task { @MainActor in
             do {
                 try await work()
@@ -124,19 +128,28 @@ enum CloudHandlers {
             return
         }
         show(workspaceID, context)
+        // The pane mounts once the window shows the workspace: a service observation of the mount
+        // selects the tab then, 10 s at most. The observation and its limit hold each other until one ends.
         let services = context.services
-        Task { @MainActor in
-            let mounted = await Deadline(.seconds(10)).value("CloudHandlers.reveal") { await waitForPaneController(pane, services) } ?? false
-            if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
+        let limit = MainDeadline(owner: "CloudHandlers.reveal", workClass: .visible, scheduler: services.mainDeadlines)
+        var mount: ServiceObservation<Bool>?, ended = false
+        let end = { @MainActor in
+            ended = true
+            mount?.cancel()
+            mount = nil
+            limit.cancel()
         }
-    }
-
-    @MainActor
-    private static func waitForPaneController(_ pane: PaneModel, _ services: AppServices) async -> Bool {
-        for await ready in ObservationStream({ services.paneController(for: pane) != nil }) where ready {
-            return true
+        let observation = ServiceObservation(.visible, owner: "CloudHandlers.reveal", on: services.mainWork) {
+            services.paneController(for: pane) != nil
+        } apply: { mounted in
+            guard mounted, let controller = services.paneController(for: pane) else { return }
+            end()
+            select(controller)
         }
-        return false
+        // `show` mounted it in this turn: the first apply already selected it.
+        if ended { return observation.cancel() }
+        mount = observation
+        limit.schedule(after: .seconds(10)) { end() }
     }
 
     /// The machine's first workspace, created (with a terminal) when it has none.
@@ -169,21 +182,19 @@ enum CloudHandlers {
         return anchor
     }
 
+    /// The workspace's anchor once the store lists the workspace: a keyed store wait (only that
+    /// workspace's insert reads it again), 10 s at most. The tree lists a workspace with its screens
+    /// and panes in one apply.
     @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        let mirrored = await Deadline(.seconds(10)).value("CloudHandlers.mirroredAnchor") { await waitForAnchor(id: id, on: session) } ?? false
-        return mirrored ? anchor(id: id, on: session) : nil
+        guard await session.daemon.store.waitForWorkspace(id: id, timeout: .seconds(10)) != nil else { return nil }
+        return anchor(id: id, on: session)
     }
 
     @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
+        guard let workspace = session.daemon.store.workspace(id: id),
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }
         return (id, key, pane)
-    }
-
-    @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
-        for await ready in ObservationStream({ anchor(id: id, on: session) != nil }) where ready { return true }
-        return false
     }
 
     /// Attaches to `session` (``CloudMachineSession/attach(origin:)``): a

@@ -49,6 +49,7 @@ extension CloudHandlers {
         let logger = context.services.cloud.logger
         let captured = context.services.registry.isCapturingWork
         // task-owner: the Cloud work itself; it runs to its end even after a `pending` answer.
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         let inner: ActionResultWork = Task { @MainActor in
             do {
                 return .success(try await work())
@@ -63,6 +64,7 @@ extension CloudHandlers {
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
         // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
+        // main-hop-allow: the capturing caller's answer (an ActionResultWork): one Deadline race, resumed once on main to return
         let task: ActionResultWork = Task { @MainActor in
             await firstAnswer(inner, within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
         }
@@ -89,10 +91,11 @@ extension CloudHandlers {
                                      wait: Duration = createdMachineWait) {
         let registry = context.services.registry
         guard registry.isCapturingWork else { return }
-        let creations = context.services.cloud.creations
+        let creations = context.services.cloud.creations, services = context.services
         // task-owner: the action run; it ends when the create settles or the wait ends.
+        // main-hop-allow: the capturing caller's answer (an ActionResultWork): it reads the main-actor creation and session once settled
         let task: ActionResultWork = Task { @MainActor in
-            let settled: CreatedMachine? = await Deadline(wait).value("CloudHandlers.createdMachine") { await settledCreation(creation, in: creations) } ?? nil
+            let settled = await settledCreation(creation, in: creations, within: wait, services: services)
             switch settled {
             case .created?, .pending?, nil:
                 guard let session = creation.session else {
@@ -113,10 +116,30 @@ extension CloudHandlers {
     /// answers `pending`: inside `action.run`'s 40 s result deadline.
     static let createdMachineWait: Duration = .seconds(30)
 
-    /// The creation's first state that is not `pending`.
-    private static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
-        for await state in ObservationStream({ CreatedMachine(creation, in: creations) }) where state != .pending { return state }
-        return nil
+    /// The creation's first state that is not `pending`, or nil after `limit`: a service observation of
+    /// the creation (an agent's or the CLI's wait, so automation class) raced against a main deadline.
+    private static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations, within limit: Duration,
+                                        services: AppServices) async -> CreatedMachine? {
+        let now = CreatedMachine(creation, in: creations)
+        guard now == .pending else { return now }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<CreatedMachine?, Never>) in
+            let deadline = MainDeadline(owner: "CloudHandlers.createdMachine", workClass: .automation, scheduler: services.mainDeadlines)
+            var watch: ServiceObservation<CreatedMachine>?
+            // The first of the settle and the limit resumes; the observation and the deadline hold each other until then.
+            let finish = { @MainActor (state: CreatedMachine?) in
+                guard let current = watch else { return }
+                watch = nil
+                current.cancel()
+                deadline.cancel()
+                continuation.resume(returning: state)
+            }
+            watch = ServiceObservation(.automation, owner: "CloudHandlers.createdMachine", on: services.mainWork) {
+                CreatedMachine(creation, in: creations)
+            } apply: { state in
+                if state != .pending { finish(state) }
+            }
+            deadline.schedule(after: limit) { finish(nil) }
+        }
     }
 
     static func createdMachineFields(_ session: CloudMachineSession, workspaceID: String?) -> [String: ActionResultValue] {
