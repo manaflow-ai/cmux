@@ -42,9 +42,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A Chromium pane page is its own Cocoa view inside the pane (the fork attaches each tab's RenderWidgetHostViewCocoa, Chrome's model), so its page window never orders in; a tab the fork does not attach keeps layer hosting or its page window.
+    public static let cefAttachedPages = Feature(
+        index: 2,
+        name: "cefAttachedPages",
+        owner: "PL-cef-layer",
+        description: "A Chromium pane page is its own Cocoa view inside the pane (the fork attaches each tab's RenderWidgetHostViewCocoa, Chrome's model), so its page window never orders in; a tab the fork does not attach keeps layer hosting or its page window.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["tab-switch", "cef-resize-sync"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.
     public static let cefLayerHosting = Feature(
-        index: 2,
+        index: 3,
         name: "cefLayerHosting",
         owner: "PL-cef-layer",
         description: "A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.",
@@ -61,7 +78,7 @@ nonisolated extension Feature {
 
     /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
-        index: 3,
+        index: 4,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
         description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
@@ -78,7 +95,7 @@ nonisolated extension Feature {
 
     /// The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.
     public static let cefPumpInputPolicy = Feature(
-        index: 4,
+        index: 5,
         name: "cefPumpInputPolicy",
         owner: "PL-cef-layer",
         description: "The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.",
@@ -95,7 +112,7 @@ nonisolated extension Feature {
 
     /// Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.
     public static let cefTimerSlack = Feature(
-        index: 5,
+        index: 6,
         name: "cefTimerSlack",
         owner: "PL-cef-layer",
         description: "Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.",
@@ -112,7 +129,7 @@ nonisolated extension Feature {
 
     /// In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.
     public static let chromiumHostWidgets = Feature(
-        index: 6,
+        index: 7,
         name: "chromiumHostWidgets",
         owner: "PL-cef-layer",
         description: "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
@@ -129,7 +146,7 @@ nonisolated extension Feature {
 
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
-        index: 7,
+        index: 8,
         name: "chromiumSpareAfterFirstTab",
         owner: "PL-webui",
         description: "Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.",
@@ -146,7 +163,7 @@ nonisolated extension Feature {
 
     /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
     public static let cmuxPageRendererSharing = Feature(
-        index: 8,
+        index: 9,
         name: "cmuxPageRendererSharing",
         owner: "PL-memory",
         description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
@@ -163,7 +180,7 @@ nonisolated extension Feature {
 
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 9,
+        index: 10,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -180,7 +197,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 10,
+        index: 11,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -197,7 +214,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 11,
+        index: 12,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -214,7 +231,7 @@ nonisolated extension Feature {
 
     /// After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.
     public static let directionalPrewarm = Feature(
-        index: 12,
+        index: 13,
         name: "directionalPrewarm",
         owner: "PL-switch",
         description: "After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.",
@@ -231,7 +248,7 @@ nonisolated extension Feature {
 
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 13,
+        index: 14,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -248,7 +265,7 @@ nonisolated extension Feature {
 
     /// Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.
     public static let frameRateClasses = Feature(
-        index: 14,
+        index: 15,
         name: "frameRateClasses",
         owner: "PL-motion-core",
         description: "Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.",
@@ -265,7 +282,7 @@ nonisolated extension Feature {
 
     /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
     public static let frozenGrowthDiscard = Feature(
-        index: 15,
+        index: 16,
         name: "frozenGrowthDiscard",
         owner: "PL-memory",
         description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
@@ -1098,6 +1115,7 @@ nonisolated extension Feature {
     public static let registered: [Feature] = [
         .agentPageRendererSharing,
         .automationBurstSnap,
+        .cefAttachedPages,
         .cefLayerHosting,
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
@@ -1165,6 +1183,7 @@ nonisolated extension Feature {
     public static let registered: [Feature] = [
         .agentPageRendererSharing,
         .automationBurstSnap,
+        .cefAttachedPages,
         .cefLayerHosting,
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
