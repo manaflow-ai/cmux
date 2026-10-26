@@ -58,6 +58,9 @@ static void d_free_definite_size(malloc_zone_t* z, void* p, size_t size) {
 }
 static void d_batch_free(malloc_zone_t* z, void** p, unsigned n) { g_default_zone->batch_free(g_default_zone, p, n); }
 static void d_try_free_default(malloc_zone_t* z, void* p) { g_default_zone->try_free_default(g_default_zone, p); }
+// The release sink's malloc_zone_pressure_relief(NULL, 0) visits every registered zone, the system
+// zone this one forwards to included: forwarding here would relieve it twice. PartitionAlloc's zone
+// sets no pressure_relief, so that call does not reach its heap.
 static size_t d_pressure_relief(malloc_zone_t* z, size_t goal) { return 0; }
 
 static kern_return_t i_enumerator(task_t task, void* context, unsigned type_mask, vm_address_t zone_address,
