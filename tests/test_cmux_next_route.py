@@ -229,6 +229,14 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])
         self.assertEqual(result["swift_priority_filter"], r"^(CloudStartSessionAsksTests)\.")
 
+    def test_nested_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextPopups/WebAuth/WebAuthCallback.swift"])
+        self.assertEqual(result["swift_priority_filter"], r"^(WebAuthCallbackTests)\.")
+
+    def test_isolated_suites_are_left_to_their_dedicated_steps(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], "")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
