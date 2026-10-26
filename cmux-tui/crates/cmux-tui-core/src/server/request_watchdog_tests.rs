@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::super::terminal_io_wire::WaitForParams;
 use super::super::{
     BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, MessageWriter,
     QueuedSink, Request, handle_connection_frame,
@@ -122,7 +123,11 @@ fn request_watchdog_records_nothing_for_a_short_run() {
 #[test]
 fn request_watchdog_does_not_count_a_wait_by_design() {
     let watchdog = RequestWatchdog::default();
-    let wait = Command::WaitFor { surface: 1, pattern: "never".to_string(), timeout_ms: 1_000 };
+    let wait = Command::WaitFor(WaitForParams {
+        surface: 1,
+        pattern: "never".to_string(),
+        timeout_ms: 1_000,
+    });
     assert!(watchdog.begin_command(1, &wait).is_none(), "a wait-for is not watched");
     let scope = watchdog.begin(2, CREATE).expect("a free slot");
     scope.expect_blocking();
@@ -285,7 +290,8 @@ fn request_watchdog_ring_keeps_the_newest_128() {
 
 #[test]
 fn request_watchdog_names_every_method() {
-    let wait = Command::WaitFor { surface: 1, pattern: "x".to_string(), timeout_ms: 1 };
+    let wait =
+        Command::WaitFor(WaitForParams { surface: 1, pattern: "x".to_string(), timeout_ms: 1 });
     assert_eq!(WatchedMethod::command(&wait).name(), "wait-for");
     assert_eq!(WatchedMethod::command(&Command::ReloadConfig).name(), "reload-config");
     for operation in ResourceOperation::ALL {
@@ -405,11 +411,11 @@ fn request_watchdog_leaves_a_long_wait_for_out() {
     let conn = connect(&mux);
     let mut wait = Some(Request {
         id: Some(json!(1)),
-        cmd: Command::WaitFor {
+        cmd: Command::WaitFor(WaitForParams {
             surface: surface.id,
             pattern: "never-matches".to_string(),
             timeout_ms: 300,
-        },
+        }),
     });
     assert_eq!(
         conn.scheduler.dispatch(mux.clone(), conn.client, &mut wait, 0, conn.writer.clone()),
