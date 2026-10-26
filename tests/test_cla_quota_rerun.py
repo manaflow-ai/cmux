@@ -30,7 +30,7 @@ GUARD = "CLA policy guard"
 def run(run_id, head, *, number=1, attempt=1, name="CLA", updated="2026-10-26T04:00:00Z", conclusion="failure"):
     return {"id": run_id, "name": name, "head_sha": head, "run_attempt": attempt, "updated_at": updated,
             "status": "completed", "conclusion": conclusion, "number_hint": number,
-            "pull_requests": [{"number": number, "head": {"sha": head}}]}
+            "pull_requests": [{"number": number, "head": {"sha": head}, "base": {"ref": "main"}}]}
 
 
 def pull(number, head, base="main"):
@@ -38,8 +38,11 @@ def pull(number, head, base="main"):
 
 
 class FakeGitHub:
-    def __init__(self, assistant, guard, logs, *, pulls=None, finished=None, remaining=9000):
-        self.assistant, self.guard, self.logs, self.remaining = assistant, guard, logs, remaining
+    def __init__(self, assistant, guard, logs, *, pulls=None, finished=None, remaining=9000, reset=None):
+        # `remaining` may be a list: one value per rate_limit read, the last one repeating.
+        self.assistant, self.guard, self.logs = assistant, guard, logs
+        self.remaining = remaining if isinstance(remaining, list) else [remaining]
+        self.reset = reset or NOW + dt.timedelta(hours=1)
         # By default every run's head is an open pull request into main.
         self.pulls = pulls if pulls is not None else [pull(r["number_hint"], r["head_sha"]) for r in assistant + guard]
         self.finished = finished or {}
@@ -49,12 +52,14 @@ class FakeGitHub:
     def request(self, method, path, raw=False):
         self.calls.append((method, path))
         if path == "/rate_limit":
-            return {"resources": {"core": {"limit": 15000, "remaining": self.remaining, "reset": 1793000000}}}
+            left = self.remaining.pop(0) if len(self.remaining) > 1 else self.remaining[0]
+            return {"resources": {"core": {"limit": 15000, "remaining": left, "reset": int(self.reset.timestamp())}}}
         if method == "POST":
             self.posts.append(path)
             return {}
         if path.startswith("/repos/o/r/pulls?state=open"):
-            return self.pulls if "page=1" in path else []
+            base = path.split("base=")[1].split("&")[0]
+            return [p for p in self.pulls if p["base"]["ref"] == base] if path.endswith("page=1") else []
         if "/workflows/cla.yml/runs" in path:
             return {"workflow_runs": self.assistant}
         if "/workflows/cla-policy-guard.yml/runs" in path:
@@ -74,13 +79,46 @@ def rerun_path(run_id):
 
 
 class Tests(unittest.TestCase):
-    def sweep(self, fake, dry=False, now=NOW):
+    def sweep(self, fake, dry=False, now=NOW, slept=None):
         env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "app", "RATE_TOKEN": "workflow"}
         out = io.StringIO()
+        slept = [] if slept is None else slept
         with mock.patch.object(rerun, "GitHub", lambda token, repo: fake), mock.patch.dict("os.environ", env), \
                 redirect_stdout(out):
-            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now), 0)
+            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), 0)
         return out.getvalue()
+
+    def test_a_reset_within_the_window_gets_one_pass_just_after_it(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 15000],
+                          reset=NOW + dt.timedelta(minutes=6))
+        slept = []
+        self.assertIn("just after the reset", self.sweep(fake, slept=slept))
+        self.assertEqual(slept, [6 * 60 + 20])
+        self.assertEqual([c for c in fake.calls if c[1] == "/rate_limit"], [("GET", "/rate_limit")] * 2)
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_a_reset_that_leaves_the_budget_low_stops_after_one_more_read(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 0],
+                          reset=NOW + dt.timedelta(minutes=6))
+        slept = []
+        self.assertIn("a re-run would fail the same way", self.sweep(fake, slept=slept))
+        self.assertEqual(len(slept), 1)
+        self.assertEqual(fake.calls, [("GET", "/rate_limit")] * 2)
+
+    def test_a_far_reset_is_not_waited_for(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=40))
+        slept = []
+        self.sweep(fake, slept=slept)
+        self.assertEqual(slept, [])
+        self.assertEqual(fake.calls, [("GET", "/rate_limit")])
+
+    def test_re_runs_are_capped_to_keep_the_floor(self):
+        heads = [f"{i:040x}" for i in range(1, 6)]
+        floor = int(15000 * rerun.FLOOR_SHARE)
+        fake = FakeGitHub([run(i, head, number=i) for i, head in enumerate(heads, 1)], [],
+                          {i: LIMITED_LOG for i in range(1, 6)}, remaining=floor + 2 * rerun.RERUN_COST)
+        self.sweep(fake)
+        self.assertEqual(len(fake.posts), 2)
 
     def test_a_spent_budget_stops_after_the_free_read(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=100)
@@ -103,6 +141,30 @@ class Tests(unittest.TestCase):
                                  pull(13, heads[2], "release/1")])
         self.sweep(fake)
         self.assertEqual(sorted(fake.posts), [rerun_path(1), rerun_path(2)])
+
+    def test_a_run_whose_own_pull_request_is_into_another_base_is_left_alone(self):
+        head = "a" * 40
+        other = run(1, head, number=13)
+        other["pull_requests"][0]["base"]["ref"] = "release/1"
+        fake = FakeGitHub([other], [], {1: LIMITED_LOG}, pulls=[pull(12, head)])
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
+    def test_pull_requests_are_read_per_base(self):
+        fake = FakeGitHub([], [], {})
+        self.sweep(fake)
+        reads = [path for _, path in fake.calls if "/pulls?" in path]
+        self.assertEqual(reads, ["/repos/o/r/pulls?state=open&base=main&per_page=100&page=1",
+                                 "/repos/o/r/pulls?state=open&base=feat-cmux-next&per_page=100&page=1"])
+
+    def test_a_secondary_rate_limit_elsewhere_is_not_evidence_for_a_guard(self):
+        guard_head, other_head = "b" * 40, "c" * 40
+        fake = FakeGitHub([run(5, other_head, number=9, updated="2026-10-26T04:02:00Z")],
+                          [run(2, guard_head, name=GUARD)], {2: GUARD_LOG, 5: "You have exceeded a secondary rate limit"},
+                          pulls=[pull(1, guard_head), pull(9, other_head)],
+                          finished={2: "2026-10-26T04:00:00Z", 5: "2026-10-26T04:02:00Z"})
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [rerun_path(5)])
 
     def test_a_fork_pull_request_is_matched_by_its_head(self):
         head = "f" * 40
