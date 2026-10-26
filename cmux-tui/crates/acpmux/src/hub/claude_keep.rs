@@ -158,11 +158,21 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
     // Claude may still append while this runs. The file stays open across the
     // rename, so a line written to it after the last read is still read after
     // the rename and joins the kept transcript instead of being lost with it.
+    // This narrows the window, not closes it: a line caught here can land after
+    // one Claude writes to the merged file in the same instant.
     let mut from = File::open(&live)?;
     append_rest(&mut from, &mut whole)?;
     drop(whole);
     replace(&kept, &live)?;
-    let mut whole = OpenOptions::new().append(true).open(&kept)?;
+    // Through Claude's name: the kept file itself when linked, and the copy
+    // Claude goes on writing (taken back at the next keep) on another volume.
+    // Claude's name deleted again meanwhile: the kept file, which a start puts back.
+    let mut whole = match OpenOptions::new().append(true).open(&live) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            OpenOptions::new().append(true).open(&kept)?
+        }
+        other => other?,
+    };
     append_rest(&mut from, &mut whole)
 }
 
