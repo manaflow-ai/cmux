@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -319,14 +320,13 @@ extension WindowManager {
         let machines = services.machines
         let cloud = services.cloud
         membershipObservation?.cancel()
-        membershipObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)]
-            }) {
-                self?.reconcileMembership()
-            }
+        // Windows open and close on it, hidden or not: a service observation, `visible` (it shows).
+        membershipObservation = ServiceObservation(.visible, owner: "WindowManager.membership", on: services.mainWork) { () -> [String] in
+            [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
+                + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
+                + [Self.profileTags(of: machines.local)]
+        } apply: { [weak self] _ in
+            self?.reconcileMembership()
         }
     }
 
