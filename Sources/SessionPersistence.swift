@@ -257,11 +257,6 @@ enum SessionPersistencePolicy {
     }
 }
 
-struct SessionPersistedScrollback: Equatable, Sendable {
-    var text: String?
-    var wasTruncated: Bool
-}
-
 enum SessionRestorePolicy {
     static func isRunningUnderAutomatedTests(
         environment: [String: String] = ProcessInfo.processInfo.environment
