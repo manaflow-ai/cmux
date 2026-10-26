@@ -44,7 +44,12 @@ public struct BrowserPagePrint {
         // WebKit's print view has no size of its own; without one the panel
         // previews and prints blank pages.
         operation.view?.frame = webView.bounds
+        // The job spools off main once the person clicks Print, as WebKit's own
+        // WebViewImpl::printOperationWithPrintInfo (UIProcess/mac/WebViewImpl.mm) asks.
+        operation.canSpawnSeparateThread = true
         let ended = PrintEnded(done)
+        // The sheet form returns once the sheet shows (AppKit: runModalForWindow:delegate:didRunSelector:
+        // contextInfo: is document-modal); `ended` runs when the panel ends, so no nested modal loop.
         // SAFETY: contextInfo is nil, so AppKit hands nil back to the didRun method, which never
         // reads it; the selector names that method with the signature AppKit calls.
         unsafe operation.runModal(for: window, delegate: ended, didRun: #selector(PrintEnded.printOperationDidRun(_:success:contextInfo:)),
