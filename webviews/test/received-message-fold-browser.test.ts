@@ -227,11 +227,13 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await probe(page, DETAILS);
     const details = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
-    expect(details.folded).toBe(true);
+    expect(details.folded).toBe(false);
+    expect(steps(details.heights)).toBeLessThanOrEqual(2);
     expect(details.moved).toBeLessThanOrEqual(1);
     const detailsShut = await clickAndWatch(page);
     expect(await expanded(page)).toBe("false");
-    expect(detailsShut.folded).toBe(true);
+    expect(detailsShut.folded).toBe(false);
+    expect(steps(detailsShut.heights)).toBeLessThanOrEqual(2);
     expect(detailsShut.moved).toBeLessThanOrEqual(1);
 
     await probe(page, LINE);
