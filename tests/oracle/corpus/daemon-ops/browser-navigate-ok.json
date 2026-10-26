@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "chromium"
   ],
   "platforms": [
     "linux",
@@ -71,6 +73,16 @@
       }
     },
     {
+      "id": "wait-live",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/browsers/0/status",
+        "equals": "live",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -81,7 +93,7 @@
       "args": {
         "method": "browser.navigate",
         "params": {
-          "url": "about:blank"
+          "url": "data:text/html,oracle"
         },
         "idempotencyKey": "browser-navigate-ok.call"
       },
@@ -93,7 +105,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the navigation commits and the browser's url is the data URL (offline: no network)"
     }
   ],
   "invariants": [

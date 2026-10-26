@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-browser",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-input-text-error.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,12 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "tab.create_browser",
+        "method": "browser.profile.open",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "browser-input-text-error.fx-browser"
+        "idempotencyKey": "browser-input-text-error.fx-app-browser"
       },
       "expect": {
         "outcome": "ok",
@@ -76,24 +96,24 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "browser": "$step:fx-browser#/value/browser_id"
+        "browser": "$step:fx-app-browser#/value/browser_id"
       },
       "args": {
         "method": "browser.input.text",
         "params": {
-          "text": 7
+          "text": "oracle"
         },
         "idempotencyKey": "browser-input-text-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "text breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "an app-drawn browser has no daemon CDP session: operation.failed with details.extra.code browser_rendered_by_app and the tab id, no receipt"
     }
   ],
   "invariants": [

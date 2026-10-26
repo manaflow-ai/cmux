@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "chromium"
   ],
   "platforms": [
     "linux",
@@ -71,6 +73,54 @@
       }
     },
     {
+      "id": "wait-live",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/browsers/0/status",
+        "equals": "live",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
+      "id": "navigate",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "browser": "$step:fx-browser#/value/browser_id"
+      },
+      "args": {
+        "method": "browser.navigate",
+        "params": {
+          "url": "data:text/html,oracle"
+        },
+        "idempotencyKey": "browser-forward-ok.navigate"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "back",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "browser": "$step:fx-browser#/value/browser_id"
+      },
+      "args": {
+        "method": "browser.back",
+        "params": {},
+        "idempotencyKey": "browser-forward-ok.back"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -91,7 +141,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "after one navigation and back, forward returns to the data URL"
     }
   ],
   "invariants": [
