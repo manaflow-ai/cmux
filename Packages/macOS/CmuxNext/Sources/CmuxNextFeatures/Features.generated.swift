@@ -1427,7 +1427,7 @@ nonisolated extension Feature {
 
     /// Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.
     public static let sharedGlyphMasks = Feature(
-        index: 81,
+        index: 82,
         name: "sharedGlyphMasks",
         owner: "Performance Lead",
         description: "Chrome labels that show the same text in the same font, size and scale share one glyph image from an app-wide cache capped by bytes, so equal labels draw their glyphs once.",
@@ -1444,7 +1444,7 @@ nonisolated extension Feature {
 
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
-        index: 82,
+        index: 83,
         name: "sidebarRowsNearViewport",
         owner: "a590",
         description: "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
@@ -1461,7 +1461,7 @@ nonisolated extension Feature {
 
     /// While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width, ride the moving edge clipped at the far one, and lay out once when the slide lands; off, every pane resizes on every frame.
     public static let sidebarSlideHoldsContent = Feature(
-        index: 83,
+        index: 84,
         name: "sidebarSlideHoldsContent",
         owner: "PL-motion-core",
         description: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width, ride the moving edge clipped at the far one, and lay out once when the slide lands; off, every pane resizes on every frame.",
@@ -1479,7 +1479,7 @@ nonisolated extension Feature {
 
     /// cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.
     public static let sleepWakeKeepalives = Feature(
-        index: 84,
+        index: 85,
         name: "sleepWakeKeepalives",
         owner: "Performance Lead",
         description: "cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.",
@@ -1496,7 +1496,7 @@ nonisolated extension Feature {
 
     /// A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.
     public static let stripPanResampling = Feature(
-        index: 85,
+        index: 86,
         name: "stripPanResampling",
         owner: "PL-motion-core",
         description: "A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.",
@@ -1513,7 +1513,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 86,
+        index: 87,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -1530,7 +1530,7 @@ nonisolated extension Feature {
 
     /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
     public static let terminalGPURelease = Feature(
-        index: 87,
+        index: 88,
         name: "terminalGPURelease",
         owner: "PL-memory",
         description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
@@ -1548,7 +1548,7 @@ nonisolated extension Feature {
 
     /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
     public static let terminalHolder = Feature(
-        index: 88,
+        index: 89,
         name: "terminalHolder",
         owner: "PL-holder",
         description: "New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).",
@@ -1566,7 +1566,7 @@ nonisolated extension Feature {
 
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
     public static let terminalPointerFrames = Feature(
-        index: 89,
+        index: 90,
         name: "terminalPointerFrames",
         owner: "PL-ghostty",
         description: "Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.",
@@ -1583,7 +1583,7 @@ nonisolated extension Feature {
 
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 90,
+        index: 91,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -1601,7 +1601,7 @@ nonisolated extension Feature {
 
     /// A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.
     public static let visibilityGatedHosting = Feature(
-        index: 91,
+        index: 92,
         name: "visibilityGatedHosting",
         owner: "Performance Lead",
         description: "A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.",
@@ -1618,7 +1618,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 92,
+        index: 93,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -1635,7 +1635,7 @@ nonisolated extension Feature {
 
     /// A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.
     public static let windowOcclusionFamily = Feature(
-        index: 93,
+        index: 94,
         name: "windowOcclusionFamily",
         owner: "Performance Lead",
         description: "A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.",
@@ -1653,7 +1653,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
     public static let cefHelperHost = Feature(
-        index: 94,
+        index: 95,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
         description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
@@ -1671,7 +1671,7 @@ nonisolated extension Feature {
 
     /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
     public static let cefLayerHostingEveryPage = Feature(
-        index: 95,
+        index: 96,
         name: "cefLayerHostingEveryPage",
         owner: "PL-cef-layer",
         description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
@@ -1689,7 +1689,7 @@ nonisolated extension Feature {
 
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 96,
+        index: 97,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -1712,7 +1712,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 97,
+        index: 98,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1729,7 +1729,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 98,
+        index: 99,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
