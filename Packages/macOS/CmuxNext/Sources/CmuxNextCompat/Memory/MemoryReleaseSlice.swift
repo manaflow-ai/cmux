@@ -4,7 +4,8 @@
 /// The coordinator makes one slice per call (at most 2 ms on the main thread) from an injected clock,
 /// so a consumer never decides how long it runs and a test drives time. The consumer unlinks one
 /// entry at a time and stops when ``isExpired`` turns true, returning
-/// ``MemoryReleaseProgress/more``; the coordinator calls it again on a later frame.
+/// ``MemoryReleaseProgress/more``; the coordinator calls it again on a later frame. A consumer that
+/// frees one costly item per frame returns ``MemoryReleaseProgress/yield`` after it instead.
 ///
 /// ```swift
 /// func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
@@ -54,4 +55,9 @@ public enum MemoryReleaseProgress: Hashable, Sendable {
     case done
     /// The slice ran out first; call again on a later turn.
     case more
+    /// The consumer released its one item for this frame (a surface close, a workspace teardown) and
+    /// the slice still has time: the consumers after it get the rest of the slice, and the coordinator
+    /// calls this one again on a later frame. A consumer that frees one costly item per frame returns
+    /// this, so its pace never holds back a cheaper pass ordered after it.
+    case yield
 }

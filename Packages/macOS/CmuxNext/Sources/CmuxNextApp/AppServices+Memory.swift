@@ -14,6 +14,7 @@ import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
@@ -57,6 +58,14 @@ struct AppMemoryConsumers {
         registerInternalPageDiscards()  // CmuxNextApp
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
+        registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
+    /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
+    private func registerTerminalLastFrames() {
+        guard services.features.isEnabled(.memoryTerminalLastFrames) else { return }
+        services.cache.lastFrames.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// `memoryDiscardConversations` (default off): hidden conversation tabs' laid-out transcripts go after 10 min.

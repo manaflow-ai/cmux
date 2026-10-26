@@ -139,7 +139,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
-        services.parkedWorkspaceBudget?.forgetAll(in: self)
+        services.parkedWorkspaceBudget.forgetAll(in: self)
         parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()

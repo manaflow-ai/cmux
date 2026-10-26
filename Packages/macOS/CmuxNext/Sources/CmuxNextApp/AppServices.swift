@@ -318,8 +318,9 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
-    /// Every window's parked workspaces held to the Mac's budget (`memoryDiscardParkedWorkspaces`; nil while off).
-    private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget? = makeParkedWorkspaceBudget()
+    /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
+    /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
+    private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).

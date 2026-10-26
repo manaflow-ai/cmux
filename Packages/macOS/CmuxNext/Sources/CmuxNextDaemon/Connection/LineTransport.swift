@@ -121,7 +121,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS)
         recorder?.connectionOpened(role, bridged: bridge != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
