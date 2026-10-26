@@ -472,6 +472,9 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            // macOS: whether this daemon's agents can read the login keychain
+            // (`daemon/login_session.rs`); absent elsewhere.
+            "loginSession": daemon_login_session(),
             // `deny`: this daemon starts no agent process (cx-9ettq).
             "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.
@@ -513,3 +516,12 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+/// `Some(true)` when this daemon runs in the user's login session (its agents read
+/// the login keychain), `Some(false)` when it does not, None off macOS.
+fn daemon_login_session() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    return Some(crate::daemon::login_session::in_login_session());
+    #[cfg(not(target_os = "macos"))]
+    None
+}

@@ -346,6 +346,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    if v.get("loginSession").and_then(Value::as_bool) == Some(false) {
+                        println!(
+                            "keychain: unreadable from sessions: this daemon runs outside the login \
+                             session (started over ssh), so gh, codex, claude and git credential \
+                             helpers cannot read the login keychain. Fix: with someone logged in \
+                             at the screen, `acpmux daemon shutdown`, then run any acpmux command \
+                             (it starts the daemon in the login session)"
+                        );
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",

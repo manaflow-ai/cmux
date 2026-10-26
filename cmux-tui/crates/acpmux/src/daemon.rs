@@ -18,6 +18,9 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod login_placement;
+#[cfg(target_os = "macos")]
+pub(crate) mod login_session;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -953,6 +956,28 @@ async fn start_daemon() -> Result<String> {
 #[cfg(unix)]
 async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
     let path = socket_path();
+    // Outside the login session (an ssh client): the daemon goes to the user's GUI
+    // session so its agents read the login keychain (`daemon/login_session.rs`). A
+    // keyed start is the app's own, in the login session already.
+    #[cfg(target_os = "macos")]
+    if key.is_none() {
+        let this = crate::self_command::SelfCommand::current()?;
+        crate::config::private_state_dir(&home())?;
+        let log = home().join("daemon.log");
+        drop(open_daemon_log(&log)?);
+        match login_session::start_in_login_session(&this, &home(), &log) {
+            Ok(login_session::Started::Job(job)) => return wait_for_job(&path, job).await,
+            Ok(login_session::Started::Running) => return Ok(LOCK_HELD_LINE.to_owned()),
+            Ok(login_session::Started::No) => {}
+            Ok(login_session::Started::NoGuiLogin) => {
+                eprintln!("{}", login_placement::no_gui_login_warning());
+                tracing::warn!("{}", login_placement::no_gui_login_warning());
+            }
+            Err(e) => {
+                tracing::warn!("daemon not started in the login session ({e:#}); starting it here")
+            }
+        }
+    }
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
     let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
@@ -974,6 +999,43 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         )),
     }
 }
+/// The readiness line of a daemon that found the lock taken (`run`).
+#[cfg(target_os = "macos")]
+const LOCK_HELD_LINE: &str = r#"{"ready":false,"lockHeld":true}"#;
+
+/// A daemon started as launchd job `job` has no readiness pipe: its socket answering is its
+/// readiness (an empty line; the caller connects). A job that ended before its socket answered
+/// most likely found the lock taken by a daemon still stopping (`daemon shutdown`, `host
+/// update`): that is reported as [`LOCK_HELD_LINE`], so `start_and_connect` waits for that
+/// daemon within its handover budget and starts the next one, as it does for a daemon it
+/// spawned. launchd is asked every half second, at most `START_BUDGET` long.
+#[cfg(target_os = "macos")]
+async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    let mut tries = 0u32;
+    while tokio::time::Instant::now() < deadline {
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
+            return Ok(String::new());
+        }
+        tries += 1;
+        if tries % 5 == 0 {
+            let job = job.clone();
+            let running = tokio::task::spawn_blocking(move || login_session::job_running(&job))
+                .await
+                .unwrap_or(true);
+            if !running && tokio::net::UnixStream::connect(path).await.is_err() {
+                return Ok(LOCK_HELD_LINE.to_owned());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(anyhow!(
+        "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+        path.display(),
+        home().join("daemon.log").display()
+    ))
+}
+
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
