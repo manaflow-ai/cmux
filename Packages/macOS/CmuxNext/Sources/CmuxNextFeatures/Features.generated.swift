@@ -172,6 +172,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
+    public static let topPageDiscard = Feature(
+        index: 8,
+        name: "topPageDiscard",
+        owner: "PL-memory",
+        description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
         index: 9,
@@ -237,6 +254,7 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
+        .topPageDiscard,
         .vsyncHub,
         .perfLabCanary,
         .perfLabKillProbe,

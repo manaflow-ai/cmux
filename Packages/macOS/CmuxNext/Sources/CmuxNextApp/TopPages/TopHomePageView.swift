@@ -36,6 +36,8 @@ final class TopHomePageView: NSView {
     /// A conversation the person started that the inbox does not list yet: opened (with the
     /// keyboard in its box) when it shows.
     private var opening: ConversationID?
+    /// A page built again after a discard: where its list was, applied once the rows are in.
+    var pendingListScroll: CGPoint?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -207,6 +209,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
+                applyPendingListScroll()
                 if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
@@ -256,26 +259,11 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The rows the list shows: an archived Chief's conversation is hidden
-    /// (its history stays with the owner, read-only).
-    static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        guard !archivedChiefs.isEmpty else { return rows }
-        return rows.filter { row in
-            guard row.kind == .chief else { return true }
-            return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }
-        }
-    }
-
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation.
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         return rows.homeLines.lazy.compactMap(\.conversation).first
-    }
-
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:
