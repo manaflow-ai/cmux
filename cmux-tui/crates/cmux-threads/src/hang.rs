@@ -13,7 +13,9 @@
 //!   1 while the watcher is parked.
 //! - While scopes open and close, the watcher sleeps to the earliest open
 //!   deadline, at most one minimum deadline (the shortest [`HangSite`] seen),
-//!   so detection is within deadline plus minimum deadline. It parks with no
+//!   so detection is within deadline plus minimum deadline. The first scope
+//!   of a site shorter than every site before wakes the watcher to plan its
+//!   sleep again, once per such site. It parks with no
 //!   timeout after a wake that finds no scope open and none opened since its
 //!   last wake: 0 wakes while idle, and at most one wake per minimum deadline
 //!   under any scope pattern.
@@ -21,8 +23,11 @@
 //!   [`HANG_RING`] and one call of the process's [`HangSink`] (the hang log
 //!   line, cmux-panic-log `hang`). A nested scope saves and restores the
 //!   outer deadline, and a scope already recorded is not recorded again
-//!   when it is restored (the watcher flags the word it recorded). A
-//!   panicking sink is counted, never fatal.
+//!   when it is restored (the watcher flags the word it recorded). The
+//!   watcher reads a slot's deadline and site as one pair under a seqlock:
+//!   each open and close writes both inside one generation, so a pair read
+//!   across a nested open and close (which restores the same word) is not
+//!   used. A panicking sink is counted, never fatal.
 //!
 //! The daemon does not use this: its one hang watcher is the request
 //! watchdog (cmux-tui-core `server/request_watchdog.rs`).
@@ -31,14 +36,15 @@
 //! its slot (once per thread and watcher) and when the watcher writes a
 //! record; `ring` only to push a record and for [`HangWatcher::snapshot`];
 //! `state` is the watcher's condvar mutex, taken by a scope only to wake a
-//! parked watcher. No scope open or close takes a lock otherwise.
+//! parked watcher and by the first scope of a new shortest site. No scope
+//! open or close takes a lock otherwise.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io;
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -133,6 +139,33 @@ struct Slot {
     word: AtomicU64,
     /// The open scope's site; null with no scope open.
     site: AtomicPtr<HangSite>,
+    /// Seqlock over `word` and `site`, odd while they are written. Only the
+    /// slot's owner writes it; a new owner claims the slot under `owners`
+    /// after the old one released it there.
+    generation: AtomicU64,
+}
+
+impl Slot {
+    fn new() -> Self {
+        Self {
+            word: AtomicU64::new(0),
+            site: AtomicPtr::new(std::ptr::null_mut()),
+            generation: AtomicU64::new(0),
+        }
+    }
+
+    /// Starts a write of `word` and `site`; pass the result to
+    /// [`Slot::end_write`].
+    fn begin_write(&self) -> u64 {
+        let generation = self.generation.load(Ordering::Relaxed).wrapping_add(1);
+        self.generation.store(generation, Ordering::Relaxed);
+        fence(Ordering::Release);
+        generation
+    }
+
+    fn end_write(&self, generation: u64) {
+        self.generation.store(generation.wrapping_add(1), Ordering::Release);
+    }
 }
 
 struct Owner {
@@ -159,6 +192,8 @@ impl Ring {
 #[derive(Default)]
 struct State {
     stop: bool,
+    /// The minimum deadline went down: a sleeping watcher plans again.
+    replan: bool,
 }
 
 struct Shared {
@@ -232,9 +267,20 @@ impl Shared {
     fn release(&self, index: usize) {
         let mut owners = lock(&self.owners);
         let slot = self.slot(index);
-        slot.word.store(0, Ordering::Release);
-        slot.site.store(std::ptr::null_mut(), Ordering::Release);
+        let generation = slot.begin_write();
+        slot.word.store(0, Ordering::Relaxed);
+        slot.site.store(std::ptr::null_mut(), Ordering::Relaxed);
+        slot.end_write(generation);
         owners[index] = None;
+    }
+
+    /// A site shorter than every site before shortens the watcher's period:
+    /// a watcher asleep on the longer period wakes to plan again.
+    fn lower_min_deadline(&self, site_us: u64) {
+        if self.min_deadline_us.fetch_min(site_us, Ordering::Relaxed) > site_us {
+            lock(&self.state).replan = true;
+            self.wake.notify_one();
+        }
     }
 
     fn arm(&self) {
@@ -250,11 +296,18 @@ impl Shared {
     /// (the watcher itself woke late) flags it with no record; returns the
     /// earliest deadline still ahead.
     fn scan(&self, now: u64, blame: bool) -> Option<u64> {
+        self.scan_with(now, blame, || {})
+    }
+
+    /// [`Shared::scan`]; `between` runs after an overdue word is read and
+    /// before its site is (a test seam for a nested scope in that gap).
+    fn scan_with(&self, now: u64, blame: bool, mut between: impl FnMut()) -> Option<u64> {
         let mut earliest: Option<u64> = None;
         let claimed = self.claimed.load(Ordering::Acquire);
         for index in 0..claimed {
             let slot = self.slot(index);
-            let word = slot.word.load(Ordering::Acquire);
+            let generation = slot.generation.load(Ordering::Acquire);
+            let word = slot.word.load(Ordering::Relaxed);
             let Some(deadline) = deadline_of(word) else { continue };
             if deadline > now {
                 earliest = Some(earliest.map_or(deadline, |e| e.min(deadline)));
@@ -263,11 +316,20 @@ impl Shared {
             if word & RECORDED != 0 {
                 continue;
             }
-            let site = slot.site.load(Ordering::Acquire);
-            // The flag goes on only while the word is still the one read; a
-            // scope stores 0 before its site, so the site read belongs to
-            // `word` once the exchange succeeds. A scope that opened or
-            // closed in between is looked at on the next wake.
+            between();
+            let site = slot.site.load(Ordering::Relaxed);
+            fence(Ordering::Acquire);
+            // A pair read during or across a write is looked at on the next
+            // wake; a nested open and close restores the same word, so only
+            // the generation tells them apart.
+            if !generation.is_multiple_of(2)
+                || slot.generation.load(Ordering::Relaxed) != generation
+            {
+                continue;
+            }
+            // The flag goes on only while the word is still the one read: an
+            // open after the pair was read swaps the word out, and keeps the
+            // flag when the exchange came first.
             let marked = slot.word.compare_exchange(
                 word,
                 word | RECORDED,
@@ -323,24 +385,34 @@ impl Shared {
             self.parked.store(true, Ordering::SeqCst);
             if self.armed.load(Ordering::SeqCst) > 0 {
                 self.parked.store(false, Ordering::SeqCst);
-                return true;
+                break;
             }
             state = self.wake.wait(state).unwrap_or_else(PoisonError::into_inner);
             if !self.parked.load(Ordering::SeqCst) {
                 self.wakeups.fetch_add(1, Ordering::Relaxed);
-                return !state.stop;
+                if state.stop {
+                    return false;
+                }
+                break;
             }
         }
+        // run() plans its first sleep from the period it reads after this.
+        state.replan = false;
+        true
     }
 
-    /// Sleeps for `timeout`; `false` once the watcher stops.
+    /// Sleeps for `timeout`, or until a new shortest site needs a new plan;
+    /// `false` once the watcher stops.
     fn sleep(&self, timeout: Duration) -> bool {
-        let state = lock(&self.state);
+        let mut state = lock(&self.state);
         if state.stop {
             return false;
         }
-        let (state, _) =
-            self.wake.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner);
+        if !state.replan {
+            state =
+                self.wake.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        state.replan = false;
         self.wakeups.fetch_add(1, Ordering::Relaxed);
         !state.stop
     }
@@ -396,9 +468,7 @@ impl HangWatcher {
 
     /// A watcher with no thread: scopes fill its slots, nothing scans them.
     fn unstarted(sink: HangSink, threads: usize, ring: usize) -> Self {
-        let slots = (0..threads)
-            .map(|_| Slot { word: AtomicU64::new(0), site: AtomicPtr::new(std::ptr::null_mut()) })
-            .collect();
+        let slots = (0..threads).map(|_| Slot::new()).collect();
         let shared = Arc::new(Shared {
             epoch: Instant::now(),
             slots,
@@ -433,18 +503,17 @@ impl HangWatcher {
         let shared = &*self.shared;
         let site_us = site.deadline_us();
         if site_us < shared.min_deadline_us.load(Ordering::Relaxed) {
-            shared.min_deadline_us.fetch_min(site_us, Ordering::Relaxed);
+            shared.lower_min_deadline(site_us);
         }
         let deadline = shared.now_us().saturating_add(site_us);
         let word = (deadline.saturating_add(1) << SEQ_BITS) | u64::from(seq & SEQ_MASK);
         let slot = shared.slot(index);
+        let generation = slot.begin_write();
         let previous_site = slot.site.load(Ordering::Relaxed);
-        // 0 before the site: a watcher that reads the new site cannot flag
-        // the old word. The swap also keeps a flag the watcher set on the
-        // outer word just now.
-        let previous_word = slot.word.swap(0, Ordering::Acquire);
-        slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
-        slot.word.store(word, Ordering::Release);
+        // The swap keeps a flag the watcher set on the outer word just now.
+        let previous_word = slot.word.swap(word, Ordering::Acquire);
+        slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Relaxed);
+        slot.end_write(generation);
         if !shared.touched.load(Ordering::Relaxed) {
             shared.touched.store(true, Ordering::Relaxed);
         }
@@ -536,9 +605,10 @@ impl Drop for HangScope<'_> {
     fn drop(&mut self) {
         let Some(open) = self.open.take() else { return };
         let slot = open.shared.slot(open.index);
-        slot.word.store(0, Ordering::Relaxed);
-        slot.site.store(open.previous_site, Ordering::Release);
-        slot.word.store(open.previous_word, Ordering::Release);
+        let generation = slot.begin_write();
+        slot.site.store(open.previous_site, Ordering::Relaxed);
+        slot.word.store(open.previous_word, Ordering::Relaxed);
+        slot.end_write(generation);
         open.shared.armed.fetch_sub(1, Ordering::SeqCst);
     }
 }

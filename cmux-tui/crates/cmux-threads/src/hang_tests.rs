@@ -143,6 +143,62 @@ fn a_recorded_scope_restored_by_a_nested_scope_is_not_recorded_again() {
     assert_eq!(watcher.snapshot().total, 1);
 }
 
+/// The watcher sleeps up to 3 s while only a [`LONG`] scope is open; a
+/// shorter site opened then must not wait for that sleep to end.
+#[test]
+fn a_short_scope_opened_while_the_watcher_sleeps_on_a_long_site_is_recorded() {
+    static LONG: HangSite = HangSite::new("test.long", Duration::from_secs(3));
+    let (watcher, received) = watcher();
+    let watcher = Arc::new(watcher);
+    let (opened, wait_opened) = channel::<()>();
+    let (close, closed) = channel::<()>();
+    let long = Arc::clone(&watcher);
+    let holder = crate::spawn("hang-test-long", ThreadQos::Default, move || {
+        let _scope = long.scope(&LONG);
+        let _ = opened.send(());
+        let _ = closed.recv();
+    })
+    .expect("spawn");
+    wait_opened.recv().expect("the long scope opened");
+    // The watcher is now asleep on the 3 s period.
+    std::thread::sleep(Duration::from_millis(100));
+    {
+        let _scope = watcher.scope(&SHORT);
+        std::thread::sleep(Duration::from_millis(600));
+    }
+    let record = received.recv_timeout(Duration::from_secs(1)).expect("the short record");
+    drop(close);
+    holder.join().expect("join");
+    assert_eq!(record.site, "test.short");
+    assert_eq!(record.deadline_ms, 50);
+    assert_no_record(&received, SETTLE);
+    assert_eq!(watcher.snapshot().total, 1);
+}
+
+/// An overdue outer word read, then an inner scope that opens and closes
+/// (restoring the same word), then the site read: the pair is not used.
+#[test]
+fn a_nested_scope_between_the_word_and_site_reads_is_not_paired_with_the_outer_deadline() {
+    let (sink, received) = channel_sink();
+    let watcher = HangWatcher::unstarted(sink, MAX_WATCHED_THREADS, HANG_RING);
+    let _outer = watcher.scope(&SHORT);
+    std::thread::sleep(Duration::from_millis(60));
+    let shared = &watcher.shared;
+    let mut nested = false;
+    shared.scan_with(shared.now_us(), true, || {
+        if !nested {
+            nested = true;
+            drop(watcher.scope(&REQUEST));
+        }
+    });
+    assert!(nested, "the outer scope was overdue");
+    assert!(received.try_recv().is_err(), "a pair read across a nested scope was recorded");
+    shared.scan(shared.now_us(), true);
+    let record = received.try_recv().expect("the outer record on the next scan");
+    assert_eq!((record.site, record.deadline_ms), ("test.short", 50), "{record:?}");
+    assert_eq!(watcher.snapshot().total, 1);
+}
+
 #[test]
 fn a_panicking_sink_is_counted_and_the_watcher_keeps_recording() {
     let (records, received) = channel();
