@@ -145,12 +145,11 @@ import Foundation
         for entry in entries.values {
             if case .workspace = entry.keys, let workspace = entry.record as? WorkspaceModel { unread.leave(workspace) }
         }
-        tabKeys.beginRebuild()
+        tabKeys.noteRebuildStarted()
         self = StoreIndex(waiters: waiters, unread: unread, tabKeys: tabKeys)
         (indexedRecords, tabOrderChanges) = (counted, orderChanges)
         waiters.noteRebuilt()
         for workspace in workspaces { insert(workspace) }
-        tabKeys.endRebuild()
         noteTabOrderChanged()
     }
 

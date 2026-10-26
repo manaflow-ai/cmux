@@ -1,30 +1,35 @@
 import Foundation
 
 /// The tab keys one store lists (durable tab ids and tab resource ids: the keys of
-/// ``DaemonStore/tab(idOrResource:)``), counted per indexed tab record, and the one listener told
-/// when a key is first listed or last dropped (plans/cmux-next/chrome-parity/p06-scheduler.md, task
+/// ``DaemonStore/tab(idOrResource:)``), counted per indexed tab record, and the listeners told which
+/// keys became listed or stopped being listed (plans/cmux-next/chrome-parity/p06-scheduler.md, task
 /// 051). An index over several stores (`MachineTabIndex`, CmuxNextDaemonService) keeps itself by
 /// these changes, never by a walk of the stores. ``StoreIndex`` reports each tab record it keys or
 /// drops, so a change costs the records it names.
 ///
-/// A rebuild (a full snapshot) indexes every record again without dropping them one by one: the
-/// keys are compared once at its end, and the listener hears only the keys it added or removed.
+/// Changes are reported as net changes when the store publishes its tab list
+/// (`DaemonStore.publishTabListChange`, once per apply and per intent shown, with
+/// ``DaemonStore/tabListRevision``): the index re-keys a record by dropping and keying it again, and
+/// an apply lifts the intent overlay and restores it, so each key keeps the count it had at the last
+/// publish, and ``publish()`` reports only the keys whose presence differs. A move inside the store,
+/// a re-index, a lift and restore and a rebuild of the same tree report nothing. Chromium reports a
+/// tab's attach and detach the same way, once per move, not per step
+/// (`TabStripModelObserver::OnTabStripModelChanged`, chrome/browser/ui/tabs/tab_strip_model_observer.h).
 @MainActor public final class StoreTabKeys {
-    /// What happened to a key.
+    /// What happened to a key since the last publish.
     public enum Change: Sendable, Equatable {
-        /// The first tab record with this key was indexed.
+        /// The key was not listed at the last publish and is now.
         case listed
-        /// The last tab record with this key was dropped.
+        /// The key was listed at the last publish and is not now.
         case dropped
     }
 
-    /// Told of each key that became listed or stopped being listed. One index over this store sets it.
-    public var onChange: (@MainActor (String, Change) -> Void)?
-
     /// Indexed tab records per key: two while a move's added delta carries its own record of a tab.
     private var counts: [String: Int] = [:]
-    /// The counts before the rebuild in progress; nil outside one.
-    private var beforeRebuild: [String: Int]?
+    /// Each key changed since the last publish, with its count at that publish.
+    private var published: [String: Int] = [:]
+    /// Told of each publish's net changes, by the object that listens.
+    private var listeners: [ObjectIdentifier: @MainActor ([String: Change]) -> Void] = [:]
 
     public init() {}
 
@@ -33,6 +38,30 @@ import Foundation
 
     /// Whether a tab record with durable id or tab resource id `key` is indexed.
     public func lists(_ key: String) -> Bool { counts[key] != nil }
+
+    /// Tells `onChange` the net changes of each publish, until ``stopListening(_:)`` with the same
+    /// `listener`; a second call for the same listener replaces its closure.
+    public func listen(_ listener: AnyObject, _ onChange: @escaping @MainActor ([String: Change]) -> Void) {
+        listeners[ObjectIdentifier(listener)] = onChange
+    }
+
+    /// Stops telling `listener`; other listeners keep theirs.
+    public func stopListening(_ listener: AnyObject) {
+        listeners[ObjectIdentifier(listener)] = nil
+    }
+
+    /// The store published its tab list: tells the listeners each key whose presence changed since
+    /// the last publish. Costs the keys changed since then.
+    func publish() {
+        guard !published.isEmpty else { return }
+        var changes: [String: Change] = [:]
+        for (key, count) in published where (count == 0) != (counts[key] == nil) {
+            changes[key] = count == 0 ? .listed : .dropped
+        }
+        published.removeAll(keepingCapacity: true)
+        guard !changes.isEmpty else { return }
+        for onChange in listeners.values { onChange(changes) }
+    }
 
     // MARK: StoreIndex hooks
 
@@ -48,27 +77,17 @@ import Foundation
         if let resource { count(resource.rawValue, by: -1) }
     }
 
-    /// The index starts over from no records (``StoreIndex/rebuild(_:)``).
-    func beginRebuild() {
-        guard beforeRebuild == nil else { return }
-        beforeRebuild = counts
+    /// The index starts over from no records (``StoreIndex/rebuild(_:)``): each key keeps its count
+    /// from the last publish, so the next publish reports only the keys the rebuild changed.
+    func noteRebuildStarted() {
+        for (key, count) in counts where published[key] == nil { published[key] = count }
         counts.removeAll(keepingCapacity: true)
     }
 
-    /// The rebuild indexed its records: reports the keys it dropped and the ones it added.
-    func endRebuild() {
-        guard let previous: [String: Int] = beforeRebuild else { return }
-        beforeRebuild = nil
-        guard let onChange else { return }
-        for key in previous.keys where counts[key] == nil { onChange(key, .dropped) }
-        for key in counts.keys where previous[key] == nil { onChange(key, .listed) }
-    }
-
     private func count(_ key: String, by step: Int) {
-        let before = counts[key] ?? 0
-        let after = max(before + step, 0)
+        let current = counts[key] ?? 0
+        if published[key] == nil { published[key] = current }
+        let after = max(current + step, 0)
         counts[key] = after > 0 ? after : nil
-        guard beforeRebuild == nil, (before == 0) != (after == 0) else { return }
-        onChange?(key, after > 0 ? .listed : .dropped)
     }
 }
