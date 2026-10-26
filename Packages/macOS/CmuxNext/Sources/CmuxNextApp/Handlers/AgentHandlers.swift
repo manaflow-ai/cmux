@@ -377,7 +377,7 @@ enum AgentHandlers {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
         if let editor = opening.editor {
-            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openInBackground([opening.url], withApplicationAt: editor)
         }
     }
 }

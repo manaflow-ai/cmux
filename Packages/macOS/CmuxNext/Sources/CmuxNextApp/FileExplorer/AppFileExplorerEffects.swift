@@ -38,11 +38,7 @@ final class AppFileExplorerEffects: FileExplorerEffects {
 
     func open(_ item: URL, withApp app: String) async throws {
         guard let appURL = Self.application(named: app) else { throw FileExplorerError.noSuchApp(app) }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        do {
-            _ = try await NSWorkspace.shared.open([item], withApplicationAt: appURL, configuration: configuration)
-        } catch {
+        guard await NSWorkspace.shared.openedInBackground([item], withApplicationAt: appURL) else {
             throw FileExplorerError.openFailed(item.lastPathComponent)
         }
     }

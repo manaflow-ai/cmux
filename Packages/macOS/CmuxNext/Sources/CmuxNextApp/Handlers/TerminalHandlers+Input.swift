@@ -142,15 +142,14 @@ extension TerminalHandlers {
             NSWorkspace.shared.openInBackground(directory)
             return
         }
-        let workspace = NSWorkspace.shared
         let candidates = [
-            workspace.urlForApplication(withBundleIdentifier: app),
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: app),
             app.hasSuffix(".app") ? URL(fileURLWithPath: app) : nil,
             URL(fileURLWithPath: "/Applications/\(app).app"),
             URL(fileURLWithPath: "/System/Applications/\(app).app"),
         ]
         guard let appURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path) })
             ?? ctx.refuse(MiscHandlerStrings.appNotFound(app)) else { return }
-        workspace.open([directory], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openInBackground([directory], withApplicationAt: appURL)
     }
 }
