@@ -7,6 +7,8 @@ import importlib.util
 import io
 import tempfile
 import unittest
+
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +128,13 @@ class Reconcile(unittest.TestCase):
 
     def test_untyped_labels_are_not_custom(self):
         self.assertEqual(reconcile.custom_labels({"labels": [{"name": "a"}, {"name": "b", "type": "custom"}]}), ["b"])
+
+    def test_only_trusted_main_can_mint_the_label_writer(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        self.assertEqual(set(workflow[True]), {"schedule", "workflow_dispatch"})
+        self.assertEqual(workflow["jobs"]["reconcile"]["if"],
+                         "github.repository == 'manaflow-ai/cmux' && "
+                         "github.ref == 'refs/heads/main' && vars.GLAEDA_ROUTE_APP_ID != ''")
 
     def test_the_workflow_reads_glaedas_rule_and_applies_on_schedule(self):
         text = WORKFLOW.read_text()
