@@ -683,6 +683,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate the nightly-next tick re-runs a cancelled tip
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_cancelled_tip.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py

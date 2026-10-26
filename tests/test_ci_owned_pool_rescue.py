@@ -975,6 +975,19 @@ class Rescuing(unittest.TestCase):
         self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
         self.assertNotIn("cancel", api.calls)
 
+    def test_no_cancel_starts_without_time_for_the_rate_limit_waits_too(self):
+        # A watch that may still wait out rate limits needs that time on top of the settle.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        api.rate_limit_waited = 0.0
+        target = rescue.Target(run_id=555, attempt=1, head_sha=HEAD, pr_number=7)
+        deadline = clock.now() + rescue.dt.timedelta(
+            seconds=rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS - 1)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               deadline=deadline)
+        self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_refused_force_cancel_keeps_waiting(self):
         # The run can settle between the read and the POST, and GitHub then
         # refuses the force-cancel; the next read sees it finished.
@@ -999,6 +1012,23 @@ class Rescuing(unittest.TestCase):
         self.assertGreaterEqual(clock.seconds - api.cancelled_at, rescue.CANCEL_WAIT_SECONDS)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("did not finish", summary)
+
+    def test_rate_limit_waits_do_not_end_the_settle_window(self):
+        # A force-cancel that waited 15 minutes through a rate limit must not cost the re-run:
+        # only the run's own settling counts toward CANCEL_WAIT_SECONDS.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=rescue.CANCEL_WAIT_SECONDS + 600)
+        api.rate_limit_waited = 0.0
+
+        def limited_force_cancel(run_id):
+            api.calls.append("force-cancel")
+            if api.rate_limit_waited == 0.0:
+                clock.sleep(rescue.RATE_LIMIT_WAIT_SECONDS)
+                api.rate_limit_waited = float(rescue.RATE_LIMIT_WAIT_SECONDS)
+        api.force_cancel = limited_force_cancel
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun", api.calls)
 
 
 def e2e_event(**overrides):
@@ -2637,6 +2667,136 @@ class Tokens(unittest.TestCase):
             rescue.GitHub("repo-token", "o/r").run(1)
         self.assertEqual(seen, [("GET", "Bearer repo-token")])
 
+    def refusing(self, refusals):
+        """urlopen that refuses the first requests with `refusals` (code, headers, body), then answers {}."""
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.full_url, request.headers["Authorization"]))
+            if refusals:
+                code, headers, body = refusals.pop(0)
+                raise rescue.urllib.error.HTTPError(request.full_url, code, "refused", headers, io.BytesIO(body))
+            return Response(b"{}")
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_a_re_run_refused_for_the_rate_limit_waits_and_is_sent_again(self):
+        # Run 40340830337: cancelled, then its re-run refused and never sent.
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited), (429, {"Retry-After": "7"}, b"")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.request("POST", "/actions/runs/7/rerun-failed-jobs")
+        self.assertEqual(waits, [60, 120, 7])
+        self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
+        self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
+
+    def test_an_app_read_refused_with_429_goes_on_github_token(self):
+        seen, patch = self.refusing([(429, {}, b"")])
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = lambda seconds: None
+            api.run(1)
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen],
+                         ["Bearer app-token", "Bearer repo-token", "Bearer app-token"])
+
+    def test_the_sweeper_thread_never_waits(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.no_rate_limit_waits()
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual((len(seen), waits, other), (1, [], [0.0]))
+
+    def test_every_limiter_message_counts(self):
+        for said in ("You have exceeded a secondary rate limit", "You have triggered an abuse detection mechanism",
+                     "Too many requests"):
+            self.assertEqual(rescue.rate_limit_wait(403, {}, said, 0.0, 0), 60.0, said)
+        self.assertIsNone(rescue.rate_limit_wait(403, {}, "Resource not accessible by integration", 0.0, 0))
+
+    def test_a_spent_budget_waits_for_its_reset(self):
+        reset = str(int(rescue.time.time()) + 100)
+        seen, patch = self.refusing([(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset}, b"{}")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.cancel(7)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(100 <= waits[0] <= 106, waits)
+
+    def test_a_permission_403_is_not_waited_for(self):
+        seen, patch = self.refusing([(403, {}, b'{"message": "Resource not accessible by integration"}')])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual((len(seen), waits), (1, []))
+
+    def test_rate_limit_waits_are_bounded(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual(sum(waits), rescue.RATE_LIMIT_WAIT_SECONDS)
+        self.assertTrue(all(wait <= rescue.RATE_LIMIT_MAX_WAIT_SECONDS for wait in waits))
+
+    def test_an_app_read_refused_for_the_rate_limit_falls_back_then_waits(self):
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen], ["Bearer app-token", "Bearer repo-token", "Bearer repo-token"])
+        self.assertEqual(waits, [60])
+
+    def test_each_watch_thread_has_its_own_rate_limit_budget(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = lambda seconds: None
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            self.assertEqual(api.rate_limit_waited, rescue.RATE_LIMIT_WAIT_SECONDS)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual(other, [0.0])
+
+    def test_a_nightly_give_up_is_an_error_annotation(self):
+        nightly = rescue.Target(run_id=40340830337, attempt=1, head_sha=HEAD, pr_number=None, nightly=True)
+        self.assertTrue(rescue.gave_up(nightly, RuntimeError("HTTP Error 403")).startswith(
+            "::error title=nightly rescue::run 40340830337 gave up: HTTP Error 403"))
+        other = rescue.Target(run_id=1, attempt=1, head_sha=HEAD, pr_number=7)
+        self.assertEqual(rescue.gave_up(other, RuntimeError("x")), "gave up: x")
+
     def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
             encoding="utf-8"))["jobs"]["rescue"]["steps"]
@@ -2789,6 +2949,10 @@ class Workflow(unittest.TestCase):
         watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
         # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
         self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
+        # A handover joins its rescues for the grace: it holds a whole cancel, its re-run and the
+        # watch's rate-limit waits, so the process never exits with a run cancelled and not re-run.
+        self.assertGreaterEqual(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS
+                                + rescue.RATE_LIMIT_WAIT_SECONDS)
         self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
