@@ -3,42 +3,50 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The privileged helper's prior-value store reads and writes its file only on the files lane it is given,
-/// never on the caller's thread and never under a lock (plans/cmux-next/chrome-parity/p02-threads.md, task 036).
+/// The privileged helper's prior-value store reads and writes its file only inside the items it gives its files
+/// lane, never on the caller's thread and never under a lock (plans/cmux-next/chrome-parity/p02-threads.md, task 036).
 @Suite(.timeLimit(.minutes(1))) struct ServerFixPriorStoreTests {
-    /// The helper's own lane, counting its files-lane items and the threads they ran on.
-    nonisolated final class CountingLane: MayBlockRunner {
-        let lane = ServerHelperFileLane(label: "test.server-helper.files")
-        private let state = Mutex((items: 0, onMain: 0))
+    /// A files lane that holds each item until the test releases it, then runs it on its own queue. After an item's
+    /// body and before the store's `await` returns, it notes what the file holds and runs `afterEachItem`, so a test
+    /// sees what the item itself did to the file, apart from what the store did before or after it.
+    nonisolated final class HeldFiles: ServerFixPriorFiles {
+        let arrivals: AsyncStream<Void>
+        private let arrived: AsyncStream<Void>.Continuation
+        private let file: ServerFixPriorFile
+        private let afterEachItem: @Sendable () -> Void
+        private let queue = DispatchQueue(label: "test.server-helper.held-files")
+        private let state = Mutex((held: [@Sendable () -> Void](), seen: [[String: Int]]()))
 
-        var items: Int { state.withLock { $0.items } }
-        var onMain: Int { state.withLock { $0.onMain } }
+        init(url: URL, afterEachItem: @escaping @Sendable () -> Void = {}) {
+            (arrivals, arrived) = AsyncStream<Void>.makeStream()
+            file = ServerFixPriorFile(url: url)
+            self.afterEachItem = afterEachItem
+        }
 
-        func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
-                                   _ body: @escaping @Sendable () throws -> T) async throws -> T {
-            state.withLock { $0.items += 1 }
-            return try await lane.runFiles(priority, shutdown: shutdown, site: site) { [self] in
-                if Thread.isMainThread { state.withLock { $0.onMain += 1 } }
-                return try body()
+        /// What the file held at the end of each item that ran, in order.
+        var seen: [[String: Int]] { state.withLock { $0.seen } }
+
+        func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+            try await withCheckedThrowingContinuation { continuation in
+                let item: @Sendable () -> Void = { [self] in
+                    let result = Result { try body() }
+                    let onDisk = file.load()
+                    state.withLock { $0.seen.append(onDisk) }
+                    afterEachItem()
+                    continuation.resume(with: result)
+                }
+                state.withLock { $0.held.append(item) }
+                arrived.yield()
             }
         }
 
-        func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
-                                    _ body: @escaping @Sendable () throws -> T) async throws -> T {
-            Issue.record("the store has no system-lane work")
-            return try await lane.runSystem(priority, shutdown: shutdown, site: site, body)
-        }
-
-        func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
-                                            _ body: @escaping @Sendable () throws -> T) async throws -> T {
-            Issue.record("the store resolves no host")
-            return try await lane.runHostResolution(priority, shutdown: shutdown, site: site, body)
-        }
-
-        func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
-                       _ body: @escaping @Sendable () -> Void) {
-            state.withLock { $0.items += 1 }
-            lane.postFiles(priority, shutdown: shutdown, site: site, body)
+        /// Runs every held item on the lane's queue, in the order they came.
+        func release() {
+            let items = state.withLock { state in
+                defer { state.held.removeAll() }
+                return state.held
+            }
+            for item in items { queue.async(execute: item) }
         }
     }
 
@@ -48,24 +56,67 @@ import Testing
         return (root, root.appendingPathComponent("store", isDirectory: true).appendingPathComponent("helper.json"))
     }
 
-    @Test func everyReadAndWriteRunsOnTheFilesLane() async throws {
+    @Test func recordWritesTheFileInsideTheLaneItem() async throws {
         let (root, url) = storeURL()
         defer { try? FileManager.default.removeItem(at: root) }
-        let lane = CountingLane()
-        let store = FileFixPriorStore(url: url, files: lane)
+        let files = HeldFiles(url: url)
+        let store = FileFixPriorStore(url: url, files: files)
+        var arrivals = files.arrivals.makeAsyncIterator()
 
-        #expect(await store.prior(.systemSleepOffOnAC) == nil)
-        try await store.record(.systemSleepOffOnAC, prior: 10)
-        try await store.clear(.systemSleepOffOnAC)
+        let recording = Task { try await store.record(.systemSleepOffOnAC, prior: 10) }
+        _ = await arrivals.next()
+        // The store waits on its lane item and wrote nothing on the caller's thread before it.
+        #expect(!FileManager.default.fileExists(atPath: url.path))
 
-        #expect(lane.items == 3)
-        #expect(lane.onMain == 0)
+        files.release()
+        try await recording.value
+        // The value was on disk when the item ended, before the store's await returned: the item wrote it.
+        #expect(files.seen == [[ServerFix.systemSleepOffOnAC.rawValue: 10]])
+    }
+
+    @Test func priorReadsTheFileInsideTheLaneItem() async throws {
+        let (root, url) = storeURL()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = ServerFix.systemSleepOffOnAC.rawValue
+        let file = ServerFixPriorFile(url: url)
+        try file.save([key: 10])
+        // After the item the file changes again: a read after the lane would see 30.
+        let files = HeldFiles(url: url) { _ = try? file.save([key: 30]) }
+        let store = FileFixPriorStore(url: url, files: files)
+        var arrivals = files.arrivals.makeAsyncIterator()
+
+        let reading = Task { await store.prior(.systemSleepOffOnAC) }
+        _ = await arrivals.next()
+        // A read on the caller's thread before the lane would have seen 10.
+        try file.save([key: 20])
+
+        files.release()
+        #expect(await reading.value == 20)
+    }
+
+    @Test func clearRemovesTheValueInsideTheLaneItem() async throws {
+        let (root, url) = storeURL()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = ServerFix.systemSleepOffOnAC.rawValue
+        let other = ServerFix.diskSleepOffOnAC.rawValue
+        try ServerFixPriorFile(url: url).save([key: 10, other: 5])
+        let files = HeldFiles(url: url)
+        let store = FileFixPriorStore(url: url, files: files)
+        var arrivals = files.arrivals.makeAsyncIterator()
+
+        let clearing = Task { try await store.clear(.systemSleepOffOnAC) }
+        _ = await arrivals.next()
+        #expect(ServerFixPriorFile(url: url).load() == [key: 10, other: 5])
+
+        files.release()
+        try await clearing.value
+        #expect(files.seen == [[other: 5]])
     }
 
     @Test func recordKeepsTheFirstValueOnDiskUntilCleared() async throws {
         let (root, url) = storeURL()
         defer { try? FileManager.default.removeItem(at: root) }
-        let lane = ServerHelperFileLane(label: "test.server-helper.files")
+        let lane = ServerHelperFileLane()
         let store = FileFixPriorStore(url: url, files: lane)
 
         try await store.record(.systemSleepOffOnAC, prior: 10)
@@ -78,12 +129,6 @@ import Testing
 
         try await reopened.clear(.systemSleepOffOnAC)
         #expect(await store.prior(.systemSleepOffOnAC) == nil)
-    }
-
-    @MainActor @Test func theFileLaneRunsItsItemsOffTheMainThread() async throws {
-        let lane = ServerHelperFileLane(label: "test.server-helper.files")
-        let ranOnMain = try await lane.runFiles(.userVisible) { Thread.isMainThread }
-        #expect(ranOnMain == false)
     }
 
     @Test func memoryStoreKeepsTheFirstValue() {

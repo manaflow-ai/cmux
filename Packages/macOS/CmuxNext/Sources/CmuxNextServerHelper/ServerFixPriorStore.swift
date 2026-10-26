@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+import CmuxNextCompat
 public import Foundation
 
 /// Where the helper keeps the value each applied fix replaced, so `revert`
@@ -15,37 +15,37 @@ public protocol ServerFixPriorStore: Sendable {
 
 /// A JSON file owned by root (the helper runs as root), one per helper label.
 ///
-/// Every read and write runs on the files lane of `files`, never on the
-/// caller's thread and never under a lock (Chrome's ImportantFileWriter writes
-/// on its own sequence the same way, base/files/important_file_writer.h). A
-/// record or clear is awaited: the helper changes a setting only after the
-/// value it replaces is on disk.
+/// Every read and write runs on `files`, never on the caller's thread and
+/// never under a lock (Chrome's ImportantFileWriter writes on its own sequence
+/// the same way, base/files/important_file_writer.h). A record or clear is
+/// awaited: the helper changes a setting only after the value it replaces is
+/// on disk.
 public final nonisolated class FileFixPriorStore: ServerFixPriorStore {
     private let file: ServerFixPriorFile
-    private let files: any MayBlockRunner
+    private let files: any ServerFixPriorFiles
 
     /// - Parameters:
     ///   - url: The JSON file.
     ///   - files: Runs the file reads and writes (the helper's ``ServerHelperFileLane``).
-    public init(url: URL, files: any MayBlockRunner) {
+    public init(url: URL, files: any ServerFixPriorFiles) {
         file = ServerFixPriorFile(url: url)
         self.files = files
     }
 
     /// `/Library/Application Support/cmux/server-helper/<label>.json`.
-    public static func standard(label: String, files: any MayBlockRunner) -> FileFixPriorStore {
+    public static func standard(label: String, files: any ServerFixPriorFiles) -> FileFixPriorStore {
         FileFixPriorStore(url: URL(filePath: "/Library/Application Support/cmux/server-helper").appending(path: "\(label).json"),
                           files: files)
     }
 
     public func prior(_ fix: ServerFix) async -> Int? {
         let (file, key) = (file, fix.rawValue)
-        return try? await files.runFiles(.userVisible) { file.load()[key] }
+        return try? await files.run { file.load()[key] }
     }
 
     public func record(_ fix: ServerFix, prior: Int) async throws {
         let (file, key) = (file, fix.rawValue)
-        try await files.runFiles(.userVisible, shutdown: .blockShutdown) { () throws -> Void in
+        try await files.run { () throws -> Void in
             var values = file.load()
             guard values[key] == nil else { return }
             values[key] = prior
@@ -55,7 +55,7 @@ public final nonisolated class FileFixPriorStore: ServerFixPriorStore {
 
     public func clear(_ fix: ServerFix) async throws {
         let (file, key) = (file, fix.rawValue)
-        try await files.runFiles(.userVisible, shutdown: .blockShutdown) { () throws -> Void in
+        try await files.run { () throws -> Void in
             var values = file.load()
             guard values.removeValue(forKey: key) != nil else { return }
             try file.save(values)
