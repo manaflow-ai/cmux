@@ -152,7 +152,28 @@ nonisolated enum NotificationSettingsSchema {
             SettingDescriptor(
                 ["notifications", "attention", "color"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.color", "Color"),
-                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.notificationBlue", "Notification Blue")
+                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.choice.themeAccent", "Theme Accent")
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "terminals"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.terminals", "Ring Terminal Panes"),
+                kind: .choice(Self.ringLooks), default: .string(attention.terminalRing.rawValue),
+                keywords: ["ring", "glow", "flash", "blink", "terminal"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "agentChats"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.agentChats", "Ring Agent Chat Panes"),
+                help: SettingsText.keyed("settings.attention.agentChats.help",
+                                        "Ring an agent chat's pane when its turn ends, until you click or type in it."),
+                kind: .choice(Self.ringLooks), default: .string(attention.agentChatRing.rawValue),
+                keywords: ["ring", "glow", "flash", "blink", "agent", "chat", "turn"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "agentChatBlinkCount"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.agentChatBlinkCount", "Agent Chat Blinks"),
+                kind: .number(SettingNumber(Double(AttentionSettings.blinkRange.lowerBound)...Double(AttentionSettings.blinkRange.upperBound),
+                                            step: 1, unit: .count)),
+                default: .number(Double(attention.agentChatBlinkCount))
             ),
             SettingDescriptor(
                 ["notifications", "attention", "width"], section: .notifications, group: ring,
@@ -218,6 +239,15 @@ nonisolated enum NotificationSettingsSchema {
             .consumed(by: [.cmuxNext, .cmuxBrowser]),
         ]
         return rows
+    }
+
+    /// The attention ring's looks, per pane kind (`notifications.attention.terminals`, `agentChats`).
+    static var ringLooks: [SettingChoice] {
+        [
+            SettingChoice(FocusRingStyle.glow.rawValue, SettingsText.keyed("settings.choice.glow", "Glow")),
+            SettingChoice(FocusRingStyle.ring.rawValue, SettingsText.keyed("settings.choice.ring", "Ring")),
+            SettingChoice(FocusRingStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+        ]
     }
 
     static var dismissalChoices: [SettingChoice] {

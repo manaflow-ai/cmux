@@ -145,6 +145,7 @@ fn row_model(row: &Value) -> Option<LiveModel> {
         efforts = ["low", "medium", "high", "max"].map(str::to_owned).to_vec();
     }
     Some(LiveModel {
+        service_tiers: Vec::new(),
         id,
         name,
         efforts,

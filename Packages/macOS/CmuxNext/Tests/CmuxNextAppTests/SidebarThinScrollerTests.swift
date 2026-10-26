@@ -5,8 +5,8 @@ import Testing
 
 /// The sidebar scrolls with the chat's thin scroller (Leo 2026-10-21, on a fat sidebar scrollbar
 /// with a track): the list, the pinned bands and the Priority view take the shared
-/// ``ThinScroller``, a 3 pt overlay knob on no track, and keep it after the macOS
-/// "Show scroll bars" setting changes.
+/// ``ThinScroller``, a 3 pt overlay knob on no track that fades at rest and widens near the
+/// pointer, and keep it after the macOS "Show scroll bars" setting changes.
 @MainActor
 @Suite(.serialized)
 struct SidebarThinScrollerTests {
@@ -50,12 +50,13 @@ struct SidebarThinScrollerTests {
     }
 
     @Test func theListScrollerFollowsTheAutoHideSwitch() throws {
-        defer { SystemScrollers.thinScrollersAutoHide = false }
+        defer { SystemScrollers.thinScrollersAutoHide = true }
         let sidebar = Self.sidebar()
         let scroller = try #require(sidebar.scrollView.verticalScroller as? ThinScroller)
-        #expect(!scroller.autoHides) // shown while the list overflows, by default
-        SystemScrollers.thinScrollersAutoHide = true
-        #expect(scroller.autoHides) // hidden at rest, shown while scrolling or on hover
+        // Hidden at rest, shown while scrolling or with the pointer near (Lawrence 2026-10-23).
+        #expect(scroller.autoHides)
         #expect(scroller.restingKnobFrame == nil)
+        SystemScrollers.thinScrollersAutoHide = false
+        #expect(!scroller.autoHides) // the opt-out: shown while the list overflows
     }
 }

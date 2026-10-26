@@ -21,19 +21,24 @@ public actor MobileHostSupervisor {
         public var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// hostd's stderr log (0600), nil for none.
         public var log: URL?
-        /// The environment hostd's `HOME`, `PATH` and `TMPDIR` come from.
+        /// The environment hostd's `HOME`, `PATH` and `TMPDIR` (and a DEBUG rig's machine id) come from.
         public var inherited: [String: String]
         /// The app's browser hosts for streamed browser tabs; nil when this
         /// build has none (hostd then refuses `browser` as unavailable).
         public var browserHosts: (any MobileHostBrowserHosting)?
         /// This Mac's identity key, proved to phones that pinned it; nil: none.
         public var macIdentity: MobileHostMacIdentity?
+        /// The app's simulator surface sources; nil when this build cannot stream
+        /// simulators (hostd then refuses `surface`).
+        public var surfaceHosts: (any MobileHostSurfaceHosting)?
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
-                    browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil) {
+                    browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
+                    surfaceHosts: (any MobileHostSurfaceHosting)? = nil) {
             self.macIdentity = macIdentity
+            self.surfaceHosts = surfaceHosts
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -52,6 +57,9 @@ public actor MobileHostSupervisor {
     private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
     /// The last `devices` line: sent to each new hostd and on every change.
     private var devicesLine: Data?
+    /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
+    /// every change.
+    private var phoneCredentialsLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -142,6 +150,14 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
+    /// Each paired phone's own acpmux credential: kept for each new hostd and sent to the
+    /// running one now (the phone's next acpmux channel presents it).
+    public func setPhoneCredentials(_ credentials: [String: String]) {
+        let line = MobileHostLaunch.phoneCredentialsLine(credentials)
+        phoneCredentialsLine = line
+        process?.send(line)
+    }
+
     /// Shows a phase without running hostd (for example, not signed in).
     public func show(_ phase: MobileHostState.Phase) {
         publish { $0.reset(to: phase) }
@@ -188,6 +204,7 @@ public actor MobileHostSupervisor {
         defer { process = nil }
         // A new hostd knows none of the old one's browser hosts.
         defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
+        defer { if let sources = inputs.surfaceHosts { Task { await sources.stopAll() } } }
         logger.info("cmux-mobile-host started pid=\(child.pid ?? 0, privacy: .public) team=\(inputs.launch.teamID, privacy: .public)")
         // stop() cancels this task: closing hostd's stdin ends it, which ends the group.
         let status = await withTaskCancellationHandler {
@@ -246,6 +263,13 @@ public actor MobileHostSupervisor {
                     // task-owner: one stop per hostd request; the host's own exit reports back
                     Task { await hosts.stop(tab: tab) }
                 }
+            case let .needSurface(request, tab):
+                startSurface(child, inputs: inputs, request: request, tab: tab)
+            case let .surfaceStop(tab):
+                if let sources = inputs.surfaceHosts {
+                    // task-owner: one stop per hostd request; the source's own end reports back
+                    Task { await sources.stop(tab: tab) }
+                }
             default:
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
@@ -259,6 +283,7 @@ public actor MobileHostSupervisor {
         lastToken = nil
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine { child.send(devicesLine) }
+        if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)
     }
@@ -295,6 +320,28 @@ public actor MobileHostSupervisor {
             } catch {
                 logger.error("browser host for \(tab, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 child.send(MobileHostLaunch.browserFailedLine(request: request, reason: String(describing: error)))
+            }
+        }
+    }
+
+    /// Starts a simulator surface source for hostd without holding up its other requests.
+    private func startSurface(_ child: MobileHostProcess, inputs: Inputs, request: UInt64, tab: String) {
+        guard let sources = inputs.surfaceHosts else {
+            child.send(MobileHostLaunch.surfaceFailedLine(request: request, reason: "this build does not stream simulators"))
+            return
+        }
+        let logger = logger
+        // task-owner: one start per need_surface; it ends when the source listens or fails
+        Task {
+            do {
+                let source = try await sources.start(tab: tab) { [weak child] in
+                    _ = child?.send(MobileHostLaunch.surfaceGoneLine(tab: tab))
+                }
+                logger.info("surface source for \(tab, privacy: .public) on port \(source.port, privacy: .public)")
+                child.send(MobileHostLaunch.surfaceLine(request: request, port: source.port, secret: source.secret))
+            } catch {
+                logger.error("surface source for \(tab, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                child.send(MobileHostLaunch.surfaceFailedLine(request: request, reason: String(describing: error)))
             }
         }
     }
