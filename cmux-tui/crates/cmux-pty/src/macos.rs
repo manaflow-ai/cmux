@@ -261,6 +261,7 @@ impl ChildKiller for NativePtyChild {
         }
         PtySignaller { pid: self.0.id() }.kill()?;
         // A failed wait is no proof the child ended: SIGKILL it too.
+        // wakeup-allow: deadline the one hangup grace after SIGHUP; the child's exit ends the wait first
         match self.0.wait_timeout(HANGUP_GRACE) {
             Ok(Some(_)) => Ok(()),
             Ok(None) | Err(_) => self.0.kill(),
