@@ -89,7 +89,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None).await
+        self.import_into(bundle, name, false, None, false).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -101,6 +101,7 @@ impl Hub {
         name: Option<String>,
         live: bool,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
+        replace_durable: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -171,7 +172,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
-        if let Err(e) = self.restore_harness_state(bundle, &meta) {
+        if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
             let _ = self.store.delete(&meta.id);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
@@ -296,7 +297,12 @@ impl Hub {
         }))
     }
 
-    fn restore_harness_state(&self, bundle: &Path, meta: &SessionMeta) -> Result<()> {
+    fn restore_harness_state(
+        &self,
+        bundle: &Path,
+        meta: &SessionMeta,
+        replace_durable: bool,
+    ) -> Result<()> {
         if meta.harness != "cmux-harness" {
             return Ok(());
         }
@@ -342,12 +348,7 @@ impl Hub {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
         let journal_dir = root.join(agent_id);
-        let existing_same = self.sessions.lock().unwrap().get(&meta.id).is_some_and(|session| {
-            session.status() == SessionStatus::Closed
-                && self.moved_away(session)
-                && session.meta().agent_session_id.as_deref() == Some(agent_id)
-        });
-        if std::fs::symlink_metadata(&journal_dir).is_ok() && !existing_same {
+        if std::fs::symlink_metadata(&journal_dir).is_ok() && !replace_durable {
             return Err(anyhow::anyhow!("target durable session is already occupied"));
         }
         if let Ok(owner) = std::fs::symlink_metadata(journal_dir.join("owner.sqlite")) {

@@ -68,7 +68,7 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
 impl Hub {
     /// A chat that moved from here to another daemon: closed, its move committed (also before a
     /// restart, which does not rebuild a closed chat's state).
-    fn moved_away(&self, session: &Session) -> bool {
+    pub(super) fn moved_away(&self, session: &Session) -> bool {
         if session.status() != SessionStatus::Closed {
             return false;
         }
@@ -209,6 +209,7 @@ impl Hub {
         let id = manifest["sessionId"].as_str().unwrap_or("");
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
+        let replacing_durable = old.is_some();
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -259,7 +260,7 @@ impl Hub {
         let guarded = guard
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
-        let session = self.import_into(&bundle, name, true, guarded).await?;
+        let session = self.import_into(&bundle, name, true, guarded, replacing_durable).await?;
         if let Some(g) = &guard {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }
