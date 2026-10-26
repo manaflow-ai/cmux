@@ -1,4 +1,3 @@
-import CmuxNextCompat
 import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
@@ -56,39 +55,39 @@ public final class CEFAgentRelay {
     /// Sends one raw DevTools message in this turn, in order with the tab's other ops; its "id"
     /// must be a raw id (>= 2^30). The shim's answer (1 sent, 0 the browser is gone, -1 refused)
     /// is the call's own in process and the host's REPLY in host mode
-    /// (``CEFRuntime/whenAnswered(_:label:timeout:then:)``). Anything but 1 comes back on the
-    /// relay's stream as a CDP error reply with the message's id, as Chromium answers a message it
-    /// cannot dispatch (`DevToolsSession::DispatchProtocolMessage`,
+    /// (``CEFRuntime/whenSettled(_:label:timeout:then:)``). A message that cannot get Chromium's
+    /// own reply (0, -1, or a host that exited or was never attached) comes back on the relay's
+    /// stream as a CDP error reply with the message's id, as Chromium answers a message it cannot
+    /// dispatch (`DevToolsSession::DispatchProtocolMessage`,
     /// content/browser/devtools/devtools_session.cc): `DevToolsAgentHost::DispatchProtocolMessage`
-    /// returns nothing, and the client learns of a failure from the protocol.
+    /// returns nothing, and the client learns of a failure from the protocol. A host that has not
+    /// answered by the deadline gets no made-up error: it may have sent the message, whose real
+    /// reply then still comes, and the relay's close answers whatever stays pending.
     /// A message without one integer top-level raw id is `.refused` here, before anything is sent.
     public func send(_ message: String) -> CEFDevToolsRawSend {
         guard let tab, !tab.isClosed, let browser = tab.browserID, tab.runtime.shim != nil else { return .noBrowser }
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message), CEFDevToolsRawMessage.isRawID(id) else { return .refused }
         let sent = tab.runtime.sendAsync { shim in message.withCString { shim.devToolsSend(browser, $0) } }
-        tab.runtime.whenAnswered(sent, label: "devtools send") { [weak self] answer in
-            guard answer != 1, let reply = Self.errorReply(id: id, to: message, answer: answer) else { return }
+        tab.runtime.whenSettled(sent, label: "devtools send") { [weak self] settled in
+            guard let text = Self.unansweredText(settled),
+                  let reply = CEFDevToolsRawMessage.errorReply(id: id, sessionID: CEFDevToolsRawMessage.sessionID(in: message), text: text)
+            else { return }
             self?.sink?(reply)
         }
         return .sent
     }
 
-    /// The CDP error reply with `id` to `message` for the shim's `answer` (nil: none came), in the
-    /// message's "sessionId" when it has one.
-    static func errorReply(id: Int, to message: String, answer: Int32?) -> String? {
-        let text = switch answer {
-        case 0?: "the tab's page has no browser"
-        case nil: "the Chromium Host did not answer"
-        default: "Chromium refused the message"
+    /// The error text for a send whose real reply cannot come; nil when Chromium took it, or when a
+    /// late answer is still possible (a passed deadline, a REPLY that did not decode).
+    static func unansweredText(_ settled: Result<Int32, CEFHostReplyError>) -> String? {
+        switch settled {
+        case .success(1): nil
+        case .success(0): "the tab's page has no browser"
+        case .success: "Chromium refused the message"
+        case .failure(.hostGone): "the Chromium Host exited"
+        case .failure(.unsent): "the Chromium Host is not attached"
+        case .failure: nil
         }
-        var reply: [String: Any] = ["id": id, "error": ["code": -32000, "message": text]]
-        if message.contains("\"sessionId\""),
-           let object = (try? JSONSerialization.blockingJSONObject(with: Data(message.utf8))) as? [String: Any],
-           let session = object["sessionId"] as? String {
-            reply["sessionId"] = session
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]) else { return nil }
-        return String(decoding: data, as: UTF8.self)
     }
 
     /// True once the Chromium browser exists.

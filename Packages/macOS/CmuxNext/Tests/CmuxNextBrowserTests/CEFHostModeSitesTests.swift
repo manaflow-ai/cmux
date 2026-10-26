@@ -41,18 +41,53 @@ import Testing
         #expect(SitesSpy.calls == ["certificate 7 192.168.1.4 -202 0", "load 7 https://192.168.1.4/page"])
     }
 
-    /// `DownloadManager::DownloadUrl` returns nothing: a sent download is true, and only the local
-    /// scheme check refuses one.
+    /// `DownloadManager::DownloadUrl` returns nothing: a download sent to a live browser is true,
+    /// and only the local checks (scheme, liveness) refuse one.
     @Test func aDownloadIsTrueOnceSent() throws {
         var starts: [String] = []
         let downloads = CEFDownloads {
-            CEFDownloadShim(start: { browser, url in starts.append("\(browser) \(url)") }, answer: { _, _ in }, control: { _, _ in })
+            CEFDownloadShim(start: { browser, url in starts.append("\(browser) \(url)"); return browser == 3 },
+                            answer: { _, _ in }, control: { _, _ in })
         }
 
         #expect(downloads.download("https://a.test/file.zip", browser: 3))
         #expect(downloads.save(try #require(URL(string: "https://a.test/b.zip")), to: URL(filePath: "/tmp/b.zip"), browser: 3))
         #expect(!downloads.download("file:///etc/hosts", browser: 3))
-        #expect(starts == ["3 https://a.test/file.zip", "3 https://a.test/b.zip"])
+        #expect(!downloads.download("https://a.test/gone.zip", browser: 4))
+        #expect(starts == ["3 https://a.test/file.zip", "3 https://a.test/b.zip", "4 https://a.test/gone.zip"])
+    }
+
+    /// Retry of a download whose tab closed: the runtime knows the browser is gone, so nothing is
+    /// sent and Retry is false (the Downloads list keeps the row, `BrowserDownloadList.retry`), in
+    /// both backends. Before, the post's stand-in made it true and the row was dropped.
+    @Test func retryOfADownloadWhoseTabClosedIsFalseAndSendsNothing() throws {
+        SitesSpy.reset()
+        let runtime = try SitesHarness.inProcessRuntime()
+        let tab = SitesHarness.attachedTab(runtime)
+        runtime.tabsByBrowser[7] = tab
+        let downloads = CEFDownloads.forRuntime(runtime)
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cef-sites-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        downloads.directory = { folder }
+        var delivered: [BrowserDownload] = []
+        downloads.deliver = { _, item in delivered.append(item) }
+        let url = "https://a.test/f.zip"
+        SitesSpy.calls = []
+
+        #expect(downloads.download(url, browser: 7))
+        downloads.handle(.started(id: 1, browser: 7, url: url, suggestedName: "f.zip", totalBytes: nil))
+        let item = try #require(delivered.first)
+        item.cancel()
+        #expect(item.canRetry)
+
+        runtime.tabsByBrowser[7] = nil
+        #expect(!item.retry(), "Retry of a download whose tab closed reported a start")
+        #expect(SitesSpy.calls == ["download 7 \(url)"], "a start went to a gone browser")
+
+        runtime.tabsByBrowser[7] = tab
+        #expect(item.retry())
+        #expect(SitesSpy.calls == ["download 7 \(url)", "download 7 \(url)"])
     }
 
     // MARK: DevTools relay: a refusal comes back on the stream
@@ -112,7 +147,10 @@ import Testing
         #expect(host.replies.count == waiting)
     }
 
-    @Test func hostModeARelayMessageTheHostNeverAnswersFailsAtItsDeadline() async throws {
+    /// A slow host may still have sent the message: its deadline makes up no error, so Chromium's
+    /// real reply, when it comes, is the only answer the agent gets (`DevToolsSession` never answers
+    /// for a message in flight). The relay's close answers what stays pending.
+    @Test func hostModeARelayMessagePastItsDeadlineGetsNoMadeUpError() async throws {
         SitesSpy.reset()
         let (runtime, _) = try await SitesHarness.hostRuntime()
         let rig = HostRepliesHarness.deadlines(of: runtime)
@@ -123,8 +161,35 @@ import Testing
         #expect(tab.agentRelay.send(#"{"id":1073741831,"method":"Page.enable"}"#) == .sent)
         rig.advance(by: CEFRuntime.siteReplyTimeout + .seconds(2))
 
+        #expect(stream.isEmpty, "a message the host may still answer got an error reply")
+    }
+
+    /// The host exited before it answered: no real reply can come, so the message fails on the stream.
+    @Test func hostModeARelayMessageWhoseHostExitedFailsOnTheStream() async throws {
+        SitesSpy.reset()
+        let (runtime, _) = try await SitesHarness.hostRuntime()
+        let tab = SitesHarness.attachedTab(runtime)
+        var stream: [String] = []
+        tab.agentRelay.set(onMessage: { stream.append($0) }, onEnd: {})
+
+        #expect(tab.agentRelay.send(#"{"id":1073741832,"method":"Page.enable","sessionId":"S2"}"#) == .sent)
+        #expect(stream.isEmpty)
+        runtime.hostGone()
+
         let reply = try SitesHarness.object(try #require(stream.last))
-        #expect((reply["error"] as? [String: Any])?["message"] as? String == "the Chromium Host did not answer")
+        #expect(reply["id"] as? Int == 1_073_741_832)
+        #expect(reply["sessionId"] as? String == "S2")
+        #expect((reply["error"] as? [String: Any])?["message"] as? String == "the Chromium Host exited")
+    }
+
+    /// One CDP error shape for both relays (`CDPRawIDMap` answers the host's commands with it).
+    @Test func theErrorReplyKeepsTheIdAndSession() throws {
+        let reply = try SitesHarness.object(try #require(CEFDevToolsRawMessage.errorReply(id: 1_073_741_833, sessionID: "S3", text: "t")))
+        #expect(reply["id"] as? Int == 1_073_741_833)
+        #expect(reply["sessionId"] as? String == "S3")
+        #expect((reply["error"] as? [String: Any])?["code"] as? Int == -32000)
+        #expect(CEFDevToolsRawMessage.sessionID(in: #"{"id":1,"method":"Page.enable","sessionId":"S4"}"#) == "S4")
+        #expect(CEFDevToolsRawMessage.sessionID(in: #"{"id":1,"method":"Page.enable"}"#) == nil)
     }
 
     // MARK: Bookmarks: a refusal forgets the store when it is known
@@ -135,16 +200,16 @@ import Testing
         runtime.state = .ready
         let bridge = CEFBookmarkBridge(runtime: runtime)
         let (profile, store) = SitesHarness.store(in: bridge)
-        var refusals = 0
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
 
         SitesSpy.bookmarksAnswer = 0
-        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { refusals += 1 }
-        #expect(refusals == 0)
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        #expect(failures.isEmpty)
         #expect(bridge.stores[profile] == [store], "a model that is not loaded yet forgot its store")
 
         SitesSpy.bookmarksAnswer = -1
-        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { refusals += 1 }
-        #expect(refusals == 1)
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        #expect(failures == [.refused])
         #expect(bridge.stores[profile]?.isEmpty == true)
         #expect(SitesSpy.syncs == [store, store])
     }
@@ -155,15 +220,69 @@ import Testing
         runtime.state = .ready
         let bridge = CEFBookmarkBridge(runtime: runtime)
         let (profile, store) = SitesHarness.store(in: bridge)
-        var refusals = 0
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
         let waiting = host.replies.count
 
-        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { refusals += 1 }
-        #expect(refusals == 0, "the remote's 1 (sent) was read as the host's answer")
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        #expect(failures.isEmpty, "the remote's 1 (sent) was read as the host's answer")
         #expect(host.replies.count == waiting + 1)
         try SitesHarness.deliver(SitesSpy.lastToken, CEFReplyWaitersTests.int32(-1))
 
-        #expect(refusals == 1)
+        #expect(failures == [.refused])
+        #expect(bridge.stores[profile]?.isEmpty == true)
+    }
+
+    /// A whole-tree apply on a busy host can outlast the deadline: the store stays listed, so later
+    /// cmux edits still reach it, and the failure says no answer, not a refusal.
+    @Test func hostModeABookmarkSyncPastItsDeadlineKeepsTheStore() async throws {
+        SitesSpy.reset()
+        let (runtime, _) = try await SitesHarness.hostRuntime()
+        runtime.state = .ready
+        let rig = HostRepliesHarness.deadlines(of: runtime)
+        let bridge = CEFBookmarkBridge(runtime: runtime)
+        let (profile, store) = SitesHarness.store(in: bridge)
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
+
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        rig.advance(by: CEFRuntime.siteReplyTimeout + .seconds(2))
+        #expect(failures.isEmpty, "a whole-tree sync had only a site query's deadline")
+        rig.advance(by: CEFBookmarkBridge.syncReplyTimeout)
+
+        #expect(failures == [.noAnswer])
+        #expect(bridge.stores[profile] == [store], "a sync the host may still apply forgot its store")
+    }
+
+    /// A refusal of a sync sent before the store reported again does not forget the live store.
+    @Test func aStaleRefusalKeepsAStoreThatReportedAgain() async throws {
+        SitesSpy.reset()
+        let (runtime, _) = try await SitesHarness.hostRuntime()
+        runtime.state = .ready
+        let bridge = CEFBookmarkBridge(runtime: runtime)
+        let (profile, store) = SitesHarness.store(in: bridge)
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
+
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        let token = SitesSpy.lastToken
+        bridge.arrived(json: #"{"op":"reset"}"#, cachePath: store)
+        try SitesHarness.deliver(token, CEFReplyWaitersTests.int32(-1))
+
+        #expect(failures == [.refused])
+        #expect(bridge.stores[profile] == [store], "a stale refusal forgot a store that reported after the sync")
+    }
+
+    /// The host exited before it answered: the store is forgotten (the next host's stores report again).
+    @Test func hostModeABookmarkSyncWhoseHostExitedForgetsTheStore() async throws {
+        SitesSpy.reset()
+        let (runtime, _) = try await SitesHarness.hostRuntime()
+        runtime.state = .ready
+        let bridge = CEFBookmarkBridge(runtime: runtime)
+        let (profile, store) = SitesHarness.store(in: bridge)
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
+
+        bridge.sync(store: store, treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
+        runtime.hostGone()
+
+        #expect(failures == [.hostGone])
         #expect(bridge.stores[profile]?.isEmpty == true)
     }
 
@@ -171,11 +290,11 @@ import Testing
         SitesSpy.reset()
         let runtime = try SitesHarness.inProcessRuntime()
         let bridge = CEFBookmarkBridge(runtime: runtime)
-        var refusals = 0
+        var failures: [CEFBookmarkBridge.SyncFailure] = []
 
-        bridge.sync(store: "/tmp/Profile-x", treeJSON: #"{"nodes":[]}"#) { refusals += 1 }
+        bridge.sync(store: "/tmp/Profile-x", treeJSON: #"{"nodes":[]}"#) { failures.append($0) }
 
-        #expect(refusals == 1)
+        #expect(failures == [.notRunning])
         #expect(SitesSpy.syncs.isEmpty)
     }
 }
@@ -297,6 +416,10 @@ nonisolated enum SitesSpy {
         let load: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { browser, url in
             SitesSpy.calls.append("load \(browser) \(SitesSpy.text(url))")
         }
+        let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { browser, url in
+            SitesSpy.calls.append("download \(browser) \(SitesSpy.text(url))")
+            return 0
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
@@ -309,6 +432,7 @@ nonisolated enum SitesSpy {
         case "cmux_shim_print": unsafeBitCast(printPage, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_certificate_proceed": unsafeBitCast(certificate, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_load_url": unsafeBitCast(load, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_download_url": unsafeBitCast(downloadURL, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

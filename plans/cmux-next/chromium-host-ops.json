@@ -1373,7 +1373,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 sent, 0 browser gone, -1 refused by Chromium: CEFAgentRelay.send takes the token form and turns an answer other than 1 into a CDP error reply on the relay stream; agent CDP later goes daemon to host directly (task 233)."
+      "reason": "1 sent, 0 browser gone, -1 refused by Chromium: CEFAgentRelay.send takes the token form (whenSettled) and turns 0, -1 or a gone host into a CDP error reply on the relay stream; a passed deadline makes up no error, since the real reply may still come; agent CDP later goes daemon to host directly (task 233)."
     },
     {
       "name": "cmux_shim_devtools_set_key_handler",
@@ -2376,7 +2376,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks the scheme (http, https, data, blob) before it posts and does not read the result; DOWNLOAD_STARTED follows, as DownloadManager::DownloadUrl returns nothing."
+      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks the scheme (http, https, data, blob) and the browser's liveness (CEFRuntime.tabsByBrowser) before it posts and does not read the result; DOWNLOAD_STARTED follows, as DownloadManager::DownloadUrl returns nothing."
     },
     {
       "name": "cmux_shim_download_continue",
@@ -3472,7 +3472,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state, which CEFBookmarkBridge.sync takes in the token form."
+      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state, which CEFBookmarkBridge.sync takes in the token form (whenSettled); a refusal or a gone host forgets the store, a passed deadline keeps it."
     },
     {
       "name": "cmux_shim_page_scheme_add",
