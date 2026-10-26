@@ -27,7 +27,7 @@ import CmuxNextSignposts
 /// Key-press flows (`CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, passed to the daemon as
 /// `CMUX_TRACE_FLOWS`; scripts/cmux-next/trace.py):
 /// each sample also gets a flow id, and every hop it records, plus the
-/// extra ``hop(_:)`` points and the commit of the frame that shows the echo,
+/// ``keyReachedTerminal()`` hop and the commit of the frame that shows the echo,
 /// is a `key.flow` signpost event (``Signposter/flowHop(_:flow:ageMicroseconds:)``).
 /// The daemon's `send` request carries ``openFlow``, so the daemon, the
 /// terminal host and the holder mark the same press on the same clock. The
@@ -43,17 +43,17 @@ public final class TypingLatencyProbe: Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
 
         /// The `key.flow` hop this mark records.
-        var hopName: String {
+        var hop: KeyFlowHop {
             switch self {
-            case .dispatchStart: "app.key.dispatch"
-            case .dispatchEnd: "app.key.dispatched"
-            case .ioWrite: "app.io_write"
-            case .socketSubmit: "app.send"
-            case .outputDecoded: "app.output.decoded"
-            case .outputReceived: "app.output.received"
-            case .outputParsed: "app.output.parsed"
-            case .contents: "app.frame.contents"
-            case .commit: "app.key.commit"
+            case .dispatchStart: .appKeyDispatch
+            case .dispatchEnd: .appKeyDispatched
+            case .ioWrite: .appIOWrite
+            case .socketSubmit: .appSend
+            case .outputDecoded: .appOutputDecoded
+            case .outputReceived: .appOutputReceived
+            case .outputParsed: .appOutputParsed
+            case .contents: .appFrameContents
+            case .commit: .appKeyCommit
             }
         }
 
@@ -139,11 +139,11 @@ public final class TypingLatencyProbe: Sendable {
         return state.withLock { $0.open?.flow }
     }
 
-    /// Records a `key.flow` hop of the open press that no CSV column has (`app.key.terminal`: the key
-    /// router handed the key to a terminal). Nothing while flows are off or no press is open.
-    public func hop(_ name: String) {
+    /// Records the open press's `app.key.terminal` hop, which no CSV column has: the key
+    /// router handed the key to a terminal. Nothing while flows are off or no press is open.
+    public func keyReachedTerminal() {
         guard let flows, let flow = state.withLock({ $0.open?.flow }) else { return }
-        flows.flowHop(name, flow: flow)
+        flows.flowHop(.appKeyTerminal, flow: flow)
     }
 
     /// Marks `app.frame.commit` for the flow whose echo frame went to its layer: the run-loop end that
@@ -153,7 +153,7 @@ public final class TypingLatencyProbe: Sendable {
             defer { state.echoCommit = nil }
             return state.echoCommit
         }) else { return }
-        flows.flowHop("app.frame.commit", flow: flow)
+        flows.flowHop(.appFrameCommit, flow: flow)
     }
 
     /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`.
@@ -171,7 +171,7 @@ public final class TypingLatencyProbe: Sendable {
             return (previous, sample.flow)
         }
         if let unfinished { emit(unfinished, complete: false) }
-        flows?.flowHop(Mark.dispatchStart.hopName, flow: flow, ageMicroseconds: Int64(bitPattern: now &- event) / 1_000)
+        flows?.flowHop(Mark.dispatchStart.hop, flow: flow, ageMicroseconds: Int64(bitPattern: now &- event) / 1_000)
     }
 
     /// Records `mark` for the open sample the first time it runs. A mark
@@ -195,7 +195,7 @@ public final class TypingLatencyProbe: Sendable {
             return (nil, sample)
         }
         if let recorded, let flows {
-            flows.flowHop(mark.hopName, flow: recorded.flow, ageMicroseconds: Int64(bitPattern: now &- recorded.event) / 1_000)
+            flows.flowHop(mark.hop, flow: recorded.flow, ageMicroseconds: Int64(bitPattern: now &- recorded.event) / 1_000)
         }
         if let finished { emit(finished, complete: true) }
     }

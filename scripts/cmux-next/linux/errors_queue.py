@@ -5,7 +5,8 @@ swift-tier.sh and swift-shared.sh run SwiftPM; this file does every decision tha
 
     plan            ordered tier targets (sources, then tests) with their local dependencies and
                     the Skip flag from tests/oracle expectations
-    shared-packages the Shared/iOS packages the shared runner covers (MQ-shared-packages rule)
+    shared-packages the Shared/iOS packages the shared runner covers (MQ-shared-packages rule), each
+                    with the Skip flag from tests/oracle expectations
     receipt         reads the runner's ledger, logs and xunit files; writes the receipt and the
                     compiler-error queue; exits 1 on any failure no `[ linux ]` line expects
     selftest        parser, cluster, plan and receipt tests on fixtures
@@ -21,16 +22,24 @@ A case is a target (tier) or a package (shared). A step is one test with the `()
 `Suite.test` in the tier (the case is the test module), `Module.Suite.test` in the shared runner. Only lines tagged `linux` count, so a mac line never excuses a Linux red.
 
 Ledger (one TSV line per step, written by the runner):
-    suite  case  kind  status  exit  seconds  log  xunit
+    suite  case  kind  status  exit  seconds  log  xunit  detail
 kind: phase setup missing build build-test package test incremental; status: pass fail timeout blocked skip.
-`setup` steps (resolve, dump-package, test-product link) have no target; a failed one is a red like a target.
+`setup` steps (resolve, plan, dump-package, test-product link) have no target; a failed one is a red like a target.
+`detail` of a blocked step names the step that blocked it.
+
+Reds besides failed builds and tests: a target blocked by a dependency whose failure a line expects (or
+that a Skip line names) is a red unless it has its own line, so one line on a root cannot quietly take
+its dependents out of the tier; a test target that ran without one parsed test result; a failed or
+timed-out --measure-incremental build, and one over INCREMENTAL_BUDGET_SECONDS.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import hashlib
+import io
 import json
 import re
 import sys
@@ -111,13 +120,14 @@ class LedgerRecord:
     seconds: float
     log: str
     xunit: str
+    detail: str = ""
 
     @classmethod
     def parse(cls, line: str) -> "LedgerRecord":
         parts = line.rstrip("\n").split("\t")
-        parts += [""] * (8 - len(parts))
-        suite, case, kind, status, code, seconds, log, xunit = parts[:8]
-        return cls(suite, case, kind, status, int(code or 0), float(seconds or 0), log, xunit)
+        parts += [""] * (9 - len(parts))
+        suite, case, kind, status, code, seconds, log, xunit, detail = parts[:9]
+        return cls(suite, case, kind, status, int(code or 0), float(seconds or 0), log, xunit, detail)
 
 
 def read_ledger(path: Path) -> list[LedgerRecord]:
@@ -516,6 +526,7 @@ class CaseState:
     tests: list[TestResult] = dataclasses.field(default_factory=list)
     seconds: float = 0.0
     log: str = ""
+    blocked_by: str = ""
 
 
 def crash_cause(log: str, prefixes: Sequence[str]) -> str:
@@ -570,6 +581,8 @@ def build_receipt(
                 "budget_seconds": INCREMENTAL_BUDGET_SECONDS,
                 "within_budget": r.status == "pass" and r.seconds < INCREMENTAL_BUDGET_SECONDS,
             }
+            if r.status in ("fail", "timeout") and r.log:
+                failed_logs.append((r.case, Path(r.log)))
             continue
         s = state(r.case)
         if r.kind == "package":
@@ -578,6 +591,7 @@ def build_receipt(
         elif r.kind in ("build", "build-test", "missing", "setup"):
             s.kind = {"build": "source", "build-test": "test", "missing": "missing", "setup": "setup"}[r.kind]
             s.build = r.status
+            s.blocked_by = r.detail if r.status == "blocked" else ""
         elif r.kind == "test":
             s.run = r.status
             s.log = r.log
@@ -612,14 +626,17 @@ def build_receipt(
         expected.append(item)
         return True
 
+    whole_case_failure = oracle_exp.Actual(oracle_exp.FAILURE, (oracle_exp.Divergence(None, None),))
     per_case: dict[str, dict] = {}
+    red: set[str] = set()  # cases with a red no line expects
     for name in order:
         s = cases[name]
         row: dict = {"kind": s.kind, "build": s.build or "not-built"}
         if s.build in ("fail", "timeout"):
-            result = oracle_exp.TIMEOUT if s.build == "timeout" else oracle_exp.FAILURE
-            divergences = () if result == oracle_exp.TIMEOUT else (oracle_exp.Divergence(None, None),)
-            row["expected"] = judge(name, oracle_exp.Actual(result, divergences), f"{s.kind or 'build'} build")
+            actual = oracle_exp.Actual(oracle_exp.TIMEOUT) if s.build == "timeout" else whole_case_failure
+            row["expected"] = judge(name, actual, f"{s.kind or 'build'} build")
+            if not row["expected"]:
+                red.add(name)
         if s.run:
             passed = [t for t in s.tests if t.status == "pass"]
             failed = [t for t in s.tests if t.status == "fail"]
@@ -644,6 +661,10 @@ def build_receipt(
                 cause = crash_cause(s.log, prefixes)
                 if not judge(name, oracle_exp.Actual(oracle_exp.CRASH), "test run", cause):
                     bad.append({"step": None, "message": f"test process crashed: {cause}"})
+            elif s.run == "pass" and not s.tests:
+                # A filter that matched nothing or a lost xunit file looks like a green run.
+                if not judge(name, whole_case_failure, "test run", "no tests executed"):
+                    bad.append({"step": None, "message": "no tests executed"})
             elif s.run == "pass":
                 verdict = exp.evaluate(suite, name, config, oracle_exp.Actual(oracle_exp.PASS))
                 unexpected_pass.extend(verdict.unexpected_pass_lines)
@@ -660,6 +681,29 @@ def build_receipt(
         if s.kind in ("test", "package") and s.run not in ("", "skip"):
             row["linux_share"] = round(linux_share(exp, suite, name, config, row.get("tests", 0)), 4)
         per_case[name] = row
+
+    # A blocked case did not build. Behind an unexpected red the run is red already; behind an
+    # expected failure or a Skip only the case's own line keeps it out of the run, so one line on a
+    # root never takes its dependents out of the tier unseen. The ledger lists blockers first.
+    for name in order:
+        s = cases[name]
+        if s.build != "blocked":
+            continue
+        row = per_case[name]
+        row["blocked_by"] = s.blocked_by
+        if s.blocked_by in red:
+            red.add(name)
+            continue
+        row["expected"] = judge(name, whole_case_failure, f"{s.kind or 'build'} blocked by {s.blocked_by or 'a dependency'}")
+        if not row["expected"]:
+            red.add(name)
+
+    incremental_over_budget = False
+    if incremental and incremental["status"] in ("fail", "timeout"):
+        actual = oracle_exp.Actual(oracle_exp.TIMEOUT) if incremental["status"] == "timeout" else whole_case_failure
+        judge(incremental["target"], actual, "incremental build")
+    elif incremental and incremental["status"] == "pass" and not incremental["within_budget"]:
+        incremental_over_budget = True
 
     budget = [
         {"case": name, "linux_share": row["linux_share"], "limit": LINUX_SHARE_BUDGET}
@@ -743,6 +787,7 @@ def build_receipt(
             "built": names("source", "pass"),
             "failed": names("source", "fail") + names("source", "timeout"),
             "blocked": names("source", "blocked"),
+            "skipped": names("source", "skip"),
             "missing": [n for n in order if cases[n].kind == "missing"],
         },
         "test_targets": {
@@ -750,7 +795,7 @@ def build_receipt(
             "failed": names("test", "fail") + names("test", "timeout"),
             "blocked": names("test", "blocked"),
             "run": [n for n in order if cases[n].run not in ("", "skip")],
-            "skipped": [n for n in order if cases[n].run == "skip"],
+            "skipped": names("test", "skip"),
         },
         "setup": {
             "passed": names("setup", "pass"),
@@ -759,6 +804,7 @@ def build_receipt(
         "packages": {
             "built": names("package", "pass"),
             "failed": names("package", "fail") + names("package", "timeout"),
+            "skipped": names("package", "skip"),
         },
         "tests": {
             "executed": tests_total["tests"],
@@ -781,7 +827,8 @@ def build_receipt(
         "packages_built": len(receipt["packages"]["built"]),
         "packages_failed": len(receipt["packages"]["failed"]),
     }
-    receipt["ok"] = not unexpected and not budget
+    receipt["incremental_over_budget"] = incremental_over_budget
+    receipt["ok"] = not unexpected and not budget and not incremental_over_budget
     return receipt, queue
 
 
@@ -809,16 +856,22 @@ def render_summary(receipt: dict) -> str:
         + (f" sanitize={receipt['sanitize']}" if receipt["sanitize"] else ""),
     ]
     if receipt["suite"] == "swift-shared":
-        lines.append(f"packages built {c['packages_built']}, failed {c['packages_failed']}")
+        lines.append(
+            f"packages built {c['packages_built']}, failed {c['packages_failed']}, "
+            f"skipped {len(receipt['packages']['skipped'])}, missing {len(receipt['targets']['missing'])}"
+        )
     else:
         lines.append(
-            f"targets built {c['targets_built']}, failed {c['targets_failed']}, blocked {len(receipt['targets']['blocked'])}; "
-            f"test targets built {c['test_targets_built']}"
+            f"targets built {c['targets_built']}, failed {c['targets_failed']}, blocked {len(receipt['targets']['blocked'])}, "
+            f"skipped {len(receipt['targets']['skipped'])}; test targets built {c['test_targets_built']}, "
+            f"blocked {len(receipt['test_targets']['blocked'])}, skipped {len(receipt['test_targets']['skipped'])}"
         )
     lines.append(f"tests executed {t['executed']}, passed {t['passed']}, failed {t['failed']}, skipped {t['skipped']}")
     if receipt["incremental"]:
         inc = receipt["incremental"]
         lines.append(f"incremental {inc['target']}: {inc['seconds']} s ({inc['status']}, budget {inc['budget_seconds']} s)")
+        if receipt["incremental_over_budget"]:
+            lines.append(f"OVER BUDGET: the incremental build of {inc['target']} took {inc['seconds']} s (limit {inc['budget_seconds']} s)")
     lines.append(f"errors queue: {receipt['errors_queue']['entries']} entries")
     for item in receipt["unexpected"][:20]:
         where = item["case"] + (f"/{item['step']}" if item.get("step") else "")
@@ -985,13 +1038,73 @@ def _selftest() -> int:
         # 1 step line over 4 executed tests: 25 % > 5 %.
         check("linux share budget", receipt["linux_share_over_budget"] == [{"case": "CmuxNextFooTests", "linux_share": 0.25, "limit": 0.05}])
 
+        one_test = tmp / "xunit" / "one.xml"
+        one_test.write_text('<testsuites><testsuite><testcase classname="Core.S" name="ok()"/></testsuite></testsuites>')
         green = [
             LedgerRecord("swift-shared", "CMUXAuthCore", "package", "pass", 0, 9, "", ""),
-            LedgerRecord("swift-shared", "CMUXAuthCore", "test", "pass", 0, 1, "", ""),
+            LedgerRecord("swift-shared", "CMUXAuthCore", "test", "pass", 0, 1, "", str(one_test)),
             LedgerRecord("swift-shared", "CmuxTheme", "package", "skip", 0, 0, "", ""),
         ]
         ok_receipt, ok_queue = build_receipt(green, {"suite": "swift-shared"}, repo, [], oracle_exp.Expectations([], []))
         check("green run ok", ok_receipt["ok"] and not ok_queue and ok_receipt["counts"]["packages_built"] == 1)
+        check("skipped package listed", ok_receipt["packages"]["skipped"] == ["CmuxTheme"])
+
+        none_run = [
+            LedgerRecord("swift-tier", "T", "build-test", "pass", 0, 1, "", ""),
+            LedgerRecord("swift-tier", "T", "test", "pass", 0, 1, "", str(tmp / "absent.xml")),
+        ]
+        z_receipt, z_queue = build_receipt(none_run, {"suite": "swift-tier"}, repo, [], oracle_exp.Expectations([], []))
+        check("a green test run with no test is a red", not z_receipt["ok"]
+              and z_queue == [{"id": "swift-tier:T:tests", "kind": "test", "suite": "swift-tier", "target": "T",
+                               "tests": [{"step": None, "message": "no tests executed"}]}])
+        z_exp, _ = oracle_exp.parse_text("p15-oracle-120 [ linux ] swift-tier/T [ Failure ]\n", "swift-tier.txt", "expectations")
+        z_ok, _ = build_receipt(none_run, {"suite": "swift-tier"}, repo, [], oracle_exp.Expectations(z_exp, []))
+        check("a line excuses a run with no test", not z_ok["unexpected"])
+
+        chain = [
+            LedgerRecord("swift-tier", "Root", "build", "fail", 1, 1, "", ""),
+            LedgerRecord("swift-tier", "Mid", "build", "blocked", 0, 0, "", "", "Root"),
+            LedgerRecord("swift-tier", "MidTests", "build-test", "blocked", 0, 0, "", "", "Mid"),
+            LedgerRecord("swift-tier", "Off", "build", "skip", 0, 0, "", ""),
+            LedgerRecord("swift-tier", "OffUser", "build", "blocked", 0, 0, "", "", "Off"),
+        ]
+        none = oracle_exp.Expectations([], [])
+        c_receipt, _ = build_receipt(chain, {"suite": "swift-tier"}, repo, [], none)
+        check("behind an unexpected red, blocked cases add no red", [u["case"] for u in c_receipt["unexpected"]] == ["Root", "OffUser"])
+        check("blocked and skipped listed", c_receipt["targets"]["blocked"] == ["Mid", "OffUser"]
+              and c_receipt["test_targets"]["blocked"] == ["MidTests"] and c_receipt["targets"]["skipped"] == ["Off"]
+              and c_receipt["cases"]["MidTests"]["blocked_by"] == "Mid")
+        root_exp, _ = oracle_exp.parse_text(
+            "p15-oracle-121 [ linux ] swift-tier/Root [ Failure ]\np15-oracle-122 [ linux ] swift-tier/Off [ Skip ]\n",
+            "swift-tier.txt", "expectations",
+        )
+        r_receipt, _ = build_receipt(chain, {"suite": "swift-tier"}, repo, [], oracle_exp.Expectations(root_exp, []))
+        check("a line on a root leaves its dependents red", [(u["case"], u["what"]) for u in r_receipt["unexpected"]]
+              == [("Mid", "source blocked by Root"), ("OffUser", "source blocked by Off")])
+        own_exp, _ = oracle_exp.parse_text(
+            "p15-oracle-121 [ linux ] swift-tier/Root [ Failure ]\np15-oracle-121 [ linux ] swift-tier/Mid [ Failure ]\n"
+            "p15-oracle-122 [ linux ] swift-tier/Off [ Skip ]\np15-oracle-122 [ linux ] swift-tier/OffUser [ Failure ]\n",
+            "swift-tier.txt", "expectations",
+        )
+        o_receipt, _ = build_receipt(chain, {"suite": "swift-tier"}, repo, [], oracle_exp.Expectations(own_exp, []))
+        check("a blocked case behind an expected red needs its own line",
+              [u["case"] for u in o_receipt["unexpected"]] == ["MidTests"])
+
+        built = [LedgerRecord("swift-tier", "A", "build", "pass", 0, 1, "", "")]
+        inc_log = tmp / "inc.log"
+        inc_log.write_text(f"{scratch}/Packages/macOS/CmuxNext/Sources/CmuxNextFoo/Small.swift:3:1: error: expected expression\n")
+        i_fail, i_queue = build_receipt(built + [LedgerRecord("swift-tier", "A", "incremental", "fail", 1, 4, str(inc_log), "")],
+                                        {"suite": "swift-tier"}, repo, [str(scratch)], none)
+        check("a failed incremental build is a red with its errors queued",
+              [(u["case"], u["what"]) for u in i_fail["unexpected"]] == [("A", "incremental build")]
+              and [q["target"] for q in i_queue if q["kind"] == "compile"] == ["CmuxNextFoo"])
+        i_slow, _ = build_receipt(built + [LedgerRecord("swift-tier", "A", "incremental", "pass", 0, 31, "", "")],
+                                  {"suite": "swift-tier"}, repo, [], none)
+        check("an incremental build over budget fails the run", not i_slow["ok"] and i_slow["incremental_over_budget"]
+              and "OVER BUDGET: the incremental build of A" in render_summary(i_slow))
+        i_blocked, _ = build_receipt(built + [LedgerRecord("swift-tier", "A", "incremental", "blocked", 0, 0, "", "", "A")],
+                                     {"suite": "swift-tier"}, repo, [], none)
+        check("an incremental build of a red target adds no red", i_blocked["ok"])
 
         crash = [
             LedgerRecord("swift-shared", "P", "package", "pass", 0, 1, "", ""),
@@ -1017,6 +1130,13 @@ def _selftest() -> int:
                 (pkg / f"V{i}.swift").write_text("@preconcurrency import SwiftUI\n")
             (pkg / "Core.swift").write_text("import Foundation\n// import AppKit is in a comment\n")
         check("shared selection", shared_packages(repo) == ["Packages/Shared/Core", "Packages/Shared/Two"])
+        exp_root = tmp / "oracle"
+        (exp_root / "Expectations.d").mkdir(parents=True)
+        (exp_root / "Expectations.d" / "swift-shared.txt").write_text("p15-oracle-123 [ linux ] swift-shared/Two [ Skip ]\n")
+        listing = io.StringIO()
+        with contextlib.redirect_stdout(listing):
+            main(["shared-packages", "--repo", str(repo), "--root", str(exp_root)])
+        check("shared rows carry the Skip column", listing.getvalue() == "0\tPackages/Shared/Core\n1\tPackages/Shared/Two\n")
 
         check("topo order", topo_order(["C", "A", "B"], {"C": ["B"], "B": ["A"]}) == ["A", "B", "C"])
         check("topo cycle", sorted(topo_order(["A", "B"], {"A": ["B"], "B": ["A"]})) == ["A", "B"])
@@ -1080,8 +1200,11 @@ def _selftest() -> int:
               == ["Fatal error at Foundation/EasyHandle.swift:293: boom"] and not r_fatal)
 
         ledger_file = tmp / "ledger.tsv"
-        ledger_file.write_text("swift-tier\tX\tbuild\tpass\t0\t1.25\t/l.log\t\n")
-        check("ledger parse", read_ledger(ledger_file) == [LedgerRecord("swift-tier", "X", "build", "pass", 0, 1.25, "/l.log", "")])
+        ledger_file.write_text("swift-tier\tX\tbuild\tpass\t0\t1.25\t/l.log\t\nswift-tier\tY\tbuild\tblocked\t0\t0\t\t\tX\n")
+        check("ledger parse", read_ledger(ledger_file) == [
+            LedgerRecord("swift-tier", "X", "build", "pass", 0, 1.25, "/l.log", ""),
+            LedgerRecord("swift-tier", "Y", "build", "blocked", 0, 0, "", "", "X"),
+        ])
 
     for name in failures:
         print(f"FAIL {name}")
@@ -1103,8 +1226,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_plan.add_argument("--sanitize", default="")
     p_plan.add_argument("--root", type=Path, default=oracle_exp.DEFAULT_ROOT)
 
-    p_shared = sub.add_parser("shared-packages", help="print the shared runner's package paths")
+    p_shared = sub.add_parser("shared-packages", help="print `skip<TAB>path` rows of the shared runner's packages")
     p_shared.add_argument("--repo", type=Path, default=REPO_ROOT)
+    p_shared.add_argument("--suite", default="swift-shared")
+    p_shared.add_argument("--sanitize", default="")
+    p_shared.add_argument("--root", type=Path, default=oracle_exp.DEFAULT_ROOT)
 
     p_receipt = sub.add_parser("receipt", help="write the receipt and the errors queue from a run's ledger")
     p_receipt.add_argument("--ledger", type=Path, required=True)
@@ -1130,7 +1256,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.out.write_text(json.dumps(prune_tier(tier, set(args.drop)), indent=2) + "\n", encoding="utf-8")
         return 0
     if args.command == "shared-packages":
-        print("\n".join(shared_packages(args.repo)))
+        exp = linux_only(oracle_exp.Expectations.load_root(args.root))
+        config = run_config(args.sanitize)
+        for path in shared_packages(args.repo):
+            skip = 0 if exp.should_run(args.suite, Path(path).name, config) else 1
+            print(f"{skip}\t{path}")
         return 0
     if args.command == "plan":
         dump = json.loads(args.dump.read_text(encoding="utf-8"))

@@ -17,6 +17,7 @@ import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -282,6 +283,8 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
+    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The spare React page hosts for Settings, History and Cloud.
@@ -322,8 +325,9 @@ final class AppServices {
     private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
-    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
-    let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
+    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or
+    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`).
+    let inputDispatch: InputDispatchContext
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
@@ -446,6 +450,8 @@ final class AppServices {
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
+        inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
+                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
@@ -551,6 +557,7 @@ final class AppServices {
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
+        registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }

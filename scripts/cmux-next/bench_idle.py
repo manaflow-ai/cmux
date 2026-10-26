@@ -16,8 +16,9 @@ terminal hosts, and each Chromium helper over --measure seconds after
 CPU and wakeups come from proc_pid_rusage (user+system time, package idle
 exits plus interrupt wakeups), sampled at the start and end of each window,
 so the bench itself adds no wakeups to the app. When the build has
-`debug.wakeups`, the ledger owners and active frame clients are recorded
-too. Pass criteria (defaults, per process; tune with flags): app and
+`debug.wakeups`, the ledger owners, active frame clients and live display
+links are recorded too. Pass criteria (defaults, per process; tune with
+flags): no display link at idle; app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
 Chromium helpers < 1% on the static and hidden pages. The Chromium Host app's
 browser process (cef-host, the Debug-only host prototype) is reported, not
@@ -168,6 +169,8 @@ def measure(app_pid, bundle, seconds, control):
         if report:
             diag["ledger"] = [e for e in report.get("ledger", []) if e.get("per_second", 0) > 0][:12]
             diag["active_frame_clients"] = report.get("active_frame_clients", [])
+            if "display_links" in report:
+                diag["display_links"] = report["display_links"]
     except (OSError, ValueError):
         pass
     try:
@@ -243,6 +246,9 @@ def criteria(scenario, result, args):
             failures.append(f"{scenario}: {kind} {row['pid']} {cpu}% CPU > {limit_cpu}%")
         if limit_wake is not None and wake > limit_wake:
             failures.append(f"{scenario}: {kind} {row['pid']} {wake} wakeups/s > {limit_wake}")
+    # An idle app holds no display link (DisplayClock drops a display's link with its last subscriber).
+    if result.get("display_links", 0) > 0:
+        failures.append(f"{scenario}: {result['display_links']} display links at idle > 0")
     return failures
 
 
