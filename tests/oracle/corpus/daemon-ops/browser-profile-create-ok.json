@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a profile record whose id derives from the idempotency key (a retry finds it, changed false)"
     }
   ],
   "invariants": [

@@ -175,6 +175,35 @@ def check_case(case: Any, rules: Rules) -> list[Finding]:
     return findings
 
 
+def error_details_mismatch(expected: Any, actual: Any, pointer: str = "") -> str | None:
+    """case-v1 expect.errorDetails against a typed error's details (its $step: references already resolved):
+    every expected key is present with an equal value, objects compared key by key, other values exactly. The
+    first difference as `<pointer>: ...`, or None. The drivers that read a reply's details call this."""
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return f"{pointer or '/'}: expected an object, got {json.dumps(actual)[:120]}"
+        for key, value in expected.items():
+            where = join(pointer, key)
+            if key not in actual:
+                return f"{where}: missing"
+            problem = error_details_mismatch(value, actual[key], where)
+            if problem:
+                return problem
+        return None
+    if expected != actual:
+        return f"{pointer or '/'}: expected {json.dumps(expected)[:120]}, got {json.dumps(actual)[:120]}"
+    return None
+
+
+ERROR_DETAILS_VECTORS: tuple[tuple[Any, Any, str | None], ...] = (
+    ({"extra": {"code": "a"}}, {"operation": "o", "extra": {"code": "a", "tab_id": "t"}}, None),
+    ({"extra": {"code": "a"}}, {"extra": {"code": "b"}}, '/extra/code: expected "a", got "b"'),
+    ({"extra": {"code": "a"}}, {"operation": "o"}, "/extra: missing"),
+    ({"extra": {"code": "a"}}, None, "/: expected an object, got null"),
+    ({"ids": ["a"]}, {"ids": ["a", "b"]}, '/ids: expected ["a"], got ["a", "b"]'),
+)
+
+
 def apply_patch(document: Any, patch: list[dict[str, Any]]) -> Any:
     """RFC 6902 add, remove and replace: enough to write the mutation table."""
     result = copy.deepcopy(document)
@@ -251,8 +280,14 @@ def selftest(schema: dict[str, Any], rules: Rules) -> int:
         if not ok:
             failures += 1
             print(f"FAIL {mutation['name']} ({layer}): {got}")
-    total = len(table["mutations"]) + len(bases)
-    print(f"selftest: {total - failures}/{total} pass ({len(bases)} example cases, {len(table['mutations'])} mutations)")
+    for expected, actual, want in ERROR_DETAILS_VECTORS:
+        got = error_details_mismatch(expected, actual)
+        if got != want:
+            failures += 1
+            print(f"FAIL errorDetails {json.dumps(expected)} against {json.dumps(actual)}: {got!r}, not {want!r}")
+    total = len(table["mutations"]) + len(bases) + len(ERROR_DETAILS_VECTORS)
+    print(f"selftest: {total - failures}/{total} pass ({len(bases)} example cases, {len(table['mutations'])} mutations, "
+          f"{len(ERROR_DETAILS_VECTORS)} errorDetails vectors)")
     return 1 if failures else 0
 
 
