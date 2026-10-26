@@ -2365,6 +2365,17 @@
       "title" : "Bubble Style",
       "type" : "string"
     },
+    "home.chiefEngine" : {
+      "default" : "auto",
+      "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+      "enum" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "title" : "Engine",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",

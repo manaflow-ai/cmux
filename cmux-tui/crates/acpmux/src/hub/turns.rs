@@ -198,6 +198,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        let stops = session.stops.load(Ordering::SeqCst);
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -324,6 +326,16 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A lane's report to a parent whose close began since `queue_slot` checked is refused
+        // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
+        // clears the turn, so a close that began any time before this check is seen.
+        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let e = super::queue::closing_error();
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
@@ -374,7 +386,7 @@ impl Hub {
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
-        let started = match self.child_for(session).await {
+        let started = match self.child_for_since(session, stops).await {
             Ok(child) => session
                 .meta()
                 .agent_session_id
@@ -485,7 +497,9 @@ impl Hub {
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
+            // A stopped session's agent closed because of the stop: no failover starts it again.
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
+                && session.stops.load(Ordering::SeqCst) == stops
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -517,7 +531,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for(session).await;
+                let fallback = self.child_for_since(session, stops).await;
                 let refusal = match &fallback {
                     Ok(_) => self
                         .check_dispatch(
@@ -630,7 +644,8 @@ impl Hub {
                 self.save_meta(session);
             }
         }
-        // Quit Everything already recorded this turn as cancelled.
+        // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
+        // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
@@ -788,6 +803,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
+        self.lane_turn_ended(session, true);
         result
     }
 
@@ -855,6 +871,9 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        // The turn was counted: its lane's parent hears it failed, with no reply of its own
+        // (`lane_reports.rs`).
+        self.lane_turn_ended(session, false);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -1182,11 +1201,22 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        // Counted first: a start for a request from before this stop ends (`ensure_child`).
+        session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
+        // The prompts queued behind its turn are answered withdrawn: run after the stop, the
+        // next one started the closed session again (ergo-walk2). A restart restores no closed
+        // session's queue either (`queue.rs` `restore_queue`). A chat an import replaces
+        // (`transfer_in.rs`) keeps its log as it was for the copy that takes its id.
+        if !session.replaced.load(Ordering::SeqCst) {
+            for queued in session.queue() {
+                self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
+            }
+        }
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
                 let _ = tokio::time::timeout(

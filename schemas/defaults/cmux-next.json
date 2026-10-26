@@ -493,6 +493,7 @@
     "setting.home.attachments.keepLocation": false,
     "setting.home.channelsEnabled": false,
     "setting.home.chiefBubbleStyle": "imessage",
+    "setting.home.chiefEngine": "auto",
     "setting.home.chiefPetEnabled": false,
     "setting.home.chiefPetMascot": "orb",
     "setting.home.server": "hosted",

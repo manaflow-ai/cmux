@@ -1,5 +1,6 @@
 import { isProviderId, SecretBytes, type ProviderCredential, type ProviderId } from "./drivers/types";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX } from "../runs/model";
 
 export type ParsedOptionalObjectBody =
   | { readonly ok: true; readonly body: Record<string, unknown> }
@@ -107,6 +108,15 @@ export function idempotencyKeyFromRequest(request: Request): IdempotencyKeyResul
           maxLength: VM_IDEMPOTENCY_KEY_MAX_LENGTH,
         },
       }, 400),
+    };
+  }
+  // A sandboxed Run's VM is created under `sandbox-run:…` (services/runs/model.ts); the VM
+  // workflows refuse pause, snapshot and fork on that key, and the Run reaper adopts a VM by it,
+  // so no request may name a key in that namespace.
+  if (raw.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: "vm_idempotency_key_reserved", details: { field: "idempotencyKey" } }, 400),
     };
   }
   return { ok: true, key: raw || undefined };
