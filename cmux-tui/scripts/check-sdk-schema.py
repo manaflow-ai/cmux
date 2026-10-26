@@ -80,11 +80,88 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     ("agent-cli-intents-attach", "receipt"): ("Value", "ref<AgentCLIJobReceipt>"),
 }
 
+# Names a sniffer module serves (sniffer_names.py) that sdk-schema.json does
+# not describe yet, each with the task that adds it or why it stays out. Any
+# other unschema'd served name fails. An entry that is in the schema or no
+# longer served only prints a note, so the task that schemas a name can land
+# before or after this list drops it.
+UNSCHEMAD_SNIFFED_COMMANDS = {
+    **dict.fromkeys(
+        ("agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"),
+        "p05-ipc-015",
+    ),
+    **dict.fromkeys(
+        (
+            "browser-runtime-start",
+            "browser-runtime-status",
+            "browser-runtime-stop",
+            "client-hello",
+            "loopback-close",
+            "loopback-credit",
+            "loopback-data",
+            "loopback-open",
+            "loopback-shutdown",
+            "loopback-status",
+            "machine-catalog-publish",
+        ),
+        "p05-ipc-016",
+    ),
+    **dict.fromkeys(
+        (
+            "agent-session-attach",
+            "agent-session-cancel",
+            "agent-session-children",
+            "agent-session-detach",
+            "agent-session-events",
+            "agent-session-media",
+            "agent-session-observe",
+            "agent-session-permission",
+            "agent-session-prompt",
+            "agent-session-start",
+            "agent-session-trust",
+        ),
+        "p05-ipc-018",
+    ),
+    **dict.fromkeys(
+        (
+            "access-request",
+            "access-request-answer",
+            "access-request-list",
+            "access-request-status",
+            "agent-transfer-abort",
+            "agent-transfer-begin",
+            "agent-transfer-commit",
+            "agent-transfer-finish",
+            "agent-transfer-read",
+            "agent-transfer-receive",
+            "agent-transfer-receive-abort",
+            "agent-transfer-source",
+            "agent-transfer-write",
+            "agent-update-apply",
+            "agent-update-plan",
+            "fs.delete",
+            "fs.list",
+            "fs.mkdir",
+            "fs.read",
+            "fs.rename",
+            "fs.stat",
+            "fs.write",
+            "script-repl-close",
+            "script-repl-eval",
+            "script-repl-open",
+            "script-run",
+        ),
+        "p05-ipc-019",
+    ),
+    "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
+}
+
 sys.path.insert(0, str(BINDINGS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
 from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
+from sniffer_names import SniffedName, SnifferNameError, sniffer_names  # noqa: E402
 
 
 class SdkSchemaError(ValueError):
@@ -683,6 +760,46 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     validate_named_request_structs(ir)
 
 
+def sniffed_commands() -> dict[str, SniffedName]:
+    # A sniffer module may compare with a name it passes on to the Command
+    # enum (client_hello.rs and identify) without its module table entry.
+    passed_on = set(runtime_command_fields()) - set(module_command_fields())
+    try:
+        return sniffer_names(TUI, passed_on)
+    except (SnifferNameError, HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the sniffer modules: {error}")
+    return {}
+
+
+def validate_sniffed_coverage(ir: SdkIR, served: Mapping[str, SniffedName]) -> list[str]:
+    """Every name a sniffer module serves is a schema command or an
+    UNSCHEMAD_SNIFFED_COMMANDS entry. Returns, and prints, a note for each
+    entry that is no longer needed."""
+
+    unschemad = {name for name in served if name not in ir.commands}
+    unlisted = sorted(unschemad - set(UNSCHEMAD_SNIFFED_COMMANDS))
+    if unlisted:
+        fail(
+            "served but not in sdk-schema.json: "
+            + ", ".join(f"{name} (server/{served[name].module})" for name in unlisted)
+        )
+    notes: list[str] = []
+    schemad = sorted(name for name in UNSCHEMAD_SNIFFED_COMMANDS if name in ir.commands)
+    if schemad:
+        notes.append(
+            "in sdk-schema.json now, drop from UNSCHEMAD_SNIFFED_COMMANDS: " + ", ".join(schemad)
+        )
+    unserved = sorted(set(UNSCHEMAD_SNIFFED_COMMANDS) - set(served) - set(schemad))
+    if unserved:
+        notes.append(
+            "no sniffer module serves these, drop from UNSCHEMAD_SNIFFED_COMMANDS: "
+            + ", ".join(unserved)
+        )
+    for note in notes:
+        print(f"SDK schema note: {note}", file=sys.stderr)
+    return notes
+
+
 def validate_named_request_structs(ir: SdkIR) -> None:
     """Reject drift between RUNTIME_NAMED_REQUEST_STRUCTS and their SDK types."""
 
@@ -790,6 +907,7 @@ def validate_sdk_ir(
         )
         fail(f"SDK command authority drift, {details}")
     validate_runtime_request_fields(ir)
+    validate_sniffed_coverage(ir, sniffed_commands())
 
     expected_events = inventory_events(inventory)
     compare_names(set(ir.events), set(expected_events), "SDK event")

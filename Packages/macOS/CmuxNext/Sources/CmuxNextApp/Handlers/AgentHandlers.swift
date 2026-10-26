@@ -113,7 +113,7 @@ enum AgentHandlers {
             view.toggleDictation()
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
-        context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
+        context.services.palettes.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
             services.map { AgentChatsPalettePage(services: $0).page() }
         }
         registry.bind("agentPane.searchChats", run: { _ in

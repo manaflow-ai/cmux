@@ -56,7 +56,8 @@ pub enum BlockingKind {
     FdRead = 10,
     /// A write to the thread's own descriptor ([`own_fd_write`]).
     FdWrite = 11,
-    /// A lock wait above the contention budget.
+    /// A contended lock wait (a failed try) on a thread that disallows
+    /// blocking ([`crate::lock_wait`]).
     LockWait = 12,
     /// A wait on work that runs at a lower QoS than the waiter.
     PriorityInversion = 13,

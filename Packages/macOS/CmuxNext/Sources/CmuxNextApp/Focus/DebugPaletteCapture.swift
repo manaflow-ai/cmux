@@ -16,7 +16,7 @@ import Darwin
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
-        guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+        guard let panel = services.palettes.built?.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
         // The window server's image waits for it: on the system lane, never on main.
         let work = services.work
         let captured = await capture(panel, to: path) { id in

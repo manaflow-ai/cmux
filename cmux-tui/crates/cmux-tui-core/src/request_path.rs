@@ -9,7 +9,10 @@
 //!
 //! - `sqlite`: the first acquisition of the registry connection
 //!   (`RegistryConnection::get`, `get_at`, `pin`); `lock_hold_over_1ms` at
-//!   its release, timed only while the setting records.
+//!   its release, timed only while the setting records. Also the Chief and
+//!   conversation store locks (`ChiefHost::lock_store`,
+//!   `ConversationHost::lock_store_for_sqlite`) and app storage ops
+//!   (`apps::storage::Storage`).
 //! - `journal_wait`: journal writer receipt and queue-space waits
 //!   (`journal_ingress`), registry intent receipts through the intent sink,
 //!   and earlier indeterminate receipts (`drain_unsettled`).
@@ -44,9 +47,15 @@ pub(crate) use cmux_tui_platform::request_path::{
 pub(crate) const MODE_ENV: &str = "CMUX_TUI_REQUEST_PATH_IO";
 
 /// The daemon's stats, in the mode `CMUX_TUI_REQUEST_PATH_IO` names. A value
-/// this build does not understand is reported once and counts only.
+/// this build does not understand is reported once and counts only. A
+/// recording mode also turns on lock holder names
+/// (`cmux_threads::set_holder_tracking`; debug builds always track them).
 pub(crate) fn stats_from_env() -> Arc<RequestPathStats> {
-    RequestPathStats::new(mode_from_setting(std::env::var(MODE_ENV).ok().as_deref()))
+    let mode = mode_from_setting(std::env::var(MODE_ENV).ok().as_deref());
+    if mode.records() {
+        cmux_threads::set_holder_tracking(true);
+    }
+    RequestPathStats::new(mode)
 }
 
 /// The mode a `CMUX_TUI_REQUEST_PATH_IO` value names (`None`: unset).
@@ -84,6 +93,9 @@ pub struct RequestPathIoSnapshot {
     pub lock_hold_over_1ms: Option<u64>,
     /// The most recent recorded notes, newest first, at most 128.
     pub sites: Vec<RequestPathSiteSnapshot>,
+    /// The process's lock waits of 2 ms or more (`cmux_threads::lock_waits`):
+    /// every thread, not only request threads.
+    pub lock_waits: LockWaitsSnapshot,
 }
 
 /// One recorded note: its kind and the `file:line` that blocked.
@@ -91,6 +103,49 @@ pub struct RequestPathIoSnapshot {
 pub struct RequestPathSiteSnapshot {
     pub kind: &'static str,
     pub site: String,
+}
+
+/// The `lock_waits` part of the section.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LockWaitsSnapshot {
+    pub long_waits: u64,
+    pub dropped: u64,
+    /// Newest first, at most `cmux_threads::lock_wait::RECENT_CAPACITY`.
+    pub recent: Vec<LockWaitRecord>,
+}
+
+/// One lock wait of 2 ms or more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LockWaitRecord {
+    pub lock: String,
+    /// The thread that took the lock last before the waiter got it or gave
+    /// up; absent when holders are not tracked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub holder: Option<String>,
+    pub waiter: String,
+    pub waited_us: u64,
+    /// The `file:line` that asked for the lock.
+    pub site: String,
+}
+
+impl LockWaitsSnapshot {
+    fn of(waits: cmux_threads::LockWaitSnapshot) -> Self {
+        Self {
+            long_waits: waits.long_waits,
+            dropped: waits.dropped,
+            recent: waits
+                .recent
+                .into_iter()
+                .map(|wait| LockWaitRecord {
+                    site: format!("{}:{}", wait.file, wait.line),
+                    waited_us: u64::try_from(wait.waited.as_micros()).unwrap_or(u64::MAX),
+                    lock: wait.lock,
+                    holder: wait.holder,
+                    waiter: wait.waiter,
+                })
+                .collect(),
+        }
+    }
 }
 
 impl RequestPathIoSnapshot {
@@ -120,6 +175,7 @@ impl RequestPathIoSnapshot {
                     site: format!("{}:{}", noted.site.file(), noted.site.line()),
                 })
                 .collect(),
+            lock_waits: LockWaitsSnapshot::of(cmux_threads::lock_waits()),
         }
     }
 }

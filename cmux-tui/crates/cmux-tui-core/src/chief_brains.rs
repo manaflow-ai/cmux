@@ -1277,8 +1277,9 @@ fn is_default(record: &ChiefRecord) -> bool {
 }
 
 /// The live Chiefs of `mux`'s registry (opened on first use).
+#[track_caller]
 fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
-    let mut store = mux.chiefs().store.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut store = mux.chiefs().lock_store().unwrap_or_else(PoisonError::into_inner);
     if store.is_none() {
         match ChiefStore::open(mux.session_state_directory().as_deref()) {
             Ok(opened) => *store = Some(opened),

@@ -104,44 +104,6 @@ public final class PaletteController {
         return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
-    // MARK: Registry wiring
-
-    /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
-    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
-    public func bindRegistryActions() {
-        registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
-        registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
-        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
-        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
-        registry.bind("search.chats", invoke: { [weak self] invocation in
-            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
-        })
-        if sources.workspaces != nil {
-            // With a workspace (a palette row's typed ref, `palette.run`,
-            // the CLI) it switches to it; without one it opens the page.
-            registry.bind("goToWorkspace", invoke: { [weak self] invocation in
-                if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    guard let self, let source = self.sources.workspaces else { return }
-                    // An id that names no workspace is refused, never a silent success.
-                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
-                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
-                    }
-                    source.selectWorkspace(id: workspace)
-                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
-                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
-                    self?.show(.workspaces)
-                }
-            })
-        }
-        registry.argumentCollector = { [weak self] id, invocation in
-            self?.collectArguments(for: id, invocation: invocation)
-        }
-        registry.argumentAsker = { [weak self] id, invocation, ask in
-            self?.collectArguments(for: id, invocation: invocation, asking: ask)
-        }
-    }
-
     /// Counts a run of `id` from any entrypoint toward palette ranking.
     public func recordUse(of id: ActionID) {
         model.recordUse("action:\(registry.canonicalID(for: id).rawValue)")
