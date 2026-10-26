@@ -48,31 +48,36 @@ from bench_launch import BenchApp, socket_candidates  # noqa: E402
 from new_surfaces_report import frame_of  # noqa: E402
 import new_tab_bench_report as results  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--app", required=True)
-parser.add_argument("--rounds", type=int, default=6)
-parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold,webkit_new,webkit_url")
-parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
-parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
-parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
-parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
-parser.add_argument("--out", default="/tmp")
-parser.add_argument("--json")
-parser.add_argument("--story", default=results.NEW_BROWSER_TAB_STORY,
-                    help="result-v1 story of the Chromium cases (the WebKit cases: <story>-webkit)")
-parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
-                    help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
-opts = parser.parse_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-SOCKET = socket_candidates(TAG)[0]  # the launch sets the one the app answered on
-SCRATCH = tempfile.mkdtemp(prefix=f"cef-tab-{TAG}-")
-PAGE = os.path.join(SCRATCH, "page.html")
-open(PAGE, "w").write("<!doctype html><title>cef-tab</title><body style='background:#fff'>"
-                      + "".join(f"<p>line {i} of a plain page</p>" for i in range(60)) + "</body>")
-CASES = [c for c in opts.cases.split(",") if c]
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--rounds", type=int, default=6)
+    parser.add_argument("--cases", default="cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold,webkit_new,webkit_url")
+    parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
+    parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
+    parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
+    parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
+    parser.add_argument("--out", default="/tmp")
+    parser.add_argument("--json")
+    parser.add_argument("--story", default=results.NEW_BROWSER_TAB_STORY,
+                        help="result-v1 story of the Chromium cases (the WebKit cases: <story>-webkit)")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    return parser.parse_args(argv)
+
+
 launcher = None
 app = None
+if __name__ == "__main__":
+    opts = parse()
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    SOCKET = socket_candidates(TAG)[0]  # the launch sets the one the app answered on
+    SCRATCH = tempfile.mkdtemp(prefix=f"cef-tab-{TAG}-")
+    PAGE = os.path.join(SCRATCH, "page.html")
+    open(PAGE, "w").write("<!doctype html><title>cef-tab</title><body style='background:#fff'>"
+                          + "".join(f"<p>line {i} of a plain page</p>" for i in range(60)) + "</body>")
+    CASES = [c for c in opts.cases.split(",") if c]
 
 
 def rpc(method, params=None, timeout=30):
@@ -407,9 +412,10 @@ def main():
     return True
 
 
-ok = False
-try:
-    ok = main()
-finally:
-    cleanup()
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    ok = False
+    try:
+        ok = main()
+    finally:
+        cleanup()
+    sys.exit(0 if ok else 1)

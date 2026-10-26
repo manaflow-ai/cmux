@@ -32,35 +32,41 @@ import new_tab_bench_report as results  # noqa: E402
 
 pct = results.pct
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--runs", type=int, default=20)
-parser.add_argument("--budget-ms", type=float, default=16)
-parser.add_argument("--budget-open-ms", type=float, default=16,
-                    help="--bench-open: p95 main-thread Cmd-T time budget")
-parser.add_argument("--text", default="hello")
-parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
-parser.add_argument("--bench", action="store_true",
-                    help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
-parser.add_argument("--bench-open", action="store_true",
-                    help="Cmd-T: first frame, missed frames and spare refit per run, with a pass/fail verdict")
-parser.add_argument("--budget-close-ms", type=float, default=10)
-parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
-                    help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
-parser.add_argument("--trace", action="store_true",
-                    help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
-parser.add_argument("--out", help="the app log and the cmux-perf-result/v1 files (default $NX_ARTIFACTS, else a scratch folder)")
-parser.add_argument("--story", default=results.NEW_TAB_PAGE_STORY, help="result-v1 story")
-parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
-                    help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
-opts = parser.parse_args()
-APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
-if not APP:
-    sys.exit(f"no tagged app for {opts.tag}")
-OUT = opts.out or os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix=f"newtab-{opts.tag}-")
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--runs", type=int, default=20)
+    parser.add_argument("--budget-ms", type=float, default=16)
+    parser.add_argument("--budget-open-ms", type=float, default=16,
+                        help="--bench-open: p95 main-thread Cmd-T time budget")
+    parser.add_argument("--text", default="hello")
+    parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
+    parser.add_argument("--bench", action="store_true",
+                        help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
+    parser.add_argument("--bench-open", action="store_true",
+                        help="Cmd-T: first frame, missed frames and spare refit per run, with a pass/fail verdict")
+    parser.add_argument("--budget-close-ms", type=float, default=10)
+    parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
+                        help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
+    parser.add_argument("--trace", action="store_true",
+                        help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
+    parser.add_argument("--out", help="the app log and the cmux-perf-result/v1 files (default $NX_ARTIFACTS, else a scratch folder)")
+    parser.add_argument("--story", default=results.NEW_TAB_PAGE_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    return parser.parse_args(argv)
+
+
 SOCKET = None  # the socket the launched app answered on (BenchApp.launch)
 WINDOW_IDS = []  # debug.surfaces window ids by index, for debug.key
+launcher = None
+if __name__ == "__main__":
+    opts = parse()
+    APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
+        f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
+    if not APP:
+        sys.exit(f"no tagged app for {opts.tag}")
+    OUT = opts.out or os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix=f"newtab-{opts.tag}-")
 
 
 def rpc(method, params=None):
@@ -312,66 +318,67 @@ def record(series):
             print(f"result-v1 {key}: {where}", flush=True)
 
 
-# One launch path (bench_launch.py): it refuses a live app of this tag, unlinks only a socket nothing accepts on,
-# starts the app with the bench env, a scratch cmux.json and an empty Ghostty config, and says why when it does not
-# come up.
-launcher = BenchApp(APP, out=OUT, config={}, window=(40, 40, 1100, 720), screen="last", build_config=opts.build_config)
-try:
-    launcher.launch(timeout=90)  # ready once debug.windows lists a window
-    SOCKET = launcher.socket
-    print(f"launched pid {launcher.process.pid}; app is up", flush=True)
-    time.sleep(2)  # test harness: let the first workspace settle
-    if opts.bench:
-        run_bench()
-        sys.exit(0)
-    if opts.bench_open:
-        run_bench_open()
-        sys.exit(0)
-    spare_ms, footprints = [], []
-    for run in range(opts.runs):
-        spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-        footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
-        shot = os.path.join(OUT, "new-tab-spare.png") if run == 0 else None
-        spare_ms.append(open_and_check(True, shot)["ms"])
-    record(results.spare_open_series(spare_ms, story=opts.story))
-    # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
-    # for quiet input); close both tabs.
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
-    opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
-    if opening.get("spare") is not False:
-        sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
-    time.sleep(5)  # test harness: let the cold page load before reading its field
-    field = rpc("debug.new_tab", {"action": "field"}) or {}
-    print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
-          f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
-    for _ in range(2):
-        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
-    p95 = pct(spare_ms, .95)
-    print(f"spare openings: n={len(spare_ms)} p50={pct(spare_ms, .5):.2f} ms p95={p95:.2f} ms "
-          f"p99={pct(spare_ms, .99):.2f} ms max={max(spare_ms):.2f} ms")
-    if footprints:
-        print(f"spare WebContent footprint: median={pct(footprints, .5):.1f} MB max={max(footprints):.1f} MB")
-    # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
-    # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
-    # become key).
-    windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
-    print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
-    wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
-    WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
-    time.sleep(2)  # test harness: let the new window's workspace settle
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    cross = open_and_check(True, window=1)
-    print(f"cross-window adoption: {cross}", flush=True)
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
-    print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
-    after = open_and_check(True, window=1)
-    print(f"after the move, same-window adoption: {after}", flush=True)
-    if p95 > opts.budget_ms:
-        sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
-    print("ok: no lost key in any run; p95 within budget")
-finally:
-    if launcher.process and launcher.process.poll() not in (None, 0):  # the app ended on its own: show why
-        print(open(launcher.log_path).read()[-3000:])
-    launcher.stop()  # debug.quit, then TERM and KILL of this run's app only, then the tag's daemons
+if __name__ == "__main__":
+    # One launch path (bench_launch.py): it refuses a live app of this tag, unlinks only a socket nothing accepts on,
+    # starts the app with the bench env, a scratch cmux.json and an empty Ghostty config, and says why when it does not
+    # come up.
+    launcher = BenchApp(APP, out=OUT, config={}, window=(40, 40, 1100, 720), screen="last", build_config=opts.build_config)
+    try:
+        launcher.launch(timeout=90)  # ready once debug.windows lists a window
+        SOCKET = launcher.socket
+        print(f"launched pid {launcher.process.pid}; app is up", flush=True)
+        time.sleep(2)  # test harness: let the first workspace settle
+        if opts.bench:
+            run_bench()
+            sys.exit(0)
+        if opts.bench_open:
+            run_bench_open()
+            sys.exit(0)
+        spare_ms, footprints = [], []
+        for run in range(opts.runs):
+            spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+            footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
+            shot = os.path.join(OUT, "new-tab-spare.png") if run == 0 else None
+            spare_ms.append(open_and_check(True, shot)["ms"])
+        record(results.spare_open_series(spare_ms, story=opts.story))
+        # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
+        # for quiet input); close both tabs.
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
+        if opening.get("spare") is not False:
+            sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
+        time.sleep(5)  # test harness: let the cold page load before reading its field
+        field = rpc("debug.new_tab", {"action": "field"}) or {}
+        print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
+              f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
+        for _ in range(2):
+            rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+        p95 = pct(spare_ms, .95)
+        print(f"spare openings: n={len(spare_ms)} p50={pct(spare_ms, .5):.2f} ms p95={p95:.2f} ms "
+              f"p99={pct(spare_ms, .99):.2f} ms max={max(spare_ms):.2f} ms")
+        if footprints:
+            print(f"spare WebContent footprint: median={pct(footprints, .5):.1f} MB max={max(footprints):.1f} MB")
+        # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
+        # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
+        # become key).
+        windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
+        print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
+        wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
+        WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
+        time.sleep(2)  # test harness: let the new window's workspace settle
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        cross = open_and_check(True, window=1)
+        print(f"cross-window adoption: {cross}", flush=True)
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
+        print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
+        after = open_and_check(True, window=1)
+        print(f"after the move, same-window adoption: {after}", flush=True)
+        if p95 > opts.budget_ms:
+            sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
+        print("ok: no lost key in any run; p95 within budget")
+    finally:
+        if launcher.process and launcher.process.poll() not in (None, 0):  # the app ended on its own: show why
+            print(open(launcher.log_path).read()[-3000:])
+        launcher.stop()  # debug.quit, then TERM and KILL of this run's app only, then the tag's daemons

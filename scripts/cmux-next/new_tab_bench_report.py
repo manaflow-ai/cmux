@@ -6,12 +6,13 @@ checks the names the lab stories match on any host. Percentiles come only from s
 | Bench | Story (scripts/perf-lab/stories.d) | Series | Engine |
 | --- | --- | --- | --- |
 | new-tab-e2e.py | new-tab-page | `new_tab_page.<session>.<leg>.<metric>` | webkit (the page is a WKWebView) |
-| cef-tab-bench.py | new-browser-tab, new-browser-tab-webkit | `new_browser_tab.<session>.<case>.<metric>` | the engine the runs showed |
+| cef-tab-bench.py | new-browser-tab, new-browser-tab-webkit | `new_browser_tab.<session>.<case>.<metric>` | the case's (a run on another engine is missed) |
 | open-panel-bench.py | open-panel | `open_panel.<session>.<mode>.<metric>` | none |
 | new-tab-daemon-bench.py | new-tab-daemon | `new_tab_daemon.<shell>.<metric>` | none |
 
 Every per-run series has a `<series>.missed_runs` count next to it (the runs that gave no value), so a failed run
-shows in the lab instead of leaving the percentiles of the runs that worked (as new_surfaces_report.py).
+shows in the lab instead of leaving the percentiles of the runs that worked (as new_surfaces_report.py). Each
+session of a bench is its own result-v1 run (session_runs): perf-lab ingest stores one session per run.
 """
 import collections
 import os
@@ -71,12 +72,17 @@ def spare_open_series(opening_ms, session="light", story=NEW_TAB_PAGE_STORY):
     return per_run(story, f"new_tab_page.{session}.spare_open.ms", "ms", "webkit", session, opening_ms)
 
 
-def case_engine(case, rows):
-    """The result-v1 engine of a cef-tab-bench case: the engine most of its runs showed, else the case's own."""
-    engines = collections.Counter(ENGINES[r["engine"]] for r in rows if r.get("engine") in ENGINES)
-    if engines:
-        return engines.most_common(1)[0][0]
+def case_engine(case):
+    """The result-v1 engine of a cef-tab-bench case, fixed by the case (WebKit cases open WebKit, the others
+    Chromium), never by the engine its runs showed: a Chromium case that fell back to WebKit stays in its story."""
     return "webkit" if case in WEBKIT_CASES else "chromium"
+
+
+def case_value(engine, row, field):
+    """A cef-tab-bench row's value for its case's series; None (a missed run) when the run reported another known
+    engine, so a fallback shows in `.missed_runs` and its samples never enter the case's series."""
+    reported = ENGINES.get(row.get("engine"))
+    return None if reported is not None and reported != engine else row.get(field)
 
 
 def new_browser_tab_series(rows, cases, story=NEW_BROWSER_TAB_STORY):
@@ -88,13 +94,13 @@ def new_browser_tab_series(rows, cases, story=NEW_BROWSER_TAB_STORY):
             sel = [r for r in rows if r.get("session") == session and r.get("case") == case]
             if not sel:
                 continue
-            engine = case_engine(case, sel)
+            engine = case_engine(case)
             case_story = story if engine == "chromium" else f"{story}-{engine}"
             for metric, unit, field in (("visible", "ms", "visible_ms"), ("visible_frame", "count", "visible_frame"),
                                         ("chrome", "ms", "chrome_ms"), ("page", "ms", "page_ms"),
                                         ("key_ms", "ms", "key_ms")):
                 out += per_run(case_story, f"new_browser_tab.{session}.{case}.{metric}", unit, engine, session,
-                               [r.get(field) for r in sel])
+                               [case_value(engine, r, field) for r in sel])
     return out
 
 
@@ -124,28 +130,49 @@ def new_tab_daemon_series(reply_ms, adopted, shell, session="light", story=NEW_T
     return out
 
 
+def session_runs(series, run=None, session=None):
+    """{session: perf_result.Run} for the sessions of `series`. perf-lab ingest stores one session per run
+    (ingest._run_fields), so each session of a bench is its own run. `session` (default the first one) keeps `run`
+    (default a new one); every other session gets `<run id>.<session>`, so a controller attempt's retry rewrites
+    the same files."""
+    base = run or perf_result.Run.start()
+    sessions = list(dict.fromkeys(entry.session for entry in series))
+    own = session if session is not None else next(iter(sessions), None)
+    return {name: base if name == own else perf_result.Run(id=f"{base.id}.{name}", started_at=base.started_at)
+            for name in sessions}
+
+
 def record_all(launcher, series):
-    """Writes each series as one cmux-perf-result/v1 file through ``BenchApp.record``; returns {`story/metric`: path,
-    or `not recorded: <reason>`}. A series the bench cannot describe truthfully (no build sha, no features snapshot)
-    is not written, and its reason is printed."""
+    """Writes each series as one cmux-perf-result/v1 file through ``BenchApp.record``, each session as its own run
+    (session_runs); returns {`story/metric`: path, or `not recorded: <reason>`}. A series the bench cannot describe
+    truthfully (no build sha, no features snapshot) is not written, and its reason is printed. The launcher keeps
+    its own session and run afterwards, so every call of one bench maps a session to the same run."""
+    own = launcher.perf_session if launcher.run is not None else None
+    runs = session_runs(series, launcher.run, own)
+    base = (own, launcher.run) if own is not None else next(iter(runs.items()), (None, None))
     written = {}
-    for entry in series:
-        launcher.perf_session = entry.session
-        key = f"{entry.story}/{entry.metric}"
-        try:
-            written[key] = str(launcher.record(entry.story, entry.metric, entry.unit, entry.samples, better="lower",
-                                               engine=entry.engine))
-        except (RecordError, perf_result.ResultError) as error:
-            written[key] = f"not recorded: {error}"
-            print(f"result-v1 {key}: {written[key]}", flush=True)
+    try:
+        for entry in series:
+            launcher.perf_session, launcher.run = entry.session, runs[entry.session]
+            key = f"{entry.story}/{entry.metric}"
+            try:
+                written[key] = str(launcher.record(entry.story, entry.metric, entry.unit, entry.samples,
+                                                   better="lower", engine=entry.engine))
+            except (RecordError, perf_result.ResultError) as error:
+                written[key] = f"not recorded: {error}"
+                print(f"result-v1 {key}: {written[key]}", flush=True)
+    finally:
+        if base[1] is not None:
+            launcher.perf_session, launcher.run = base
     return written
 
 
 def write_all(out, series, build, host, run=None, root=None):
     """For a bench with no app (new-tab-daemon-bench.py): every series into one result-v1 file in `out` through
-    perf_result (validated first; nothing is written when one is invalid). No features: no app ran."""
-    run = run or perf_result.Run.start()
+    perf_result (validated first; nothing is written when one is invalid), each session as its own run (session_runs).
+    No features: no app ran."""
+    runs = session_runs(series, run)
     results = [perf_result.Result(story=s.story, metric=s.metric, unit=s.unit, better="lower", samples=list(s.samples),
-                                  build=build, host=host, engine=s.engine, session=s.session, run=run)
+                                  build=build, host=host, engine=s.engine, session=s.session, run=runs[s.session])
                for s in series]
     return perf_result.write_ndjson(out, results, repo_root=root)

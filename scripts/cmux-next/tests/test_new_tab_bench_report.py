@@ -20,13 +20,14 @@ import statistics
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 PERF_LAB = HERE.parent / "perf-lab"
 STORIES = PERF_LAB / "stories.d"
 sys.path.insert(0, str(HERE))
+import bench_launch  # noqa: E402
 import new_tab_bench_report as report  # noqa: E402
 
 
@@ -136,6 +137,25 @@ class SeriesTests(unittest.TestCase):
         # A run that reported no engine still lands in its case's engine, never in the Chromium story.
         self.assertEqual(by_name["new_browser_tab.light.webkit_url.page"].engine, "webkit")
 
+    def test_a_chromium_case_that_fell_back_to_webkit_stays_in_its_story_as_missed_runs(self):
+        rows = [cef_row("cold_pane", visible=5.0), cef_row("cold_pane", visible=90.0, engine="webkit"),
+                cef_row("cold_pane", visible=91.0, engine="webkit"), cef_row("webkit_new", visible=7.0, engine="cef")]
+        series = report.new_browser_tab_series(rows, ["cold_pane", "webkit_new"])
+        by_name = {s.metric: s for s in series}
+        visible = by_name["new_browser_tab.light.cold_pane.visible"]
+        self.assertEqual((visible.story, visible.engine, visible.samples), ("new-browser-tab", "chromium", [5.0]))
+        self.assertEqual(by_name["new_browser_tab.light.cold_pane.visible.missed_runs"].samples, [2])
+        self.assertEqual({s.story for s in series if ".cold_pane." in s.metric}, {"new-browser-tab"})
+        # The WebKit case that opened Chromium writes no sample, only its missed count, in the WebKit story.
+        self.assertNotIn("new_browser_tab.light.webkit_new.visible", by_name)
+        missed = by_name["new_browser_tab.light.webkit_new.visible.missed_runs"]
+        self.assertEqual((missed.story, missed.engine, missed.samples), ("new-browser-tab-webkit", "webkit", [1]))
+        self.check_claims(series)
+
+    def check_claims(self, series):
+        for s in series:
+            self.assertIsNotNone(claimed(story(s.story), s), f"{s.story} claims no metric {s.metric} ({s.unit})")
+
     def test_open_panel_leaves_the_first_open_out(self):
         runs = [panel_run("made", first=True, visible=900.0), panel_run("made"), panel_run("fresh", visible=None)]
         series = {s.metric: s for s in report.open_panel_series(runs)}
@@ -172,11 +192,38 @@ class StoryTests(unittest.TestCase):
         self.check_claimed("open-panel", report.open_panel_series(runs))
         self.check_claimed("new-tab-daemon", report.new_tab_daemon_series([5.0, None], 0, "login"))
 
-    def test_story_commands_name_the_bench_and_its_flags_parse(self):
-        for story_id, script in (("new-tab-page", "new-tab-e2e.py"), ("new-browser-tab", "cef-tab-bench.py"),
-                                 ("new-browser-tab-webkit", "cef-tab-bench.py"), ("open-panel", "open-panel-bench.py"),
-                                 ("new-tab-daemon", "new-tab-daemon-bench.py")):
-            self.assertEqual(story(story_id)["command"][0], f"scripts/cmux-next/{script}")
+    RUNNER = ["--app", "/x/cmux DEV t.app", "--tag", "t", "--out", "/x/out"]  # what the story runner adds
+
+    def parsed(self, story_id, script):
+        """The story's command, plus the runner's flags, through its bench's own parser."""
+        command = story(story_id)["command"]
+        self.assertEqual(command[0], f"scripts/cmux-next/{script}")
+        bench = load(f"bench_{script.replace('-', '_')[:-3]}_051", HERE / script)
+        return bench.parse(command[1:] + self.RUNNER)
+
+    def test_story_commands_parse_with_their_bench_and_say_what_the_story_does(self):
+        page = self.parsed("new-tab-page", "new-tab-e2e.py")
+        self.assertEqual((page.bench_open, page.runs, page.app, page.out), (True, 20, "/x/cmux DEV t.app", "/x/out"))
+        for story_id in ("new-browser-tab", "new-browser-tab-webkit"):
+            tab = self.parsed(story_id, "cef-tab-bench.py")
+            cases = tab.cases.split(",")
+            self.assertEqual((tab.sessions, tab.rounds, tab.tag), ("light", 6, "t"))
+            self.assertEqual({report.case_engine(c) for c in cases}, {story(story_id)["engine"]}, story_id)
+        panel = self.parsed("open-panel", "open-panel-bench.py")
+        self.assertEqual((panel.sessions, panel.rounds, panel.modes), ("light", 5, "made,fresh,window"))
+        daemon = self.parsed("new-tab-daemon", "new-tab-daemon-bench.py")
+        self.assertEqual((daemon.runs, daemon.shell, daemon.out), (20, "login", "/x/out"))
+        self.assertEqual(daemon.binary, "/x/cmux DEV t.app/Contents/Resources/bin/cmux", "--app names the daemon")
+
+    def test_daemon_bench_takes_the_old_positionals_and_refuses_out_without_app(self):
+        bench = load("bench_new_tab_daemon_bench_051", HERE / "new-tab-daemon-bench.py")
+        old = bench.parse(["/bin/cmux", "7", "sh"])
+        self.assertEqual((old.binary, old.runs, old.shell, old.out), ("/bin/cmux", 7, "sh", None))
+        flags = bench.parse(["/bin/cmux", "7", "sh", "--runs", "3", "--shell", "login"])
+        self.assertEqual((flags.runs, flags.shell), (3, "login"), "the flags win over the positionals")
+        for argv in ([], ["/bin/cmux", "--out", "/x/out"]):
+            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                bench.parse(argv)
 
     def test_the_catalog_lints_the_new_stories_clean(self):
         catalog = load("perf_lab_catalog", PERF_LAB / "catalog.py").load_catalog()
@@ -205,9 +252,68 @@ class RecordTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def ingest(self, tmp, folder):
+        db = store.Store(Path(tmp) / "lab.sqlite3")
+        db.migrate()
+        self.addCleanup(db.close)
+        got = ingest.ingest_paths(db, [folder], commit_positions={SHA: ingest.CommitPosition(1, mainline=True)}.get)
+        return db, got
+
+    def bench_app(self, tmp, out):
+        """A real BenchApp (its record, its run handling) with the launch's snapshot, build and host filled in."""
+        bundle = Path(tmp) / "cmux DEV nt051.app"
+        bundle.mkdir()
+        app = bench_launch.BenchApp(str(bundle), out=str(out), teardown=False)
+        app.features, app._build, app._host = ({}, None, None), BUILD, HOST
+        return app
+
+    def two_session_series(self):
+        panels = [panel_run("made", session=s, index=i) for s in ("light", "stress") for i in (1, 2)]
+        cases = ["cold_pane", "webkit_new"]
+        rows = [cef_row(c, session=s, engine="webkit" if c.startswith("webkit") else "cef")
+                for s in ("light", "stress") for c in cases]
+        return report.open_panel_series(panels) + report.new_browser_tab_series(rows, cases)
+
+    def test_record_all_writes_each_session_as_its_own_run_and_ingest_stores_every_group(self):
+        series = self.two_session_series()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "results"
+            app = self.bench_app(tmp, out)
+            written = report.record_all(app, series)
+            self.assertFalse([v for v in written.values() if v.startswith("not recorded")])
+            back = pr.read_dir(out)
+            runs = {r.session: r.run.id for r in back}
+            self.assertEqual(len(set(runs.values())), 2, runs)
+            self.assertEqual(len({(r.session, r.run.id) for r in back}), 2, "one run per session")
+            db, got = self.ingest(tmp, out)
+            self.assertEqual(got.rejected, [])
+            for session, run_id in runs.items():
+                for story_id in ("open-panel", "new-browser-tab", "new-browser-tab-webkit"):
+                    metrics = db.run_metrics(f"{run_id}/{story_id}")
+                    self.assertTrue(metrics, f"{session} {story_id} not stored")
+                    self.assertTrue(all(f".{session}." in name for name in metrics), metrics)
+            # A second call of the same bench keeps each session on its run (new-tab-e2e records twice).
+            report.record_all(app, report.open_panel_series([panel_run("fresh", session="stress")]))
+            self.assertEqual({r.run.id for r in pr.read_dir(out) if r.session == "stress"}, {runs["stress"]})
+            self.assertEqual((app.perf_session, app.run.id), ("light", runs["light"]))
+
+    def test_write_all_writes_each_session_as_its_own_run(self):
+        series = (report.new_tab_daemon_series([5.0], 1, "login", session="light")
+                  + report.new_tab_daemon_series([6.0], 1, "login", session="stress"))
+        run = pr.Run(id="run2", started_at="2026-10-26T12:00:00.000000Z")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "results"
+            report.write_all(out, series, BUILD, HOST, run=run, root=HERE.parent.parent)
+            self.assertEqual({(r.session, r.run.id) for r in pr.read_dir(out)}, {("light", "run2"),
+                                                                                 ("stress", "run2.stress")})
+            db, got = self.ingest(tmp, out)
+            self.assertEqual(got.rejected, [])
+            self.assertTrue(db.run_metrics("run2.stress/new-tab-daemon"))
+
     def test_record_all_sets_each_series_session_and_reports_a_refused_one(self):
         class Launcher:
             perf_session = "light"
+            run = None
             calls = []
 
             def record(self, story_id, metric, unit, samples, better, engine, target_ref=None):
