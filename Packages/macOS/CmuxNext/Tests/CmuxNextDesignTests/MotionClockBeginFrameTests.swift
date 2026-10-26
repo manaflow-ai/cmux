@@ -3,27 +3,26 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// A ``MotionClock`` hands its animators the frame's BeginFrame args (p03-rendering-012): the dt to
-/// step, the time the frame is shown (`targetTimestamp`, where a presented value is sampled) and the
-/// frame's sequence. Animators that only step by dt keep working unchanged.
+/// A ``MotionClock`` hands its animators the frame's ``FrameTick`` (BeginFrame args, p03-rendering-012):
+/// the clamped elapsed to step by, the time the frame is shown (`targetTimestamp`, where a presented
+/// value is sampled) and the frame's sequence.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MotionClockBeginFrameTests {
     /// Reads the whole frame: what a sampler of presented values implements.
     @MainActor final class FrameReader: MotionAnimating {
-        var frames: [MotionFrame] = []
+        var frames: [FrameTick] = []
         let restAfter: Int
         init(restAfter: Int) { self.restAfter = restAfter }
-        func motionStep(_ dt: Double) -> Bool { Issue.record("the clock called the dt step of a frame reader"); return false }
-        func motionStep(_ frame: MotionFrame) -> Bool {
-            frames.append(frame)
+        func motionStep(_ tick: FrameTick) -> Bool {
+            frames.append(tick)
             return frames.count < restAfter
         }
     }
 
-    /// Steps by dt only (the layout driver, the tab strip, the card slot today).
+    /// Steps by the elapsed only (the layout driver, the tab strip, the card slot).
     @MainActor final class DtStepper: MotionAnimating {
         var steps: [Double] = []
-        func motionStep(_ dt: Double) -> Bool {
-            steps.append(dt)
+        func motionStep(_ tick: FrameTick) -> Bool {
+            steps.append(tick.elapsed)
             return steps.count < 2
         }
     }
@@ -45,7 +44,7 @@ import Testing
         let sequences = reader.frames.map(\.sequence)
         #expect(sequences == [sequences[0], sequences[0] + 1, sequences[0] + 2], "sequences \(sequences)")
         // The dt is the tick's clamped elapsed: the first frame's default 1/60, then the 10 ms between frames.
-        let dts = reader.frames.map(\.dt)
+        let dts = reader.frames.map(\.elapsed)
         #expect(abs(dts[0] - 1.0 / 60) < 1e-9)
         #expect(abs(dts[1] - 0.010) < 1e-9 && abs(dts[2] - 0.010) < 1e-9, "dts \(dts)")
         #expect(!clock.isRunning(reader), "the reader rested on its third frame")
@@ -75,7 +74,9 @@ import Testing
         clock.run(second, trace: "test.second")
         scheduler.frameDidFire(timestamp: 3.0, refreshInterval: 1.0 / 120, targetTimestamp: 3.008)
         scheduler.frameDidFire(timestamp: 3.008, refreshInterval: 1.0 / 120, targetTimestamp: 3.016)
-        #expect(first.frames == second.frames)
+        #expect(first.frames.map(\.elapsed) == second.frames.map(\.elapsed))
+        #expect(first.frames.map(\.targetTimestamp) == second.frames.map(\.targetTimestamp))
+        #expect(first.frames.map(\.sequence) == second.frames.map(\.sequence))
         #expect(first.frames.count == 2)
     }
 }

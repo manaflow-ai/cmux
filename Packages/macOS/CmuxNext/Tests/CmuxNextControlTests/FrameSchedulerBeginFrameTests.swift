@@ -34,18 +34,22 @@ import Testing
     }
 
     /// A frame with no link time reads the scheduler's injected media time, not `CACurrentMediaTime()`,
-    /// and is shown at that time (no refresh interval to add).
+    /// and is shown one interval later: the link's last one, 1/60 before any link frame.
     @Test func aSynthesizedFrameUsesTheInjectedMediaTime() throws {
         let scheduler = FrameScheduler.testing(mediaTime: { 777 }) { _ in BeginFrameFakeLink() }
         var ticks: [FrameTick] = []
         let client = FrameClient(owner: "spring", on: scheduler) { tick in ticks.append(tick); return true }
         client.activate()
         scheduler.frameDidFire(timestamp: nil)
+        scheduler.frameDidFire(timestamp: 776.5, refreshInterval: 1.0 / 120)
+        scheduler.frameDidFire(timestamp: nil)
         client.deactivate()
-        let tick = try #require(ticks.first)
-        #expect(tick.timestamp == 777)
-        #expect(tick.targetTimestamp == 777)
-        #expect(tick.refreshInterval == nil)
+        try #require(ticks.count == 3)
+        #expect(ticks[0].timestamp == 777)
+        #expect(abs(ticks[0].targetTimestamp - (777 + 1.0 / 60)) < 1e-9)
+        #expect(ticks[0].refreshInterval == nil)
+        #expect(abs(ticks[2].targetTimestamp - (777 + 1.0 / 120)) < 1e-9, "the link's last interval")
+        #expect(ticks[2].refreshInterval == nil)
     }
 
     /// The sequence counts the scheduler's frames: a client that went idle and came back sees the gap.
@@ -73,7 +77,7 @@ import Testing
         #expect(abs(shown.targetTimestamp - 1.01) < 1e-12)
         #expect(shown.sequence == 0)
         let stalled = FrameTick(timestamp: 3, elapsed: 0.01, rawElapsed: 0.2, refreshInterval: nil)
-        #expect(stalled.targetTimestamp == 3)
+        #expect(abs(stalled.targetTimestamp - (3 + FrameTick.defaultRefreshInterval)) < 1e-12)
         let given = FrameTick(timestamp: 1, elapsed: 0.01, rawElapsed: 0.01, refreshInterval: 0.01,
                               targetTimestamp: 1.5, sequence: 9)
         #expect(given.targetTimestamp == 1.5)

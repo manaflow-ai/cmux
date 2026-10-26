@@ -98,6 +98,8 @@ public final class FrameScheduler: NSObject {
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
+    /// The link's last refresh period: a stalled frame is shown this long after it starts.
+    private var lastRefreshInterval = FrameTick.defaultRefreshInterval
     private let mediaTime: @MainActor () -> CFTimeInterval
     /// The last link frame's timestamp (or the time the clients activated): where a stall starts.
     private var lastLinkFrame: CFTimeInterval = 0
@@ -273,7 +275,7 @@ public final class FrameScheduler: NSObject {
     }
 
     /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when the frame
-    /// is shown (the link's); nil is `timestamp` plus `refreshInterval`.
+    /// is shown (the link's); nil is `timestamp` plus `refreshInterval` (nil: the link's last interval).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil,
                              targetTimestamp: CFTimeInterval? = nil) {
         lastLinkFrame = timestamp ?? mediaTime()
@@ -288,9 +290,12 @@ public final class FrameScheduler: NSObject {
         let now = timestamp ?? mediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
+        if let refreshInterval { lastRefreshInterval = refreshInterval }
+        // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
+        // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                              rawElapsed: elapsed, refreshInterval: refreshInterval,
-                             targetTimestamp: targetTimestamp, sequence: frames)
+                             targetTimestamp: targetTimestamp ?? now + lastRefreshInterval, sequence: frames)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)

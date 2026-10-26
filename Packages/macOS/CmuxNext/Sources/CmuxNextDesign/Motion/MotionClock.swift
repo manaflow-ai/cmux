@@ -1,38 +1,15 @@
 public import AppKit
-import CmuxNextWakeups
-
-/// One step of a ``MotionClock``: its frame's BeginFrame args (``FrameTick``) as animators read them.
-public struct MotionFrame: Sendable, Equatable {
-    /// Seconds to advance the springs (the tick's clamped `elapsed`).
-    public var dt: Double
-    /// When this frame is shown (the tick's `targetTimestamp`, CACurrentMediaTime base): evaluate a
-    /// presented value (a `MotionPath`, a render-server spring) here, not at `CACurrentMediaTime()`.
-    public var targetTimestamp: CFTimeInterval
-    /// The frame's number on the window's scheduler (the tick's `sequence`).
-    public var sequence: UInt64
-
-    public init(dt: Double, targetTimestamp: CFTimeInterval, sequence: UInt64) {
-        self.dt = dt
-        self.targetTimestamp = targetTimestamp
-        self.sequence = sequence
-    }
-}
+public import CmuxNextWakeups
 
 /// Something whose springs a ``MotionClock`` steps: the tab strip, the
 /// layout's panes and dividers, the sidebar rows.
 @MainActor
 public protocol MotionAnimating: AnyObject {
-    /// Advances every spring by `dt` seconds and applies the presented
-    /// values (layer frames). Returns true while anything still moves.
-    func motionStep(_ dt: Double) -> Bool
-    /// The clock's call each frame. An animator that samples presented values implements this one and
-    /// reads `frame.targetTimestamp`; the default steps `motionStep(_ dt:)` by `frame.dt`.
-    func motionStep(_ frame: MotionFrame) -> Bool
-}
-
-@MainActor
-extension MotionAnimating {
-    public func motionStep(_ frame: MotionFrame) -> Bool { motionStep(frame.dt) }
+    /// One frame: advances every spring by `tick.elapsed` seconds (clamped) and applies the presented
+    /// values (layer frames). A sampler of presented values (a `MotionPath`, a render-server spring)
+    /// evaluates at `tick.targetTimestamp`, when the frame is shown, not at `CACurrentMediaTime()`.
+    /// Returns true while anything still moves.
+    func motionStep(_ tick: FrameTick) -> Bool
 }
 
 /// The one chrome animation clock of a window (motion.md, DESIGN P4): every
@@ -125,18 +102,17 @@ public final class MotionClock {
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
     private func tick(_ tick: FrameTick) -> Bool {
-        let frame = MotionFrame(dt: tick.elapsed, targetTimestamp: tick.targetTimestamp, sequence: tick.sequence)
-        return MotionTrace.measure("clock") { step(frame) }
+        MotionTrace.measure("clock") { step(tick) }
     }
 
-    private func step(_ frame: MotionFrame) -> Bool {
+    private func step(_ tick: FrameTick) -> Bool {
         frames &+= 1
-        if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", frame.dt * 1000) }
+        if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", tick.elapsed * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {
             guard let entry = entries[id] else { continue }
             (steppingID, steppingRearmed) = (id, false)
-            let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(frame) } }
+            let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(tick) } }
             steppingID = nil
             // Rest, unless the step re-armed itself (`run` during its own step): its new targets move next frame.
             guard moving == true || (moving != nil && steppingRearmed) else {

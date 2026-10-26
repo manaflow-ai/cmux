@@ -14,22 +14,28 @@ public struct FrameTick: Sendable {
     public var rawElapsed: Double
     /// The display's refresh period; nil for a synthesized (stalled) frame.
     public var refreshInterval: Double?
-    /// When the frame this tick builds is shown (the link's `targetTimestamp`, CACurrentMediaTime base);
-    /// ``timestamp`` for a synthesized frame. Sample a presented value (a spring, a `MotionPath`) at this
-    /// time, not at `CACurrentMediaTime()`: the main thread runs the tick late by a varying delay.
+    /// When the frame this tick builds is shown (the link's `targetTimestamp`, CACurrentMediaTime base).
+    /// A synthesized (stalled) frame is shown one link interval after it starts, as Chrome's synthetic
+    /// sources set `deadline = frame_time + interval` (`BackToBackBeginFrameSource::OnTimerTick`,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc). Sample a presented value (a spring, a
+    /// `MotionPath`) at this time, not at `CACurrentMediaTime()`: the main thread runs the tick late.
     public var targetTimestamp: CFTimeInterval
     /// The frame's number on its scheduler, from 1, one more each frame (stalled frames too): a gap
     /// between two ticks a client saw is a frame it missed.
     public var sequence: UInt64
 
-    /// A tick; `targetTimestamp` defaults to `timestamp` plus the refresh period (a synthesized frame: `timestamp`).
+    /// The interval a frame with no known refresh period is shown after (60 Hz).
+    public static let defaultRefreshInterval: Double = 1.0 / 60.0
+
+    /// A tick; `targetTimestamp` defaults to `timestamp` plus the refresh period
+    /// (``defaultRefreshInterval`` when `refreshInterval` is nil).
     public init(timestamp: CFTimeInterval, elapsed: Double, rawElapsed: Double, refreshInterval: Double?,
                 targetTimestamp: CFTimeInterval? = nil, sequence: UInt64 = 0) {
         self.timestamp = timestamp
         self.elapsed = elapsed
         self.rawElapsed = rawElapsed
         self.refreshInterval = refreshInterval
-        self.targetTimestamp = targetTimestamp ?? timestamp + (refreshInterval ?? 0)
+        self.targetTimestamp = targetTimestamp ?? timestamp + (refreshInterval ?? Self.defaultRefreshInterval)
         self.sequence = sequence
     }
 }
