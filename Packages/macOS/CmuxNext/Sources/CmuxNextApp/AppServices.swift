@@ -408,8 +408,22 @@ final class AppServices {
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
-    /// Settings, History and Cloud through the one preload slot (`preloadSlot`, feature `pagePreload`).
-    private(set) lazy var pagePreloads = makePagePreloads()
+    /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
+    /// `pagePreloads` both take it, so it has one park state (rendered-parked until spike 090 records its choice).
+    private(set) lazy var preloadSlot: PagePreloadSlot = {
+        let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: self.mainDeadlines)
+        self.webUI.preload = slot
+        return slot
+    }()
+    /// Settings, History and Cloud through the one preload slot (feature `pagePreload`), parked in the active window
+    /// at its focused pane's tab size; no Settings preload while `settingsWindow` keeps a page its next open shows.
+    private(set) lazy var pagePreloads = PagePreloads(
+        webUI: webUI, slot: preloadSlot, deadlines: mainDeadlines, input: inputTap, isEnabled: { [weak self] in self?.features.isEnabled(.pagePreload) == true },
+        target: { [weak self] in
+            guard let controller = self?.windows.active, let content = controller.window?.contentView else { return nil }
+            return (content, controller.focusedPane.map(NewTabPreload.newTabContentSize(in:)) ?? content.bounds.size)
+        },
+        keepsView: { [weak self] page in page == .settings && self?.settingsWindow.keepsPage == true })
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
