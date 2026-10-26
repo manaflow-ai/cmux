@@ -1,4 +1,5 @@
-//! Wakes the daemon side can share (p14-energy-020).
+//! Wakes cmux's Rust processes share (p14-energy-020): the daemon through
+//! `cmux_tui_core::wake`, acpmux directly (p14-energy-034).
 //!
 //! - [`deadline`]: the window a one-shot delayed wake may fire in, so that
 //!   deadlines close to each other share one wake. The table is the app's

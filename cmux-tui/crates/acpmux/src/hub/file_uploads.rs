@@ -34,6 +34,14 @@ pub const MAX_BYTES: usize = 1 << 30;
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
 pub const CHUNK_BYTES: usize = 512 << 10;
+/// The daily age-cap sweep on the maintenance clock (`maintenance.rs`). Energy Saver does not
+/// stretch it: `uploadsMaxAgeDays` tells the person when a file is gone, and a 4x period would
+/// keep files up to three days past it.
+pub const SWEEP_JOB: crate::maintenance::JobSpec = crate::maintenance::JobSpec {
+    name: "file_uploads.sweep",
+    period: Duration::from_secs(24 * 60 * 60),
+    skippable_in_saver: false,
+};
 
 fn root() -> PathBuf {
     crate::config::home().join("uploads")
@@ -91,24 +99,24 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
 }
 
 impl super::Hub {
-    /// The age cap's sweep (module docs): at the start, then every day. `uploadsMaxAgeDays` is
-    /// read at each sweep, so a config reload applies from the next.
+    /// The age cap's sweep (module docs): at the start, then every day on the maintenance clock
+    /// ([`SWEEP_JOB`]; start it first). `uploadsMaxAgeDays` is read at each sweep, so a config
+    /// reload applies from the next.
     pub fn start_upload_sweep(self: &Arc<Self>) {
-        let hub = self.clone();
-        tokio::spawn(async move {
-            let mut every = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
-            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                every.tick().await;
-                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
-                let now = crate::store::now_ms();
-                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
-                    Err(e) => tracing::warn!("the upload sweep failed: {e}"),
-                }
-            }
-        });
+        let start = crate::maintenance::Start::Now;
+        if let Err(e) = self.maintenance.register_for(SWEEP_JOB, self, start, Self::sweep_uploads) {
+            tracing::warn!("the daily upload sweep is off: {e}");
+        }
+    }
+
+    async fn sweep_uploads(self: Arc<Self>) {
+        let Some(max_age) = self.config.read().await.uploads_max_age() else { return };
+        let now = crate::store::now_ms();
+        match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
+            Err(e) => tracing::warn!("the upload sweep failed: {e}"),
+        }
     }
 }
 

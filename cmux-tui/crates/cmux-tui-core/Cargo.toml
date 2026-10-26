@@ -42,6 +42,8 @@ cmux-process.workspace = true
 cmux-features.workspace = true
 cmux-flow-trace.workspace = true
 cmux-threads.workspace = true
+# wake::deadline, EnergyMode and the MaintenanceClock (re-exported as `wake`).
+cmux-wake.workspace = true
 cmux-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
