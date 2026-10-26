@@ -25,6 +25,7 @@
 //! std and libc only: the holder links it.
 
 pub mod clock;
+mod control;
 mod copy;
 mod decode;
 mod identity;
@@ -42,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub use control::{ControlOp, apply as apply_control};
 pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadEntry, decode};
 pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
 pub use layout::{

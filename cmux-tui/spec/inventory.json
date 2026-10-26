@@ -538,6 +538,9 @@
     ],
     "local-admin": [
       "server-stats",
+      "trace-start",
+      "trace-stop",
+      "trace-status",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
@@ -1948,6 +1951,7 @@
         "ClipboardReadCancel": 25,
         "PtyCustody": 26,
         "LaunchAdopt": 27,
+        "TraceControlAck": 28,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1960,7 +1964,8 @@
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
         "Detach": 111,
-        "ClipboardReadReply": 112
+        "ClipboardReadReply": 112,
+        "TraceControl": 113
       }
     },
     "machine_provider_v1": {
