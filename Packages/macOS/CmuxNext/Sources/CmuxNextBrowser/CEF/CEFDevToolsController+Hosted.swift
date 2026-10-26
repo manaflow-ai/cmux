@@ -63,6 +63,9 @@ extension CEFDevToolsController {
         // pane's. Its input method ops go to the host for the DevTools browser, as the pane's do.
         let page = ChromiumHostPageView(frame: .zero, inputTarget: .pageWindow)
         page.wireToken = tab.runtime.mintPageViewToken()
+        // What the person sees of the DevTools page goes to the host, as the pane's page does
+        // (``postPageVisibility(browser:)``): its page window is detached too.
+        page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
         // DevTools' page window takes the view's display, as the pane's page does (task 221).
         page.onScreenInfo = { [weak self, weak page, weak runtime = tab.runtime] _ in
             guard let self, let page, let runtime, let browser = devToolsBrowserID else { return false }
@@ -73,6 +76,15 @@ extension CEFDevToolsController {
         #endif
         hostedPage = page
         return page
+    }
+
+    /// Host mode: tells the host what the person sees of ``hostedPage``
+    /// (``ChromiumHostPageView/pageVisibility``) for DevTools browser `browser` (by default the open
+    /// one), as ``CEFPaneHost/postPageVisibility(browser:)`` does for the pane's page. Nothing goes
+    /// while no DevTools is open.
+    func postPageVisibility(browser: Int32? = nil) {
+        guard let page = hostedPage, let browser = browser ?? devToolsBrowserID else { return }
+        _ = tab?.runtime.shim?.browserSetPageVisibility(browser, page.pageVisibility.rawValue)
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -145,6 +157,8 @@ extension CEFDevToolsController {
         guard forkAPI >= CEFLayerHosting.forkAPI else {
             return runtime.logger.error("Chromium Host fork API \(forkAPI) cannot layer-host DevTools")
         }
+        // Before the hosting op: the host applies it when it detaches the DevTools page window.
+        postPageVisibility(browser: devTools)
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(devTools, 1) }
         runtime.placeHostedPage(page, browser: devTools)
         runtime.whenAnswered(sent, label: "DevTools context") { [weak self, weak page, weak runtime] id in

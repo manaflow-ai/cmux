@@ -35,6 +35,8 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        // What the person sees of the page goes to the host (``postPageVisibility(browser:)``).
+        page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
         // The page's display follows the view's (task 221): the host places the page window there.
         // With no tab shown yet nothing goes out; ``showBrowser(of:activate:)`` places it then.
         page.onScreenInfo = { [weak self, weak page] _ in
@@ -81,6 +83,8 @@ extension CEFPaneHost {
             runtime.hostPageResizes()?.resize(view: page.wireToken, browser: browser, geometry: geometry, in: pageWindow,
                                               resend: true)
         }
+        // Before the hosting op: the host applies it when it detaches the page window.
+        postPageVisibility(browser: browser)
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(browser, 1) }
         // After the hosting op on the same ordered channel: the detached window takes the view's display.
         runtime.placeHostedPage(page, browser: browser)
@@ -89,6 +93,15 @@ extension CEFPaneHost {
             if let id, id != 0, page.show(contextID: id) { return }
             runtime.logger.error("Chromium Host gave no page context for browser \(browser)")
         }
+    }
+
+    /// Host mode: tells the host what the person sees of this pane's page
+    /// (``ChromiumHostPageView/pageVisibility``), as Chrome's page view tells its WebContents. The
+    /// fork shows, hides or occludes the Chromium window of `browser` (by default a browser of this
+    /// pane's window), every tab of it.
+    func postPageVisibility(browser: Int32? = nil) {
+        guard let page = hostedPageView, let browser = browser ?? anchorBrowser else { return }
+        _ = runtime.shim?.browserSetPageVisibility(browser, page.pageVisibility.rawValue)
     }
 }
 

@@ -56,6 +56,9 @@ constexpr size_t kMaxPendingBinds = 4096;
 // Requests held for one browser's creation: cmux asks for the page's accessibility once per page,
 // window and context its page view shows, and holds one page display (the newest).
 constexpr size_t kMaxHeldPerBrowser = 16;
+// Browsers whose page visibility the host keeps (one per pane cmux shows; a
+// browser's entry goes at its BEFORE_CLOSE).
+constexpr size_t kMaxPageVisibilities = 65536;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -232,6 +235,9 @@ void HostContext::Handle(control::Message& message) {
           HoldForCreation(message)) {
         return;
       }
+      if (message.op == kOpBrowserSetPageVisibility && !KeepPageVisibility(message)) {
+        return Bad("too many page visibilities");
+      }
       Dispatch(message);
       return;
   }
@@ -391,9 +397,25 @@ bool HostContext::HandleLayerHosting(const control::Message& message) {
     cmux_shim_browser_set_layer_hosting(browser, 0);
     context = 0;
   }
+  // The fork took no visibility before the detach: cmux's last one applies now.
+  auto visibility = page_visibility_.find(client);
+  if (enabled && context != 0 && visibility != page_visibility_.end()) {
+    cmux_shim_browser_set_page_visibility(browser, visibility->second);
+  }
   TlvWriter reply;
   reply.U32(context);
   Reply(message.token, reply);
+  return true;
+}
+
+bool HostContext::KeepPageVisibility(const control::Message& message) {
+  TlvReader peek(message.fields);
+  const int32_t client = peek.I32();
+  const int32_t visibility = peek.I32();
+  // A malformed op is the generated case's to refuse.
+  if (!peek.ok() || !peek.AtEnd()) return true;
+  if (!page_visibility_.count(client) && page_visibility_.size() >= kMaxPageVisibilities) return false;
+  page_visibility_[client] = visibility;
   return true;
 }
 
@@ -651,6 +673,7 @@ void HostContext::Bind(int32_t client_id, int chromium_id) {
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   geometry_awaiting_.erase(client_id);
+  page_visibility_.erase(client_id);
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   for (auto& [op, keys] : watched_) {

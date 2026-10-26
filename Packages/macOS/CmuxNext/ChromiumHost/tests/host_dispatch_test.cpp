@@ -147,6 +147,10 @@ int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
   shim.calls.push_back("detached " + std::to_string(browser_id) + " " + std::to_string(enabled));
   return enabled && shim.refuse_detach ? 0 : 1;
 }
+int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
+  shim.calls.push_back("visibility " + std::to_string(browser_id) + " " + std::to_string(visibility));
+  return 1;
+}
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
   shim.calls.push_back("nav_state " + std::to_string(browser_id));
@@ -874,6 +878,62 @@ void LayerHostingDetachesThePageWindow() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed layer hosting op"}, "a malformed op is bad");
 }
 
+// Task 220: the fork takes a page's visibility only while its window is detached, so the host
+// keeps cmux's last value per browser and applies it when it detaches the page window; a refused
+// detach applies nothing, and a closed browser's value is gone.
+void PageVisibilityAppliesAtTheDetach() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  f.Sent();
+  auto visibility = [&f](int32_t browser, int32_t value, uint32_t token) {
+    Writer w;
+    w.I32(browser);
+    w.I32(value);
+    f.host.OnMessages({Op(kOpBrowserSetPageVisibility, token, w)});
+  };
+  auto hosting = [&f](int32_t browser, int32_t enabled, uint32_t token) {
+    Writer w;
+    w.I32(browser);
+    w.I32(enabled);
+    f.host.OnMessages({Op(kOpBrowserSetLayerHosting, token, w)});
+  };
+  shim.calls.clear();
+  visibility(kMinted, CMUX_SHIM_PAGE_OCCLUDED, 0);
+  visibility(kMinted, CMUX_SHIM_PAGE_HIDDEN, 60);
+  Expect(shim.calls, {"visibility 3 2", "visibility 3 1"}, "each value goes to the fork, for Chromium's id");
+  Expect(f.Sent(), {"ack 60"}, "a post with a token is acked");
+
+  shim.calls.clear();
+  hosting(kMinted, 1, 61);
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1", "visibility 3 1"},
+         "the detach applies cmux's last value, after the detach");
+  f.Sent();
+
+  shim.calls.clear();
+  shim.refuse_detach = true;
+  hosting(kMinted, 1, 62);
+  shim.refuse_detach = false;
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1", "layer_hosting 3 0"}, "a refused detach applies nothing");
+  f.Sent();
+
+  shim.live = 0;
+  Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+  CreateWindow(f, kMinted, 9);  // the same client id names a new browser
+  f.Sent();
+  shim.calls.clear();
+  hosting(kMinted, 1, 63);
+  Expect(shim.calls, {"layer_hosting 3 1", "detached 3 1"}, "a closed browser's value is forgotten");
+  f.Sent();
+
+  Writer bad;
+  bad.I32(kMinted);
+  f.host.OnMessages({Op(kOpBrowserSetPageVisibility, 64, bad)});
+  Expect(f.delegate.calls,
+         {"initialize /root", "closed", "bad a malformed op " + std::to_string(kOpBrowserSetPageVisibility)},
+         "a malformed op is bad");
+}
+
 cmux_host::Header GeometryFrame(int32_t browser, int32_t width, int32_t height, int32_t x, int32_t y) {
   cmux_host::Header frame;
   frame.kind = cmux_host::kGeometry;
@@ -1047,6 +1107,7 @@ int main() {
   AccessibilityTokenCreatedInsideAnotherOp();
   PageDisplayFollowsCreation();
   LayerHostingDetachesThePageWindow();
+  PageVisibilityAppliesAtTheDetach();
   GeometryOnlyOnChange();
   GeometryStatsReply();
   WipeZeroes();
