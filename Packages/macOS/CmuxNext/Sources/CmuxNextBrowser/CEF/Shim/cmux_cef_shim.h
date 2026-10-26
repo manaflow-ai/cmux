@@ -300,9 +300,10 @@ CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int dialog_id, int multiple, c
 CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
 // Fork API 27: how long (ms) a resize of browser_id's page window may hold
 // this app's Core Animation commit for Chromium's frame at the new size; 0
-// never holds it (the fork's default). From fork API 32 the timeout has no
-// effect: a page window never holds the commit (use the resize fence). Returns
-// 0 when the fork lacks the call or the browser has no page window.
+// never holds it (the fork's default). Fork API 27 to 31 only: from API 32 a
+// page window never holds the commit (the resize fence replaces it), so the
+// shim makes no call and returns 0. Returns 0 when the fork lacks the call or
+// the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
 // Fork API 32 (cmux_browser_set_resize_fence; p03-rendering-042): browser_id's
 // page shows its first frame at its new size in the same WindowServer update

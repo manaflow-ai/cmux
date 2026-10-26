@@ -292,7 +292,7 @@
     },
     {
       "name": "cmux_shim_browser_set_resize_fence",
-      "class": "view",
+      "class": "local",
       "args": [
         {
           "name": "browser_id",
@@ -313,7 +313,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A Mach port name is this process's: in host mode CEFShimLibrary does not bind the export, and the fence reaches the host as a port right over XPC (task 052), owned by ChromiumHostPageView."
+      "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence is a port right over XPC, an op of its own (task 052), owned by ChromiumHostPageView."
     },
     {
       "name": "cmux_shim_browser_set_detached_hosting",

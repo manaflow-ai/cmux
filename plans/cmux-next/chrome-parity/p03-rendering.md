@@ -1058,8 +1058,16 @@ every task that changes behavior or performance and is not repeated per row.
   `-cmuxEmbedderDidReceiveFrame`), then drops it; also at the deadline (display frames, at most 30; 0 after
   the turn's commit), with no resize, and on hide, hosting off and close. An embedded page window never calls
   `Synchronize()` and never waits in pre-commit, so `cmux_browser_set_resize_sync` has no effect from API 32.
-  App shim: `cmux_shim_browser_set_resize_fence` (`shim_windows.mm`), not bound in host mode. Task 043 checks
-  for `>= 32`. Embedder case `helper-resize-fence` (not run here: no Chromium tree).
+  App shim: `cmux_shim_browser_set_resize_fence` (`shim_windows.mm`). From API 32 the shim's
+  `cmux_shim_browser_set_resize_sync` makes no call and returns 0, and `CEFLayerHosting` sends the resize deadline
+  only to API 27 to 31 (`CEFLayerHosting.hasResizeSync(apiVersion:)`, `resizeFenceForkAPI = 32`). The remote shim
+  (host mode) sends no fence op: its `cmux_shim_browser_set_resize_fence` is a local export that returns 0, because a
+  Mach port name means nothing in the host; host mode's fence is a port right over XPC (task 052). Task 043's fork
+  check is `>= 32` (`resizeFenceForkAPI`; its branch had 31). Embedder case `helper-resize-fence` (not run here: no
+  Chromium tree).
+- Pin rule: the CEF pin must not move to API 32 until task 043's fence path is the default. At API 32 the resize
+  deadline is gone, so with `cefResizeFence` off every page resize shows stale-size frames again (splits, column
+  springs, window live resize).
 
 #### p03-rendering-043 App fence transactions
 - Files: `.../CmuxNextBrowser/CEF/CEFLayerHosting.swift`, `.../CmuxNextRemoteLayer/include/CmuxNextRemoteLayer.h`,

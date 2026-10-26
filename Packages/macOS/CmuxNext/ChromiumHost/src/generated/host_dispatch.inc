@@ -168,9 +168,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
-inline constexpr char kShimAbiID[] = "692feafbb492df51087e311c0107c8d71393734d135dfbda8c2990725eacc41d";
+inline constexpr char kShimAbiID[] = "f22dd3ee8df39363195ba2c50ef4e737ba462320c20c4c2e079cce6e49d44e24";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "42028c4f8c80d795abcb0f81e32d42defccd16b69622bcfc96f8313b86dfd548";
+inline constexpr char kWireID[] = "2ccc4a008e05cb1ce48673f0eae4c7e201e234b9a740f65c10425fc33bfcb50b";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -276,16 +276,6 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_timeout_ms = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_browser_set_resize_sync(ctx.Browser(arg_browser_id), arg_timeout_ms);
-      (void)call_result;
-      ctx.Ack(wire_token);
-      return true;
-    }
-    case kOpBrowserSetResizeFence: {
-      const auto arg_browser_id = r.I32();
-      const auto arg_fence_port = r.U32();
-      const auto arg_deadline_frames = r.U32();
-      if (!r.ok() || !r.AtEnd()) return false;
-      const auto call_result = cmux_shim_browser_set_resize_fence(ctx.Browser(arg_browser_id), arg_fence_port, arg_deadline_frames);
       (void)call_result;
       ctx.Ack(wire_token);
       return true;

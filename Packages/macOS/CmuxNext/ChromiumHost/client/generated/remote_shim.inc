@@ -170,9 +170,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
-inline constexpr char kShimAbiID[] = "692feafbb492df51087e311c0107c8d71393734d135dfbda8c2990725eacc41d";
+inline constexpr char kShimAbiID[] = "f22dd3ee8df39363195ba2c50ef4e737ba462320c20c4c2e079cce6e49d44e24";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "42028c4f8c80d795abcb0f81e32d42defccd16b69622bcfc96f8313b86dfd548";
+inline constexpr char kWireID[] = "2ccc4a008e05cb1ce48673f0eae4c7e201e234b9a740f65c10425fc33bfcb50b";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -273,15 +273,6 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int arg_browser_id, int a
   op_w.I32(arg_browser_id);
   op_w.I32(arg_timeout_ms);
   (void)Post(kOpBrowserSetResizeSync, 0, op_w);
-  return 1;
-}
-
-CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int arg_browser_id, unsigned int arg_fence_port, unsigned int arg_deadline_frames) {
-  TlvWriter op_w;
-  op_w.I32(arg_browser_id);
-  op_w.U32(arg_fence_port);
-  op_w.U32(arg_deadline_frames);
-  (void)Post(kOpBrowserSetResizeFence, 0, op_w);
   return 1;
 }
 
