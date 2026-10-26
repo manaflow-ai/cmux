@@ -32,6 +32,10 @@ Two ways to run it.
                               is refused (`echo_refused`).
      key_to_app_echo_ms       the app decoded output (probe `output_decoded_ms`)
      key_to_frame_ms          the first frame contents after that output was parsed (probe `contents_ms`)
+   Each key's timestamp is its send time, so every series includes the wait before the app injects the key:
+   the control socket's utility lane and the main-thread queue (threading-model.md). That wait is reported
+   apart as `key_to_injection_ms` (the reply's `injected_at`, read on the main thread at injection, minus the
+   key's timestamp; empty against a build whose debug.key does not return it).
    The probe's output and frame marks are not tied to a surface: the first output of any terminal after the
    key takes them. So the two app series are reported only for a phase in which no other terminal output
    anything (the daemon marks every terminal's output); otherwise they are withheld as unscoped
@@ -430,9 +434,10 @@ class Launched:
 
     def type_keys(self, count, label):
         """`count` keys through debug.key, each stamped with its send time; returns the stamps in ns, the rpc
-        round trips and how many keys failed."""
+        round trips, each key's wait from its send to its injection on the main thread (ms) and how many keys
+        failed."""
         keys = "abcdefghijklmnopqrstuvwxyz"
-        stamps, trips, failed = [], [], 0
+        stamps, trips, waits, failed = [], [], [], 0
         for index in range(count):
             t0 = time.perf_counter()
             key = "return" if index % 40 == 39 else keys[index % len(keys)]
@@ -440,6 +445,9 @@ class Launched:
             reply = self.rpc("debug.key", {"key": key, "timestamp": stamp}, timeout=10)
             stamps.append(int(stamp * 1e9))
             trips.append((time.perf_counter() - t0) * 1000)
+            injected = reply.get("injected_at") if isinstance(reply, dict) else None
+            if isinstance(injected, (int, float)):
+                waits.append((injected - stamp) * 1000)
             if isinstance(reply, dict) and reply.get("error"):
                 failed += 1
                 self.note(f"{label}: key {index}: {json.dumps(reply)[:160]}")
@@ -449,7 +457,7 @@ class Launched:
             if rest > 0:
                 time.sleep(rest)  # one key in flight at a time
         time.sleep(0.5)  # the last echo and frame land
-        return stamps, trips, failed
+        return stamps, trips, waits, failed
 
     def probe_rows(self):
         try:
@@ -459,7 +467,7 @@ class Launched:
             return []
 
     def phase(self, name, pid):
-        stamps, trips, failed = self.type_keys(self.args.samples, name)
+        stamps, trips, waits, failed = self.type_keys(self.args.samples, name)
         time.sleep(0.3)  # the flow writer drains every 50 ms
         lo, hi = stamps[0], stamps[-1] + 2_000_000_000
         all_writes, dropped_a = read_flows(self.flows, lambda r: r.get("hop") == WRITE_HOP and r.get("t_ns", 0) <= hi)
@@ -467,7 +475,8 @@ class Launched:
         writes = [w for w in all_writes if w.get("t_ns", 0) >= lo]
         echo_records, dropped_b = read_flows(self.flows, lambda r: r.get("hop") == ECHO_HOP and lo <= r.get("t_ns", 0) <= hi)
         entry = {"keys": len(stamps), "failed_keys": failed, "flow_records_dropped": dropped_a + dropped_b,
-                 "key_rpc_ms": summarize(trips)}
+                 "key_rpc_ms": summarize(trips), "key_to_injection_ms": summarize(waits)}
+        self.note(bench_tagged.summary_line(f"{name} key_to_injection_ms", entry["key_to_injection_ms"], width=36))
         try:
             if failed:
                 raise JoinRefused(f"{failed} keys failed: a failed key may not have opened its probe row")

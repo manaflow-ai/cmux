@@ -1835,7 +1835,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics"],
+            // Signposts: CEFTabSwitchShowTests' switch.tab interval.
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -1888,7 +1889,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSettingsTests",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

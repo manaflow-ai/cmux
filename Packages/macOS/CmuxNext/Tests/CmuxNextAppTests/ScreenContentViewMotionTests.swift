@@ -3,6 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextLayout
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
+import CmuxNextWakeups
 import Testing
 
 /// The layout's motion signposts (p09-observability task 026): a pane close springs its neighbours, and the
@@ -80,7 +81,7 @@ struct ScreenContentViewMotionTests {
             let signposter = Signposter(category: .motion, mirror: mirror, trace: runtime,
                                         clock: SteppingClock(step: ScreenContentViewMotionTests.frameNanos).traceClock())
             root = LayoutRootView(model: model, contentProvider: provider, rendersMotionOnServer: { renderServer },
-                                  motionSignposter: signposter)
+                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()), motionSignposter: signposter)
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

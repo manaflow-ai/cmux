@@ -1128,6 +1128,15 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: one source of window visibility; miniaturize then deminiaturize flips the node
   twice.
 - Test phase: fleet WindowEventsTests, Tabs tests.
+- Decision (review of the first pass; pending PL-switch's OK): WindowDrawPolicy.onScreen does
+  not read the node. It applies the node's own rule (`WindowVisibilitySource.appKitState(of:)`)
+  to AppKit's live state. The draw readers (TerminalSurfaceView, SurfaceInvariantMonitor) observe
+  `didChangeOcclusionState` themselves, and Foundation does not document observer order, so a
+  cached node can be stale in their handler and no second notice corrects it. The app node adds
+  nothing for drawing: AppKit already leaves every window occluded while the app is hidden or
+  the displays sleep. The node's effective state serves the flip subscribers (tab strip,
+  sidebar, workspace nodes). Draw readers can read the node once they subscribe to it instead
+  of the notice (follow-up with PL-ghostty).
 
 **p06-scheduler-023: Workspace nodes.**
 - Files: `CmuxNextApp/WorkspaceContentController.swift`, `Windows/WindowController.swift`.
@@ -1398,6 +1407,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Files: `CmuxNextApp/Control/ControlSnapshotPublisher.swift`, ControlSnapshotLazyPublishTests.
 - Change: publishNow runs as background behind a dirty flag. A fresh-snapshot reader promotes it
   to automation for its request. The 2 tracking loops become `ServiceObservation(.background)`.
+- Deviation (as built): the 2 loops are not `ServiceObservation`s. They are one shared one-shot
+  tracking with a dirty bit (`DirtyTracking` in the publisher file). It arms again only when a
+  publish reads, and it calls the publisher on the first change. `ServiceObservation` is wrong here
+  for 2 reasons. It reads again on every flush, and the topology read is the whole build. It also
+  flushes a person-caused change in the input-response pass, and here the reader's need sets the
+  class, not the cause. A reader that waits raises the pending publish to automation through the
+  store's `waiterAdded` hook, also when it starts to wait after the change (`action.run`,
+  `after: "sync"`). A model change does not mark the store stale. Only a work-queue frame does, so
+  a plain read gets the last published value. `system.ping`, `debug.hangs` and `debug.queue`
+  (`readingLastPublished()`) never wait for a build, and `fresh(deadline:)` is bounded by the
+  request deadline.
 - Acceptance: 50 changes in a frame → 1 publish; never inside an input-response window.
 - Test phase: fleet ControlSnapshotLazyPublishTests; sidebar-churn-typing.py.
 

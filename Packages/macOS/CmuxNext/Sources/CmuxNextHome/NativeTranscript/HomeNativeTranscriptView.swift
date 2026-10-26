@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextWakeups
 public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
@@ -94,7 +95,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
-    /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
+    /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followSettings(on:)`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
@@ -126,11 +127,19 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
     let showsHeader = HomeTunables.chatHeader.value
+    /// Visible while the view is in a window, not hidden there (a parked tab, an unselected
+    /// conversation) and not stopped: the live settings apply only then (``updateVisibility()``).
+    let visibility = VisibilityNode(root: "home.transcript", own: .hidden)
+    /// The live settings (HomeNativeTranscriptView+Settings.swift).
+    var settingsWatch: FrameObservation<HomeTranscriptSettings>?
+    /// The settings last applied; nil before the first apply.
+    var appliedSettings: HomeTranscriptSettings?
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    /// - Parameter mainWork: the app's main-thread scheduler; the live settings apply on its frames.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -174,12 +183,8 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
-        followTextSize()
-        followBubbleStyle()
-        followHeroTunable()
-        followChiefPet()
+        settingsWatch = followSettings(on: mainWork)
         applyTheme()
-        followTopFadeStyle()
         updateFirstRun()
     }
 
@@ -204,6 +209,8 @@ public final class HomeNativeTranscriptView: NSView {
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        settingsWatch?.cancel()
+        visibility.set(.hidden)
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         voice.close()
@@ -339,23 +346,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The live interface scale applies to the native first-run chrome. The
     /// MessagesLab transcript owns its own text and field metrics.
-    private func followTextSize() {
-        withObservationTracking {
-            applyTextScale(Typography.userScale)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followTextSize() }
-        }
-    }
-
-    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
-    private func followBubbleStyle() {
-        withObservationTracking {
-            bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followBubbleStyle() }
-        }
-    }
-
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
         needsLayout = true
@@ -441,6 +431,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateVisibility()
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)

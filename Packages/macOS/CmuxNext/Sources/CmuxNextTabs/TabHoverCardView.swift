@@ -37,8 +37,8 @@ final class TabHoverCardView: NSView {
     private let rows = NSStackView()
     private let thumbnail = NSView()
     /// The tab's status in the shared indicator, trailing the title's first line.
-    /// Follows its panel's occlusion: the panel orders front after the card moves into it.
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    /// Follows its panel's visibility node: the panel orders front after the card moves into it.
+    private let activity = StatusIndicatorView()
     private var titleTrailing: NSLayoutConstraint?
     private var titleLeading: NSLayoutConstraint?
     private var rowsTop: NSLayoutConstraint?

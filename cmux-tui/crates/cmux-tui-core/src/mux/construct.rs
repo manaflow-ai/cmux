@@ -424,12 +424,18 @@ impl Mux {
             ),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
+            git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        // A process with a hang log (the headless owner) watches its holder
+        // links' frames on its first mux's watchdog, from before adoption.
+        if cmux_panic_log::hang::installed() {
+            mux.request_watchdog.watch_for_process();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

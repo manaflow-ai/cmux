@@ -3,7 +3,7 @@ import Foundation
 /// Drop on a pane edge: new pane beside `pane` on `edge`, holding the tab.
 public struct MoveTabToSplitRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
+    public static let commandName: DaemonCommandName = "move-tab-to-split"
     public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
     public var surface: SurfaceID
     public var pane: PaneID
@@ -25,7 +25,7 @@ public struct MoveTabToSplitRequest: DaemonRequest {
 /// capability, which would ignore the field and focus the new pane.
 public struct MoveTabToSplitKeepingFocusRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
+    public static let commandName: DaemonCommandName = "move-tab-to-split"
     public static let requiredCapability: String? = DaemonCapability.tabSplitKeepFocus.rawValue
     public var surface: SurfaceID
     public var pane: PaneID
@@ -51,7 +51,7 @@ public enum ColumnDropTarget: Sendable, Hashable {
 /// Drop between strip columns: new viewport column holding the tab.
 public struct MoveTabToColumnRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-column"
+    public static let commandName: DaemonCommandName = "move-tab-to-column"
     public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
     public var surface: SurfaceID
     public var target: ColumnDropTarget

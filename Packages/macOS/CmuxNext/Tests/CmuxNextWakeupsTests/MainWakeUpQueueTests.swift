@@ -142,6 +142,18 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1)
     }
 
+    @Test("An entry whose action records its own wake gets no deadline record; the fire is still counted")
+    func anEntryRecordedByItsActionGetsNoDeadlineRecord() {
+        let rig = WakeUpQueueRig()
+        let ledger = rig.ledger
+        rig.queue.insert(owner: "pump", at: 100 * Self.ms, window: .window(delay: .milliseconds(100)),
+                         ledgerReason: .recordedByAction) { ledger.record("pump", reason: "delayed") }
+        rig.fire()
+        #expect(rig.deadlines(of: "pump") == 0)
+        #expect(ledger.snapshot().filter { $0.owner == "pump" }.map(\.reason) == ["delayed"])
+        #expect(rig.fires == 1)
+    }
+
     @Test("A fire that runs more than one entry counts as one coalesced fire; a fire of one entry does not")
     func coalescedFiresCountWakesThatRanSeveralEntries() {
         let rig = WakeUpQueueRig()

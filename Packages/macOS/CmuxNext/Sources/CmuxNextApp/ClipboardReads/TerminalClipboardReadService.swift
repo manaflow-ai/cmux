@@ -2,15 +2,15 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTerminal
-import Observation
+import CmuxNextWakeups
 
 /// The Mac side of the OSC 52 clipboard-read broker (decision
 /// CLIPBOARD-READ-BROKER, layer 4) on the local daemon connection only:
 /// remote and Cloud connections never subscribe in this landing (S3), so
 /// their reads are refused by their daemons. Keeps the subscription equal to
-/// the local store's terminals by observing the store (re-armed after each
-/// change, no polling) and answers each read from the user's Ghostty
-/// `clipboard-read` setting or a cmux dialog in that terminal's tab. A local
+/// the local store's terminals by observing the store (one apply on the run
+/// loop pass after a change, no polling) and answers each read from the
+/// user's Ghostty `clipboard-read` setting or a cmux dialog in that terminal's tab. A local
 /// PTY may contain SSH or another nested transport, so its program origin is
 /// deliberately unproven: `allow` degrades to `ask` and the dialog does not
 /// claim the requester is this Mac.
@@ -22,7 +22,17 @@ final class TerminalClipboardReadService {
     private weak var services: AppServices?
     private var broker: TerminalClipboardBroker?
     private var sideEvents: UInt64?
+    /// The local store's connection and terminal set, handed to the broker on each change.
+    private var storeWatch: FrameObservation<Watched>?
     private var stopped = false
+    /// Hand-offs of the connection and terminal set to the broker (tests count the deliveries).
+    private(set) var handOffs = 0
+
+    /// What the broker's subscription follows.
+    private struct Watched {
+        var connected: Bool
+        var terminals: [String]
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -47,30 +57,50 @@ final class TerminalClipboardReadService {
                 guard let connection = daemon?.connection else { throw DaemonError.notConnected }
                 _ = try await connection.request(TerminalClipboardReplyRequest(requestID: requestID, text: text))
             }))
-        sideEvents = daemon.store.sideEvents.subscribe { [weak self] event in self?.broker?.handle(event) }
+        // The store watch's same-turn reader: a disconnect or a terminal-set change earlier in this turn reaches the
+        // broker before the event does.
+        sideEvents = daemon.store.sideEvents.subscribe { [weak self] event in
+            self?.storeWatch?.flushIfDirty()
+            self?.broker?.handle(event)
+        }
         observe()
     }
 
     func stop() {
         stopped = true
+        storeWatch?.cancel()
+        storeWatch = nil
         broker?.stop()
         if let sideEvents { services?.daemon.store.sideEvents.unsubscribe(sideEvents) }
         sideEvents = nil
     }
 
-    /// Hands the broker the connection and the terminal set, then re-arms.
+    /// Follows the connection and the terminal set and hands each change to the broker.
     private func observe() {
-        guard !stopped, let broker, let store = services?.daemon.store else { return }
+        guard !stopped, broker != nil, let services else { return }
         let capability = DaemonCapability.terminalClipboardRead.rawValue
-        let (connected, terminals) = withObservationTracking {
-            (Self.isConnected(store.connectionState) && store.supports(capability), Self.terminalIDs(store))
-        } onChange: { [weak self] in
-            // task-owner: one hop per observed change, re-arms itself; ends with the service
-            Task { @MainActor [weak self] in self?.observe() }
+        let store = services.daemon.store
+        let watch = FrameObservation(
+            owner: "clipboard-reads.terminals",
+            delivery: .sameTurn("the side-event handler flushes it, so a read in the turn of a disconnect or a terminal-set change sees them"),
+            on: services.mainWork
+        ) { [weak store] in
+            guard let store else { return Watched(connected: false, terminals: []) }
+            let connected = Self.isConnected(store.connectionState) && store.supports(capability)
+            return Watched(connected: connected, terminals: Self.terminalIDs(store))
+        } onChange: { [weak self] watched in
+            self?.hand(watched)
         }
+        storeWatch = watch
+        hand(watch.value)
+    }
+
+    private func hand(_ watched: Watched) {
+        guard !stopped, let broker, let store = services?.daemon.store else { return }
+        handOffs += 1
         // The epoch changes on every reconnect, which resubscribes.
-        broker.setConnection(connected ? store.connectionEpoch : nil)
-        broker.setTerminals(terminals)
+        broker.setConnection(watched.connected ? store.connectionEpoch : nil)
+        broker.setTerminals(watched.terminals)
     }
 
     private static func isConnected(_ state: DaemonConnectionState) -> Bool {

@@ -9,7 +9,7 @@ import Foundation
 /// ``fallbackUnrepresentable`` when the program's keyboard mode has no encoding for the key.
 public struct ClearHistoryRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
-    public static let command = "clear-history"
+    public static let commandName: DaemonCommandName = "clear-history"
     public var surface: SurfaceID
     public var fallbackKey: DaemonKeyInput?
 

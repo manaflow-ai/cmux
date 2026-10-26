@@ -124,7 +124,7 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil {
-            // Its render-server springs end now; their landings still run (``springOnRenderServer``).
+            // Its render-server springs end now; their landings still run (``springToRest(_:spring:inPlane:landed:)``).
             if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
             isOnLayoutSpring = false
         }
@@ -198,7 +198,8 @@ final class PaneHostView: NSView, RestingPlacement {
         var shown = bounds
         if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
         if let container = superview as? StripClipContainerView {
-            shown = shown.intersection(convert(container.bounds, from: container))
+            // The clip stays where it is while a strip pan moves this host by the container's translation.
+            shown = shown.intersection(convert(container.bounds.offsetBy(dx: -container.translation, dy: 0), from: container))
         }
         return shown.isNull ? .zero : shown
     }

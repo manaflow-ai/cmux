@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextSignposts
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -37,6 +38,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
+    /// The `switch.tab` interval waiting for this tab's page window to show it (the app's visible-time
+    /// request, as Chrome stores one on the destination WebContents): the next show takes it.
+    @ObservationIgnored var tabSwitchShow: TabSwitchSignpost.PageShow?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
     @ObservationIgnored var passwordFill = PasswordFillState()

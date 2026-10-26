@@ -30,7 +30,7 @@ struct PageFactory {
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
             ?? services.webUI.open(PageOpenRequest(descriptor: .history, routes: routes)) else { return nil }
-        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
     }
 
@@ -56,7 +56,7 @@ struct PageFactory {
                                                              dynamicResources: AppsGlyphResource())) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
-        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
     }
 
@@ -101,7 +101,7 @@ struct PageFactory {
                                                window: services.windows.active?.window, focus: false)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
-        if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
+        if let page { PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start() }
         return page
     }
 

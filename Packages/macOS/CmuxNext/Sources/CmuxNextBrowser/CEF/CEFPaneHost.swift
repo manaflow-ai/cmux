@@ -421,7 +421,7 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if isPopupHost { runtime.hosts[key] = nil }
+            runtime.hostEmptied(self)
         }
     }
 

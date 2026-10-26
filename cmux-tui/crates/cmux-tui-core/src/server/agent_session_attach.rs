@@ -438,6 +438,15 @@ impl Refusal {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+/// `agent-session-observe` has its own exact route (agent_session_observe.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("agent-session-")],
+        stage: crate::server::FrameStage::AgentSession,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles an `agent-session-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here (they take
 /// `remote_relay::handle_frame` first).
@@ -447,13 +456,10 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(handled) = agent_session_observe::try_handle(mux, client, message, writer) {
-        return Some(handled);
-    }
     if !message.contains("\"agent-session-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let cmd = match object.remove("cmd") {

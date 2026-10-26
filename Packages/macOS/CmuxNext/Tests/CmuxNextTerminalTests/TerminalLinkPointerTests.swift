@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextInput
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// The terminals' one modifier watch on the app's input tap (p04-input-019): Command pressed or released over
@@ -19,7 +20,7 @@ struct TerminalLinkPointerTests {
             watch = TerminalModifierWatch(input: tap)
             for _ in 0..<terminals {
                 let io = ScriptedTerminalIO()
-                sessions.append((TerminalSession(io: io, modifiers: watch), io))
+                sessions.append((TerminalSession(io: io, modifiers: watch, mainWork: MainWorkScheduler(budget: MainFrameBudget())), io))
             }
         }
 
@@ -113,7 +114,7 @@ struct TerminalLinkPointerTests {
     @Test func aSessionWithoutAWatchHearsNoModifierChange() throws {
         let harness = Harness(terminals: 1)
         let io = ScriptedTerminalIO()
-        let unwatched = TerminalSession(io: io)
+        let unwatched = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer {
             io.finish()
             unwatched.close()

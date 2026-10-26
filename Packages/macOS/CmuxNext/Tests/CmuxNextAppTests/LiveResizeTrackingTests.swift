@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 /// cx-sqj3h (Leo 2026-10-13): during a window live resize the content must follow the edge every
@@ -47,7 +48,7 @@ import Testing
         try #require(Motion.panes.animatesMovement, "animation speed is off on this host")
         let provider = Panes()
         let model = LayoutModel(screens: Self.split(0.5), activeScreenID: "s", focusedPane: "p1")
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = Self.window(width: 1000, height: 700)
         window.contentView = root
         root.layoutSubtreeIfNeeded()

@@ -63,26 +63,9 @@ final class UnreadBadgeView: NSView {
         }
     }
 
-    /// Reads the look and repaints once when Debug Settings changes it (no polling).
-    private func observedLook() -> NotificationBadgeLook {
-        guard !observesLook else { return NotificationBadgeLook.tunable.value }
-        observesLook = true
-        return withObservationTracking {
-            NotificationBadgeLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesLook = false
-                self?.needsDisplay = true
-            }
-        }
-    }
-
-    /// One observation of the look is registered at a time.
-    private var observesLook = false
-
     override func updateLayer() {
         guard let layer else { return }
-        look = fixedLook ?? observedLook()
+        look = fixedLook ?? NotificationBadgeLook.tunable.value
         performWithTheme {
             var colors = self.paint(look, dot: state == .dot)
             if notificationDot, state == .dot { colors = Paint(fill: Palette.statusUnread, text: Palette.statusUnread) }
@@ -124,5 +107,12 @@ final class UnreadBadgeView: NSView {
         let y = (((bounds.height - font.capHeight) / 2 + font.descender) * scale).rounded() / scale
         label.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
         needsDisplay = true
+    }
+}
+
+/// The sidebar's look watch repaints the badge when Debug Settings changes its look (no polling).
+extension UnreadBadgeView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        if fixedLook == nil { needsDisplay = true }
     }
 }

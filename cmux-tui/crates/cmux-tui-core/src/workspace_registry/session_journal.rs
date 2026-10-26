@@ -18,6 +18,12 @@ pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
+/// The journal writer's hang tier: a batch commit (one writer-loop turn)
+/// busy this long is written to the hang log with the writer's stack (the
+/// request watchdog's `journal-writer` scope). Requests wait on these
+/// commits, so a stuck commit stalls every client.
+pub(crate) const JOURNAL_WRITER_HANG: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JournalClass {

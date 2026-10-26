@@ -17,6 +17,14 @@ use crate::Mux;
 /// The request's `cmd`.
 pub(super) const COMMAND: &str = "oracle-state";
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Exact(COMMAND)],
+        stage: crate::server::FrameStage::Route,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Answer an `oracle-state` line; `None` for any other line.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -27,7 +35,7 @@ pub(super) fn try_handle(
     if !message.contains(COMMAND) {
         return None;
     }
-    let Ok(Value::Object(mut request)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut request)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     if request.get("cmd").and_then(Value::as_str) != Some(COMMAND) {

@@ -72,8 +72,9 @@ import Testing
         if isVault { rig.services.vault.filter = "newer" }
         rig.services.cache.present(key, by: rig.pane, presence: .visible)
         try await rig.until("\(url) woke") { !rig.isHibernated(key) }
-        let woken = try #require(rig.services.cache.browsers[key]?.tab as? any BrowserAppPage, "the wake made no cmux page")
-        #expect(woken.state.url == url, "the rebuilt page shows another address")
+        let wokenTab = try #require(rig.services.cache.browsers[key]?.tab, "the wake made no tab")
+        let woken = try #require(wokenTab as? any BrowserAppPage, "the wake made no cmux page")
+        #expect(wokenTab.state.url == url, "the rebuilt page shows another address")
         let shown = await woken.saveViewState()
         #expect(shown.scroll == saved.scroll, "the rebuilt \(url) lost its scroll")
         if isVault {

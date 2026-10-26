@@ -19,12 +19,14 @@
 //!   a disallowed thread is always a violation.
 //!
 //! A violation records its call site in a 256-site table (plus an overflow
-//! count) in every build. In Debug, `CMUX_DAEMON_BLOCKING=panic` (or
-//! [`set_mode`]) also panics at the caller's location. Release never panics.
+//! count) in every build. Debug also panics at the caller's location, as
+//! Chrome's `DCHECK` does (base/threading/scoped_blocking_call.cc), unless
+//! `CMUX_DAEMON_BLOCKING=record` (or [`set_mode`]) turns that off. Release
+//! never panics.
 
 use std::cell::Cell;
 use std::panic::Location;
-use std::sync::atomic::{AtomicPtr, AtomicU8, AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU16, AtomicU64, Ordering};
 
 /// What a blocking call waits on. The names are stable: `server.blocking`
 /// reports them and the app's reports group by them.
@@ -143,58 +145,8 @@ impl AllowReason {
     }
 }
 
-/// What a violation does beyond recording its site.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BlockingMode {
-    /// Record the site and continue (the default while the sweep runs).
-    Record,
-    /// Record the site, then panic at the caller's location. Debug builds only;
-    /// Release treats it as [`BlockingMode::Record`].
-    Panic,
-}
-
-/// The environment variable that selects [`BlockingMode::Panic`] when its
-/// value is `panic`.
-pub const MODE_ENV: &str = "CMUX_DAEMON_BLOCKING";
-
-const MODE_UNSET: u8 = 0;
-const MODE_RECORD: u8 = 1;
-const MODE_PANIC: u8 = 2;
-
-static MODE: AtomicU8 = AtomicU8::new(MODE_UNSET);
-
-/// Sets the process-wide violation mode, replacing the [`MODE_ENV`] value.
-pub fn set_mode(mode: BlockingMode) {
-    let raw = match mode {
-        BlockingMode::Record => MODE_RECORD,
-        BlockingMode::Panic => MODE_PANIC,
-    };
-    MODE.store(raw, Ordering::Relaxed);
-}
-
-/// The violation mode in effect. Read from [`MODE_ENV`] on first use.
-pub fn mode() -> BlockingMode {
-    let raw = match MODE.load(Ordering::Relaxed) {
-        MODE_UNSET => {
-            let from_env = match std::env::var(MODE_ENV) {
-                Ok(value) if value == "panic" => MODE_PANIC,
-                _ => MODE_RECORD,
-            };
-            // A concurrent set_mode wins over the environment.
-            match MODE.compare_exchange(MODE_UNSET, from_env, Ordering::Relaxed, Ordering::Relaxed)
-            {
-                Ok(_) => from_env,
-                Err(current) => current,
-            }
-        }
-        raw => raw,
-    };
-    if raw == MODE_PANIC && cfg!(debug_assertions) {
-        BlockingMode::Panic
-    } else {
-        BlockingMode::Record
-    }
-}
+mod mode;
+pub use mode::{BlockingMode, MODE_ENV, mode, set_mode, with_mode};
 
 /// Per-thread restriction state in one word, so the check is one TLS read and
 /// one AND. Bits 0-15: the kinds denied now, derived from the fields above
@@ -309,12 +261,31 @@ pub fn assert_blocking_allowed(kind: BlockingKind) {
 /// [`assert_blocking_allowed`] at a site the caller captured. The daemon's
 /// request-path notes (`cmux_tui_platform::request_path`) check each blocking
 /// primitive here with the site they record, so one note at a primitive
-/// feeds this detector and the request-path counters.
+/// feeds this detector and the request-path counters. It returns what it
+/// found, for a layer that acts on a violation beyond recording it
+/// (cmux-blocking writes one stall record per site when the thread driving a
+/// tokio runtime blocks).
 #[inline]
-pub fn assert_blocking_allowed_at(kind: BlockingKind, location: &'static Location<'static>) {
-    if !STATE.with(Cell::get).permits(kind) {
-        violation(kind, location);
+pub fn assert_blocking_allowed_at(
+    kind: BlockingKind,
+    location: &'static Location<'static>,
+) -> BlockingCheck {
+    if STATE.with(Cell::get).permits(kind) {
+        BlockingCheck::Allowed
+    } else {
+        BlockingCheck::Violation { first_at_site: violation(kind, location) }
     }
+}
+
+/// What [`assert_blocking_allowed_at`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockingCheck {
+    /// The current thread may make the call.
+    Allowed,
+    /// A violation, recorded in the site table like any other. `first_at_site`
+    /// is true for the first violation recorded at this site in the process
+    /// (false once the table is full).
+    Violation { first_at_site: bool },
 }
 
 /// Runs the blocking call `f` in a checked scope of `kind` (Chrome's
@@ -326,10 +297,11 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Records the violation; true when it is the first at its site.
 #[cold]
 #[inline(never)]
-fn violation(kind: BlockingKind, location: &'static Location<'static>) {
-    SITES.record(location, kind);
+fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
+    let first_at_site = SITES.record(location, kind);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
         mode() == BlockingMode::Record || std::thread::panicking(),
@@ -337,6 +309,7 @@ fn violation(kind: BlockingKind, location: &'static Location<'static>) {
         kind.as_str(),
         std::thread::current().name().unwrap_or("<unnamed>"),
     );
+    first_at_site
 }
 
 #[cfg(unix)]
@@ -539,7 +512,8 @@ impl<const N: usize> SiteTable<N> {
         Self { slots: [const { SiteSlot::new() }; N], overflow: AtomicU64::new(0) }
     }
 
-    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) {
+    /// Counts one violation at `location`; true when it is the site's first.
+    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) -> bool {
         let wanted = std::ptr::from_ref(location).cast_mut();
         let start = site_hash(location) % N;
         for probe in 0..N {
@@ -559,11 +533,11 @@ impl<const N: usize> SiteTable<N> {
             // SAFETY: a non-null slot location is a `&'static Location` stored above.
             if same_site(unsafe { &*current }, location) {
                 slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
-                slot.count.fetch_add(1, Ordering::Relaxed);
-                return;
+                return slot.count.fetch_add(1, Ordering::Relaxed) == 0;
             }
         }
         self.overflow.fetch_add(1, Ordering::Relaxed);
+        false
     }
 
     fn snapshot(&self) -> BlockingSnapshot {
@@ -848,6 +822,28 @@ mod tests {
         assert_eq!(count_at(read_line), 1);
     }
 
+    /// A thread's panic mode panics there, leaves other threads in the
+    /// process mode, and ends with its scope, also when it unwinds.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn with_mode_is_per_thread_and_scoped() {
+        set_mode(BlockingMode::Record);
+        let panicked = std::thread::spawn(|| {
+            let panicked = std::panic::catch_unwind(|| {
+                with_mode(BlockingMode::Panic, || {
+                    assert_eq!(mode(), BlockingMode::Panic);
+                    with_blocking_disallowed(|| assert_blocking_allowed(BlockingKind::Sleep));
+                });
+            })
+            .is_err();
+            panicked && mode() == BlockingMode::Record
+        })
+        .join()
+        .expect("test thread");
+        assert!(panicked, "the violation panics and the override ends with its scope");
+        assert_eq!(mode(), BlockingMode::Record);
+    }
+
     #[test]
     fn own_descriptor_permits_only_descriptor_kinds() {
         let state = ThreadState::new(true, Some(AllowReason::OwnDescriptor));
@@ -873,11 +869,11 @@ mod tests {
         let first = here();
         let second = here();
         let third = here();
-        table.record(first, BlockingKind::Fs);
-        table.record(first, BlockingKind::Sleep);
-        table.record(second, BlockingKind::Recv);
-        table.record(third, BlockingKind::Join);
-        table.record(third, BlockingKind::Join);
+        assert!(table.record(first, BlockingKind::Fs), "the site's first violation");
+        assert!(!table.record(first, BlockingKind::Sleep));
+        assert!(table.record(second, BlockingKind::Recv));
+        assert!(!table.record(third, BlockingKind::Join), "a full table has no first");
+        assert!(!table.record(third, BlockingKind::Join));
         let snapshot = table.snapshot();
         assert_eq!(snapshot.sites.len(), 2);
         assert_eq!(snapshot.overflow, 2);

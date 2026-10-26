@@ -81,6 +81,7 @@ mod pty_input_room;
 mod pty_write;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
+mod line_parses;
 mod login_shell;
 pub mod release;
 mod request_origin;
@@ -117,6 +118,7 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
+mod work_reply;
 mod workspace_registry;
 
 /// The executable terminal hosts run from (the cmux-tui-platform crate).

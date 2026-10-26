@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -27,7 +28,7 @@ import Testing
         let theme = GhosttyThemeConfig(config: config, themeName: "cmux-next-test", colors: nil)
 
         let io = ScriptedTerminalIO(answersTerminalQueries: false)
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)

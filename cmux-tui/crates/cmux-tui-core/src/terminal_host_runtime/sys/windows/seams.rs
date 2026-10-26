@@ -9,7 +9,8 @@
 //! files created in it inherit its DACL, so nobody else can create, replace,
 //! read or hard-link them.
 
-use std::fs::{self, File, OpenOptions};
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::fs::File;
 use std::io;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::AsRawHandle;
@@ -55,19 +56,19 @@ pub(crate) fn file_owner(path: &Path) -> io::Result<FileOwner> {
     Ok(FileOwner { _proven: () })
 }
 
-fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+fn is_reparse_point(metadata: &files::Metadata) -> bool {
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 /// A regular file (not a link or other reparse point) in a directory that
 /// [`file_owner`] proved ours and owner-only.
-pub(crate) fn is_private_file(metadata: &fs::Metadata, _owner: FileOwner) -> bool {
+pub(crate) fn is_private_file(metadata: &files::Metadata, _owner: FileOwner) -> bool {
     metadata.file_type().is_file() && !is_reparse_point(metadata)
 }
 
 /// Always true: a hard link needs write-attributes access to the file, which
 /// the owner-only DACL gives nobody else, and we never link records.
-pub(crate) fn has_single_link(_metadata: &fs::Metadata) -> bool {
+pub(crate) fn has_single_link(_metadata: &files::Metadata) -> bool {
     true
 }
 
@@ -111,7 +112,7 @@ pub(crate) fn canonical_endpoints(
 /// An AF_UNIX socket file is a reparse point (`IO_REPARSE_TAG_AF_UNIX`);
 /// std does not expose the tag, so any non-directory reparse point counts.
 /// Callers only remove such an entry inside our owner-only directory.
-pub(crate) fn is_endpoint_file(metadata: &fs::Metadata) -> bool {
+pub(crate) fn is_endpoint_file(metadata: &files::Metadata) -> bool {
     !metadata.is_dir() && is_reparse_point(metadata)
 }
 
@@ -119,7 +120,7 @@ pub(crate) fn is_endpoint_file(metadata: &fs::Metadata) -> bool {
 /// (`FILE_FLAG_OPEN_REPARSE_POINT`) and refuse it, as `O_NOFOLLOW` does.
 /// New files inherit the owner-only DACL of their directory.
 pub(crate) fn open_private(path: &Path, how: PrivateOpen) -> io::Result<File> {
-    let mut options = OpenOptions::new();
+    let mut options = File::options();
     let no_follow = match how {
         PrivateOpen::ExistingNoFollow => {
             options.read(true).write(true);
@@ -141,7 +142,7 @@ pub(crate) fn open_private(path: &Path, how: PrivateOpen) -> io::Result<File> {
     if no_follow {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let file = options.open(path)?;
+    let file = files::open_with(&options, path)?;
     if no_follow && is_reparse_point(&file.metadata()?) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -185,10 +186,10 @@ impl HostLivenessLease {
     pub(crate) fn acquire(path: PathBuf) -> anyhow::Result<Self> {
         let file = open_private(&path, PrivateOpen::CreateNewNoFollow)?;
         if !lock_file(&file, LeaseKind::Exclusive, false)? {
-            let _ = fs::remove_file(&path);
+            let _ = files::remove_file(&path);
             anyhow::bail!("liveness lease {} is held", path.display());
         }
-        file.sync_all()?;
+        files::sync_all(&file)?;
         Ok(Self { file, path })
     }
 
@@ -265,7 +266,7 @@ pub(crate) fn sync_dir(_dir: &Path) -> io::Result<()> {
 /// `FlushFileBuffers`: data reaches the disk before the rename that
 /// publishes it.
 pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
-    file.sync_all()
+    files::sync_all(file)
 }
 
 pub(crate) fn barrier_sync_dir(_dir: &Path) -> io::Result<()> {

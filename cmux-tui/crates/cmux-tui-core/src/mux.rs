@@ -791,6 +791,9 @@ pub struct Mux {
     /// lanes: files, system, cpu), so a request answers from memory and a
     /// work item does the disk, process or IPC wait (p02-threads 220).
     pub(crate) work: cmux_threads::work::Work,
+    /// Each client's git requests, run on `work` one at a time in arrival
+    /// order (git_ops/sequence.rs).
+    pub(crate) git_sequences: crate::git_ops::Sequences,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,

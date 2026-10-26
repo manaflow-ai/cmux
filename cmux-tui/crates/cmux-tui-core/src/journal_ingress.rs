@@ -1,3 +1,4 @@
+use cmux_threads::checked::sync as waits;
 use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of;
@@ -452,7 +453,7 @@ impl JournalWriter {
             let spawn = std::thread::Builder::new()
                 .name("mux-session-journal-writer-reaper".into())
                 .spawn(move || {
-                    let result = thread.join().map_err(|_| {
+                    let result = waits::join(thread).map_err(|_| {
                         eprintln!(
                             "cmux-tui: session journal writer panicked during self-join handoff"
                         );
@@ -469,9 +470,8 @@ impl JournalWriter {
             return Ok(());
         }
         let wait = deadline.saturating_duration_since(Instant::now());
-        let result = match finished.recv_timeout(wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
-                .join()
+        let result = match waits::recv_timeout(&finished, wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => waits::join(thread)
                 .map_err(|_| "session journal writer panicked during shutdown".to_string()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
@@ -1067,7 +1067,7 @@ impl JournalIngressSender {
         site: &'static std::panic::Location<'static>,
     ) -> anyhow::Result<T> {
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
-        match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        match waits::recv_timeout(result, deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 Err(anyhow::Error::msg(self.writer_error()))
@@ -1084,7 +1084,7 @@ impl JournalIngressSender {
                     }
                     COMMIT_ADMITTED => {
                         drop(admission);
-                        match result.recv_timeout(JOURNAL_COMMIT_RESULT_WAIT) {
+                        match waits::recv_timeout(result, JOURNAL_COMMIT_RESULT_WAIT) {
                             Ok(result) => result.map_err(anyhow::Error::msg),
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                 Err(anyhow::Error::msg(self.writer_error()))
@@ -1168,12 +1168,16 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
+                // A commit busy past its hang tier is written to the hang
+                // log with this thread's stack (request_watchdog.rs).
+                let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(hang);
                 match committed {
                     Ok(commits) => {
                         let terminal_events =
@@ -1399,7 +1403,7 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         if receivers.state.closed.load(Ordering::Acquire) {
             return None;
         }
-        if receivers.wake.recv().is_err() {
+        if waits::recv(&receivers.wake).is_err() {
             return None;
         }
     }

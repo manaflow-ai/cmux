@@ -32,8 +32,9 @@ pub mod spawn;
 pub mod work;
 
 pub use blocking::{
-    AllowReason, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot, allow_blocking,
-    assert_blocking_allowed, disallow_blocking, scoped_blocking_call, with_blocking_disallowed,
+    AllowReason, BlockingCheck, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot,
+    allow_blocking, assert_blocking_allowed, disallow_blocking, scoped_blocking_call,
+    with_blocking_disallowed,
 };
 #[cfg(unix)]
 pub use blocking::{

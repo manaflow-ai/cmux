@@ -380,8 +380,9 @@ private final class LifecycleDeadlineRig {
     }
 }
 
-/// A timer the queue arms and parks; the rig fires the queue itself.
-private final class RigWakeUpTimer: MainWakeUpTimer {
+/// A timer the queue arms and parks; the rig fires the queue itself. Nonisolated: the queue makes
+/// timers off the main actor (the test target is main actor by default), as PageWaitersTests' does.
+private nonisolated final class RigWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
@@ -393,7 +394,7 @@ private final class RigFrameLink: FrameLink {
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-private final class RigUptime: Sendable {
+private nonisolated final class RigUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 {

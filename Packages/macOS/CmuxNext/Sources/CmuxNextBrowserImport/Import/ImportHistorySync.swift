@@ -167,7 +167,7 @@ final class HistoryFileWatch: Sendable {
     let file: URL
     private let scope: URL?
     private let onChange: @Sendable () -> Void
-    private let queue = DispatchQueue(label: "com.cmuxterm.import-history-sync")
+    private let queue = DispatchQueue(label: "com.cmuxterm.import-history-sync", qos: .utility)
     /// The open sources by path; nil once cancelled, so a re-arm racing `cancel` opens nothing.
     private let sources = Mutex<[String: any DispatchSourceFileSystemObject]?>([:])
 

@@ -22,7 +22,7 @@ nonisolated final class AcpmuxLogProgress: Sendable {
         }
         source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .extend],
-            queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-log-progress"))
+            queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-log-progress", qos: .utility))
         source?.setEventHandler { [weak self] in self?.lastWrite.withLock { $0 = ContinuousClock.now } }
         source?.setCancelHandler { close(fd) }
         source?.resume()
