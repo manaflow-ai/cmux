@@ -341,12 +341,7 @@ impl Hub {
         }
         self.lane_links(|links| {
             let Some(l) = links.get_mut(lane).filter(|l| l.parent == parent) else { return };
-            if l.ready.as_ref().is_some_and(|r| r.prompt_id == report.prompt_id) {
-                l.ready = None;
-            }
-            l.last = Some(report.key());
-            l.prs.extend(report.prs.iter().cloned());
-            l.sent.push(now);
+            delivered(l, &report, now);
         });
     }
 
@@ -514,6 +509,16 @@ fn due_report(l: &mut Link, now: u64) -> Option<Report> {
     Some(report)
 }
 
+/// Records on `l` that `report` (from `due_report`) reached the parent at `now`.
+fn delivered(l: &mut Link, report: &Report, now: u64) {
+    if l.ready.as_ref().is_some_and(|r| r.prompt_id == report.prompt_id) {
+        l.ready = None;
+    }
+    l.last = Some(report.key());
+    l.prs.extend(report.prs.iter().cloned());
+    l.sent.push(now);
+}
+
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
 /// named.
 fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
@@ -561,6 +566,24 @@ mod tests {
         l.ready = Some(report(2, &[]));
         assert_eq!(due_report(&mut l, now), None);
         assert!(l.ready.is_none());
+    }
+
+    #[test]
+    fn a_repeated_report_naming_a_reported_pull_request_is_dropped() {
+        let (now, x) = (WINDOW_MS * 2, "https://github.com/o/r/pull/1");
+        let mut l = Link::default();
+        // Turn 2 names X; turn 3 says something new and still names X: both go.
+        for turn in [2, 3] {
+            l.ready = Some(report(turn, &[x]));
+            let got = due_report(&mut l, now).unwrap();
+            delivered(&mut l, &got, now);
+        }
+        // Turn 4 repeats turn 3 word for word: nothing new, so nothing goes.
+        let mut same = report(4, &[x]);
+        same.content = report(3, &[x]).content;
+        l.ready = Some(same);
+        assert_eq!(due_report(&mut l, now + 1), None);
+        assert_eq!(l.sent.len(), 2);
     }
 
     #[test]
