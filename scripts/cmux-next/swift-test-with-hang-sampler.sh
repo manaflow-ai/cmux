@@ -98,20 +98,25 @@ names_awk='
   # it first saw each key, so if run 2 of a name were keyed the same as run 1, it would inherit
   # run 1 starting time and be killed for an age it never reached.
   #
-  # The run number is joined with a byte a test name cannot contain, not with readable text: a
-  # display name is whatever the author wrote (`@Test("duplicate (run 2)")` is a legal name), so
-  # keying run 2 of `duplicate` as `duplicate (run 2)` let one run inherit another unrelated
-  # test first-seen time. The key is never shown; run_label turns it back into words. The log is
-  # line oriented and the watchdog seen file is tab separated, so the byte is neither.
+  # A run key is the run number, a separator, then the name -- the number FIRST, and on every run
+  # including the first. A display name is whatever the author wrote, so no suffix form is safe:
+  # with readable text, run 2 of `duplicate` collided with run 1 of a test actually named
+  # `duplicate (run 2)`, and with the separator as a suffix it still collided with a name that
+  # contains the separator. As a prefix, everything up to the FIRST separator is digits this
+  # function wrote, so two different runs can never produce one key whatever the name holds.
+  # Keys are internal; run_label turns one back into words for a message.
   function run_sep() {
     return sprintf("%c", 1)
   }
   function run_key(n, k) {
-    return k > 1 ? n run_sep() k : n
+    return k run_sep() n
   }
-  function run_label(key,    at) {
+  function run_label(key,    at, k) {
     at = index(key, run_sep())
-    return at ? substr(key, 1, at - 1) " (run " substr(key, at + 1) ")" : key
+    if (!at) return key
+    k = substr(key, 1, at - 1)
+    key = substr(key, at + 1)
+    return k + 0 > 1 ? key " (run " k ")" : key
   }'
 # The bookkeeping both readers do, in one place for the same reason is_finish is: the watchdog and
 # the report must never be able to disagree about what is still running.
@@ -176,6 +181,13 @@ sample_and_kill() {
   trap '[ -z "$sleeper" ] || kill "$sleeper" 2>/dev/null; exit 0' TERM
   seen="$log.seen" open="$log.open" stuck="$log.stuck" fired="$log.fired"
   : > "$seen"
+  # The finish markers, as one grep -E pattern: counting them is how this loop sees progress.
+  # Anchored for the same reason the report anchors them, and an alternation rather than a
+  # bracket set for the same reason too (a set of these multibyte markers is read as a set of
+  # their BYTES, and every line matches).
+  finish_re='^(✔ Test |✘ Test .* (passed|failed) after |━ Test .* (passed|failed) after |➜ Test )'
+  last_finishes=-1
+  last_progress=$started_at
   while :; do
     sleep "$poll" &
     sleeper=$!
@@ -199,8 +211,15 @@ sample_and_kill() {
     : > "$seen.next"
     # names_awk only for run_label: the keys carried here are run keys, and what a person reads
     # has to be the test name and its run number, not the separator byte that keeps them apart.
-    awk -F'\t' -v now="$now" -v limit="$stuck_limit" -v next_file="$seen.next" "$names_awk"'
-      FILENAME == ARGV[1] { first[$2] = $1; next }
+    # Split the seen file on its FIRST tab only, by hand rather than on $1 and $2: a test display
+    # name may contain a tab, and field splitting would then read part of the name as the next
+    # field and lose that run timer.
+    awk -v now="$now" -v limit="$stuck_limit" -v next_file="$seen.next" "$names_awk"'
+      FILENAME == ARGV[1] {
+        at = index($0, "\t")
+        if (at) first[substr($0, at + 1)] = substr($0, 1, at - 1)
+        next
+      }
       {
         at = ($0 in first) ? first[$0] : now
         print at "\t" $0 > next_file
@@ -208,13 +227,37 @@ sample_and_kill() {
       }
     ' "$seen" "$open" > "$stuck"
     mv "$seen.next" "$seen"
+    # An open test is not a RUNNING test. swift-testing prints every test "started." as it enters
+    # the run, but SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH (6 in cmux-next.yml) lets only a
+    # few execute at a time, so on this suite thousands of tests are legitimately open, and
+    # waiting, for far longer than this limit. Measured on the selected-targets step of
+    # cmux#25391 run 40313902783: 7159 started, 2003 finished, 3927 open past 300 s, and the
+    # watchdog killed the step at exit 143 with nothing wrong -- the same 3925 on the merge-base
+    # parser, so this is the premise of the check, not the accounting under it.
+    #
+    # Lack of PROGRESS is the signal that survives any width: while tests are running, finishes
+    # keep arriving, and a run that is truly stuck stops producing them. So the age of an open
+    # test only says which tests to NAME; whether the run is stuck is whether any test has
+    # finished in the last stuck_limit seconds.
+    # -E, not plain grep: the pattern is an alternation, and basic grep reads its parentheses
+    # and pipes as literal text, so it matched nothing, progress never advanced after the first
+    # poll, and the watchdog killed a run that was finishing a test every second.
+    finishes=$(grep -cE "$finish_re" "$log" 2>/dev/null || true)
+    finishes=${finishes:-0}
+    if [ "$finishes" != "$last_finishes" ]; then
+      last_finishes="$finishes"
+      last_progress="$now"
+    fi
+    if (( now - last_progress < stuck_limit )); then
+      : > "$stuck"
+    fi
     if [ -s "$stuck" ]; then
       : > "$fired"
       list="$(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$stuck")"
       count=$(wc -l < "$stuck" | tr -d ' ')
-      echo "::error title=cmux-next swift test stuck::$count test$([ "$count" = 1 ] || echo s) still running after ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS): $list; sampling the test processes"
+      echo "::error title=cmux-next swift test stuck::no test finished in ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS); $count test$([ "$count" = 1 ] || echo s) open at least that long: $list; sampling the test processes"
       if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-        printf '### Swift tests still running after %ss\n\n' "$stuck_limit" >> "$GITHUB_STEP_SUMMARY"
+        printf '### No Swift test finished in %ss; these were open at least that long\n\n' "$stuck_limit" >> "$GITHUB_STEP_SUMMARY"
         # shellcheck disable=SC2016 # the backticks are Markdown, not a command
         sed 's/^\(.*\) (\([0-9]*\) s)$/- `\1` (\2 s)/' "$stuck" >> "$GITHUB_STEP_SUMMARY"
       fi

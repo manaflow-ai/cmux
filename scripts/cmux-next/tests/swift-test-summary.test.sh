@@ -22,6 +22,16 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
 cat "$STUB_OUTPUT"
+# A run that keeps finishing tests while the watchdog watches: one line per STUB_DRIP_SECONDS,
+# which is what a healthy width-limited run looks like (thousands open, finishes still arriving).
+if [[ -n "${STUB_DRIP:-}" ]]; then
+  i=0
+  while (( i < STUB_DRIP )); do
+    i=$((i + 1))
+    printf '✔ Test drip%d() passed after 0.001 seconds.\n' "$i"
+    sleep "${STUB_DRIP_SECONDS:-1}"
+  done
+fi
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
 exit "${STUB_STATUS:-0}"
@@ -328,7 +338,7 @@ stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
-grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
+grep -q '1 test open at least that long' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
 
 # The watchdog reads finishes with the same definition report() does, so the two can never
@@ -355,7 +365,7 @@ EOF2
 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run stuckshapes 0
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
-grep -q '::1 test still running' <<<"$stuck" \
+grep -q '1 test open at least that long' <<<"$stuck" \
   || fail "the watchdog read a finished test as still running" "$stuck"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 for finished in knownIssuePass knownIssueFail xKnownIssue cancelledHere skippedHere eachPasses; do
@@ -506,5 +516,44 @@ keys=$(awk "$names_awk$count_awk"'
 # And the keys still read as words for a person.
 labels=$(awk "$names_awk"'{ print run_label($0) }' <<<"$keys")
 grep -qx 'duplicate (run 2)' <<<"$labels" || fail "a run key does not read back as its name" "$labels"
+
+# Adversarially, on the key function itself: a display name is any String, so no suffix form is
+# safe. Readable text collided with a test named `A (run 2)`; the separator as a SUFFIX still
+# collided with a name containing the separator byte. As a prefix, everything up to the first
+# separator is digits run_key wrote, so these pairs must all differ, and each must read back as
+# its own name.
+probe=$(awk "$names_awk"'
+  BEGIN {
+    sep = run_sep()
+    n = 0
+    names[++n] = "A"; runs[n] = 2
+    names[++n] = "A" sep "2"; runs[n] = 1          # a name that literally holds the separator
+    names[++n] = "A (run 2)"; runs[n] = 1          # a name that reads like a key
+    names[++n] = "A	B"; runs[n] = 1               # a name holding the seen file separator
+    names[++n] = ""; runs[n] = 1                   # the empty name
+    for (i = 1; i <= n; i++) {
+      key = run_key(names[i], runs[i])
+      printf "%s\n", key
+      if (run_label(key) != (runs[i] > 1 ? names[i] " (run " runs[i] ")" : names[i]))
+        printf "MANGLED: <%s> run %d read back as <%s>\n", names[i], runs[i], run_label(key)
+    }
+  }' </dev/null)
+! grep -q MANGLED <<<"$probe" || fail "a run key does not read back as its own name" "$(cat -v <<<"$probe")"
+[[ "$(wc -l <<<"$probe")" == "$(sort -u <<<"$probe" | wc -l)" ]] \
+  || fail "two different runs share one key: $(cat -v <<<"$probe")"
+
+# An open test is not a RUNNING test, so age alone must never end a run. swift-testing prints
+# every test "started." as it enters the run while the parallelization width lets only a few
+# execute, so on the real suite thousands of tests sit open, and waiting, far past this limit:
+# measured 3927 open past 300 s on a healthy step of cmux#25391 run 40313902783, which the
+# watchdog killed at exit 143 with nothing wrong (3925 on the merge-base parser, so the premise
+# was wrong, not the accounting). What a stuck run stops doing is FINISHING tests, so that is the
+# signal. Here one test stays open for the whole run while others keep finishing: no kill.
+cat > "$TMP/progress.out" <<'EOF'
+◇ Test openTheWholeTime() started.
+EOF
+STUB_DRIP=6 STUB_DRIP_SECONDS=1 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1   run progress 0
+[[ "$out" != *"swift test stuck"* ]]   || fail "the watchdog killed a run that was still finishing tests" "$out"
+[[ "$out" != *"=== sample"* ]] || fail "the watchdog sampled a run making progress" "$out"
 
 echo "ok swift-test-summary"
