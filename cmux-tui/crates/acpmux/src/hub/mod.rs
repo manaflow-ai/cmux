@@ -161,6 +161,7 @@ mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
+mod work_below;
 pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
@@ -797,6 +798,7 @@ impl Hub {
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
+            work_below_since: StdMutex::new(0),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -982,6 +984,7 @@ impl Hub {
                 | "turn_result"
                 | "turn_end"
                 | "turn_error"
+                | work_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
@@ -1260,6 +1263,8 @@ impl Hub {
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);
+            // A sub-session that starts or ends a turn, or closes, changes its parent's work.
+            self.refresh_parent_work_below(session);
         }
         true
     }

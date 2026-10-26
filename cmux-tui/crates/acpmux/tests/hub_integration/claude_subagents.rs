@@ -101,7 +101,11 @@ async fn a_chat_works_until_its_background_subagent_ends() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let session = hub.resolve(&id).unwrap();
     let records = || {
-        hub.events(&id, 0, 10_000).unwrap().into_iter().filter(|e| e.kind == "subagents_working").count()
+        hub.events(&id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "subagents_working")
+            .count()
     };
     let mut events = hub.subscribe();
 
