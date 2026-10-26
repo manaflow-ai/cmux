@@ -313,9 +313,39 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
 - New ghostty-next API `ghostty_surface_set_gpu_resident`. A hidden paused surface outside the
   keep-alive band releases its swap chain and drawables; a terminal in a window off screen for 30 s
   does the same. Show sets it back before the first draw; the last frame covers the gap. A
-  GPU-released surface stops its renderer thread.
+  GPU-released surface parks its renderer thread: the thread stays, blocked in its event loop, with
+  no frame, blink, display-link or animation work. It does not exit, because rebuilding the event
+  loop, mailbox and Metal objects on every show would add thread creation to a show that must land
+  in 10 ms. Chromium also keeps the renderer's compositor thread for hidden tabs and frees only
+  their GPU resources (content/renderer/render_thread_impl.cc compositor thread,
+  cc LayerTreeHostImpl::SetVisible).
 - The warm set grows only in the commit that turns GPU release on.
 - App-side scrollback paging is PL-ghostty's (F11); p07 depends on it.
+- Fork state (task 036): ghostty-next branch `cp/p07-memory-036` (commits `bcc291d1e` and
+  `6c6f34e53` on `723c4ab93`, the current pin), draft pull request
+  https://github.com/manaflow-ai/ghostty-next/pull/56. Rules 037 builds on: the layer is empty from
+  the release call on (cover the view with the app's last frame); the renderer thread parks; as
+  for a hidden surface, output wakes it only until its scrollback compression timer is armed, and
+  that timer and the release retry (16 ms doubling to 1 s) still run; a restore decodes a
+  background image from bytes kept at load (no file I/O); `ghostty_surface_render_counters` gains
+  `gpu_releases` (only releases that freed something) and `gpu_restores` at its end.
+- Pin bump (task 036a): the `ghostty-next` gitlink and the GhosttyNextKit pin
+  (`Packages/Shared/CmuxGhosttyKit/Package.swift`) stay at `723c4ab93` until pull request 56 is on
+  ghostty-next `main` and a GhosttyNextKit release of that commit is published. Then one commit
+  moves both. 037 depends on 036a and calls `ghostty_surface_set_gpu_resident` directly; it does
+  not probe for the symbol. The library is linked statically, and the pinned `ghostty.h` does not
+  declare the function, so a check at run time or compile time cannot work before the bump.
+- Test gap (036): the Zig tests check what a release frees and a restore rebuilds on the CPU side
+  (Kitty image state and placements, the background image, the residency epoch). Only the fleet
+  iOS smoke check `gpu` (glyphs and a Kitty image, identical IOSurface bytes) checks drawn pixels,
+  because no headless GraphicsAPI exists. That smoke has not run yet.
+- Conflict surface for later ghostty-next work: `include/ghostty.h` (render counters struct, the
+  new export), `src/apprt/embedded.zig`, `src/Surface.zig`, `src/renderer.zig`,
+  `src/renderer/{Residency,Thread,generic,Metal,message,mailbox}.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig`, `next/ios-smoke/main.swift`,
+  `next/ios-render-smoke.sh`, `NEXT.md`. Keep: draws, display passes and the display link check the
+  residency before the draw lock; a release never waits for the GPU under the draw lock; the main
+  thread clears the layer in the call and the main-queue present drops frames after a release.
 
 ### E. Chromium and WebKit processes
 
@@ -599,7 +629,8 @@ review task "leaf Rust crate" is merged into 042; review task "kernel pressure t
 | 034 | Unmounted workspace leaves no objects | M | normal | 032, 015 | MQ-LEAK |
 | 035 | Terminal last frames: volatile at warm count, 0 non-volatile | S | normal | 003, 004 | MQ-CAPS |
 | 036 | ghostty_surface_set_gpu_resident | L | normal | - | |
-| 037 | Hidden surfaces drop GPU residency; warm set gated | M | normal | 036, 035, 096 | |
+| 036a | ghostty-next pin bump for set_gpu_resident | S | normal | 036 | |
+| 037 | Hidden surfaces drop GPU residency; warm set gated | M | normal | 036a, 035, 096 | |
 | 039 | Glyph atlas sharing measurement | S | low | 014 | MQ-UNATTRIBUTED |
 | 040 | Cold-scrollback codec (gated) | L | normal | 112 | |
 | 041 | Compress cold scrollback (gated) | M | normal | 040, 072 | |
@@ -978,12 +1009,20 @@ All IDs below are `p07-memory-NNN`.
 ### 036 ghostty_surface_set_gpu_resident
 - Files: ghostty-next include/ghostty.h, src/apprt/embedded.zig, src/renderer/Metal.zig,
   src/renderer/metal/*, src/renderer/Thread.zig; parent submodule pointer and fork notes.
-- Change: false releases swap chain, drawable pool, per-surface buffers and stops the renderer thread;
-  keeps state and the shared atlas; true recreates before the next frame; release after the in-flight
-  frame's completion handler; idempotent.
+- Change: false releases swap chain, drawable pool, per-surface buffers and parks the renderer thread
+  (section D says why it does not exit); keeps state and the shared atlas; true recreates before the
+  next frame; release after the in-flight frame's completion handler; idempotent.
 - Acceptance: cmux-ghostty skill followed (fork branch pushed first); Zig test false-then-true renders
   identical cells; no shortcut change.
 - Test: fleet GhosttyKit build, ghostty unit test, `cmux-ci build cmux --ref SHA`.
+
+### 036a ghostty-next pin bump for set_gpu_resident
+- Files: `ghostty-next` gitlink, Packages/Shared/CmuxGhosttyKit/Package.swift (URL and checksum).
+- Change: after ghostty-next pull request 56 merges and its GhosttyNextKit release is published, move
+  the gitlink and the pin to that commit in one commit (cmux-ghostty skill: commit on main first).
+- Acceptance: gitlink and pin name the same commit, reachable from ghostty-next main; the pinned
+  ghostty.h declares ghostty_surface_set_gpu_resident.
+- Test: fleet `cmux-ci build cmux --ref SHA`; next/ios-render-smoke.sh check gpu on the fleet.
 
 ### 037 Hidden surfaces drop GPU residency
 - Files: CmuxNextTerminal/TerminalSurfaceView.swift, TerminalSession.swift, CmuxNextBridge/WarmSetBudget.swift,
@@ -993,7 +1032,7 @@ All IDs below are `p07-memory-NNN`.
   gpuResidentAvailable; capacity rises only in this commit. Warm-set pressure path becomes the sliced
   consumer (096).
 - Acceptance: fake seam: hidden paused gives false, show gives true before render, keep-alive never
-  called; old formula on forks without the API.
+  called. Lands after the pin bump (036a); no symbol probe.
 - Test: fleet swift test 'TerminalSurface|WarmSet'; bench_memory per terminal; bench-tab-switch.
 
 ### 039 Glyph atlas sharing
@@ -1285,9 +1324,10 @@ All IDs below are `p07-memory-NNN`.
 
 ### 078 App threads per hidden surface
 - Files: scripts/cmux-next/bench_memory.py, CmuxNextTerminal/TerminalSurfaceView.swift.
-- Change: report app threads per hidden terminal; check the renderer thread stops with GPU release (036).
-- Acceptance: bench reports threads per hidden terminal before and after; GPU-released surfaces add 0
-  renderer threads.
+- Change: report app threads per hidden terminal; check that a GPU-released surface's renderer thread
+  parks (036): it stays, with no wakeups while idle.
+- Acceptance: bench reports threads per hidden terminal before and after; a GPU-released surface's
+  renderer thread has 0 wakeups while idle once its compression timer is armed.
 - Test: fleet exclusive bench_memory --workspaces 60.
 
 ### 079 Widen the static queues
