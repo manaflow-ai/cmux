@@ -9,10 +9,13 @@ import Testing
 /// fired, and `earlyPasses` counts the delayed passes CEF answers with a request under 2 ms.
 @MainActor
 @Suite struct CEFMessagePumpLedgerTests {
-    /// The pump's timer, fired by hand.
+    /// The pump's timer, fired by hand. `countedByQueue`: its fires stand for the main deadline
+    /// queue's, which counted them already (``CEFWakeUpQueuePumpTimer``).
     final class Timer: CEFPumpTimer {
         var onFire: (() -> Void)?
         var armed: TimeInterval?
+        var countedByQueue = false
+        var fireIsCountedByQueue: Bool { countedByQueue }
         func arm(after delay: TimeInterval, tolerance: TimeInterval) { armed = delay }
         func disarm() { armed = nil }
         func invalidate() { armed = nil }
@@ -66,6 +69,16 @@ import Testing
         #expect(rig.wakes(.delayed) == 1)
         #expect(rig.wakes(.now) == 1)
         #expect(rig.ledger.snapshot().allSatisfy { $0.reason != "scheduled" }, "the old reason is gone")
+    }
+
+    /// A wake is one record per owner: the queue's `deadline` record already counted a queue fire.
+    @Test func aFireTheQueueCountedAddsNoRecordButKeepsItsReasonForEarlyPasses() {
+        let rig = Rig()
+        rig.timer.countedByQueue = true
+        rig.work = { rig.pump.request(milliseconds: 0) }
+        rig.delayedPass(milliseconds: 7)
+        #expect(rig.wakes(.delayed) == 0)
+        #expect(rig.pump.stats.earlyPasses == 1, "the pass still served CEF's delayed request")
     }
 
     @Test func aKeptCrossThreadDeadlineFiresAsKept() {

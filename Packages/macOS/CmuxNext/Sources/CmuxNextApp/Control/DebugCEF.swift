@@ -143,14 +143,15 @@ enum DebugCEF {
         ])
     }
 
-    /// `debug.input` section `pump`: the in-process pump's input policy counters (p04-input-024).
-    static func pumpInputSource(_ cef: CEFEngine) -> DebugInputPumpSource {
-        DebugInputPumpSource(read: { [weak cef] in
-            cef?.pumpStats.map {
+    /// `debug.input` section `pump`: the in-process pump's input policy counters (p04-input-024); none, and no
+    /// engine built, before a Chromium need built the engine (p08-startup-024).
+    static func pumpInputSource(_ chromium: ChromiumEngineSlot) -> DebugInputPumpSource {
+        DebugInputPumpSource(read: { [weak chromium] in
+            chromium?.built?.pumpStats.map {
                 DebugInputPump(passesWhileInputPending: $0.passesWhileInputPending.byName,
                                deferredForInput: UInt64(clamping: $0.deferredForInput), passMillisecondsP99: $0.passMillisecondsP99)
             }
-        }, reset: { [weak cef] in cef?.resetPumpInputCounters() })
+        }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).

@@ -5,14 +5,17 @@ import Foundation
 import os
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
-/// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
-/// common modes, so it keeps running during menu tracking, live resize and
-/// modal panels. `CEFPumpSchedule` decides each fire date: the pump wakes
-/// only when CEF (or cmux) asks.
+/// (`OnScheduleMessagePumpWork`), in common modes, so it keeps running during
+/// menu tracking, live resize and modal panels. `CEFPumpSchedule` decides each
+/// fire date: the pump wakes only when CEF (or cmux) asks.
 ///
-/// A request for "now" runs on the next run loop pass, never synchronously
-/// inside the CEF call that made it. The timer is owned, re-armed for each
-/// request and invalidated by `stop()`; there is no `asyncAfter`.
+/// A delayed fire date is an entry on the main thread's one deadline queue
+/// (`CEFWakeUpQueuePumpTimer`): it shares wakes with the cmux deadlines near
+/// it, and the pass runs after them, in a run-loop block of its own. A
+/// request for "now" runs on the next run loop pass, never synchronously
+/// inside the CEF call that made it, and never waits for the queue's timer.
+/// The timer is owned, re-armed for each request and invalidated by
+/// `stop()`; there is no `asyncAfter`.
 ///
 /// While a shown frame is late (`RenderStarvationGuard`, Chrome's
 /// `kRenderingStarved`) a pump with the guard runs one pass per late frame;
@@ -27,7 +30,8 @@ import os
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
-/// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm).
+/// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). A fire the
+/// deadline queue ran is already one record there, same owner, reason `deadline`; the pump adds none.
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
     static let ledgerOwner = "CEFMessagePump"
@@ -74,12 +78,13 @@ final class CEFMessagePump {
         return stats
     }
 
-    /// `clock` is monotonic seconds (tests inject one). `starvation`: the app's
-    /// rendering starvation guard; `CEFRuntime` passes none until the pump is
-    /// on the main-thread board (p06-scheduler task 048).
+    /// `timer`: a `CEFWakeUpQueuePumpTimer` on the app's deadline queue (tests
+    /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
+    /// `starvation`: the app's rendering starvation guard; `CEFRuntime` passes
+    /// none until the pump is on the main-thread board (p06-scheduler task 048).
     init(
         work: @escaping () -> Void,
-        timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
+        timer: any CEFPumpTimer,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
@@ -159,7 +164,8 @@ final class CEFMessagePump {
     private func timerFired() {
         guard isRunning else { return }
         let reason = fireReason()
-        ledger.record(Self.ledgerOwner, reason: reason.rawValue)
+        // A queue fire already counted this wake under the same owner (reason `deadline`).
+        if !timer.fireIsCountedByQueue { ledger.record(Self.ledgerOwner, reason: reason.rawValue) }
         runDuePass(for: reason)
     }
 
