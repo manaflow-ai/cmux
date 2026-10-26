@@ -45,7 +45,10 @@ Per mode:
            file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME and
            drag are listed as not forwarded, find as run by --find.
   ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
-           fork's text input changes (ime_row; pass: <= 1 push per key).
+           fork's text input changes (ime_row; pass: <= 1 push per key). Then password_row (task p01-process-230):
+           a click into the probe's password field turns cmux's secure event input on (debug.chromium_host
+           password_input, and the system's secure input pid is cmux's where ioreg shows it), a click back into the
+           text field turns it off.
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
@@ -161,6 +164,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 #box{position:fixed;left:0;top:70%;width:60px;height:60px;background:#f0c000}
 .go{animation:slide 0.5s linear infinite alternate}@keyframes slide{to{transform:translateX(600px)}}</style>
 <input id=t><button id=b>click</button><div id=box></div>
+<input id=pw type=password style="position:fixed;left:45%;top:40%;width:20%">
 <select id=s style="position:fixed;left:10%;top:55%;width:20%;height:30px"><option>one<option>two<option>three</select>
 <button id=al style="position:fixed;left:45%;top:55%;width:15%;height:40px" onclick="S.dialogs++; alert('probe')">alert</button>
 <input id=f type=file style="position:fixed;left:65%;top:55%;width:20%">
@@ -969,7 +973,8 @@ def census(app, name, session=None, baseline=None):
 
 
 # The probe's fixed layout: the field spans 10-70 % at 20 % height, the button 10-40 % at 40 % (+40 px).
-HOST_SPOTS = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12)}
+HOST_SPOTS = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12),
+              "pw": (0.55, 0.4, 10)}
 
 
 def host_click_point(border):
@@ -1104,6 +1109,7 @@ def run_helper(rpc, url, inproc_tab):
     bounded(row, "geometry", lambda: geometry_row(rpc))
     if opts.ime:
         bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
+        bounded(row, "password", lambda: password_row(rpc, click_point))
 
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
@@ -1444,6 +1450,48 @@ def ime_row(rpc, title, click_point):
     row["pushes_per_key"] = round(delta["pushes"] / keys, 3) if keys else None
     row["changes_per_key"] = round(delta["changes"] / keys, 3) if keys else None
     row["pass"] = bool(keys) and delta["pushes"] <= keys and delta["unsent"] == 0
+    return row
+
+
+def secure_input_pid():
+    """The pid that holds the system's secure event input (IORegistry kCGSSessionSecureInputPID), 0 for none, None
+    when ioreg cannot say."""
+    try:
+        done = subprocess.run(["/usr/sbin/ioreg", "-l", "-w", "0", "-d", "1"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    import re
+    # The root's IOConsoleUsers holds it, all on one line: ({"kCGSSessionSecureInputPID"=123, ...}).
+    found = re.search(r'"kCGSSessionSecureInputPID"\s*=\s*(\d+)', done.stdout)
+    if found:
+        return int(found.group(1))
+    return 0 if done.returncode == 0 else None
+
+
+def password_row(rpc, click_point):
+    """--ime: secure event input while the probe's password field has focus (task p01-process-230). In host mode
+    cmux is the frontmost process, so cmux's page view turns it on, as Chrome's browser process holds a
+    ScopedPasswordInputEnabler (ui/base/cocoa/secure_password_input.mm). A click into #pw must turn on
+    `password_input` of debug.chromium_host, a click back into #t must turn it off; where ioreg shows the system's
+    secure input pid it must be cmux's while on and not cmux's after. Until the app reports `password_input` the row
+    says it is unavailable instead of passing."""
+    state = lambda: rpc("debug.chromium_host") or {}
+    first = state()
+    if "password_input" not in first:
+        return {"unavailable": "debug.chromium_host has no password_input", "pass": None}
+    app_pid = first.get("app_pid")
+    rpc("debug.mouse", click_point("pw"))
+    focused = bool(wait(lambda: state().get("password_input") is True, 5))
+    pid_focused = secure_input_pid()
+    rpc("debug.mouse", click_point("t"))
+    blurred = bool(wait(lambda: state().get("password_input") is False, 5))
+    pid_blurred = secure_input_pid()
+    row = {"focused": focused, "blurred": blurred, "app_pid": app_pid, "secure_pid_focused": pid_focused,
+           "secure_pid_blurred": pid_blurred}
+    system_ok = True
+    if app_pid and pid_focused is not None and pid_blurred is not None:
+        system_ok = pid_focused == app_pid and pid_blurred != app_pid
+    row["pass"] = focused and blurred and system_ok
     return row
 
 

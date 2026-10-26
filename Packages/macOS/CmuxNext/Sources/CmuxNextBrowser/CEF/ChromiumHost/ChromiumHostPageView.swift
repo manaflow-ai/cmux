@@ -127,6 +127,11 @@ public final class ChromiumHostPageView: NSView {
     var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
     /// The page's text input: the state the host pushed and the input method's marked text.
     var textInput = ChromiumHostTextInput()
+    /// Secure event input while a password field of the page has focus (ChromiumHostPageView+TextInput.swift).
+    var passwordInput = ChromiumHostPasswordInput()
+    /// The page is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``), set by the page's
+    /// owner: no macOS caret accessory over its fields.
+    var showsCmuxPage = false
     private var tracking: NSTrackingArea?
     #endif
 
@@ -188,6 +193,8 @@ public final class ChromiumHostPageView: NSView {
         #if DEBUG || CMUX_BENCH_HOOKS
         _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
         if !focused { textInputDidResign() }
+        passwordInput.focused = focused
+        updatePasswordInput()
         #endif
     }
 
@@ -254,6 +261,9 @@ public final class ChromiumHostPageView: NSView {
         // The host made the page's element for the old window's token.
         resetRemoteAccessibility()
         onWindowChange?(window != nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        passwordInputWindowChanged()
+        #endif
         if window == nil {
             lastGeometry = nil
             keyDowns.removeAll()
