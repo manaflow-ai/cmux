@@ -23,14 +23,20 @@ extension ThreadStackSampler {
     static func sampleOtherThreads(excluding excluded: thread_act_t, maxFrames: Int = 48) -> [ThreadSample] {
         var list: thread_act_array_t?
         var count: mach_msg_type_number_t = 0
-        guard task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list else { return [] }
-        let threads = UnsafeBufferPointer(start: list, count: Int(truncatingIfNeeded: count))
+        // SAFETY: task_threads stores a kernel-allocated array of `count` thread ports and its count into the locals
+        // `list` and `count`, live for the call.
+        guard unsafe task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list = unsafe list else { return [] }
+        // SAFETY: the array task_threads returned holds exactly `count` ports. They are copied out here; the defer
+        // releases each port and frees the array exactly once, and nothing reads the array after that.
+        let threads = unsafe Array(UnsafeBufferPointer(start: list, count: Int(truncatingIfNeeded: count)))
         defer {
             for thread in threads { mach_port_deallocate(mach_task_self_, thread) }
-            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)),
-                          vm_size_t(truncatingIfNeeded: threads.count * MemoryLayout<thread_act_t>.stride))
+            // SAFETY: as above; the size is the array's, threads.count ports.
+            unsafe vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)),
+                                 vm_size_t(truncatingIfNeeded: threads.count * MemoryLayout<thread_act_t>.stride))
         }
-        let current = pthread_mach_thread_np(pthread_self())
+        // SAFETY: pthread_self is the calling thread's own pthread, live while it runs; only its port is read.
+        let current = unsafe pthread_mach_thread_np(pthread_self())
         var samples: [ThreadSample] = []
         for thread in threads where samples.count < otherThreadLimit {
             guard thread != excluded, thread != current else { continue }
@@ -46,12 +52,15 @@ extension ThreadStackSampler {
     static func threadName(_ thread: thread_act_t) -> String {
         var info = thread_extended_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<thread_extended_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(truncatingIfNeeded: count)) {
-                thread_info(thread, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &count)
+        // SAFETY: thread_info writes at most `count` integer_t words, the size of `info` (a local live for the call),
+        // and the count it wrote into `count`; the words are the info struct's own layout.
+        let result = unsafe withUnsafeMutablePointer(to: &info) {
+            unsafe $0.withMemoryRebound(to: integer_t.self, capacity: Int(truncatingIfNeeded: count)) {
+                unsafe thread_info(thread, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return "" }
-        return withUnsafeBytes(of: &info.pth_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        // SAFETY: the view covers exactly pth_name's bytes, a field of the local `info`, for the closure only.
+        return unsafe withUnsafeBytes(of: &info.pth_name) { unsafe String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 }

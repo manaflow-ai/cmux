@@ -28,7 +28,7 @@ public struct AppSymbolMap: Sendable {
     /// read it off the main thread.
     // Immutable data read from the bundle once, not runtime state.
     public static let main: AppSymbolMap? = {
-        guard let header = _dyld_get_image_header(0), let uuid = Self.uuid(of: header),
+        guard let uuid = Self.executableImage()?.uuid,
               let url = Bundle.main.url(forResource: "cmux-symbols", withExtension: "bin"),
               // concurrency-allow: diagnostics only, read once off the main thread.
               let data = try? Data(contentsOf: url, options: .mappedIfSafe)
@@ -45,7 +45,7 @@ public struct AppSymbolMap: Sendable {
     public init?(data: Data, uuid: UUID) {
         var file = Reader(bytes: [UInt8](data))
         guard file.take(8) == Array("CMXSYM1\0".utf8), let count = file.uint32() else { return nil }
-        let wanted = withUnsafeBytes(of: uuid.uuid) { Array($0) }
+        let wanted = Self.bytes(of: uuid)
         for _ in 0..<count {
             guard let slice = file.take(16), let size = file.uint32(),
                   let payload = file.take(Int(truncatingIfNeeded: size))
@@ -87,18 +87,20 @@ public struct AppSymbolMap: Sendable {
         return String(decoding: nameBytes.dropFirst(start).prefix(end - start), as: UTF8.self)
     }
 
-    /// The `LC_UUID` of the Mach-O image at `header`.
-    static func uuid(of header: UnsafePointer<mach_header>) -> UUID? {
-        guard header.pointee.magic == MH_MAGIC_64 else { return nil }
-        var command = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
-        for _ in 0..<header.pointee.ncmds {
-            let load = command.load(as: load_command.self)
-            if load.cmd == LC_UUID {
-                return UUID(uuid: command.load(as: uuid_command.self).uuid)
-            }
-            command = command.advanced(by: Int(truncatingIfNeeded: load.cmdsize))
-        }
-        return nil
+    /// The running executable's `LC_UUID` (nil when it has none) and load address, the address of its Mach-O
+    /// header; nil when dyld lists no image.
+    static func executableImage() -> (uuid: UUID?, loadAddress: UInt)? {
+        // SAFETY: image 0 is the main executable, which dyld loads first and never unloads, so its header stays
+        // mapped; imageUUID reads only inside its load commands (FunctionStarts' note).
+        guard let header = unsafe _dyld_get_image_header(0) else { return nil }
+        let uuid = unsafe FunctionStarts.imageUUID(header: UnsafeRawPointer(header))
+        return (uuid, unsafe UInt(bitPattern: header))
+    }
+
+    /// A UUID's 16 bytes in order, read as values (no pointer).
+    static func bytes(of uuid: UUID) -> [UInt8] {
+        let u = uuid.uuid
+        return [u.0, u.1, u.2, u.3, u.4, u.5, u.6, u.7, u.8, u.9, u.10, u.11, u.12, u.13, u.14, u.15]
     }
 
     /// Decodes a slice payload: u32 count, LEB128 offset deltas, NUL-joined names.
