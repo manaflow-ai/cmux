@@ -275,9 +275,9 @@
       }
     },
     "requiresPro": {
-      "title": "cmux Pro が必要です",
-      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
-      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+      "title": "cmux {plan} が必要です",
+      "message": "Cloud VM を利用するには cmux {plan} プランが必要です。",
+      "action": "{upgradeUrl} で cmux {plan} にアップグレードすると Cloud VM を作成できます。"
     },
     "displayName": {
       "title": "マシン名が無効です",

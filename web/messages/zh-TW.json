@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "需要 cmux Pro",
-      "message": "雲端虛擬機需要 cmux Pro 方案。",
-      "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+      "title": "需要 cmux {plan}",
+      "message": "雲端虛擬機需要 cmux {plan} 方案。",
+      "action": "請前往 {upgradeUrl} 升級至 cmux {plan} 以建立雲端虛擬機。"
     },
     "displayName": {
       "title": "機器名稱無效",

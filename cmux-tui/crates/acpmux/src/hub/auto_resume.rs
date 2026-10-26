@@ -47,10 +47,15 @@
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
-//!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
+//!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
+//!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+
+// A turn a daemon restart cut off is continued from the restored queue.
+#[path = "restart_resume.rs"]
+mod restart_resume;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -436,15 +441,39 @@ impl Hub {
         }
     }
 
+    /// Tests: the chat's turn `turn` ends with its continuation not settled yet (`Mark::Ending`),
+    /// or with `None` nothing pending.
+    #[cfg(test)]
+    pub(super) fn set_ending_for_test(&self, session: &Session, turn: Option<&str>) {
+        let mut pending = self.auto_resumes.lock();
+        match turn {
+            Some(turn) => pending.insert(session.id.clone(), Mark::Ending(turn.to_owned())),
+            None => pending.remove(&session.id),
+        };
+    }
+
     /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
-    /// or close overtook since it fired is refused instead, in one step with Stop's check.
+    /// or close overtook since it fired is refused instead, in one step with Stop's check. A
+    /// prompt that never waits (`exclusive`, `PromptOptions::no_queue`) is refused `retry.busy`
+    /// while a continuation may still answer for the chat's cut turn (under the lock its fire
+    /// takes) or Claude Code runs a turn of its own: the last check before its turn is set.
     pub(super) fn start_turn(
         &self,
         session: &Session,
         after: Option<&str>,
+        exclusive: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = self.auto_resumes.lock();
+        let continuation = matches!(
+            pending.get(&session.id),
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
+        );
+        if exclusive
+            && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            return Err(retry_turn::busy());
+        }
         if let Some(cut) = after {
             let mark = match pending.get(&session.id) {
                 Some(Mark::Firing(t)) if t == cut => Some(true),

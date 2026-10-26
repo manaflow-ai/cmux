@@ -275,9 +275,9 @@
       }
     },
     "requiresPro": {
-      "title": "cmux Pro required",
-      "message": "Cloud VMs require a cmux Pro plan.",
-      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+      "title": "cmux {plan} required",
+      "message": "Cloud VMs require a cmux {plan} plan.",
+      "action": "Upgrade to cmux {plan} at {upgradeUrl} to create Cloud VMs."
     },
     "displayName": {
       "title": "Invalid machine name",

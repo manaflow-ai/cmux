@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.wallpaperTint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint with Desktop Wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التلوين بخلفية سطح المكتب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijansiraj prema pozadini radne površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farv efter skrivebordsbaggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Schreibtischhintergrund einfärben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teñir con el fondo de escritorio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinter avec le fond d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colora con lo sfondo della scrivania"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップピクチャで色付け"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាបពណ៌តាមផ្ទាំងរូបភាពផ្ទៃតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데스크탑 배경화면으로 색조 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farg etter skrivebordsbakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barwienie tapetą biurka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tingir com a imagem da mesa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонировать по обоям рабочего стола"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แต้มสีตามภาพพื้นหลังเดสก์ท็อป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü duvar kâğıdıyla renklendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонувати за шпалерами робочого столу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phủ màu theo hình nền màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随桌面墙纸着色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨桌面背景著色"
+          }
+        }
+      }
+    },
+    "settings.appearance.wallpaperTint.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يأخذ الزجاج ألوان صورة سطح المكتب ويتبعها عند تغيير الصورة أو المساحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo preuzima boje slike radne površine i prati je kada se slika ili Space promijeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasset får farverne fra dit skrivebordsbillede og følger med, når billedet eller Space skifter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glas übernimmt die Farben deines Schreibtischbilds und folgt ihm, wenn sich das Bild oder der Space ändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El cristal toma los colores de tu imagen de escritorio y la sigue cuando cambian la imagen o el Space."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre prend les couleurs de votre image de bureau et la suit quand l’image ou le Space change."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro prende i colori dell’immagine della scrivania e la segue quando cambiano l’immagine o lo Space."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスがデスクトップピクチャの色を取り込み、ピクチャや操作スペースが変わると追従します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់យកពណ៌ពីរូបភាពផ្ទៃតុរបស់អ្នក ហើយធ្វើតាមវា នៅពេលរូបភាព ឬ Space ផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리가 데스크탑 사진의 색상을 따르며, 사진이나 Space가 바뀌면 함께 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasset tar fargene fra skrivebordsbildet ditt og følger det når bildet eller Space endres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło przyjmuje kolory obrazka biurka i podąża za nim, gdy zmienia się obrazek lub Space."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro assume as cores da sua imagem de mesa e a acompanha quando a imagem ou o Space muda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло берёт цвета картинки рабочего стола и следует за ней при смене картинки или Space."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกจะใช้สีจากภาพเดสก์ท็อปของคุณ และเปลี่ยนตามเมื่อภาพหรือ Space เปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam, masaüstü resminizin renklerini alır ve resim ya da Space değiştiğinde onu izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло бере кольори зображення робочого столу й стежить за ним, коли змінюється зображення або Space."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lớp kính lấy màu từ ảnh màn hình nền của bạn và đổi theo khi ảnh hoặc Space thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃会采用桌面图片的颜色，并在图片或空间更改时随之变化。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃會採用桌面圖片的顏色，並在圖片或空間變更時隨之改變。"
+          }
+        }
+      }
+    },
     "settings.group.sshLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -56030,127 +56292,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download Updates Automatically"
+            "value": "Download and Install Updates Automatically"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "تنزيل التحديثات وتثبيتها تلقائيًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Automatski preuzmi i instaliraj ažuriranja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Hent og installer opdateringer automatisk"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Updates automatisch laden und installieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Descargar e instalar actualizaciones automáticamente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Télécharger et installer les mises à jour automatiquement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Scarica e installa gli aggiornamenti automaticamente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデートを自動的にダウンロード"
+            "value": "アップデートを自動的にダウンロードしてインストール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "ទាញយក និងដំឡើងបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "업데이트 자동 다운로드 및 설치"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Last ned og installer oppdateringer automatisk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Automatycznie pobieraj i instaluj aktualizacje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Baixar e instalar atualizações automaticamente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Автоматически загружать и устанавливать обновления"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "ดาวน์โหลดและติดตั้งอัปเดตโดยอัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Güncellemeleri otomatik olarak indir ve yükle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Автоматично завантажувати та встановлювати оновлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Tự động tải xuống và cài đặt bản cập nhật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "自动下载并安装更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "自動下載並安裝更新"
           }
         }
       }
@@ -56161,127 +56423,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "إيقاف: يواصل cmux البحث عن التحديثات ويعرض «يتوفر تحديث»؛ نقرة واحدة تنزّله وتثبّته. مفعّل افتراضيًا في إصدارات NIGHTLY وDEV."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Isključeno: cmux i dalje provjerava ažuriranja i prikazuje „Dostupno ažuriranje“; jedan klik ga preuzima i instalira. Uključeno po zadanom u NIGHTLY i DEV verzijama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Fra: cmux søger stadig efter opdateringer og viser »Opdatering tilgængelig«; ét klik henter og installerer den. Til som standard i NIGHTLY- og DEV-builds."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Aus: cmux sucht weiter nach Updates und zeigt „Update verfügbar“; ein Klick lädt und installiert es. In NIGHTLY- und DEV-Builds standardmäßig an."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Desactivado: cmux sigue buscando actualizaciones y muestra «Actualización disponible»; un clic la descarga e instala. Activado de forma predeterminada en las compilaciones NIGHTLY y DEV."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Désactivé : cmux recherche toujours les mises à jour et affiche « Mise à jour disponible » ; un clic la télécharge et l’installe. Activé par défaut dans les versions NIGHTLY et DEV."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Disattivato: cmux controlla comunque gli aggiornamenti e mostra «Aggiornamento disponibile»; un clic lo scarica e lo installa. Attivo per impostazione predefinita nelle build NIGHTLY e DEV."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ: 見つかったアップデートは待機し、1回のクリックでダウンロードしてインストールします。"
+            "value": "オフ：cmux はアップデートの確認を続け、「アップデートがあります」を表示します。クリックするとダウンロードしてインストールします。NIGHTLY と DEV ビルドでは既定でオンです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "បិទ៖ cmux នៅតែពិនិត្យរកបច្ចុប្បន្នភាព ហើយបង្ហាញ «មានបច្ចុប្បន្នភាព»; ចុចម្តងដើម្បីទាញយក និងដំឡើង។ បើកតាមលំនាំដើមក្នុងកំណែ NIGHTLY និង DEV។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "끄면 cmux는 계속 업데이트를 확인하고 '업데이트 있음'을 표시하며, 한 번 클릭하면 다운로드하여 설치합니다. NIGHTLY 및 DEV 빌드에서는 기본적으로 켜져 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Av: cmux ser fortsatt etter oppdateringer og viser «Oppdatering tilgjengelig»; ett klikk laster ned og installerer den. På som standard i NIGHTLY- og DEV-bygg."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Wył.: cmux nadal sprawdza aktualizacje i pokazuje „Dostępna aktualizacja”; jedno kliknięcie ją pobiera i instaluje. W kompilacjach NIGHTLY i DEV domyślnie włączone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Desativado: o cmux continua verificando atualizações e mostra “Atualização disponível”; um clique baixa e instala. Ativado por padrão nas versões NIGHTLY e DEV."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Выкл.: cmux по-прежнему проверяет обновления и показывает «Доступно обновление»; один щелчок загружает и устанавливает его. В сборках NIGHTLY и DEV включено по умолчанию."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "ปิด: cmux ยังคงตรวจหาอัปเดตและแสดง “มีอัปเดต” คลิกครั้งเดียวเพื่อดาวน์โหลดและติดตั้ง เปิดเป็นค่าเริ่มต้นในบิลด์ NIGHTLY และ DEV"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Kapalı: cmux güncellemeleri denetlemeye devam eder ve “Güncelleme Var” gösterir; tek tıklama indirip yükler. NIGHTLY ve DEV sürümlerinde varsayılan olarak açıktır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Вимк.: cmux і далі перевіряє оновлення та показує «Доступне оновлення»; одне клацання завантажує та встановлює його. У збірках NIGHTLY і DEV увімкнено за замовчуванням."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Tắt: cmux vẫn kiểm tra bản cập nhật và hiển thị “Có bản cập nhật”; một lần nhấp sẽ tải xuống và cài đặt. Bật theo mặc định trong bản NIGHTLY và DEV."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "关闭：cmux 仍会检查更新并显示“有可用更新”；点按一次即可下载并安装。NIGHTLY 和 DEV 版本默认开启。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "關閉：cmux 仍會檢查更新並顯示「有可用更新」；按一下即可下載並安裝。NIGHTLY 與 DEV 版本預設開啟。"
           }
         }
       }
