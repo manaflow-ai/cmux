@@ -135,10 +135,10 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            for key in answering { mirror.reject(key) }
-            // A Chief change the load answered or the mirror dropped (it no longer applies) is settled; one it
-            // replays stays pending.
-            self.settlePendingChief(answering.union(dropped))
+            let rejected = answering.flatMap { mirror.reject($0) }
+            // A Chief change the load answered or the mirror dropped (it no longer applies, on the load or behind a
+            // change put back) is settled; one it replays stays pending.
+            self.settlePendingChief(answering.union(dropped).union(rejected))
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
