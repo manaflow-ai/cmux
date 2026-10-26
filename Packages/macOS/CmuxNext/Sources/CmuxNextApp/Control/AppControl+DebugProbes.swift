@@ -36,6 +36,8 @@ extension AppControl {
             BlockingControl(detector: services.blocking).method,
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
             ObservationsControl(ledger: services.observations).method,
+            // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.
+            WorkControl(work: services.work).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
             // "idle"; main only copies, the turns and owners fold off it.
