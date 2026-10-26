@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -28,8 +29,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let firstFrame = FirstFrameGate()
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
+    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
+    /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
+    private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
+        self?.services?.crashRecovery.applicationWillTerminate()
+        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+        self?.services?.home.applicationWillTerminate()
+    }, save: { [weak self] in
+        await self?.services?.home.flushCacheForQuit()
+    })
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -48,8 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
+        self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
@@ -67,10 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
-            self?.services?.crashRecovery.applicationWillTerminate()
-            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            self?.services?.home.applicationWillTerminate()
-            exit(0)
+            self?.forcedQuitExit.start()
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
@@ -94,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
         TerminalThemeSetting.prime(settingsRead.snapshot)
+        // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
+        BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
@@ -102,7 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, mainWork: mainWork)
+        let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -279,13 +292,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
-        ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
+        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
+        let acpmux = QuitAgents.environment(services)
+        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
-        AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
+        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
         NewTabWeather.wire(services.agentTabs, services: services)
@@ -384,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
                                            await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
-                                       }).install(on: router)
+                                       }, mirrors: services).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")

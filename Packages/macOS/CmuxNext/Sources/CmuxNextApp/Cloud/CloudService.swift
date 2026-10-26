@@ -85,13 +85,16 @@ final class CloudService {
     /// batches run on it (one main thread, one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
-    /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler) {
+    /// - Parameters:
+    ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
+    ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
+        deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
         api = CloudAPIClient(
             configuration: configuration,
@@ -148,15 +151,12 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    /// This Mac's install id, read from disk once (it never changes once written); every window
-    /// record save reads it, so a pane focus move does no file I/O (speed-of-sound-DESIGN.md 3.2).
-    func localDeviceID() throws -> String {
-        if let cachedDeviceID { return cachedDeviceID }
-        let id = try paths.loadOrCreateDeviceID()
-        cachedDeviceID = id
-        return id
-    }
-    @ObservationIgnored private var cachedDeviceID: String?
+    /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
+    /// lane when Cloud starts; async callers use ``installID()``.
+    func localDeviceID() throws -> String { try deviceID.loadNow() }
+    /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
+    func installID() async throws -> String { try await deviceID.load() }
+    @ObservationIgnored private let deviceID: CloudDeviceID
 
     var isSignedIn: Bool { auth.isSignedIn }
 
@@ -182,6 +182,7 @@ final class CloudService {
     }
 
     func start() {
+        deviceID.preload()
         auth.start()
         startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
@@ -348,7 +349,7 @@ final class CloudService {
             loadedAccount = account
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
-            lastError = String(describing: error)
+            lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
     }

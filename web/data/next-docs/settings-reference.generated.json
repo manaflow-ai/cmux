@@ -1,11 +1,23 @@
 {
   "version": 1,
-  "count": 480,
+  "count": 491,
   "sections": [
     {
       "id": "general",
       "title": "General",
       "rows": [
+        {
+          "key": "agentPane.attachmentView",
+          "title": "Attachment View",
+          "help": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
+          "kind": "choice",
+          "default": "inline",
+          "group": "Agent Chat",
+          "values": [
+            "inline",
+            "strip"
+          ]
+        },
         {
           "key": "agentPane.editedFiles.maxRows",
           "title": "Edited Files Shown",
@@ -95,6 +107,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.spellChecking",
+          "title": "Check Spelling While Typing",
+          "help": "Underlines misspellings and offers system suggestions in the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.zoom",
           "title": "Agent Chat Zoom",
           "help": "The display size for agent chat. Cmd-0 resets it.",
@@ -134,7 +154,7 @@
         {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
-          "help": "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+          "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
           "kind": "choice",
           "default": "fullAccess",
           "group": "Agent Chat",
@@ -618,6 +638,18 @@
           "group": "Columns"
         },
         {
+          "key": "layout.scrollModifier",
+          "title": "Scroll Columns and Rows With",
+          "help": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+          "kind": "choice",
+          "default": "command",
+          "group": "Columns",
+          "values": [
+            "command",
+            "none"
+          ]
+        },
+        {
           "key": "layout.splitSizing",
           "title": "Split Sizing",
           "help": "Even gives every pane in the column the same size after a split.",
@@ -1007,6 +1039,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.clock",
+          "title": "Show Clock on New Tab",
+          "help": "A quiet local time display beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.greeting",
           "title": "Ask What to Work On on New Tab",
           "help": "A headline over the composer that asks what to work on, with the project as a picker.",
@@ -1043,9 +1083,33 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.quote",
+          "title": "Show Quote of the Day on New Tab",
+          "help": "A bundled public-domain quote, changing daily.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.styleDots",
           "title": "Show Template Dots on New Tab",
           "help": "Dots under the page that switch its template.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.timer",
+          "title": "Show Stopwatch on New Tab",
+          "help": "A small elapsed-time stopwatch beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.warmGreeting",
+          "title": "Show Warm Greeting on New Tab",
+          "help": "A time-of-day greeting such as Good afternoon.",
           "kind": "toggle",
           "default": false,
           "group": "Tabs"
@@ -1326,6 +1390,19 @@
             "max": 1.25,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "agentPane.display.environment.placement",
+          "title": "Session Info Chip",
+          "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right",
+            "off"
+          ]
         },
         {
           "key": "agentPane.display.font.lineHeight",
@@ -1918,6 +1995,32 @@
           }
         },
         {
+          "key": "appearance.metrics.dividerHitWidth",
+          "title": "Divider Drag Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 1,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "title": "Divider Thickness",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 6,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.sidebarWidth",
           "title": "Sidebar Width",
           "help": "",
@@ -2430,9 +2533,10 @@
           "title": "Layout",
           "help": "",
           "kind": "choice",
-          "default": "unified",
+          "default": "auto",
           "group": "Diff Viewer",
           "values": [
+            "auto",
             "split",
             "unified"
           ]
@@ -2448,6 +2552,14 @@
         {
           "key": "diff.showBackgrounds",
           "title": "Change Backgrounds",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.showBulkActions",
+          "title": "Stage All and Revert All Bar",
           "help": "",
           "kind": "toggle",
           "default": true,

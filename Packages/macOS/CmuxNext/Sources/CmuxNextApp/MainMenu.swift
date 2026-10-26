@@ -59,7 +59,11 @@ enum MainMenu {
             let debugItem = submenu(Strings.menuDebug, items: debug)
             #if DEBUG
             // Main-Thread Blocking (N): the call sites the blocking detector saw (threading-model.md).
-            if let debugMenu = debugItem.submenu { BlockingCallsMenu(detector: blocking).attach(to: debugMenu) }
+            if let debugMenu = debugItem.submenu {
+                BlockingCallsMenu(detector: blocking, resetItem: {
+                    registry.makeMenuItem(for: "debug.blockingCalls.reset")
+                }).attach(to: debugMenu)
+            }
             #endif
             mainMenu.addItem(debugItem)
         }

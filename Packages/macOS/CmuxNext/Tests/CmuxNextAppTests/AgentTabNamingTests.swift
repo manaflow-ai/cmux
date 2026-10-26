@@ -49,6 +49,22 @@ struct AgentTabNamingTests {
                 "a name the user gave still wins")
     }
 
+    @Test func generatedTitleDoesNotTreatPromptFallbackAsGenerated() {
+        let prompt = [
+            "sessionId": "p1", "name": "claude-1", "harness": "claude",
+            "title": "Fix the sidebar drag", "titleSource": "prompt",
+        ] as [String: Any]
+        #expect(AgentTurnStates.title(prompt, includingPrompt: false) == nil)
+
+        var generated = prompt
+        generated["titleSource"] = "generated"
+        #expect(AgentTurnStates.title(generated, includingPrompt: false) == "Fix the sidebar drag")
+
+        var renamed = prompt
+        renamed["titleSource"] = "named"
+        #expect(AgentTurnStates.title(renamed, includingPrompt: false) == nil)
+    }
+
     @Test func anUntitledChatReadsAsItsWorkspacesTask() {
         let turns = AgentTurnStateStore()
         let ref = AgentSessionRef(host: Self.chiefHost, session: "c9", harness: "claude")

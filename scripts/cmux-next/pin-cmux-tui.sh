@@ -398,14 +398,19 @@ github_api() {
 # (depth 1, best effort); one it cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
-  body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || return 0
+  body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
+    echo "note: could not list cmux-tui artifacts runs (rate limit or network): no same-tree run is known" >&2; return 0; }
   # Depth 1 only in a shallow checkout: in a full clone --depth writes
   # .git/shallow and truncates history for every worktree sharing it.
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
+    # A fleet step's origin may be a local warm checkout or the controller's depot, which lack other
+    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen).
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null || continue
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null \
+      || git -C "$repo_root" fetch -q --no-tags --depth=1 "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
+      || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
 import json, sys
@@ -612,6 +617,10 @@ wait_for_tree() {
       echo "note: run check off: $publisher does not have tree $key" >&2
       publisher=""
     fi
+  fi
+  if [[ -n "$publisher" ]]; then
+    if [[ -n "${GH_TOKEN:-}" ]]; then echo "cmux-tui run check reads the GitHub API with a token" >&2
+    else echo "cmux-tui run check reads the GitHub API without a token (60 requests an hour per address); a rate limit reads as no run" >&2; fi
   fi
   started="$(date +%s)"
   local dispatched=false reported=false dispatch_sha

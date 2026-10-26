@@ -27,6 +27,8 @@ mod auto_resume;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/full_access_guards.rs"]
+mod full_access_guards;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
@@ -49,6 +51,8 @@ mod purged_stays_purged;
 mod questions;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -57,6 +61,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]

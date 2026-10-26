@@ -51,6 +51,23 @@ extension UpdaterService {
         return action
     }
 
+    /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
+    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    public var failureReason: String? {
+        if let controller, disabledReason == nil {
+            guard case .error(let failure) = controller.model.effectiveState else { return nil }
+            return failure.error.localizedDescription
+        }
+        return lastProbeError
+    }
+
+    /// ``flowMoves`` once the gate holds Sparkle's current phase: the baseline a caller takes
+    /// before its request, so only a move the request caused counts.
+    public func settledFlowMoves() -> Int {
+        syncFlowPhase()
+        return flowMoves
+    }
+
     /// A note's display time ended.
     func noteExpired() { send(.noteExpired) }
 
@@ -126,6 +143,7 @@ extension UpdaterService {
             UpdateHarness.mark("failure_content." + content.buttons.map { String(describing: $0).prefix { $0 != "(" } }.joined(separator: "_"))
         }
         #endif
+        flowMoves &+= 1
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
@@ -134,6 +152,7 @@ extension UpdaterService {
         followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
+        tipCheck.refresh(self)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -188,6 +207,7 @@ extension UpdaterService {
         }
         downloadSetting = (downloadAutomatically, metered)
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
+        tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -224,6 +244,12 @@ extension UpdaterService {
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
+        // The tip app reads its feed every few minutes only where found updates download by
+        // themselves and the policy allows updates.
+        defer {
+            tipCheck.refresh(self)
+            stagedRefresh.policyChanged(updater: self)
+        }
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")

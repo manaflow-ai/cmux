@@ -85,7 +85,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let (control, trust_gate) = (opts.control, opts.trust_gate);
         let prompt_id = opts.prompt_id.unwrap_or_default();
-        self.check_steer(session, control)?;
+        self.check_steer(session, control, opts.full_access_device.as_deref())?;
         // A running turn has a live agent.
         let child = self.child_for(session).await?;
         let agent_sid = session
@@ -115,7 +115,8 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
             now.step.remove(&prompt_id)
         };
         if step_now {
@@ -131,17 +132,20 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
-                // A send-now (`interrupt`) still goes next.
+                // A send-now (`interrupt`) still goes next, but the turn it was for has ended:
+                // it stops no other.
                 let opts = PromptOptions {
                     prompt_id: Some(prompt_id),
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
+                    interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
                     agent: opts.agent,
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,
+                    full_access_device: opts.full_access_device,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

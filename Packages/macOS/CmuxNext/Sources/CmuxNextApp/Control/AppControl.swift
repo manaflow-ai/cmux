@@ -26,7 +26,7 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
     #endif
@@ -369,10 +369,7 @@ final class AppControl {
                 return .value(DebugWindowList.list(services: services))
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
-            .async("debug.window_snapshot") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
-                return await DebugWindowSnapshot.captureAsync(call.params, services: services)
-            },
+            DebugWindowSnapshot.controlMethod(services: services),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))

@@ -118,7 +118,7 @@ final class ControlSnapshotPublisher {
         // Outside the tracking: a sequence alone never rebuilds (observeSequences).
         var topology = built
         Self.applySequences(to: &topology, services)
-        router.snapshots.publish { snapshot in
+        router.snapshots.publish(rebuilt: true) { snapshot in
             snapshot.topology = topology
             snapshot.settings = settings
             snapshot.tabSearch = tabSearch
@@ -146,8 +146,8 @@ final class ControlSnapshotPublisher {
     private func sequencesChanged() {
         guard !isStopped else { return }
         observeSequences()
-        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish,
-        // which would also clear the store's stale mark.
+        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
+        // it would show the new sequences beside the old topology.
         if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
             // A topology change is pending: its publish reads the sequences as they are then. A read
             // waiting on its write barrier gets it on this turn.
@@ -206,15 +206,15 @@ final class ControlSnapshotPublisher {
             topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
-            let members = windows.registry.members(of: controller.state.id)
-            var info = ControlWindowInfo(
-                id: controller.state.id,
-                workspaceID: controller.state.workspaceID,
-                workspaceIDs: members,
-                isKey: controller.window?.isKeyWindow ?? false,
-                isVisible: controller.window?.isVisible ?? false,
-                focusedPaneID: controller.focusedPane?.pane.id
-            )
+            // One order for every reader: the sidebar's (`SidebarModel.workspaceOrder`), kept per structural change of its
+            // rows (a move republishes it, a row's content patch does not); membership moves only on join or leave.
+            let (model, joined) = (controller.sidebar.model, windows.registry.members(of: controller.state.id))
+            let ordered = { model.workspaceOrder.ordering(joined) }
+            let members = cache?.memo("order:" + controller.state.id, key: [joined, [String(model.observedSectionsRevision)]],
+                                      build: ordered) ?? ordered()
+            var info = ControlWindowInfo(id: controller.state.id, workspaceID: controller.state.workspaceID, workspaceIDs: members,
+                                         isKey: controller.window?.isKeyWindow ?? false, isVisible: controller.window?.isVisible ?? false,
+                                         focusedPaneID: controller.focusedPane?.pane.id)
             // What the user sees: windows kept off screen until a machine
             // reports one of their workspaces are hidden, and the count is
             // the sidebar's (current room, reported by a machine).
@@ -229,7 +229,7 @@ final class ControlSnapshotPublisher {
                                                    build: visible) ?? visible()
             return info
         }
-        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
+        cache?.retainMemos(Set(windows.controllers.flatMap { ["window:" + $0.state.id, "order:" + $0.state.id] }))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page

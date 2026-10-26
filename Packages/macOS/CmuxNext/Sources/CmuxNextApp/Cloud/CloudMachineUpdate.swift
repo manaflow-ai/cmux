@@ -28,7 +28,7 @@ enum CloudMachineUpdate {
         do {
             answer = try await cli.machineUpdate(socket: socket)
         } catch {
-            throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, String(describing: error)), retry: retry)
+            throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, CloudStrings.errorText(error)), retry: retry)
         }
         guard !answer.ok else { return }
         services.cloud.logger.error("cloud machine update: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")

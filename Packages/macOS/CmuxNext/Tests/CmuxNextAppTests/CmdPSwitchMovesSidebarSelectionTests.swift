@@ -15,6 +15,8 @@ import Testing
 struct CmdPSwitchMovesSidebarSelectionTests {
     @Test func cmdPEnterDrawsTheChosenWorkspaceSelected() async throws {
         try await PinnedPageTests.withApp { services, _ in
+            // Cmd-P is the palette's action: the app binds it at launch (AppDelegate), the harness does not.
+            services.palette.bindRegistryActions()
             try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
             let window = try #require(services.windows.active)
             try #require(window.window).setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)

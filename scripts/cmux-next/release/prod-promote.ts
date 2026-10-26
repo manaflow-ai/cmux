@@ -144,7 +144,8 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
   const r = await fetch(`https://api.github.com/repos/${repo}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } })
-  if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status}`)
+  // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
+  if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()
 }
 

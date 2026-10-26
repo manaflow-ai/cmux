@@ -25,6 +25,7 @@ extension UpdaterService {
         willInstallStaged = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).

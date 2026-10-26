@@ -4,7 +4,8 @@ import CoreGraphics
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
 /// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx).
+/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx), and `environment.placement`
+/// controls the machine · folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
 /// the Markdown viewer's (`markdown.font.preset`, `markdown.code.family`, `markdown.code.scale`),
@@ -70,6 +71,15 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            row(["environment", "placement"], SettingsText.keyed("settings.agentPane.display.environment", "Session Info Chip"),
+                help: SettingsText.keyed("settings.agentPane.display.environment.help",
+                                         "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."),
+                .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                .string("left"), ["session", "info", "chip", "environment", "machine", "folder", "placement", "left", "right", "off"]),
         ]
     }
 }

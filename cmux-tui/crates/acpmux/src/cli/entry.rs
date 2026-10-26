@@ -11,6 +11,13 @@ use anyhow::Result;
 use clap::{CommandFactory, FromArgMatches};
 use std::ffi::OsString;
 
+static ORIGINAL_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// The acpmux arguments passed by its executable (also stripped of `cmux acp`).
+pub(crate) fn original_args() -> Option<&'static [String]> {
+    ORIGINAL_ARGS.get().map(Vec::as_slice)
+}
+
 pub struct Invocation {
     /// `acpmux`, or `cmux acp` inside cmux.
     pub display_name: String,
@@ -58,6 +65,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
+    let _ = ORIGINAL_ARGS.set(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
     let mut argv: Vec<OsString> = Vec::with_capacity(args.len() + 2);
     argv.push(invocation.display_name.clone().into());
     argv.extend(args);
@@ -182,6 +190,20 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Resolve { query }) => {
+            let json_out = cli.json;
+            match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Bead(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::beads::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

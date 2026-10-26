@@ -44,6 +44,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
+    /// request (the CLI's install) tells a phase its request reached from one already shown,
+    /// even when observation coalesces the moves in between.
+    public internal(set) var flowMoves = 0
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()
@@ -66,6 +70,8 @@ public final class UpdaterService {
     /// The installing card's one-second tick, only while an install runs.
     @ObservationIgnored let installTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
+    /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
+    @ObservationIgnored let tipCheck: TipUpdateCheck
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -211,6 +217,7 @@ public final class UpdaterService {
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
+        tipCheck = TipUpdateCheck(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -232,15 +239,16 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
-            // The click hides every window and the daemon keeps every session, so a user
-            // install relaunches at once; only automatic idle installs wait.
+            // The daemon keeps every terminal, agent and running turn, so all app relaunches are
+            // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG.
-            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once agents, commands and input
-            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
+            // waits once instead of downloading the full DMG. The tip feed lists an
+            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
+            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
+            // A nightly installs a downloaded update by itself once it is staged; the daemon
+            // preserves agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
@@ -278,6 +286,7 @@ public final class UpdaterService {
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
+        tipCheck.refresh(self)
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return

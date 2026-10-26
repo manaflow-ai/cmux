@@ -71,9 +71,12 @@ enum AgentSessionWorkspace {
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
         // the named `group`.
-        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
-            join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
+            join = { id, sidebar in
+                guard let sidebar = sidebar as? SidebarBridge else { return }
+                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
+            }
         }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)

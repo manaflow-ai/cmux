@@ -116,6 +116,7 @@ struct PageFactory {
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
+        provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
         provider.accountsRun = { params in
@@ -159,7 +160,8 @@ struct PageFactory {
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
-                guard let descriptor = registry.descriptor(for: id) else { return nil }
+                // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
+                guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
                 return ["id": .string(id.rawValue), "title": .string(descriptor.title),
                         "enabled": .bool(registry.isAvailable(id))]
             })
