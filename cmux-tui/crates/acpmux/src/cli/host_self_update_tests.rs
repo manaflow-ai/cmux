@@ -202,6 +202,27 @@ async fn a_newer_build_is_downloaded_checked_and_installed() {
     assert_eq!(files.asked().len(), 1);
 }
 
+/// Review of #24232: an update stopped after the install but before the
+/// restart left the channel's binary installed under a daemon still on the
+/// old build, and every later run called the host current. The run checks
+/// the daemon that answers, so it restarts that one.
+#[tokio::test]
+async fn an_install_that_never_restarted_is_finished_by_the_next_run() {
+    let peer = FakePeer::new("self-unrestarted");
+    let new = fake_acpmux(NEW, Some(NEW));
+    peer.exe(".local/bin/acpmux", &new);
+    assert_eq!(peer.daemon(), OLD);
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    assert!(matches!(&plan.step, Step::Current(Some(build)) if build == NEW));
+    assert_eq!(files.asked().len(), 1, "nothing is downloaded");
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+    assert!(peer.exists("agents"), "the restart keeps the agents");
+}
+
 #[tokio::test]
 async fn a_download_that_does_not_match_the_channel_is_never_installed() {
     let peer = FakePeer::new("self-bad-sha");
@@ -245,6 +266,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     assert_eq!(peer.daemon(), OLD);
     assert!(peer.exists("agents"));
     assert!(peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&bad))));
+    assert!(!up.error.as_deref().unwrap_or("").contains("marking"), "{up:?}");
     drop(plan);
     let _ = peer.take_calls();
 
@@ -275,6 +297,25 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
     assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
     assert_eq!(peer.daemon(), newer);
+}
+
+/// Review of #24232: a rollback whose mark could not be written was reported
+/// as a plain rollback, so the next run retried the bad build unannounced.
+#[tokio::test]
+async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
+    let peer = FakePeer::new("self-rollback-unmarked");
+    let bad = fake_acpmux(NEW, Some("fedcba987 2026-10-21"));
+    let files = serving(&bad);
+    let plan = ready(&peer, &files).await;
+    // The mark's path is taken by a folder, so writing it fails.
+    let mark = format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&bad));
+    std::fs::create_dir_all(peer.home.join(&mark)).unwrap();
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!(up.outcome, Outcome::RolledBack, "{up:?}");
+    let why = up.error.as_deref().unwrap_or("");
+    assert!(why.contains("marking the build rolled back failed"), "{why}");
+    assert!(why.contains("the next run tries it again"), "{why}");
+    assert_eq!(peer.daemon(), OLD, "the previous build answers again");
 }
 
 #[tokio::test]
@@ -523,6 +564,14 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, _) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     assert!(!units.exists());
+
+    // Review of #24232: the opt-out stops only acpmux's timer, never one
+    // someone else wrote.
+    std::fs::create_dir_all(&units).unwrap();
+    std::fs::write(units.join("acpmux-update.timer"), theirs).unwrap();
+    let (calls, _) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(read("acpmux-update.timer"), theirs);
     let _ = std::fs::remove_dir_all(&home);
 }
 
