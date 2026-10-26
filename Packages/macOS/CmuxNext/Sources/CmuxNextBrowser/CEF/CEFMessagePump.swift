@@ -29,9 +29,10 @@ import os
 /// loop pass, outside that input's dispatch.
 ///
 /// With a board (``CEFPumpBoard``) each pass is a task of owner `cef.pump` on the main-thread budget,
-/// in the input class while a page has the keyboard or an unacked input and the frame class otherwise
-/// (``CEFPumpSchedule/workClass(pageHasFocus:pageInputUnacked:)``). Then no pending input and no late
-/// frame holds a pass: Chromium acks the page's input inside the pump.
+/// in the input class while a page has the keyboard or a page input's ack may be due and the frame
+/// class otherwise (``CEFPumpSchedule/workClass(pageHasFocus:pageInputRecent:)``). An input-class pass
+/// takes no late frame's slice; pending keys to the page with the keyboard and input after a page
+/// input do not hold it (Chromium acks the page's input inside the pump), pending pointer input does.
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
@@ -78,10 +79,11 @@ final class CEFMessagePump {
     let gate: CEFPumpCrossThreadGate
     /// The main-thread task board each pass runs on (nil: unattributed, classed by nothing).
     private let board: CEFPumpBoard?
-    /// Follows the board's input dispatch ends while the pump runs.
+    /// Follows the board's input dispatch ends while the pump runs with no input policy (the policy's
+    /// own follower tells the pump otherwise: one tap observer either way).
     private var boardDispatches: InputSubscription?
-    /// An input AppKit delivered to a Chromium page waits for the pass that acks it.
-    private var pageInputUnacked = false
+    /// The last input AppKit delivered to a Chromium page, while its ack may be due.
+    private var pageInput = CEFPumpSchedule.RecentPageInput()
 
     var stats: CEFPumpStats {
         var stats = counters
@@ -91,7 +93,8 @@ final class CEFMessagePump {
 
     /// `timer`: a `CEFWakeUpQueuePumpTimer` on the app's deadline queue (tests
     /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
-    /// `starvation`: the app's rendering starvation guard (`CEFRuntime` passes its board's).
+    /// `starvation`: a rendering starvation guard. `CEFRuntime` passes none: a late frame must not slow a
+    /// hidden tab's CDP round trip (p06-scheduler-048 acceptance).
     /// `board`: the main-thread budget each pass runs on as owner `cef.pump` (nil: none).
     init(
         work: @escaping () -> Void,
@@ -120,8 +123,8 @@ final class CEFMessagePump {
         guard !isRunning else { return }
         isRunning = true
         timer.onFire = { [weak self] in self?.timerFired() }
-        boardDispatches = board?.dispatches?.observeDispatchEnd { [weak self] target in
-            if target == .chromiumPage { self?.pageInputUnacked = true }
+        if input == nil {
+            boardDispatches = board?.dispatches?.observeDispatchEnd { [weak self] target in self?.notePageDispatch(target) }
         }
         schedule.request(milliseconds: 0, now: clock())
         rearm()
@@ -138,7 +141,7 @@ final class CEFMessagePump {
         chromiumInputPass = false
         boardDispatches?.cancel()
         boardDispatches = nil
-        pageInputUnacked = false
+        pageInput = CEFPumpSchedule.RecentPageInput()
         timer.invalidate()
     }
 
@@ -148,6 +151,9 @@ final class CEFMessagePump {
         input = policy
         inputHoldDeadline = nil
         chromiumInputPass = false
+        // The policy's follower tells the pump of page input too.
+        boardDispatches?.cancel()
+        boardDispatches = nil
         policy.onDispatchEnd { [weak self] target in self?.inputDispatchEnded(target) }
     }
 
@@ -203,17 +209,13 @@ final class CEFMessagePump {
     /// Runs the pass that is due, unless pending input or a late frame holds it. The input policy
     /// goes first: a pass it holds takes no late frame's slice. A fire inside a running pass (a nested
     /// run loop) goes straight to the slice check and `fire()`, which defers it. On the board, a pass
-    /// in the input class (a page has the keyboard or an unacked input) is held by neither.
+    /// in the input class takes no late frame's slice either.
     private func runDuePass(for reason: LedgerReason) {
-        let workClass = boardClass()
-        if workClass == .input {
-            fire(for: reason, workClass: workClass)
-            return
-        }
+        let now = clock()
+        let workClass = boardClass(at: now)
         var admission = CEFPumpInputPolicy.Admission.run
         if let input, !schedule.isWorking {
-            let now = clock()
-            admission = chromiumInputPass ? input.admitAfterDispatch(to: .chromiumPage, now: now) : input.admit(now: now)
+            admission = admit(input, now: now)
             if case .hold(let deadline, let began) = admission {
                 if began { counters.deferredForInput += 1 }
                 inputHoldDeadline = deadline
@@ -221,22 +223,43 @@ final class CEFMessagePump {
                 return
             }
         }
-        if let starvation, !starvation.admitsSlice(&slices) {
+        if workClass != .input, let starvation, !starvation.admitsSlice(&slices) {
             waitForLateFrame(starvation)
             return
         }
         switch admission {
         case .runAfterDispatch(let target): counters.passesWhileInputPending.add(target)
         case .runAtBound: counters.passesWhileInputPending.boundExpired += 1
+        case .runForFocusedPage: counters.passesWhileInputPending.pageFocused += 1
         case .run, .hold: break
         }
         fire(for: reason, workClass: workClass)
     }
 
-    /// The board class of a pass that starts now; nil without a board.
-    private func boardClass() -> MainWorkClass? {
+    /// The policy's answer for the pass due at `now`. Right after an input to a page, and on the board
+    /// while that input's ack may be due, the pass runs whatever is pending; while a page has the
+    /// keyboard, pending keys do not hold it.
+    private func admit(_ input: CEFPumpInputPolicy, now: TimeInterval) -> CEFPumpInputPolicy.Admission {
+        if chromiumInputPass || pageInputRecent(at: now) { return input.admitAfterDispatch(to: .chromiumPage, now: now) }
+        return input.admit(now: now, pageHasKeyboard: board?.pageHasFocus == true)
+    }
+
+    /// The board class of a pass that starts at `now`; nil without a board.
+    private func boardClass(at now: TimeInterval) -> MainWorkClass? {
         guard let board else { return nil }
-        return CEFPumpSchedule.workClass(pageHasFocus: board.pageHasFocus, pageInputUnacked: pageInputUnacked)
+        return CEFPumpSchedule.workClass(pageHasFocus: board.pageHasFocus, pageInputRecent: pageInputRecent(at: now))
+    }
+
+    /// On the board: a page input's ack may still be due at `now`.
+    private func pageInputRecent(at now: TimeInterval) -> Bool {
+        guard let board else { return false }
+        return pageInput.isRecent(at: now, refresh: board.refresh)
+    }
+
+    /// An input's dispatch ended; one to a Chromium page keeps the passes in the input class.
+    private func notePageDispatch(_ target: InputTarget) {
+        guard isRunning, target == .chromiumPage else { return }
+        pageInput.dispatched(at: clock())
     }
 
     /// An input's dispatch ended (outside its dispatch scope). A pass held for it is re-armed for the
@@ -244,6 +267,7 @@ final class CEFMessagePump {
     /// next run loop pass and runs whatever input is pending (its input router and wheel acks run
     /// inside the pump). During a pass (a nested run loop) the outer pass re-arms when it returns.
     private func inputDispatchEnded(_ target: InputTarget) {
+        notePageDispatch(target)
         guard isRunning, !schedule.isWorking, input != nil else { return }
         let wasHeld = inputHoldDeadline != nil
         inputHoldDeadline = nil
@@ -289,9 +313,9 @@ final class CEFMessagePump {
         inputHoldDeadline = nil
         chromiumInputPass = false
         input?.holdEnded()
-        let passClass = workClass ?? boardClass()
-        // This pass acks the page input dispatched before it; one dispatched during it waits for the next.
-        pageInputUnacked = false
+        let passClass = workClass ?? boardClass(at: started)
+        // A page input dispatched during this pass (a nested run loop) waits for the next.
+        pageInput.passBegan()
         earlyPassWatch.passBegan(servesFireDate: reason == .delayed || reason == .kept)
         rearm()
         pumpMark("pump-start")
