@@ -33,6 +33,8 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   alive      the app still answers a ping, within 10 s, after the steps
   quit       quitEndEverything ends the process within 30 s with exit status 0 (the guest shell
              that started the app records the status; a crash at quit is a signal status)
+Just before the quit, `leaks` on the app (leakcheck.py) writes leaks.txt and the result's "leaks" row:
+leaked blocks, bytes and the top types by bytes. Report only: a leak never fails the run.
 Then it copies the app's crash (.ips), hang (.hang) and resource (.diag) reports, the app log
 and the unified-log faults of the cmux processes. A crash report fails the run, and so does a
 missing step (a run that stopped early).
@@ -57,6 +59,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import leakcheck  # noqa: E402
 from fuzz import Guest, new_reports, report_kind  # noqa: E402
 from rfb import RFB  # noqa: E402
 
@@ -68,6 +71,7 @@ PAGE_PORT = 8737
 ECHO_COMMAND = "echo cmux-matrix-$((6*7)); touch /tmp/cmux-matrix-typed"
 ECHO_OUTPUT = "cmux-matrix-42"
 EXIT_FILE = "/tmp/cmux-matrix-app-exit"
+LEAKS_FILE = "/tmp/cmux-matrix-leaks.txt"
 REPORT_DEADLINE = 30  # s: ReportCrash writes a report up to ~20 s after a death; it sends no signal over SSH
 REPORT_MINIMUM = 15  # s: after a clean quit too, a helper (Chromium, cmux-tui) can have crashed at teardown
 # Every step a PASS needs: a run that stopped early (a death, a refused call) is never a PASS.
@@ -312,10 +316,27 @@ class Smoke:
         r = self.g.sh(f"cat {EXIT_FILE} 2>/dev/null")
         return int(r.stdout.strip()) if r.stdout.strip().lstrip("-").isdigit() else None
 
+    def leaks(self, pid: int) -> None:
+        """The result's leaks row (report only), from `leaks` on the app just before the quit."""
+        g = self.g
+        # sudo -n first: the hardened runtime refuses task_for_pid to a non-root caller (as for sample).
+        # The alarm ends leaks in the guest at its deadline, so it never holds the app suspended into the quit.
+        r = g.sh(f"if sudo -n true 2>/dev/null; then s='sudo -n'; else s=; fi; $s /usr/bin/perl -e 'alarm shift; exec @ARGV' "
+                 f"{leakcheck.TIMEOUT} /usr/bin/leaks {' '.join(leakcheck.ARGS)} {pid} >{LEAKS_FILE} 2>&1; echo $?",
+                 timeout=leakcheck.TIMEOUT + 30)
+        lines = r.stdout.strip().splitlines()
+        status = int(lines[-1]) if lines and lines[-1].isdigit() else (r.returncode or 124)
+        text = g.sh(f"cat {LEAKS_FILE}", timeout=60).stdout
+        with open(os.path.join(self.out, "leaks.txt"), "w") as out:
+            out.write(text)
+        self.result["leaks"] = {"pid": pid, **leakcheck.parse(text, status)}
+        print(leakcheck.summary_line(self.result["leaks"]), flush=True)
+
     def finish(self) -> None:
         g = self.g
         pid = g.pid()
         if pid is not None:
+            self.leaks(pid)
             reply = self.call("action.run", {"action": "quitEndEverything"}, timeout=20)
             end = time.time() + QUIT_DEADLINE
             # The exit file is the quit signal: the guest shell writes it after the app exited.

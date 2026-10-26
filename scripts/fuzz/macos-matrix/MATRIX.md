@@ -78,6 +78,8 @@ under the router's 2 s request deadline),
 `design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
+Just before the quit, `leaks` on the app (`leakcheck.py`) writes `leaks.txt` and the `leaks` row of `result.json`:
+leaked blocks, bytes and the top 10 types by bytes, or an `error` when `leaks` could not read the app. Report only.
 
 ### Threads suite
 
