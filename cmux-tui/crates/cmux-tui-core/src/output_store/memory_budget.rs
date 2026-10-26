@@ -16,6 +16,9 @@
 //! memory limit, `memory_consumer.h`): at warning the total is half the
 //! budget, at critical the [`MIN_MEMORY_TOTAL_BYTES`] floor; limits come back
 //! only at normal and only below [`RESTORE_BELOW_PERCENT`] of the budget.
+//! Each terminal keeps at least [`MIN_TERMINAL_SCROLLBACK_BYTES`], so many
+//! terminals can stay over the floor; the log says so once per level and
+//! total, not on every pass.
 //!
 //! Every pass runs on the output store's writer thread: after output (memory
 //! only grows when a terminal prints) and once per pressure level change (the
@@ -63,12 +66,37 @@ type Limited = HashMap<TerminalPublicId, (usize, usize)>;
 /// The budget's state in the output store.
 #[derive(Default)]
 pub(super) struct MemoryBudget {
-    limited: Mutex<Limited>,
+    passes: Mutex<PassState>,
     pressure: Arc<PressureInbox>,
     /// The consumer in the owner's memory registry, set at store start.
     registration: OnceLock<Registration>,
     /// [`FEATURE`] is on.
     from_ram: bool,
+    /// Passes [`enforce`] ran (tests).
+    #[cfg(test)]
+    enforced: std::sync::atomic::AtomicUsize,
+}
+
+/// What one pass leaves for the next.
+#[derive(Default)]
+struct PassState {
+    limited: Limited,
+    /// The level and applied total the last over-budget line named, `None`
+    /// once a pass is under the total again.
+    reported_over: Option<(PressureLevel, u64)>,
+}
+
+impl PassState {
+    /// Whether this pass logs that `over` bytes stay above `applied` at
+    /// `level`: only when that differs from the last line. At critical
+    /// pressure every terminal at its minimum can stay over the floor for
+    /// as long as the pressure lasts; that is said once, not every pass.
+    fn report_over(&mut self, level: PressureLevel, applied: u64, over: Option<u64>) -> bool {
+        let reported = over.map(|_| (level, applied));
+        let changed = reported.is_some() && reported != self.reported_over;
+        self.reported_over = reported;
+        changed
+    }
 }
 
 /// What the registry's callback leaves for the writer: the level and
@@ -104,17 +132,8 @@ fn level_code(level: PressureLevel) -> u8 {
 }
 
 impl MemoryBudget {
-    /// [`FEATURE`] from `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES`
-    /// (disable wins), the lists `cmux_features::Snapshot::from_env` reads;
-    /// the registry default is off on every channel.
-    pub(super) fn from_env() -> Self {
-        let list = |name: &str| std::env::var(name).ok();
-        Self::with_feature(feature_listed(
-            list(cmux_features::ENABLE_ENV).as_deref(),
-            list(cmux_features::DISABLE_ENV).as_deref(),
-        ))
-    }
-
+    /// `from_ram`: [`FEATURE`] is on (the owner reads it once at start,
+    /// `crate::memory::MemorySetup`).
     pub(super) fn with_feature(from_ram: bool) -> Self {
         Self { from_ram, ..Self::default() }
     }
@@ -131,7 +150,7 @@ impl MemoryBudget {
     }
 
     pub(super) fn forget(&self, terminal_id: &TerminalPublicId) {
-        self.limited.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        self.passes.lock().unwrap_or_else(PoisonError::into_inner).limited.remove(terminal_id);
     }
 
     /// Registers the budget in `memory` once, with [`FEATURE`] on; returns
@@ -172,13 +191,6 @@ impl MemoryBudget {
     pub(super) fn take_pressure_pass(&self) -> bool {
         self.pressure.pass_due.swap(false, Ordering::AcqRel)
     }
-}
-
-fn feature_listed(enable: Option<&str>, disable: Option<&str>) -> bool {
-    let names = |list: Option<&str>| {
-        list.is_some_and(|list| list.split(',').any(|name| name.trim() == FEATURE))
-    };
-    names(enable) && !names(disable)
 }
 
 /// The total the pass enforces at `level` for a budget of `budget` bytes,
@@ -255,9 +267,13 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
     // Ghostty's `scrollback-limit`, the per-terminal cap.
     let configured = mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).scrollback;
     let level = store.memory_budget.level();
-    let mut limited = store.memory_budget.limited.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(over) = apply(&mut entries, configured, budget, level, &mut limited) {
-        let (applied, _) = applied_total(budget, level);
+    #[cfg(test)]
+    store.memory_budget.enforced.fetch_add(1, Ordering::Relaxed);
+    let mut passes = store.memory_budget.passes.lock().unwrap_or_else(PoisonError::into_inner);
+    let over = apply(&mut entries, configured, budget, level, &mut passes.limited);
+    let (applied, _) = applied_total(budget, level);
+    let report = passes.report_over(level, applied, over);
+    if let Some(over) = over.filter(|_| report) {
         eprintln!(
             "cmux-tui: terminal scrollback uses {over} bytes, over the {applied} byte budget \
              ({level:?} memory pressure) after shrinking idle terminals"

@@ -6,9 +6,32 @@
 //! the output store's scrollback budget (lossy, `terminal.scrollback`, which
 //! starts the source with the store).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use cmux_memory::{MemoryRegistry, PressureWatch, WatchError};
+
+/// What an owner's memory response starts with (`Mux` construction): its
+/// registry, and whether the output store's scrollback budget is one of the
+/// registry's consumers.
+pub(crate) struct MemorySetup {
+    pub(crate) memory: Arc<DaemonMemory>,
+    /// The `memoryScrollbackPressure` feature
+    /// (`crate::output_store::SCROLLBACK_PRESSURE_FEATURE`).
+    pub(crate) scrollback_pressure: bool,
+}
+
+impl MemorySetup {
+    /// A registry fed by the kernel source, the feature from the process's
+    /// feature lists.
+    pub(crate) fn from_env() -> Self {
+        Self {
+            memory: Arc::default(),
+            scrollback_pressure: cmux_features::listed_in_env(
+                crate::output_store::SCROLLBACK_PRESSURE_FEATURE,
+            ),
+        }
+    }
+}
 
 pub(crate) struct DaemonMemory {
     registry: MemoryRegistry,

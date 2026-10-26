@@ -32,6 +32,7 @@
 //! so an idle session wakes nothing.
 
 mod memory_budget;
+pub(crate) use memory_budget::FEATURE as SCROLLBACK_PRESSURE_FEATURE;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 
@@ -260,7 +261,9 @@ pub(crate) struct OutputStore {
 }
 
 impl OutputStore {
-    pub(crate) fn new(registry_directory: Option<&Path>) -> Self {
+    /// `scrollback_pressure`: the `memoryScrollbackPressure` feature (the
+    /// scrollback total from RAM, lowered under memory pressure).
+    pub(crate) fn new(registry_directory: Option<&Path>, scrollback_pressure: bool) -> Self {
         let snapshot_interval = std::env::var(SNAPSHOT_INTERVAL_ENV)
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
@@ -274,7 +277,7 @@ impl OutputStore {
             policy: Mutex::new(None),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
-            memory_budget: memory_budget::MemoryBudget::from_env(),
+            memory_budget: memory_budget::MemoryBudget::with_feature(scrollback_pressure),
             resume: Mutex::new(HashMap::new()),
         }
     }

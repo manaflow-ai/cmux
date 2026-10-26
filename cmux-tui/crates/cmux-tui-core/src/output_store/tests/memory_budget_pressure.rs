@@ -9,7 +9,7 @@ use cmux_memory::{DaemonBudget, PressureLevel, Retention};
 
 use super::super::PersistencePolicy;
 use super::super::snapshot::Writer;
-use super::{CONSUMER_NAME, Entry, FEATURE, Limited, MemoryBudget, ScrollbackLimit, apply};
+use super::{CONSUMER_NAME, Entry, Limited, MemoryBudget, PassState, ScrollbackLimit, apply};
 use crate::memory::DaemonMemory;
 use crate::resource::TerminalPublicId;
 
@@ -113,27 +113,57 @@ fn memory_budget_total_defaults_from_installed_ram() {
 }
 
 #[test]
-fn memory_budget_feature_is_off_unless_enabled() {
-    use super::feature_listed;
-    assert!(!feature_listed(None, None));
-    assert!(!feature_listed(Some("daemonRequestQos"), None));
-    assert!(feature_listed(Some(&format!("a, {FEATURE}")), None));
-    assert!(!feature_listed(Some(FEATURE), Some(FEATURE)), "disable wins");
-    // Off, the budget never registers.
+fn memory_budget_off_never_registers() {
     let memory = DaemonMemory::without_system_source();
     let writer = Writer::default();
     assert!(!MemoryBudget::with_feature(false).register(&memory, writer.waker()));
     assert!(memory.registry().report().is_empty());
 }
 
-/// The Mux owns one registry: the standby host and (at store start) the
-/// scrollback budget register in the same one.
-#[cfg(any(unix, windows))]
+/// The real wiring: `OutputStore::start` registers the budget in the Mux's
+/// registry, beside the standby host, and a level change with no output
+/// runs one budget pass on the writer's path.
+#[cfg(unix)]
 #[test]
-fn memory_budget_mux_shares_one_registry() {
-    let mux = crate::Mux::new("scrollback-registry", crate::SurfaceOptions::default());
-    let names: Vec<_> = mux.memory.registry().report().into_iter().map(|line| line.name).collect();
-    assert_eq!(names, ["terminal.standby-host"]);
+fn memory_budget_store_start_registers_and_a_level_change_runs_a_pass() {
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+
+    let root = std::env::temp_dir()
+        .join(format!("cmux-scrollback-pressure-{}", crate::workspace_registry::new_uuid_v4()));
+    let memory = Arc::new(DaemonMemory::without_system_source());
+    let setup = crate::memory::MemorySetup { memory: memory.clone(), scrollback_pressure: true };
+    let mux = crate::Mux::open_persistent_with_memory_for_test(
+        "scrollback-pressure",
+        crate::SurfaceOptions::default(),
+        &root,
+        setup,
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(&mux.memory, &memory));
+    let mut names: Vec<_> =
+        mux.memory.registry().report().into_iter().map(|line| line.name).collect();
+    names.sort_unstable();
+    assert_eq!(names, [CONSUMER_NAME, "terminal.standby-host"]);
+
+    let store = &mux.output_store;
+    let enforced = || store.memory_budget.enforced.load(Ordering::Relaxed);
+    // Idle at normal: a pass with no output runs no budget pass.
+    super::super::snapshot::write_pass(&mux, store);
+    assert_eq!(enforced(), 0);
+
+    // No terminal printed. The level change woke the writer; this pass
+    // either runs the budget pass or waits for the writer's (the pass lock).
+    memory.registry().set_level(PressureLevel::Warning);
+    assert_eq!(store.memory_budget.level(), PressureLevel::Warning);
+    super::super::snapshot::write_pass(&mux, store);
+    assert_eq!(enforced(), 1, "one budget pass per level change");
+    super::super::snapshot::write_pass(&mux, store);
+    assert_eq!(enforced(), 1, "the same level asks for nothing more");
+
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -213,6 +243,28 @@ fn memory_budget_reports_what_stays_over_the_floor() {
     // Every terminal already at the 1 MiB minimum keeps it: 20 MiB stays.
     let mut pass = Pass::new(&[MIB; 20]);
     assert_eq!(pass.run(PressureLevel::Critical), Some(20 * MIB));
+}
+
+#[test]
+fn memory_budget_logs_staying_over_once_per_level() {
+    // 20 terminals at the 1 MiB minimum stay over the 16 MiB critical floor.
+    let mut pass = Pass::new(&[MIB; 20]);
+    let mut state = PassState::default();
+    let (critical, _) = super::applied_total(BUDGET, PressureLevel::Critical);
+    let over = pass.run(PressureLevel::Critical);
+    assert!(state.report_over(PressureLevel::Critical, critical, over), "the first pass logs");
+    let over = pass.run(PressureLevel::Critical);
+    assert_eq!(over, Some(20 * MIB));
+    assert!(!state.report_over(PressureLevel::Critical, critical, over), "the next does not");
+    // Under the warning total: nothing to log, and the next stretch over logs again.
+    let (warning, _) = super::applied_total(BUDGET, PressureLevel::Warning);
+    let over = pass.run(PressureLevel::Warning);
+    assert!(!state.report_over(PressureLevel::Warning, warning, over));
+    let over = pass.run(PressureLevel::Critical);
+    assert!(state.report_over(PressureLevel::Critical, critical, over));
+    // Over at a new level or total logs at once.
+    assert!(state.report_over(PressureLevel::Warning, warning, Some(40 * MIB)));
+    assert!(state.report_over(PressureLevel::Warning, warning / 2, Some(40 * MIB)));
 }
 
 #[test]
