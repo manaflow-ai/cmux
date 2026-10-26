@@ -72,7 +72,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     var acpmuxConfigFile: URL { muxHome.appendingPathComponent("acpmux/config.json") }
 
     private func object(_ file: URL) -> [String: Any] {
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         guard let data = try? Data(contentsOf: file),
               let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return [:] }
         return object
@@ -106,6 +106,22 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
 
+    /// ``snapshot()`` read on the files lane of `lanes` at `.userVisible` (the settings card shows it).
+    /// - Throws: ``HomeChiefEngineError/other(_:)`` when the read was dropped (the caller was
+    ///   cancelled, or the app is quitting).
+    func snapshot(on lanes: any MayBlockRunner) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        do {
+            return try await lanes.runFiles(.userVisible) { self.snapshot() }
+        } catch {
+            throw .other(String(describing: error))
+        }
+    }
+
+    /// ``avatar()`` read on the files lane of `lanes`, as ``snapshot(on:)``.
+    func avatar(on lanes: any MayBlockRunner) async throws(HomeChiefEngineError) -> String? {
+        try await snapshot(on: lanes).avatar
+    }
+
     /// engine.json's harness, the brain's saved choice; nil when it saved none.
     func engineHarness() -> String? {
         (object(engineFile)["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -131,7 +147,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// motion; a still drawn at 512 px as a PNG, so a large photo stays small.
     /// Throws when it is not a picture ImageIO reads, or a GIF over ``maximumGIFBytes``.
     public func pictureData(from source: URL) throws -> ChiefAvatarPicture {
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         guard let image = CheckedImageSource(blockingContentsOf: source), image.count > 0,
               let type = image.type.flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
         if type.conforms(to: .gif) {
@@ -171,7 +187,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     func legacyPictureFile() -> URL? {
         guard let avatar = avatar(), Self.namesPicture(avatar) else { return nil }
         let file = profileFile.deletingLastPathComponent().appendingPathComponent(avatar)
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         return FileManager.default.isReadableFile(atPath: file.path) ? file : nil
     }
 
@@ -179,7 +195,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     public func clearPicture() {
         writeAvatar("")
         let folder = profileFile.deletingLastPathComponent()
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         for old in Self.pictureFiles { try? FileManager.default.removeItem(at: folder.appendingPathComponent(old)) }
     }
 
@@ -189,7 +205,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     public func headerAvatar() -> (text: String?, picture: Data?) {
         guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return (nil, nil) }
         guard Self.namesPicture(avatar) else { return (avatar, nil) }
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         return (nil, try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar)))
     }
 
@@ -200,7 +216,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
         guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return nil }
         guard Self.namesPicture(avatar) else { return .text(avatar) }
         let file = profileFile.deletingLastPathComponent().appendingPathComponent(avatar)
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         guard FileManager.default.isReadableFile(atPath: file.path) else { return nil }
         return .picture(Self.squared(file) ?? file)
     }
@@ -220,7 +236,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// by its path, name and modification date (one copy per Chief); nil when
     /// it is square or unreadable.
     static func squared(_ file: URL) -> URL? {
-        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
         guard let image = CheckedImageSource(blockingContentsOf: file)?.image(), image.width != image.height else { return nil }
         let side = min(image.width, image.height)
         guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
@@ -269,7 +285,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
         for offset in [0, -1] {
             let day = formatter.string(from: Date().addingTimeInterval(Double(offset) * 86_400))
             let file = traceDirectory.appendingPathComponent("\(day).jsonl")
-            // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+            // concurrency-allow: HomeChiefFiles runs only on a files lane (work.run), never on the main actor
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             for line in text.split(separator: "\n").reversed() where line.contains("\"turn.end\"") {
                 if let turn = HomeEngineTurn(line: String(line)) { found.append(turn) }

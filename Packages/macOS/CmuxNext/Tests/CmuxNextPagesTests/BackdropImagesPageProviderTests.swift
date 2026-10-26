@@ -1,6 +1,7 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -18,7 +19,7 @@ import Testing
         var revealed: [[URL]] = []
         var used: [URL] = []
         var current: BackdropSelection?
-        let provider = BackdropImagesPageProvider(images: images, use: { used.append($0); return "file:\($0.path)" },
+        let provider = BackdropImagesPageProvider(images: images, files: BackgroundWork(label: "test.backdrop-images"), use: { used.append($0); return "file:\($0.path)" },
                                                   inUse: { current }, reveal: { revealed.append($0) })
         let call = { (op: String, params: JSONValue) in
             try await provider.call(BackdropImagesPageProvider.prefix + op, params: params, context: Self.context)

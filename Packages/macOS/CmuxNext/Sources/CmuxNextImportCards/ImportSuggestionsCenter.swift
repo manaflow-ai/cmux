@@ -111,22 +111,25 @@ public final class ImportSuggestionsCenter {
             guard let self else { return }
             findings = found
             isScanning = false
-            icons.load(deck.list().cards.compactMap(\.app))
+            icons.load(deck.list().cards.compactMap(\.app), work: host.work, mainWork: host.mainWork)
             then?()
         }
     }
 
-    /// This Mac's sources, read off the main thread.
+    /// This Mac's sources, read on the files lane at `.bestEffort` (a launch or activation scan nobody
+    /// waits for); none when the scan was dropped (quit).
     static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
         let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
-        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-        return await Task.detached(priority: .utility) {
+        let work = host.work
+        // Classic's session file is up to 32 MB of JSON: read and planned on the files lane.
+        let classic = await ClassicWorkspaceCount().count(on: work)
+        let found = try? await work.runFiles(.bestEffort) {
             ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
                           importedProfiles: imported, classicWorkspaces: { classic }).scan()
-        }.value
+        }
+        return found ?? []
     }
 
     // MARK: Cards

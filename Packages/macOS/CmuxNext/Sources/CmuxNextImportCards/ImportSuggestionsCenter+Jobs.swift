@@ -1,4 +1,5 @@
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import Foundation
@@ -25,10 +26,12 @@ extension ImportSuggestionsCenter {
     }
 
     func run(_ id: String, writingTheme job: ImportJob) {
+        guard let work = host?.work else { return }
         put(job)
         let writer = ITermThemeWriter(home: FileManager.default.homeDirectoryForCurrentUser, variables: ProcessInfo.processInfo.environment)
         Task { [weak self] in
-            let written = await Task.detached { try? writer.write() }.value
+            // The person clicked Import: the write runs at `.userBlocking`; nil when it failed or was dropped.
+            let written = try? await work.runFiles(.userBlocking) { try writer.write() }
             guard let self else { return }
             ledger.update(id) { job in
                 if written == nil { job.failed(.sourceGone, now: now()) } else { job.finishedStep(0, counts: ImportCounts(), now: now()) }

@@ -117,7 +117,7 @@ final class HomeService {
     /// The Home list's last state beyond the conversations, for the next launch's first frame
     /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
     @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
-                                                                                               caches: homeCaches)
+                                                                                               caches: homeCaches, files: services.work)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
     @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory

@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -70,7 +71,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let home = directory.appending(path: "brain")
-        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
         rows.install(in: popover, addRow: { popover.addAppearanceRow($0, control: $1) }, open: { false })

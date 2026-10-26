@@ -1,6 +1,7 @@
 import CmuxNextCompat
 @testable import CmuxNextImportCards
 @testable import CmuxNextImportSuggestions
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// opened Settings with 56 ms of Launch Services and PNG work in its turn, macOS 27 STRESS sweep).
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct ImportAppIconCacheTests {
-    /// Counts renders and the thread each ran on (the render closure runs on a detached task).
+    /// Counts renders and the thread each ran on (the render closure runs on the system lane).
     private nonisolated final class Renders: Sendable {
         private let onMain = Mutex<[Bool]>([])
         func note() { onMain.withLock { $0.append(Thread.isMainThread) } }
@@ -29,16 +30,25 @@ struct ImportAppIconCacheTests {
         #expect(!"\(value)".contains("data:image"))
     }
 
-    @Test func aLoadRendersOffTheMainThreadOnceAndTheListThenHasIt() async {
+    @Test func aLoadRendersOffTheMainThreadOnceAndTheListThenHasIt() {
         let renders = Renders()
         let icons = ImportAppIconCache(render: { _ in renders.note(); return "data:image/png;base64,AA==" })
-        icons.load(["com.google.Chrome"])
-        icons.load(["com.google.Chrome"])  // in flight: not rendered twice
-        // ObservationStream yields the current value first, then each change: no window to miss the landing.
-        for await landed in ObservationStream({ icons.urls["com.google.Chrome"] != nil }) where landed { break }
+        let work = BackgroundWork(label: "test.import-icons"), mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        icons.load(["com.google.Chrome"], work: work, mainWork: mainWork)
+        icons.load(["com.google.Chrome"], work: work, mainWork: mainWork)  // in flight: not rendered twice
+        // The render's reply lands as posted main work: main run loop passes until it has.
+        Self.spinMainRunLoop { icons.urls["com.google.Chrome"] != nil }
         #expect(renders.threads == [false], "rendered \(renders.threads.count) times; on main: \(renders.threads)")
         #expect("\(ImportCardJSON.value(Self.list, icons: icons))".contains("data:image/png;base64,AA=="))
-        icons.load(["com.google.Chrome"])  // rendered: never again
+        icons.load(["com.google.Chrome"], work: work, mainWork: mainWork)  // rendered: never again
         #expect(renders.threads.count == 1)
+    }
+
+    /// Runs main run loop passes (where a reply posted from a lane lands) until `done` or 5 s.
+    private static func spinMainRunLoop(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 }

@@ -404,7 +404,8 @@ final class HomeHostView: NSView {
     private func pictureStore() -> (avatars: HomeChiefAvatars, chief: String)? {
         guard !control.isCloud else { return nil }
         let avatars = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: control.services.environment.tag),
-                                       registry: DaemonChiefAvatarRegistry(connection: control.connection))
+                                       registry: DaemonChiefAvatarRegistry(connection: control.connection),
+                                       files: control.services.work)
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
@@ -419,14 +420,16 @@ final class HomeHostView: NSView {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
-        settingsView.pictureStore = store
+        let work = control.services.work
+        // A cloud Chief's picture is its own files under the brain home.
+        settingsView.pictureStore = store ?? (HomeChiefAvatars(muxHome: home, files: work), HomeChiefAvatars.defaultChief)
         let fallback = characterPicture
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
             let avatar = if let store {
                 await store.avatars.headerAvatar(chief: store.chief, fallback: fallback)
             } else {
-                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
+                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, on: work)
             }
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,

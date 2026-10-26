@@ -7,6 +7,7 @@ import CmuxHomeCore
 @testable import CmuxNextImportCards
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Leo 2026-10-21: "yeah the bring your stuff to cmux is extrmeely questionable idk why that's
 /// there + why they went to the chief thingy", and "yes to both" to removing it from the New Tab
@@ -51,7 +52,9 @@ import Testing
         center.bind(into: registry, host: ImportCardsHost(runImport: { _, _, _ in throw CancellationError() },
                                                            importedProfiles: { [] },
                                                            openSettings: { routes.append($0) },
-                                                           importClassic: { _ in nil }))
+                                                           importClassic: { _ in nil },
+                                                           work: BackgroundWork(label: "test.import-cards"),
+                                                           mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])
