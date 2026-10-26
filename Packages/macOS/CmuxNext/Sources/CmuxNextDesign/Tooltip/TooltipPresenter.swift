@@ -233,6 +233,7 @@ public final class TooltipPresenter {
     /// observer of the tap: it never stops the event), and for the app going inactive.
     private func watch() {
         if resignActive == nil {
+            // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             resignActive = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TooltipPresenter") { [weak self] in
                 self?.dismiss()
             }
