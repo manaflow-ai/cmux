@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextFloating
 import Foundation
 import Testing
@@ -56,6 +57,9 @@ import Testing
     }
 
     @Test func framesMoveOnlyWhileShownActiveAndMotionAllowed() throws {
+        // The frames step only when loops may run (`Motion.home.animatesLoops`): pin Reduce Motion off.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let defaults = Self.defaults()
         var active = true
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
@@ -112,6 +116,14 @@ import Testing
         #expect(controller.drawnState == .idle, "a still character has no done row to play")
     }
 
+    /// A layer's contents as the image it holds, if it is one.
+    static func image(_ contents: Any?) -> CGImage? {
+        guard let contents else { return nil }
+        let object = contents as CFTypeRef
+        guard CFGetTypeID(object) == CGImage.typeID else { return nil }
+        return unsafeDowncast(object, to: CGImage.self)
+    }
+
     /// The red channel of an image's top-left pixel.
     static func red(_ image: CGImage?) -> UInt8? {
         guard let image else { return nil }
@@ -124,6 +136,9 @@ import Testing
 
     /// Still, a once-only row stands on its frame 0 (`cmux-avatar/1`), not on its last.
     @Test func aStillOnceOnlyRowStandsOnFrameZero() throws {
+        // The frames step only when loops may run (`Motion.home.animatesLoops`): pin Reduce Motion off.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         // Each column of the sheet is its own shade of red: column c is 20 * (c + 1).
         let context = CGContext(data: nil, width: 64, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -136,16 +151,19 @@ import Testing
         let drawn = ChiefPetSpriteLayer()
         drawn.show(sprite, state: .error, facingRight: true, moving: false)
         #expect(!drawn.isMoving)
-        #expect((Self.red(drawn.layer.contents.map { $0 as! CGImage }) ?? 255) < 40, "frame 0 (red 20), not the last frame")
+        #expect((Self.red(Self.image(drawn.layer.contents)) ?? 255) < 40, "frame 0 (red 20), not the last frame")
         drawn.show(sprite, state: .error, facingRight: true, moving: true)
         #expect(drawn.isMoving)
-        let steps = try #require(drawn.layer.animation(forKey: ChiefPetSpriteLayer.animationKey) as? CAKeyframeAnimation)
+        let steps = try #require(drawn.layer.animation(forKey: ChiefPetSpriteLayer.animationKey))
         #expect(steps.repeatCount == 0, "one pass")
-        #expect((Self.red(drawn.layer.contents.map { $0 as! CGImage }) ?? 0) > 140, "after its pass it holds the last frame (red 160)")
+        #expect((Self.red(Self.image(drawn.layer.contents)) ?? 0) > 140, "after its pass it holds the last frame (red 160)")
     }
 
     /// The person's upload covers an animated character; without it the character draws again.
     @Test func anUploadCoversTheAnimatedCharacter() throws {
+        // The frames step only when loops may run (`Motion.home.animatesLoops`): pin Reduce Motion off.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("ChiefPetSpriteTests-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: file) }
         let rep = NSBitmapImageRep(cgImage: Self.sheet(columns: 1, rows: 1))

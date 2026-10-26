@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import ImageIO
 import QuartzCore
 
@@ -44,15 +45,18 @@ nonisolated struct ChiefPetSprite: Equatable {
     let sheet: CGImage
     let frameSize: CGSize
     private let manifest: Manifest
+    /// The idle row, which every state falls back to last (the manifest must have one).
+    private let idle: Manifest.State
 
     static func == (a: Self, b: Self) -> Bool { a.sheet === b.sheet }
 
     /// The sheet and manifest, or nil when either is missing or does not read as `cmux-avatar/1`.
     init?(sheet: CGImage, json: Data) {
         guard let manifest = try? JSONDecoder().decode(Manifest.self, from: json), manifest.format == "cmux-avatar/1",
-              manifest.frame.width > 0, manifest.frame.height > 0, manifest.states["idle"] != nil else { return nil }
+              manifest.frame.width > 0, manifest.frame.height > 0, let idle = manifest.states["idle"] else { return nil }
         self.sheet = sheet
         self.manifest = manifest
+        self.idle = idle
         frameSize = CGSize(width: manifest.frame.width, height: manifest.frame.height)
     }
 
@@ -70,7 +74,7 @@ nonisolated struct ChiefPetSprite: Equatable {
     func track(_ state: ChiefPetState, facingRight right: Bool) -> Track {
         var name = state
         while manifest.states[name.rawValue] == nil, let next = name.fallback { name = next }
-        let spec = manifest.states[name.rawValue] ?? manifest.states["idle"]!
+        let spec = manifest.states[name.rawValue] ?? idle
         // A facing's own row is only for the facing the frames are not drawn in; theirs is `row`.
         let turned = right != (manifest.faces != "left")
         let own = turned ? (right ? spec.rowRight : spec.rowLeft) : nil
@@ -133,16 +137,15 @@ final class ChiefPetSpriteLayer {
         shown = (state, right, animate)
         guard animate else { return }
         let frames = (0..<track.frames).compactMap { sprite.frame(row: track.row, $0) }
-        let steps = CAKeyframeAnimation(keyPath: "contents")
-        steps.values = frames
-        steps.calculationMode = .discrete
-        steps.duration = track.duration
-        // 0 is one pass (CAMediaTiming); a looping row repeats until removed.
-        steps.repeatCount = track.loop ? .infinity : 0
-        // A once-only row holds its last frame after it ends.
-        steps.fillMode = .forwards
-        steps.isRemovedOnCompletion = track.loop
-        if !track.loop { layer.contents = frames.last }
+        // The motion layer's contents stepper (discrete, the render server's; nil when loops are off,
+        // and then frame 0 stands).
+        guard let steps = Motion.home.clipAnimation(frames, delays: frames.map { _ in 1 / track.fps }) else { return }
+        if !track.loop {
+            // One pass (0 is one in CAMediaTiming), then it holds its last frame.
+            steps.repeatCount = 0
+            steps.fillMode = .forwards
+            layer.contents = frames.last
+        }
         layer.add(steps, forKey: Self.animationKey)
     }
 }
