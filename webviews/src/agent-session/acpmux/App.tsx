@@ -90,7 +90,12 @@ import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase, settleFollowBottom } from "./conversation/scrollAnchor";
+import {
+  FOLLOW_BOTTOM_DEADBAND_PX,
+  preserveScrollAnchorTop,
+  scrollAnchorBase,
+  settleFollowBottom,
+} from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1759,8 +1764,6 @@ const THREAD_TOP = 16;
 /// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
 /// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
 /// give while a burst is measured and one correction when that burst is meaningful.
-export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
-
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,

@@ -1,5 +1,8 @@
 import type { AcpmuxRow, ConversationLayout } from "../model";
 
+/** Keep the follow correction small enough to absorb layout rounding, but not a real measured gap. */
+export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
+
 /** Follow intent has a deadband; the final landing must use the actual rounded DOM end.
  * `fallbackEnd` keeps DOM-free transcript tests and a pre-layout browser pass deterministic; a
  * nonzero scrollHeight always wins once the scroller has painted its content. `exact: false` keeps
@@ -11,7 +14,7 @@ export function settleFollowBottom(
 ): boolean {
   const domEnd = node.scrollHeight - node.clientHeight;
   const end = Math.max(0, node.scrollHeight > 0 ? domEnd : fallbackEnd);
-  if (end === node.scrollTop || (!exact && Math.abs(end - node.scrollTop) <= 8)) return false;
+  if (end === node.scrollTop || (!exact && Math.abs(end - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX)) return false;
   node.scrollTop = end;
   return true;
 }
