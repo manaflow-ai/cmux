@@ -51,19 +51,26 @@ pub(crate) struct TerminalWorkPool {
     standby: Arc<standby_host::StandbyHostSlot>,
 }
 
-/// The owner's pool. Its standby slot is the first consumer in the owner's
-/// memory registry (one owner per daemon).
+/// A pool with a memory registry of its own (tests).
 impl Default for TerminalWorkPool {
     fn default() -> Self {
-        Self {
-            state: Arc::default(),
-            #[cfg(any(unix, windows))]
-            standby: standby_host::StandbyHostSlot::new(Arc::default()),
-        }
+        Self::new(Arc::default())
     }
 }
 
 impl TerminalWorkPool {
+    /// The owner's pool. Its standby slot is a consumer in the owner's
+    /// memory registry (one owner per daemon).
+    pub(crate) fn new(memory: Arc<crate::memory::DaemonMemory>) -> Self {
+        #[cfg(not(any(unix, windows)))]
+        drop(memory);
+        Self {
+            state: Arc::default(),
+            #[cfg(any(unix, windows))]
+            standby: standby_host::StandbyHostSlot::new(memory),
+        }
+    }
+
     /// Queue `job`. Returns it when the queue is full or no worker thread
     /// could start, so the caller can run it inline.
     pub(crate) fn try_submit(&self, job: TerminalJob) -> Result<(), TerminalJob> {

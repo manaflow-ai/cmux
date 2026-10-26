@@ -670,6 +670,9 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// The daemon's memory registry and kernel pressure source (memory.rs):
+    /// the standby host and the scrollback budget are its consumers.
+    pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,

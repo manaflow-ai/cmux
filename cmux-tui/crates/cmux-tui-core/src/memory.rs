@@ -1,6 +1,10 @@
 //! The daemon's memory registry: one per owner process (the `Mux` holds
 //! it), with the kernel pressure source of `cmux-memory` started on first
 //! use, so a headless daemon that never needs it starts none.
+//!
+//! Consumers: the standby host slot (lossless, `terminal.standby-host`) and
+//! the output store's scrollback budget (lossy, `terminal.scrollback`, which
+//! starts the source with the store).
 
 use std::sync::OnceLock;
 

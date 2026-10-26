@@ -189,6 +189,7 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        let memory = Arc::new(crate::memory::DaemonMemory::default());
         let output_store = crate::output_store::OutputStore::new(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
@@ -347,6 +348,7 @@ impl Mux {
             journal_kernel,
             journal_ingress,
             output_store,
+            memory: memory.clone(),
             journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -414,7 +416,7 @@ impl Mux {
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
-            terminal_work: terminal_work::TerminalWorkPool::default(),
+            terminal_work: terminal_work::TerminalWorkPool::new(memory),
             #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
