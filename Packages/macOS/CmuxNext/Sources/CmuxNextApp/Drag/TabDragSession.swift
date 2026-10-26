@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextTabs
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -20,7 +21,9 @@ import CmuxNextCompat
 /// every drag ends and the source strip gets its tab back unless it moved.
 ///
 /// A frame client runs only while the ghost animates or a columns screen
-/// auto-scrolls, and is invalidated when the drag ends.
+/// auto-scrolls, and is invalidated when the drag ends. With `motion.renderServer`
+/// on the ghost's springs run in Core Animation and the client only
+/// auto-scrolls and re-tests a dwell (`TabDragGhostPanel+RenderServer`).
 final class TabDragSession: NSObject {
     unowned let services: AppServices
     var drag: Drag?
@@ -72,7 +75,9 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
+        let rendersOnServer = LayoutTunables.motionRenderServer.value
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass,
+                                      sourceWindow: window?.window, rendersOnServer: rendersOnServer)
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
                                         rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
@@ -106,9 +111,14 @@ final class TabDragSession: NSObject {
         self.drag = drag
         focusDragBegan(item, from: pane)
         ghost.show()
-        drag.link = ghost.makeFrameClient(owner: "TabDrag.ghost") { [weak self, weak drag] tick in
+        drag.link = ghost.makeFrameClient(owner: rendersOnServer ? "TabDrag.autoscroll" : "TabDrag.ghost") { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
             return self.tick(drag, elapsed: tick.elapsed)
+        }
+        // On the render server the landing's last spring closes the ghost.
+        ghost.onRest = { [weak self, weak drag] in
+            guard let self, let drag, self.landing === drag else { return }
+            self.finishLanding()
         }
         drag.link?.activate()
         update(point)
@@ -118,13 +128,13 @@ final class TabDragSession: NSObject {
     func loadThumbnail(_ tab: String?, into drag: Drag) {
         guard let tab else { return }
         let cache = services.cache
-        Task { [weak drag] in
+        Task { [weak self, weak drag] in
             let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true),
                                                      key: tab, cache: cache)
             guard let drag, let image else { return }
             drag.ghost.setThumbnail(image)
             drag.motion.hasPreview = true
-            drag.link?.activate()
+            self?.redraw(drag)
         }
     }
 

@@ -27,17 +27,33 @@ extension TabDragSession {
         drag.presentation = presentation
         let cardness: CGFloat = if case .inline = presentation { 0 } else { 1 }
         drag.motion.setTarget(rect, cardness: cardness, scale: scale, jump: jump)
-        drag.ghost.render(drag.motion)
+        guard drag.ghost.rendersOnServer else { return drag.ghost.render(drag.motion) }
+        drag.ghost.present(drag.motion, token: jump ? .track : .appear, inSourceWindow: overSourceWindow(drag))
+    }
+
+    /// The ghost changed without a new target (its preview arrived): the CPU path steps it from
+    /// the next frame, the render server springs it now.
+    func redraw(_ drag: Drag) {
+        guard drag.ghost.rendersOnServer else { return wake(drag) }
+        drag.ghost.present(drag.motion, token: .appear, inSourceWindow: overSourceWindow(drag))
+    }
+
+    /// The source window is the frontmost window under the pointer.
+    func overSourceWindow(_ drag: Drag) -> Bool {
+        guard let source = drag.source.window else { return false }
+        return window(at: drag.point) === source
     }
 
     func wake(_ drag: Drag) {
         drag.link?.activate()
     }
 
-    /// One ghost frame; false once the ghost settled.
+    /// One ghost frame; false once the ghost settled. On the render server nothing steps the
+    /// ghost: the frame only auto-scrolls and re-tests a dwell.
     func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
-        var moving = current.motion.step(dt)
+        let onServer = current.ghost.rendersOnServer
+        var moving = onServer ? false : current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
             update(current.point)
             moving = true
@@ -48,9 +64,9 @@ extension TabDragSession {
             if CACurrentMediaTime() >= deadline { update(current.point) }
             moving = true
         }
-        current.ghost.render(current.motion)
+        if !onServer { current.ghost.render(current.motion) }
         guard !moving else { return true }
-        if current === landing { finishLanding() }
+        if current === landing, !onServer { finishLanding() }
         return false
     }
 
@@ -128,6 +144,12 @@ extension TabDragSession {
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))
         landing = drag
+        if drag.ghost.rendersOnServer {
+            // The flight is one render-server spring; its landing closes the ghost (`onRest`).
+            drag.link?.deactivate()
+            drag.ghost.present(drag.motion, token: .settle, inSourceWindow: false, landing: true)
+            return
+        }
         if drag.motion.reduceMotion {
             finishLanding()
             return
