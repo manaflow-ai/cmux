@@ -196,6 +196,17 @@ Allowed at Home idle: app, daemon, the Chromium engine processes when Chromium i
 about:blank renderer, the WebKit Settings spare, the WebKit warmup page, a WebKit process for the update card, and
 the ad-blocker background page before the first browser tab.
 
+Chromium's own spare renderer, proposed (task 020, manaflow-ai/cef `cp/p13-webui-020` at `3c4616b2`, on 017's
+`1cb02dc4`). Nobody has built or run it. Chrome keeps one spare for the profile that last took a new process
+(`content/browser/renderer_host/spare_render_process_host_manager_impl.cc` PrepareForFutureRequests), with no
+destroy timer on desktop (only Android's kAndroidWarmUpSpareRendererWithTimeout sets one) and
+kKillSpareRenderOnMemoryPressure disabled by default. The fork patch `cmux_spare_renderer_policy` adds
+`ContentBrowserClient::ShouldWarmupSpareRenderProcessHost`; with `--cmux-spare-renderer-after-first-tab`
+(`CEFSwitches.spareRendererAfterFirstTab`) a profile gets a spare only after one of its browser tabs starts an
+http(s) navigation. The pages profile never gets one, a page open keeps the browser profile's spare, and Home with no
+browser tab has none. The spare has no timeout, as Chrome desktop, until the bench-webui.py home and open runs give a
+number (`CEFSwitches.spareRendererTimeoutMilliseconds`, `--cmux-spare-renderer-timeout-ms`).
+
 ### 3.7 Observability
 
 `debug.webui` (DEBUG and bench builds) lists each page, spare and renderer with group, engine, pid, state, held
