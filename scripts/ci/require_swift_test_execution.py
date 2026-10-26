@@ -8,8 +8,9 @@ from pathlib import Path
 
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# The summary's symbol is ✔, ✘ or ━ in a terminal, an SF Symbol (Private Use plane) where those draw.
 SWIFT_SUMMARY = re.compile(
-    r"^\s*(?:[✔✘━]\s+)?Test run with (\d+) tests?"
+    r"^\s*(?:[\u200b\ufeff]*[✔✘━\U00100000-\U0010FFFD]\s+)?Test run with (\d+) tests?"
     r"(?: in \d+ suites?)? (passed|failed) after .+\.$"
 )
 XCTEST_SUMMARY = re.compile(
@@ -29,9 +30,13 @@ XCTEST_COMPLETION = re.compile(
 SKIP_SYMBOL = "[\u200b\ufeff]*[➜↷✘\U00100000-\U0010FFFD]"
 # A ✘ line also reports issues ("✘ Test a() recorded an issue at F.swift:3:5: ... skipped"): no skip names
 # an issue, and a name never ends in a colon.
+# A test or suite that cancelled itself (Test.cancel(), "was cancelled") did not run either, and its run
+# summary passes too.
 SWIFT_SKIPPED_TEST = re.compile(r"^\s*" + SKIP_SYMBOL
-                                + r" Test (?P<name>(?:(?! recorded an issue).)+?)(?<!:) skipped(?:: (?P<reason>.+?))?\.?\s*$")
-SWIFT_SKIPPED_SUITE = re.compile(r"^\s*" + SKIP_SYMBOL + r" Suite (?P<name>.+?) skipped(?:: (?P<reason>.+?))?\.?\s*$")
+                                + r" Test (?P<name>(?:(?! recorded an issue).)+?)(?<!:)"
+                                + r" (?:skipped|was cancelled)(?:(?::| after [^:]*?:) (?P<reason>.+?)| after .+?)?\.?\s*$")
+SWIFT_SKIPPED_SUITE = re.compile(r"^\s*" + SKIP_SYMBOL
+                                 + r" Suite (?P<name>.+?) (?:skipped|was cancelled)(?:(?::| after [^:]*?:) (?P<reason>.+?)| after .+?)?\.?\s*$")
 
 
 def skip_report(output: str) -> tuple[int, int, list[str]]:

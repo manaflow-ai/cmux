@@ -102,6 +102,9 @@ class SkipReportTest(unittest.TestCase):
             ('\x1b[90m➜\x1b[0m Test a() skipped: "no display"', '"no display"'),
             ('\u200b✘ Test a() skipped: "no display"', '"no display"'),
             ('➜ Test "A row drops" skipped.', "no reason given"),
+            ("↷ Test a() was cancelled after 0.001 seconds.", "no reason given"),
+            ('↷ Test a() was cancelled after 0.001 seconds: "no display"', '"no display"'),
+            ('↷ Test a() was cancelled: "no display"', '"no display"'),
         ):
             with self.subTest(line=line):
                 ran, skipped, reasons = guard.skip_report(line + "\n✔ Test run with 1 test passed after 0.1 seconds.\n")
@@ -113,6 +116,13 @@ class SkipReportTest(unittest.TestCase):
                                           '➜ Test a() skipped: "no display"\n'
                                           "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.\n")
         self.assertEqual(reasons[0], 'suite "Food truck tests": "no display"')
+
+    def test_a_summary_drawn_with_an_sf_symbol_counts(self):
+        self.assertEqual(guard.skip_report('\U0010058d Test a() skipped: "no display"\n'
+                                           "\U00100148 Test run with 1 test in 1 suite passed after 0.1 seconds.\n"),
+                         (0, 1, ['1 test: "no display"']))
+        with self.assertRaises(ValueError):
+            guard.skip_report("\U00100148 Test run with 1 test failed after 0.1 seconds with 1 issue.\n")
 
     def test_a_failed_test_is_no_skip(self):
         with self.assertRaises(ValueError):
