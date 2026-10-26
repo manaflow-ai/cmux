@@ -159,6 +159,25 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
+    /// Begins a ``SignpostName/keyToFrame`` interval with a key-down's fields, formatted by the log system only when
+    /// something reads them (`target=<view|terminal> age_ms=<age, 2 decimals>`): it runs on every key-down, so no
+    /// `String` is built per key.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - keyTarget: What has the keyboard.
+    ///   - ageMilliseconds: The key's age when its dispatch began, or -1 without a timestamp.
+    /// - Returns: The state to pass to ``end(_:_:_:)``.
+    public func begin(_ name: SignpostName, keyTarget: KeyFrameSignpost.Target, ageMilliseconds: Double) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(
+            name.staticName, id: id,
+            "target=\(keyTarget.rawValue, privacy: .public) age_ms=\(ageMilliseconds, format: .fixed(precision: 2), privacy: .public)"
+        )
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
     /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
     /// with its class and owner formatted by the log system only when something reads them
     /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
@@ -281,6 +300,20 @@ public nonisolated struct Signposter: Sendable {
     public func event(_ name: SignpostName, _ message: String, arg0: UInt64, arg1: UInt64 = 0) {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
         trace.event(name, arg0: arg0, arg1: arg1)
+    }
+
+    /// Records one input event's ``SignpostName/inputLatency`` point event with its typed stages, formatted by the
+    /// log system only when something reads them: one per input event, so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - message: The event's kind, target, entrypoint, presentation source and stage offsets.
+    public func event(_ name: SignpostName, _ message: InputLatencySignpostMessage) {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        signposter.emitEvent(
+            name.staticName,
+            "kind=\(message.kind, privacy: .public) target=\(message.target, privacy: .public) entry=\(message.entrypoint, privacy: .public) source=\(message.presentationSource, privacy: .public) coalesced=\(message.coalescedCount, privacy: .public) frame=\(message.causedFrameUpdate ? 1 : 0, privacy: .public) gen_ns=\(message.generatedNanos, privacy: .public) last_gen_us=\(message.lastGeneratedMicros, privacy: .public) arrived_us=\(message.arrivedMainMicros, privacy: .public) dispatch_start_us=\(message.dispatchStartMicros, privacy: .public) ti_start_us=\(message.textInputStartMicros, privacy: .public) ti_end_us=\(message.textInputEndMicros, privacy: .public) dispatch_end_us=\(message.dispatchEndMicros, privacy: .public) commit_us=\(message.mainCommitMicros, privacy: .public) content_us=\(message.contentSubmittedMicros, privacy: .public) daemon_us=\(message.daemonReceivedMicros, privacy: .public) pty_us=\(message.ptyWrittenMicros, privacy: .public) echo_read_us=\(message.echoReadMicros, privacy: .public) echo_sent_us=\(message.echoSentMicros, privacy: .public) presented_us=\(message.presentedMicros, privacy: .public)"
+        )
     }
 
     /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system

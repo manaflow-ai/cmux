@@ -6,7 +6,9 @@ public import Foundation
 /// Message: `target=<view|terminal> age_ms=<age>`, the key's age when its dispatch began (its wait in the event
 /// queue), so a reader adds that wait to the interval. For a text view (the Home composer, the omnibar, a field) the
 /// commit carries the typed character; for a terminal it carries the key's own work only, and the echo comes back
-/// from the shell in a later frame, so `target=terminal` rows are the main thread's share of the key.
+/// from the shell in a later frame, so `target=terminal` rows are the main thread's share of the key. The message is
+/// typed fields the log system formats only when something reads them (``Signposter/begin(_:keyTarget:ageMilliseconds:)``),
+/// so a key builds no `String`.
 ///
 /// ```swift
 /// KeyFrameSignpost().begin(target: .view, eventTimestamp: event.timestamp)
@@ -34,7 +36,7 @@ public struct KeyFrameSignpost: Sendable {
         let signposter = Signposter.key
         guard signposter.isEnabled else { return }
         let age = eventTimestamp > 0 ? max(0, now - eventTimestamp) * 1000 : -1
-        let interval = signposter.begin(.keyToFrame, "target=\(target.rawValue) age_ms=\(String(format: "%.2f", age))")
+        let interval = signposter.begin(.keyToFrame, keyTarget: target, ageMilliseconds: age)
         CommitBoundary().after { outcome in signposter.end(.keyToFrame, interval, outcome) }
     }
 }

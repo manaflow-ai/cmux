@@ -27,7 +27,7 @@ struct SignpostTraceCatalogTests {
             (.remoteInput, 58), (.remoteFrameDecoded, 59), (.remotePresent, 60), (.crashHelperExit, 61),
             (.crashWebContentEnd, 62), (.crashRendererUnresponsive, 63), (.crashChildExit, 64),
             (.crashDumpWithoutCrashing, 65), (.controlRequest, 66), (.ghosttyRender, 67), (.resizeFrame, 68),
-            (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72),
+            (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72), (.inputLatency, 73),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)
@@ -59,7 +59,7 @@ struct SignpostTraceCatalogTests {
                          "launch.process_to_main", "launch.first_window", "launch.first_frame", "launch.daemon_ready",
                          "launch.first_terminal_output", "stall.create_surface", "stall.palette_open",
                          "stall.icon_picker_open", "cef.geometry", "cef.host_input", "motion.drag_frame",
-                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame",
+                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame", "input.latency",
                          "resize.frame", "remote.input", "remote.frame_decoded", "remote.present", "webview.inp",
                          "webview.loaf", "webui.lifecycle", "webui.open", "webui.preload", "webui.scheme"] {
             #expect(names.contains(required), "\(required)")
