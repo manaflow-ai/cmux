@@ -170,6 +170,7 @@ final class CEFSpareWindow {
             return false
         }
         hosts[kind] = spare
+        if spare.isLive { runtime.launchMarks.send(.spareWindowReady) }
         return true
     }
 
@@ -243,7 +244,9 @@ final class CEFSpareWindow {
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with a wanted kind that has no
     /// spare, ask for one, so a Chromium a tab started, not the warm start, gets spares too, and
     /// the next kind's spare follows the one that just came up.
+    /// A spare's own window marks `cef.spare_window_ready` (once per process, ``CEFLaunchMarks``).
     func windowCameUp(_ live: CEFPaneHost) {
+        if isSpare(live) { live.runtime.launchMarks.send(.spareWindowReady) }
         if !isHeld, missingKind != nil, !live.isPopupHost { onNeeded?() }
     }
 
