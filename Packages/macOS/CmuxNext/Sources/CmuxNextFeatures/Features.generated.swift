@@ -121,6 +121,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
+    public static let vsyncHub = Feature(
+        index: 7,
+        name: "vsyncHub",
+        owner: "Performance Lead",
+        description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion", "home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .energySaver,
@@ -130,5 +147,6 @@ nonisolated extension Feature {
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
+        .vsyncHub,
     ]
 }
