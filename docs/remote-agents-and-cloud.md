@@ -136,8 +136,16 @@ daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
 
 When a tool call asks for permission (a command, or a read the harness does not
-already treat as safe), approve it in cmux NEXT on your Mac, on the chat's
-pending-permission card.
+already treat as safe), it waits on the chat's pending-permission card in cmux
+NEXT on your Mac. The host's daemon accepts an Allow from that card only after
+cmux NEXT has connected to the host itself: run **File › Connect to Machine…**
+with the same SSH destination. The app then restarts the host's agent daemon
+with an approval key only the app holds (running agents are kept). A host you
+added only with `acpmux host add` refuses the card's Allow, and the card says
+"Remote approvals are off" there; use "Restart with approvals" on the card if it
+offers it, or connect the machine as above. Until then, use prompts that need no
+tool approval: a prompt that needs no tools, a read-only Codex review (below),
+or a `vmHost` VM.
 Use the CLI bundled with the app (its default home), so the app and the CLI
 share one daemon and the app shows the remote chat; open it with
 `cmux agent open-tab` (below) or by passing `--group NAME` to
