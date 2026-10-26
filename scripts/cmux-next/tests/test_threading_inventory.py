@@ -65,6 +65,7 @@ THREADING_DOC = """# Threading model
 ## Registered threads and queues
 
 - `com.cmuxterm.next.listed`: the listed queue.
+- `com.cmuxterm.next.fence`: the fence's queue.
 
 ## Reviewed blocking allowances
 """
@@ -247,6 +248,30 @@ enum Work {
 
     static let unlisted = DispatchQueue(label: "com.cmuxterm.next.unlisted", qos: .utility)
     static let listed = DispatchQueue(label: "com.cmuxterm.next.listed", qos: .utility)
+}
+""",
+    # sync-inversion (p02-threads-035): a public nonisolated function waits for a utility queue, and a main-actor
+    # function of the UI target calls it.
+    SRC + "CmuxNextCore/Fence.swift": """import Foundation
+
+public final class Fence {
+    let queue = DispatchQueue(label: "com.cmuxterm.next.fence", qos: .utility)
+
+    public init() {}
+
+    public func close() {
+        queue.blockingSync {}
+    }
+}
+""",
+    SRC + "CmuxNextUI/FenceOwner.swift": """import Foundation
+
+final class FenceOwner {
+    let fence = Fence()
+
+    func shut() {
+        fence.close()
+    }
 }
 """,
     # Two functions with hits where one calls the other (one call-graph root), and one unrelated function.
@@ -542,6 +567,116 @@ actor Installer {
         self.assertEqual(inventory.inventory(tree(), ["raw-blocking"], inventory.path_matcher([SRC + "Nothing/"])), [])
 
 
+class SyncInversionTests(unittest.TestCase):
+    """sync-inversion: a sync wait onto a serial queue whose declared QoS is below the waiter's."""
+
+    SOURCES = {
+        SRC + "CmuxNextUI/Lane.swift": """import Foundation
+
+final class Lane {
+    private let low = DispatchQueue(label: "com.cmuxterm.next.low", qos: .utility)
+    private let high: DispatchQueue
+    private let lowest = DispatchQueue(label: "com.cmuxterm.next.lowest", qos: .background)
+    private let plain = DispatchQueue(label: "com.cmuxterm.next.plain")
+    private let follower = DispatchQueue(label: "com.cmuxterm.next.follower", target: .main)
+
+    init() {
+        self.high = DispatchQueue(label: "com.cmuxterm.next.high",
+                                  qos: .userInteractive)
+    }
+
+    func close() {
+        low.sync { print("inverted") }
+        high.blockingSync { print("equal") }
+        plain.blockingSync { print("plain") }
+        follower.sync { print("targets another queue") }
+        DispatchQueue.global(qos: .utility).sync { print("global") }
+        // blocking-allow: a reviewed wait
+        low.sync { print("escaped") }
+        allowBlocking(.terminate) {
+            low.blockingSync { print("terminate") }
+        }
+    }
+
+    func offMain() {
+        low.async {
+            self.lowest.sync { print("below the low queue") }
+            self.low.sync { print("never: the same queue") }
+            self.high.sync { print("above") }
+        }
+    }
+}
+""",
+        # The waits sit in an extension of a core type in another file; only a main-actor caller makes one a hit.
+        SRC + "CmuxNextCore/Store.swift": """import Foundation
+
+public final class Store {
+    let queue = DispatchQueue(label: "com.cmuxterm.next.store", qos: .utility)
+    public init() {}
+}
+""",
+        SRC + "CmuxNextCore/Store+Wait.swift": """import Foundation
+
+extension Store {
+    public func save() {
+        queue.blockingSync { print("saved") }
+    }
+
+    public func flush() {
+        queue.blockingSync { print("flushed") }
+    }
+
+    public func load() async {
+        queue.blockingSync { print("async: its callers are not judged") }
+    }
+}
+""",
+        SRC + "CmuxNextUI/StoreOwner.swift": """import Foundation
+
+final class StoreOwner {
+    let store = Store()
+
+    func quit() {
+        store.save()
+    }
+
+    func later() async {
+        await store.load()
+    }
+}
+""",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hits = inventory.inventory(tree(cls.SOURCES), ["sync-inversion"])
+        cls.texts = {h.text for h in cls.hits}
+
+    def test_a_main_thread_wait_onto_a_lower_queue(self):
+        self.assertIn('low.sync { print("inverted") }', self.texts)
+        self.assertIn('plain.blockingSync { print("plain") }', self.texts)  # no qos: default, below the main thread
+        self.assertIn('DispatchQueue.global(qos: .utility).sync { print("global") }', self.texts)
+        self.assertEqual(hit(self.hits, "sync-inversion", "inverted").isolation, "main")
+
+    def test_equal_or_unknown_queues_and_reviewed_waits_are_not_hits(self):
+        for text in ("equal", "targets another queue", "escaped", "terminate"):
+            self.assertFalse([t for t in self.texts if text in t], self.texts)
+
+    def test_a_queue_closure_waits_at_its_queues_qos(self):
+        self.assertIn('self.lowest.sync { print("below the low queue") }', self.texts)
+        for text in ("never: the same queue", "above"):
+            self.assertFalse([t for t in self.texts if text in t], self.texts)
+
+    def test_a_nonisolated_wait_is_judged_by_its_callers(self):
+        save = hit(self.hits, "sync-inversion", "saved")
+        self.assertEqual((save.enclosing_func, save.caller_count), ("Store.save", 1))
+        for text in ("flushed", "async: its callers are not judged"):
+            self.assertFalse([t for t in self.texts if text in t], self.texts)
+
+    def test_nothing_else_is_a_hit(self):
+        self.assertEqual(len(self.hits), 5, [(h.line, h.text) for h in self.hits])
+
+
 class CallerCountTests(unittest.TestCase):
     def counts(self, sources: dict[str, str]) -> dict[str, int | None]:
         hits = inventory.inventory(tree(sources), ["raw-blocking"])
@@ -722,7 +857,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual({k: int(v) for k, v in counts.items()},
                          {"main-blocking": 1, "raw-blocking": 8, "pool-blocking": 2, "raw-blocking-ext": 1,
                           "maybe-main-blocking": 1,
-                          "task-priority": 1, "thread-doc": 1, "cpu-intensive": 8})
+                          "task-priority": 1, "thread-doc": 1, "cpu-intensive": 8, "sync-inversion": 1})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",

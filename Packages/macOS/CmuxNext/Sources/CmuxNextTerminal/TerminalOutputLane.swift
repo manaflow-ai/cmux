@@ -263,8 +263,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             return backlog.waiters
         }
         waiters.forEach { $0.resume() }
-        // concurrency-allow: bounded fence before ghostty_surface_free; queued chunks are skipped once `closing` is set, so this waits for at most the one chunk being parsed.
-        queue.sync { surface = nil }
+        // A bounded fence before ghostty_surface_free onto a queue of the main thread's own QoS (user-interactive):
+        // queued chunks are skipped once `closing` is set, so this waits for at most the one chunk being parsed.
+        queue.blockingSync { surface = nil }
     }
 
     private func parsed(_ count: Int) {

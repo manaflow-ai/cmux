@@ -41,12 +41,22 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var status = RemoteViewStatus(state: .connecting)
     }
 
-    /// Queue-confined session state: the Rust core, the input channel, the
-    /// handshake and whether the carrier started.
+    /// The input channel, which a key's turn on the main thread reaches: a service input event takes
+    /// its sequence number under this lock (``sendServiceInput(_:mustDeliver:)``), never by waiting for
+    /// the queue; the queue takes it for each send, packet and acknowledgement (core calls, no I/O).
+    // internal for the +Service extension file
+    let inputChannel: Mutex<InputChannel>
+    struct InputChannel {
+        let input: RemoteRdInput
+        /// The welcome lists `input.service` and the session has not ended (set on the queue).
+        var acceptsService = false
+    }
+
+    /// Queue-confined session state: the Rust core, the handshake and whether
+    /// the carrier started.
     // internal for the +Service extension file
     nonisolated final class Engine {
         let core: RemoteRdSession
-        let input: RemoteRdInput
         var handshake: RemoteRdHandshake
         var started = false
         /// Cuts received bytes after control frames (surface streams open in between).
@@ -54,9 +64,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
 
-        init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
+        init(core: RemoteRdSession, service: String) {
             self.core = core
-            self.input = input
             handshake = RemoteRdHandshake(service: service)
         }
     }
@@ -84,7 +93,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         self.startKey = startKey
         self.control = control
         self.nowMicros = nowMicros
-        engine = Engine(core: core, input: input, service: hello.service)
+        engine = Engine(core: core, service: hello.service)
+        inputChannel = Mutex(InputChannel(input: input))
         state = Mutex(Continuations())
     }
 
@@ -128,8 +138,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         queue.async { [self] in
             guard !engine.handshake.isEnded else { return }
             let events: [RemoteInputEvent] = if case let .text(text) = event { RemoteInputEvent.textEvents(text) } else { [event] }
-            for event in events {
-                _ = try? engine.input.send(event)
+            inputChannel.withLock { channel in
+                for event in events {
+                    _ = try? channel.input.send(event)
+                }
             }
             pump()
         }
@@ -265,7 +277,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             return
         }
         var out: [Data] = (try? engine.core.feedback(nowMicros: now)) ?? []
-        out += (try? engine.input.packets(nowMicros: now)) ?? []
+        out += inputChannel.withLock { (try? $0.input.packets(nowMicros: now)) ?? [] }
         for sender in engine.upstream?.activeSenders ?? [] {
             out += (try? sender.datagrams()) ?? []
         }
@@ -292,7 +304,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 // the input channel; any other datagram is refused without a state change.
                 let senders = engine.upstream?.activeSenders ?? []
                 if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
-                try? engine.input.acknowledge(datagram: datagram)
+                inputChannel.withLock { _ = try? $0.input.acknowledge(datagram: datagram) }
             case .bulk:
                 // Transfers belong to the service (rb/1 uploads and downloads); the desktop has none.
                 break
@@ -323,7 +335,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     private func armTimer(now: UInt64) {
-        let deadlines = [engine.core.nextDeadlineMicros, engine.input.nextDeadlineMicros].compactMap { $0 }
+        let inputDeadline = inputChannel.withLock { $0.input.nextDeadlineMicros }
+        let deadlines = [engine.core.nextDeadlineMicros, inputDeadline].compactMap { $0 }
         guard let next = deadlines.min() else {
             timer.cancel()
             return
@@ -352,7 +365,12 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         finish()
     }
 
+    /// Publishes the handshake outside the queue: the pane's status, and whether service input is
+    /// accepted (``sendServiceInput(_:mustDeliver:)``). Runs after every handshake change.
     private func publishStatus() {
+        let acceptsService = !engine.handshake.isEnded
+            && engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true
+        inputChannel.withLock { $0.acceptsService = acceptsService }
         var upstream = RemoteUpstreamStatus()
         if let consent = engine.upstream, case .streaming = engine.handshake.phase {
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)

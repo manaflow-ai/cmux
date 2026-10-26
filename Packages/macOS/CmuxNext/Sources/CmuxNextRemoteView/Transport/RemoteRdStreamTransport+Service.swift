@@ -32,17 +32,17 @@ extension RemoteRdStreamTransport {
     /// its rd input sequence number, which the service's answers name (rb's
     /// `rb.key_unhandled {input_seq}`). Nil before the welcome, after the
     /// end, when the host's welcome does not list `input.service`, or for
-    /// bytes the core refuses. Waits for the transport queue, so call it
-    /// from outside that queue (the main actor).
+    /// bytes the core refuses. Never waits for the transport queue: the
+    /// number comes from the input channel's lock, and the queue sends the
+    /// event's packet after it.
     public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
-        dispatchPrecondition(condition: .notOnQueue(queue))
-        return queue.sync { [self] in
-            guard !engine.handshake.isEnded,
-                  engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true,
-                  let seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
-            pump()
-            return seq
+        let seq = inputChannel.withLock { channel -> UInt32? in
+            guard channel.acceptsService else { return nil }
+            return try? channel.input.sendService(bytes, mustDeliver: mustDeliver)
         }
+        guard let seq else { return nil }
+        queue.async { [self] in pump() }
+        return seq
     }
 
     /// The access units of popup surface stream `stream` (rb/1
