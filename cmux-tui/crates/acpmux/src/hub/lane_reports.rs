@@ -128,7 +128,8 @@ struct TurnKinds {
     report_only: std::collections::HashSet<(String, u64)>,
     /// Other prompts steered in and not answered yet, by session.
     in_flight: HashMap<String, usize>,
-    /// The last turn started when another prompt was answered as gone in, by session.
+    /// The last turn started when another prompt was answered as gone in, by session: every
+    /// turn up to it had one.
     carried: HashMap<String, u64>,
 }
 
@@ -153,11 +154,9 @@ impl TurnKinds {
 
     /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
     fn end(&mut self, id: &str, turn: u64) -> bool {
-        let upto = self.carried.get(id).copied();
-        if upto.is_some_and(|t| t <= turn) {
-            self.carried.remove(id);
-        }
-        let carried = upto.is_some_and(|t| t >= turn) || self.in_flight.contains_key(id);
+        // Kept, not taken: turns' ends may run out of order, and a later turn is never under it.
+        let carried =
+            self.carried.get(id).is_some_and(|&t| t >= turn) || self.in_flight.contains_key(id);
         self.report_only.remove(&(id.to_owned(), turn)) && !carried
     }
 
