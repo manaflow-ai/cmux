@@ -16,8 +16,8 @@ A section set to None on a pull request with no status comment writes nothing, s
 pull request gets no comment at all. GitHub has no compare-and-swap on comments, so two
 writers can race. Every write folds a duplicate status comment (two writers that both found
 none) into the oldest one. A section another writer's stale copy overwrote comes back when its
-own job next writes (on each push, for most). Sections written once (CONFIRMED), and any writer
-that passes confirm=True or sets PR_STATUS_CONFIRM=1, are checked: upsert re-reads the comment
+own job next writes (on each push, for most). Sections written once (CONFIRMED), a write that creates
+the status comment, and any writer that passes confirm=True or sets PR_STATUS_CONFIRM=1, are checked: upsert re-reads the comment
 after a short wait and writes again when its section was lost. For the others that re-read is
 off: it doubled every writer's reads of the GITHUB_TOKEN budget all workflows share, which ran
 out on 2026-10-25. `legacy` names the marker of the comment a writer posted before this
@@ -67,8 +67,9 @@ BEAD = re.compile(r"cx-[a-z0-9]{2,8}(?:\.[0-9]+)*")
 SHA = re.compile(r"[0-9a-f]{40}")
 PREVIEW_FEED = "https://github.com/manaflow-ai/cmuxterm-hq/issues/2098"
 ATTEMPTS = 4
-# Sections written once and never refreshed by a later push: a write is read back and redone if lost.
-CONFIRMED = frozenset({"receipt"})
+# Sections written once and never refreshed by a later push (the receipt; the bead and preview
+# lines, dispatched once by bead-autoclose.py and hq's pr-preview): a write is read back and redone if lost.
+CONFIRMED = frozenset({"receipt", "bead", "preview"})
 
 Api = Callable[[str, str, "dict | None"], object]
 
@@ -219,7 +220,8 @@ def apply(read: Callable[[], list[dict]], call: Callable[[str, str, "dict | None
         for method, path, payload in writes:
             call(method, path, payload)
         did = "written"
-        if sleep is None or not confirm:
+        # A new status comment is read back too: two writers that both found none made two.
+        if sleep is None or not (confirm or any(method == "POST" for method, _, _ in writes)):
             return did
         # Another writer may have read the comment before this write and write over it.
         sleep(float(os.environ.get("PR_STATUS_SETTLE_SECONDS") or random.uniform(1.5, 3.0)))
