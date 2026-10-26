@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextTrace
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -88,6 +89,9 @@ final class AppRunMarker {
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
+    /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
+    /// normal or requested quit, or on a first launch.
+    let previousExit: UncleanExit?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
     private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
@@ -103,16 +107,26 @@ final class AppRunMarker {
     }
 
     /// Reads the previous run's marker in `directory`, then marks this run
-    /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// live and installs the fatal signal handlers. `bootSession` is this
+    /// boot's id, stored in the marker (tests pass their own).
+    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession()) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
-        recovery = LaunchRecovery.decide(previous: previous)
-        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+        previousExit = previous?.uncleanExit(bootSession: bootSession)
+        let recovered = previous?.forRecovery(bootSession: bootSession)
+        recovery = LaunchRecovery.decide(previous: recovered)
+        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
+                             survived: false, signal: nil, bootSession: bootSession)
         start()
+    }
+
+    /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
+    nonisolated static func currentBootSession() -> String? {
+        let bytes = TraceBlackBox.ProcessFacts.current().bootSessionUUID
+        guard !bytes.isEmpty else { return nil }
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     private func start() {
@@ -248,5 +262,37 @@ final class AppRunMarker {
         }
         if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
         return run
+    }
+}
+
+/// How a run that did not quit as asked ended (stability.unclean_exit, task 109).
+///
+/// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did not
+/// end cleanly; crashes come from the crash reporter, and an unclean exit while the system session ended is
+/// counted apart (components/metrics/stability_metrics_provider.cc). Here the run's handler record is the crash
+/// report and `kern.bootsessionuuid` is the session.
+nonisolated enum UncleanExit: String, Sendable, Equatable {
+    /// The run's fatal-signal handler or uncaught-exception recorder ran.
+    case crash
+    /// No handler ran and the machine restarted since (power loss, a kernel panic, a forced restart).
+    case systemShutdown = "system_shutdown"
+    /// No handler ran in this boot: `kill -9`, jetsam, Force Quit.
+    case killed
+}
+
+extension PreviousRun {
+    /// How this run ended, seen from a launch in boot `current`; nil when it quit as asked. A handler's record
+    /// is a crash whatever the boot: the fault ended the run before any restart did.
+    nonisolated func uncleanExit(bootSession current: String?) -> UncleanExit? {
+        if endedAsAsked { return nil }
+        if crashed { return .crash }
+        if let bootSession, let current, bootSession != current { return .systemShutdown }
+        return .killed
+    }
+
+    /// The run `LaunchRecovery` decides on from boot `current`: none when the machine's restart ended it, which
+    /// is neither a crash nor a restart loop.
+    nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
+        uncleanExit(bootSession: current) == .systemShutdown ? nil : self
     }
 }
