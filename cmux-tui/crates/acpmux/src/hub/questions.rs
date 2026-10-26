@@ -4,7 +4,8 @@
 //! hub as `session/request_permission` with the questions in the tool input.
 //! The hub adds one harness-neutral copy, `toolCall._meta.acpmux.question`
 //! (`{harness, agent, items: [{id, header?, prompt, options: [{id, label,
-//! detail?, preview?: {text, format}}], multiSelect, allowsOther}]}`), so
+//! detail?, preview?: {text, format}}], multiSelect, allowsOther, input?}]}`;
+//! `input: "number"` marks a typed number, `claude_stdio/elicitation.rs`), so
 //! every client renders the same model, and it checks a client's `answers`
 //! against it before they reach the agent.
 //!

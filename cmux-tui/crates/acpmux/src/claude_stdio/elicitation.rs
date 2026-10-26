@@ -158,8 +158,8 @@ pub(super) fn reply(rid: &str, form: &Form, result: Option<&Value>, error: bool)
 fn content(form: &Form, answers: &Value) -> Option<Value> {
     let mut out = Map::new();
     for field in &form.fields {
-        let answer = answers.get(&field.prompt).and_then(Value::as_str).map(str::trim);
-        let answer = match answer {
+        let typed = answers.get(&field.prompt).and_then(Value::as_str);
+        let answer = match typed.map(str::trim) {
             Some(a) if !a.is_empty() && (field.required || a != NO_ANSWER) => a,
             _ if field.required => return None,
             _ => continue,
@@ -176,7 +176,8 @@ fn content(form: &Form, answers: &Value) -> Option<Value> {
                 "No" => Some(json!(false)),
                 _ => None,
             },
-            Kind::Text => Some(json!(answer)),
+            // Typed text goes as the hub gave it, spaces and all.
+            Kind::Text => typed.map(|t| json!(t)),
             Kind::Number { integer: true } => answer.parse::<i64>().ok().map(Value::from),
             Kind::Number { integer: false } => exact_number(answer),
         };
@@ -325,10 +326,16 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
         let allows_other = matches!(kind, Kind::Text | Kind::Number { .. });
         let multi = matches!(kind, Kind::Choice { multi: true, .. });
         let header = if single { server_name(req) } else { label };
-        items.push(json!({
+        let mut item = json!({
             "id": format!("q{index}"), "header": header, "prompt": prompt, "options": options,
             "multiSelect": multi, "allowsOther": allows_other,
-        }));
+        });
+        // A number is typed, so a client sends its digits to the text, not
+        // to option shortcuts (`tui/answering.rs`).
+        if matches!(kind, Kind::Number { .. }) {
+            item["input"] = json!("number");
+        }
+        items.push(item);
         fields.push(Field { key: key.clone(), prompt, kind, required: is_required });
     }
     if fields.is_empty() {
