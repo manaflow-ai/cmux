@@ -1,5 +1,7 @@
 //! Mountinfo alias checks, required before G2 enables Linux remote spawns.
 //! All loops consume finite mountinfo text, entries, paths, or option lists.
+//! A FUSE or network mount elsewhere exporting protected content at another
+//! path remains out of scope, matching Seatbelt's path-based limitation.
 use super::*;
 use std::collections::BTreeSet;
 
@@ -84,7 +86,9 @@ fn split_overlay_layers(value: &str) -> Vec<String> {
             index += 1;
         }
     }
-    layers.push(value[start..].into());
+    if start < value.len() {
+        layers.push(value[start..].into());
+    }
     layers
 }
 
@@ -127,6 +131,23 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
         Err(error) => return vec![error],
     };
     let mut aliases = BTreeSet::new();
+    for mount in mounts.iter().filter(|mount| mount.fs_type == "overlay") {
+        let layers = match overlay_layers(&mount.super_options) {
+            Ok(layers) => layers,
+            Err(error) => return vec![error],
+        };
+        for layer in layers {
+            for path in protected {
+                if layer.starts_with(path) || path.starts_with(&layer) {
+                    aliases.insert(format!(
+                        "{} is also visible through overlay layer {}",
+                        path.display(),
+                        layer.display()
+                    ));
+                }
+            }
+        }
+    }
     for path in protected {
         let Some((index, mount)) = mounts
             .iter()
@@ -172,6 +193,10 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
     }
     aliases.into_iter().collect()
 }
+
+fn local_filesystem(fs_type: &str) -> bool {
+    matches!(fs_type, "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "tmpfs" | "f2fs" | "bcachefs")
+}
 /// Reject recursive bind aliases at or below a writable root.
 /// Only a whole filesystem with no overlapping same-device mount is exempt.
 /// Loops end after the supplied roots and finite mount table.
@@ -181,6 +206,23 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
         Err(error) => return vec![error],
     };
     let mut aliases = BTreeSet::new();
+    for root in roots {
+        let Some(mount) = mounts
+            .iter()
+            .filter(|mount| root.starts_with(&mount.point))
+            .max_by_key(|mount| mount.point.components().count())
+        else {
+            aliases.insert(format!("no containing mount for writable folder {}", root.display()));
+            continue;
+        };
+        if !local_filesystem(&mount.fs_type) {
+            aliases.insert(format!(
+                "{} is on non-local filesystem {}",
+                root.display(),
+                mount.fs_type
+            ));
+        }
+    }
     for (index, mount) in mounts.iter().enumerate() {
         let whole_filesystem = mount.root == Path::new("/")
             && !mounts.iter().enumerate().any(|(other_index, other)| {
@@ -188,11 +230,18 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
                     && other.device == mount.device
                     && (other.root.starts_with(&mount.root) || mount.root.starts_with(&other.root))
             });
-        if whole_filesystem {
-            continue;
-        }
         for root in roots {
             if mount.point.starts_with(root) {
+                if !local_filesystem(&mount.fs_type) {
+                    aliases.insert(format!(
+                        "{} is on non-local filesystem {} inside writable folder {}",
+                        mount.point.display(),
+                        mount.fs_type,
+                        root.display()
+                    ));
+                } else if whole_filesystem {
+                    continue;
+                }
                 aliases.insert(format!(
                     "{} is a bind mount inside the writable folder {}",
                     mount.point.display(),
