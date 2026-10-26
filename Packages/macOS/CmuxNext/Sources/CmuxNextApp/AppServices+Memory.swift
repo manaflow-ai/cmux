@@ -7,6 +7,7 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -58,6 +59,7 @@ struct AppMemoryConsumers {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
+        registerAppCaches()  // CmuxNextAgentPane, CmuxNextApp (p07-memory-056)
         registerInternalPageDiscards()  // CmuxNextApp
         registerBrowserCaches()  // CmuxNextBrowser
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
@@ -77,6 +79,20 @@ struct AppMemoryConsumers {
     private func registerBrowserCaches() {
         guard services.features.isEnabled(.memoryBrowserCaches) else { return }
         services.favicons.registerMemoryConsumer(with: services.memoryCoordinator, loaderCache: BrowserFaviconLoader.shared)
+    }
+
+    /// `memoryAppCaches` (default off): the registry the app's caches register with, nil while the feature
+    /// is off. Caches made per page (Browse more art in Settings) take it at their init.
+    var appCacheRegistry: (any MemoryConsumerRegistry)? {
+        services.features.isEnabled(.memoryAppCaches) ? services.memoryCoordinator : nil
+    }
+
+    /// `memoryAppCaches` (default off): the app-lifetime caches (agent panes' saved frames and launch
+    /// pages, decoded icon assets) are memory consumers (p07-memory-056).
+    private func registerAppCaches() {
+        guard let registry = appCacheRegistry else { return }
+        services.launchImages.registerMemoryConsumer(with: registry)
+        IconAssetImages.shared.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
