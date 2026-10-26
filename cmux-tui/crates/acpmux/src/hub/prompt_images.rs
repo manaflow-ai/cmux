@@ -400,6 +400,10 @@ impl Hub {
             msg["inlineParts"] = Value::Array(ordered);
         }
         super::session::mark_pasted(&mut msg, blocks);
+        // Not recorded, so a retry knows it cannot send the prompt again whole (`retry_turn.rs`).
+        if blocks.iter().any(crate::prompt_context::is_context) {
+            msg["hiddenContext"] = Value::Bool(true);
+        }
         self.append(session, "mux", "user_message", msg);
     }
 
