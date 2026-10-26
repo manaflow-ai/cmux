@@ -400,21 +400,85 @@ mod tests {
     };
     use tokio::time::{Duration, sleep};
 
-    #[rustfmt::skip]
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
-        let dir=cmux_unix_socket::short_test_dir("watch-pool"); std::fs::set_permissions(dir.path(),std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut config=Config::default(); config.store.mode=StoreMode::Local; let hub=Hub::new(config.clone(),store::open(&config.store,dir.path()).unwrap());
-        let keys:Vec<_>=(0..100).map(|n|format!("peer/session-{n}")).collect(); let cursors=keys.iter().map(|k|(k.clone(),watch_events::Cursor::default())).collect();
-        hub.watches.add(Watch{id:"w".into(),to:"sink".into(),sessions:keys.clone(),until:vec!["ready".into()],match_text:None,once:true,caller:None,active:true,cursors,offline:BTreeSet::new()}).unwrap();
-        let before=tokio::runtime::Handle::current().metrics().num_alive_tasks(); reconcile(&hub).await.unwrap(); reconcile(&hub).await.unwrap();
-        assert_eq!(tokio::runtime::Handle::current().metrics().num_alive_tasks(),before); assert_eq!(hub.watches.jobs.lock().unwrap().ready.len(),100);
-        let active=Arc::new(AtomicUsize::new(0)); let maximum=Arc::new(AtomicUsize::new(0)); let reads=Arc::new(Mutex::new(Vec::new())); let started=Arc::new(Notify::new());
-        let hook:ReadHook={let(active,maximum,reads,started)=(active.clone(),maximum.clone(),reads.clone(),started.clone()); Arc::new(move|key|{let(active,maximum,reads,started)=(active.clone(),maximum.clone(),reads.clone(),started.clone()); Box::pin(async move{let first={let mut r=reads.lock().unwrap();r.push(key.clone());key.ends_with("session-0")&&r.iter().filter(|k|*k==&key).count()==1};if first{started.notify_one();}let n=active.fetch_add(1,Ordering::SeqCst)+1;maximum.fetch_max(n,Ordering::SeqCst);sleep(Duration::from_millis(5)).await;active.fetch_sub(1,Ordering::SeqCst);Ok(false)})})};
-        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap()=Some(hook); let workers:Vec<_>=(0..REMOTE_WORKERS).map(|_|tokio::spawn(remote_worker(hub.clone()))).collect();
-        tokio::time::timeout(Duration::from_secs(5),started.notified()).await.unwrap(); hub.watches.jobs.lock().unwrap().enqueue("peer/session-0".into());
-        for _ in 0..5000{if hub.watches.jobs.lock().unwrap().pending.is_empty()&&active.load(Ordering::SeqCst)==0{break;}sleep(Duration::from_millis(1)).await;} for worker in workers{worker.abort();}
-        let mut expected=keys;expected.push("peer/session-0".into());let mut actual=reads.lock().unwrap().clone();actual.sort();expected.sort(); assert_eq!(actual,expected); assert!(maximum.load(Ordering::SeqCst)<=REMOTE_WORKERS);
-        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap()=None; hub.shutdown_all().await;
+        let dir = cmux_unix_socket::short_test_dir("watch-pool");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Local;
+        let hub = Hub::new(config.clone(), store::open(&config.store, dir.path()).unwrap());
+        let keys: Vec<_> = (0..100).map(|n| format!("peer/session-{n}")).collect();
+        let cursors = keys.iter().map(|k| (k.clone(), watch_events::Cursor::default())).collect();
+        hub.watches
+            .add(Watch {
+                id: "w".into(),
+                to: "sink".into(),
+                sessions: keys.clone(),
+                until: vec!["ready".into()],
+                match_text: None,
+                once: true,
+                caller: None,
+                active: true,
+                cursors,
+                offline: BTreeSet::new(),
+            })
+            .unwrap();
+        let before = tokio::runtime::Handle::current().metrics().num_alive_tasks();
+        reconcile(&hub).await.unwrap();
+        reconcile(&hub).await.unwrap();
+        assert_eq!(tokio::runtime::Handle::current().metrics().num_alive_tasks(), before);
+        assert_eq!(hub.watches.jobs.lock().unwrap().ready.len(), 100);
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let reads = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let hook: ReadHook = {
+            let (active, maximum, reads, started) =
+                (active.clone(), maximum.clone(), reads.clone(), started.clone());
+            Arc::new(move |key| {
+                let (active, maximum, reads, started) =
+                    (active.clone(), maximum.clone(), reads.clone(), started.clone());
+                Box::pin(async move {
+                    let first = {
+                        let mut r = reads.lock().unwrap();
+                        r.push(key.clone());
+                        key.ends_with("session-0") && r.iter().filter(|k| *k == &key).count() == 1
+                    };
+                    if first {
+                        started.notify_one();
+                    }
+                    let n = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum.fetch_max(n, Ordering::SeqCst);
+                    sleep(Duration::from_millis(5)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(false)
+                })
+            })
+        };
+        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap() = Some(hook);
+        let workers: Vec<_> =
+            (0..REMOTE_WORKERS).map(|_| tokio::spawn(remote_worker(hub.clone()))).collect();
+        tokio::time::timeout(Duration::from_secs(5), started.notified()).await.unwrap();
+        hub.watches.jobs.lock().unwrap().enqueue("peer/session-0".into());
+        for _ in 0..5000 {
+            if hub.watches.jobs.lock().unwrap().pending.is_empty()
+                && active.load(Ordering::SeqCst) == 0
+            {
+                break;
+            }
+            sleep(Duration::from_millis(1)).await;
+        }
+        for worker in workers {
+            worker.abort();
+        }
+        let mut expected = keys;
+        expected.push("peer/session-0".into());
+        let mut actual = reads.lock().unwrap().clone();
+        actual.sort();
+        expected.sort();
+        assert_eq!(actual, expected);
+        assert!(maximum.load(Ordering::SeqCst) <= REMOTE_WORKERS);
+        *READ_HOOK.get_or_init(Mutex::default).lock().unwrap() = None;
+        hub.shutdown_all().await;
     }
 }
