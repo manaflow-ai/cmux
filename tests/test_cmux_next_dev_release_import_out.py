@@ -29,13 +29,15 @@ def steps():
 
 
 class DevReleaseImportOut(unittest.TestCase):
-    def dev_step(self):
-        found = [step for _, step in steps() if step.get("name") == DEV_STEP]
-        self.assertEqual(len(found), 1, "exactly one DEV Release compile step")
-        return found[0]
+    def dev_steps(self):
+        # The DEV run's (cmux-scheme-compile) and the landing compile's, which records the same app.
+        found = {name: step for name, step in steps() if step.get("name") == DEV_STEP}
+        self.assertEqual(sorted(found), ["cmux-scheme-compile", "dev-landing-compile"])
+        return list(found.values())
 
     def test_only_the_dev_release_step_compiles_the_import_out(self):
-        self.assertEqual(self.dev_step()["env"].get("CMUX_NEXT_BROWSER_DATA_IMPORT"), "compiled-out")
+        for step in self.dev_steps():
+            self.assertEqual(step["env"].get("CMUX_NEXT_BROWSER_DATA_IMPORT"), "compiled-out")
         others = [step.get("name") for _, step in steps()
                   if step.get("name") != DEV_STEP
                   and "CMUX_NEXT_BROWSER_DATA_IMPORT" in (step.get("env") or {})]
@@ -46,9 +48,9 @@ class DevReleaseImportOut(unittest.TestCase):
         self.assertNotIn("CMUX_NEXT_BROWSER_DATA_IMPORT", WORKFLOW.get("env") or {})
 
     def test_the_dev_step_runs_no_proof_that_could_hold_the_zip(self):
-        run = self.dev_step()["run"]
-        self.assertNotIn("check-browser-data-import-absent.sh", run)
-        self.assertNotIn("check-password-import-readers.sh", run)
+        for step in self.dev_steps():
+            self.assertNotIn("check-browser-data-import-absent.sh", step["run"])
+            self.assertNotIn("check-password-import-readers.sh", step["run"])
 
     def test_the_script_still_has_the_hook(self):
         self.assertIn('browser_data_import="${CMUX_NEXT_BROWSER_DATA_IMPORT:-built-in}"', SCRIPT)

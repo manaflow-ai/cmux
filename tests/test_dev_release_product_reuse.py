@@ -198,7 +198,12 @@ class Workflows(unittest.TestCase):
                 self.assertEqual(uses, workflow.name == "cmux-next.yml")
         text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
         job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
-        self.assertEqual(text.count("dev_release_product_reuse.py lookup"), job.count("dev_release_product_reuse.py lookup"))
+        # The landing compile (push only, through dev-landing-place) looks up the same key.
+        landing = text[text.index("\n  dev-landing-place:\n"):text.index("\n  request-cmux-next-dev-publish:\n")]
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+                      landing.split("\n    if: ", 1)[1].splitlines()[0])
+        self.assertEqual(text.count("dev_release_product_reuse.py lookup"),
+                         job.count("dev_release_product_reuse.py lookup") + landing.count("dev_release_product_reuse.py lookup"))
         lookup = job[job.index("id: dev-product\n"):]
         condition = lookup.splitlines()[1]
         self.assertIn("refs/heads/feat-cmux-next", condition)
