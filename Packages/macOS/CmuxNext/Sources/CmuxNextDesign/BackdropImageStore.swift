@@ -109,6 +109,7 @@ public final class BackdropImageStore {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
         images = images.filter { $0.key.id != BackdropSelection.desktopID }
+        for (key, load) in loads where key.id == BackdropSelection.desktopID { load.cancel() }
         loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
     }
 
@@ -150,8 +151,10 @@ public final class BackdropImageStore {
         }
         let decoded = await load.value
         if loads[key] == load { loads[key] = nil }
-        // The desktop moved on while this decoded: its picture is stale, so load the new one.
+        // The desktop moved on while this decoded: its picture is stale, so load the new one,
+        // unless the caller gave up (a newer apply cancelled its art load).
         if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+            guard !Task.isCancelled else { return nil }
             return await image(selection, texture: texture, dark: dark)
         }
         if let image = images[key] { return image }

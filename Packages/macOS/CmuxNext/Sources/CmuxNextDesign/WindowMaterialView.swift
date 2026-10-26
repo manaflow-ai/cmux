@@ -336,7 +336,7 @@ public final class WindowMaterialView: NSView {
         applyArtBlur(backdrop.artBlurRadius)
         let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
         // Where the desktop shows through, the tint takes its picture's hue (appearance.wallpaperTint).
-        let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: DesignSettings.shared.wallpaperTint,
+        let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: wallpaper.tintEnabled,
                                         material: backdrop.material, shown: shown)
         let color = tunedTint(leaned, tuning: backdrop.tuning).withAlphaComponent(alpha)
         tintAlpha = alpha

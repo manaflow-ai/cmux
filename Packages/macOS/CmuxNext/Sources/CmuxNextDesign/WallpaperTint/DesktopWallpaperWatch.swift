@@ -9,13 +9,15 @@ import Foundation
 /// macOS posts nothing public when the picture changes, so the watch re-reads
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`, which macOS rewrites when a
-/// picture is chosen or shuffles), a Space switch (each Space has its own picture), a screen
-/// change, and another window becoming key or a window moving to another display (the main
-/// screen may now be a different one). A view
+/// picture is chosen or shuffles), macOS's own `com.apple.desktop` notice, a Space switch (each
+/// Space has its own picture), a screen change, waking, and another window becoming key or a
+/// window moving to another display (the main screen may now be a different one). A view
 /// that sees the light or dark appearance flip asks too (``appearanceDidChange()``). A read that
 /// matches the last one costs nothing more; a new picture is decoded small and averaged off the
-/// main actor, once per picture (switching back to a Space reuses its color). Registered material
-/// views re-apply with the result. It reads the main screen (the one with the key window); every
+/// main actor, once per picture (switching back to a Space reuses its color), and only while
+/// ``tintEnabled``. Registered material views re-apply at once (the Desktop Wallpaper art) and
+/// again when the color lands. While the app is hidden it does nothing: the first event after
+/// it shows again (or the unhide itself) reads once. It reads the main screen (the one with the key window); every
 /// window takes that screen's color. Inert until ``start()``, so tests and windows built before
 /// launch see no tint. The app's watch belongs to ``BackdropImageStore/shared``.
 ///
@@ -27,7 +29,7 @@ import Foundation
 public final class DesktopWallpaperWatch {
     /// A watch over the main screen's desktop picture that keeps its last color in `defaults`.
     public static func live(defaults: UserDefaults? = .standard) -> DesktopWallpaperWatch {
-        DesktopWallpaperWatch(read: readMainScreen, sample: sample, defaults: defaults)
+        DesktopWallpaperWatch(read: readMainScreen, sample: sample, defaults: defaults, isHidden: { NSApp?.isHidden == true })
     }
 
     /// Where the last color is kept, so the next launch's first window has it before a sample.
@@ -75,11 +77,23 @@ public final class DesktopWallpaperWatch {
     public private(set) var generation = 0
     /// Samples taken (tests).
     private(set) var sampleCount = 0
+    /// `appearance.wallpaperTint`: the tint leans toward the picture, and pictures are sampled,
+    /// only while on. Turning it on samples the picture shown now.
+    public var tintEnabled = false {
+        didSet {
+            guard tintEnabled != oldValue else { return }
+            if !tintEnabled || !sampleIfNeeded() { refreshViews() }
+        }
+    }
 
     private let read: @MainActor () -> Reading?
     private let sample: @Sendable (Reading) async -> WallpaperTint?
     private let defaults: UserDefaults?
+    private let isHidden: @MainActor () -> Bool
     private var current: Reading?
+    /// The reading whose color ``tint`` is, and the one a sample is under way for.
+    private var published: Reading?
+    private var sampling: Reading?
     /// Colors already sampled, by reading: a Space switch back never decodes again.
     private var colors: [Reading: WallpaperTint?] = [:]
     /// Samples under way, by start order: the newest one is the current reading's; older ones are
@@ -88,18 +102,20 @@ public final class DesktopWallpaperWatch {
     private var samplesStarted = 0
     private let storeSettle = DemandTimer(owner: "desktop-wallpaper-store")
     private var observers: [MainActorObservation] = []
-    private var storeSource: (any DispatchSourceFileSystemObject)?
+    private var storeSource: WallpaperStoreSource?
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
 
     /// - Parameters:
     ///   - read: What the desktop shows now; nil without a screen.
     ///   - sample: The color of a reading, off the main actor.
     ///   - defaults: Where the last color is kept between launches; nil keeps none.
+    ///   - isHidden: Whether the app is hidden: no reading then.
     init(read: @escaping @MainActor () -> Reading?, sample: @escaping @Sendable (Reading) async -> WallpaperTint?,
-         defaults: UserDefaults? = nil) {
+         defaults: UserDefaults? = nil, isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.read = read
         self.sample = sample
         self.defaults = defaults
+        self.isHidden = isHidden
     }
 
     /// Starts following the desktop: one reading now, then one per event that could change it.
@@ -110,13 +126,17 @@ public final class DesktopWallpaperWatch {
         if let last = defaults?.array(forKey: Self.lastTintKey) as? [Double], last.count == 3 {
             tint = WallpaperTint(red: last[0], green: last[1], blue: last[2])
         }
-        // A new picture shows as a store write (watchStore); these are the moments the main
-        // screen's picture can differ without one.
+        // A new picture shows as a store write (watchStore) or macOS's notice; the rest are the
+        // moments the main screen's picture can differ without one.
+        let workspace = NSWorkspace.shared.notificationCenter
         observers = [
-            MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            MainActorObservation(Notification.Name("com.apple.desktop"), center: DistributedNotificationCenter.default()) { [weak self] in
                 self?.refresh()
             },
+            MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: workspace) { [weak self] in self?.refresh() },
+            MainActorObservation(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.refresh() },
+            MainActorObservation(NSApplication.didUnhideNotification) { [weak self] in self?.refresh() },
             MainActorObservation(NSWindow.didBecomeKeyNotification) { [weak self] in self?.refresh() },
             MainActorObservation(NSWindow.didChangeScreenNotification) { [weak self] in self?.refresh() },
         ]
@@ -141,14 +161,29 @@ public final class DesktopWallpaperWatch {
         refresh()
     }
 
-    /// Reads the desktop; a new reading takes its color (sampled once) and re-applies the views.
+    /// Reads the desktop (not while the app is hidden); a new reading re-applies the views at once
+    /// and, while ``tintEnabled``, takes its color (sampled once).
     func refresh() {
-        guard let reading = read(), reading != current else { return }
+        guard !isHidden(), let reading = read(), reading != current else { return }
         if current != nil { generation += 1 }
         current = reading
         for task in samples.values { task.cancel() }
-        if let known = colors[reading] { return publish(known) }
+        sampling = nil
+        // The Desktop Wallpaper art reloads now, not only once the color lands.
+        if !sampleIfNeeded() { refreshViews() }
+    }
+
+    /// Takes the current reading's color while the tint is on: a known one at once (returns
+    /// true: the views re-applied), else one sample off the main actor.
+    @discardableResult
+    private func sampleIfNeeded() -> Bool {
+        guard tintEnabled, let reading = current, published != reading, sampling != reading else { return false }
+        if let known = colors[reading] {
+            publish(known, for: reading)
+            return true
+        }
         sampleCount += 1
+        sampling = reading
         let sample = self.sample, id = samplesStarted
         samplesStarted += 1
         // task-owner: one sample per new reading; a newer reading cancels it (refresh above)
@@ -157,10 +192,12 @@ public final class DesktopWallpaperWatch {
             guard let self else { return }
             self.samples[id] = nil
             guard !Task.isCancelled, self.current == reading else { return }
+            self.sampling = nil
             if self.colors.count >= 32 { self.colors.removeAll() }
             self.colors[reading] = color
-            self.publish(color)
+            self.publish(color, for: reading)
         }
+        return false
     }
 
     /// Waits for every sample under way, cancelled ones too (tests).
@@ -168,30 +205,25 @@ public final class DesktopWallpaperWatch {
         while let task = samples.values.first { await task.value }
     }
 
-    private func publish(_ color: WallpaperTint?) {
+    private func publish(_ color: WallpaperTint?, for reading: Reading) {
         tint = color
+        published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
         refreshViews()
     }
 
     /// The wallpaper store's folder: macOS rewrites its index there when a picture is chosen. A
     /// burst of writes settles before one reading, so the reading sees the new picture.
+    /// A store that macOS replaced (the folder renamed or deleted) is watched again at its path.
     private func watchStore() {
         guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
         let store = library.appendingPathComponent("Application Support/com.apple.wallpaper/Store", isDirectory: true)
-        let descriptor = open(store.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.storeDidChange() }
-        }
-        source.setCancelHandler { close(descriptor) }
-        source.resume()
-        storeSource = source
+        storeSource = WallpaperStoreSource(store) { [weak self] replaced in self?.storeDidChange(replaced: replaced) }
     }
 
-    private func storeDidChange() {
+    private func storeDidChange(replaced: Bool) {
         storeSettle.schedule(after: .milliseconds(300)) { @MainActor [weak self] in
+            if replaced { self?.watchStore() }
             self?.refresh()
         }
     }
@@ -204,11 +236,14 @@ public final class DesktopWallpaperWatch {
     }
 
     /// The reading's picture resolved to a file, decoded small and averaged, off the main actor.
+    /// Cancelling the caller cancels the decode: it stops before decoding, and drops its result.
     nonisolated static func sample(_ reading: Reading) async -> WallpaperTint? {
-        await Task.detached(priority: .utility) {
-            guard let url = reading.picture.resolvedURL(dark: reading.dark),
-                  let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark) else { return nil }
+        // task-owner: the caller's sample task; its cancellation reaches this one (onCancel below)
+        let work = Task.detached(priority: .utility) { () -> WallpaperTint? in
+            guard !Task.isCancelled, let url = reading.picture.resolvedURL(dark: reading.dark),
+                  let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark), !Task.isCancelled else { return nil }
             return WallpaperTint.average(of: image)
-        }.value
+        }
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
     }
 }
