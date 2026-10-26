@@ -231,6 +231,7 @@ final class ProfileBarView: NSView {
         if model.activeProfileID != shownActive {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
+                // sync-layout: the crossfade below reads the marks' new contents.
                 marks.display()
                 if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }

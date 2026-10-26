@@ -241,6 +241,7 @@ extension SidebarListViewComponents {
             if key == hoveredKey {
                 hoveredKey = nil
                 view.clearHoverImmediately()
+                // sync-layout: the leaving row drops its hover controls now, before its fade or recycle reads it.
                 view.layoutSubtreeIfNeeded()
             }
             rowViews[key] = nil

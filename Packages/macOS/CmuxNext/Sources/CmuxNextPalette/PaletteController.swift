@@ -145,12 +145,14 @@ public final class PaletteController {
         case 0:
             guard panel == nil else { return true }
             let panel = makePanel()
+            // sync-layout: the first open's layout, in an idle frame: the panel is not ordered in, so no window pass runs it.
             panel.contentView?.layoutSubtreeIfNeeded()
             return true
         case 1:
             guard let panel else { return false }
             configureScopes()
             model.reset(to: commandsPage())
+            // sync-layout: the command page's visible rows lay out here in an idle frame, not on the first open.
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
         default:
