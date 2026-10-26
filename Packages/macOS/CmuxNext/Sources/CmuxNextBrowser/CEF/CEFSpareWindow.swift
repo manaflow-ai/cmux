@@ -37,7 +37,8 @@ import Foundation
 /// Under memory pressure no spare is kept (Chrome's
 /// `content/browser/renderer_host/spare_render_process_host_manager_impl.cc`): the warmup's memory
 /// consumer holds the spares at warning and critical (`holdSpareWindows`), which closes the untaken
-/// ones, and until it lets go at normal none is made, given back or asked for.
+/// ones (a tab parked in one moves to a shown pane), and until it lets go at normal none is made,
+/// given back or asked for.
 ///
 /// A spare is no window request's target (`CEFWindowRequests`): a page
 /// or extension that asks for a tab with no window of its own still opens a
@@ -211,15 +212,21 @@ final class CEFSpareWindow {
     }
 
     /// Closes the untaken spare of `kind` (every kind when nil): its placeholder goes, and the
-    /// window with it.
+    /// window with it. Tabs Chromium parked there (`park`) are no spare's: they leave for a shown
+    /// pane, as a tab in a window cmux does not host does (`CEFOrphanTabs.rehome`), and no later
+    /// spare of that kind adopts them.
     func drop(_ kind: Kind? = nil, runtime: CEFRuntime) {
         for each in kind.map({ [$0] }) ?? Kind.allCases {
             guard let spare = hosts[each], let blank = spare.placeholder else { continue }
             hosts[each] = nil
+            let waiting = parked.removeValue(forKey: each) ?? []
             spare.placeholder = nil
             // No longer a spare: `removed` takes it out of the routing table (`CEFRuntime.hostEmptied`).
             spare.removed(blank)
             blank.close()
+            for tab in waiting {
+                runtime.orphans.rehome(browser: tab.browser, disposition: tab.disposition, bounds: tab.bounds)
+            }
         }
     }
 

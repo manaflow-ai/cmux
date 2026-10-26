@@ -76,6 +76,9 @@ public final class ChromiumWarmup {
     private let idleTimer: DemandTimer
     private let giveUpTimer: DemandTimer
     private var waiting = false
+    /// The pending idle wait is a spare window's (`warmStarted`), not `CefInitialize`'s: memory
+    /// pressure cancels only that one.
+    private var waitingForSpare = false
     private var menuObserver: (any NSObjectProtocol)?
     /// The app's input tap: a warm start waiting for an idle moment observes it.
     private let input: any InputObserving
@@ -123,13 +126,23 @@ public final class ChromiumWarmup {
         self.isTrackingMenu = isTrackingMenu
         spareMemory = SpareMemoryConsumer(
             name: "chromium-spare-windows", registry: memory, spares: { [weak self] in self?.engine.spareWindowCount ?? 0 },
-            drop: { [weak self] in self?.engine.holdSpareWindows(true) }, refill: { [weak self] in self?.sparesAllowed() })
+            drop: { [weak self] in self?.sparesHeld() }, refill: { [weak self] in self?.sparesAllowed() })
     }
 
     private var isAvailable: Bool { engine.availability == .available }
 
     /// Whether memory pressure lets a spare window be made now (normal only).
     private var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
+
+    /// Memory pressure rose above normal: the untaken spares close, and a spare's pending idle wait
+    /// ends now with its input subscription and timers (as `NewTabSparePool.dropForPressure` cancels
+    /// its armed warm), instead of waking the main thread for up to `maxWait` for a spare that cannot
+    /// be made. A `CefInitialize` wait goes on: it builds no spare.
+    private func sparesHeld() {
+        engine.holdSpareWindows(true)
+        spareWaitsForPages = false
+        if waitingForSpare { finishWaiting() }
+    }
 
     /// Memory pressure fell back to normal: spares may be made and given back again, the next
     /// one at the next idle moment.
@@ -214,9 +227,9 @@ public final class ChromiumWarmup {
     /// own, so neither step lands in the first tab's or page's open.
     private func warmStarted() {
         guard !stopped, allowsSpare, engine.isRunning else { return }
-        waitForIdle { [weak self] in
-            // Pressure that came during the wait: no spare, the return to normal asks again.
-            guard let self, allowsSpare else { return }
+        waitForIdle(forSpare: true) { [weak self] in
+            // Pressure that comes during the wait ends it (`sparesHeld`); the return to normal asks again.
+            guard let self else { return }
             // A page being made builds its own window: the spare waits until the pages settle
             // (`pagesSettled`) instead of racing that window (os-smoke 2026-10-18).
             if pagesPending() {
@@ -237,11 +250,13 @@ public final class ChromiumWarmup {
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no
     /// menu tracking), or never when the app is not idle within `maxWait`. Internal, not private:
-    /// tests start a wait without a running engine.
-    func waitForIdle(_ action: @escaping @MainActor () -> Void) {
+    /// tests start a wait without a running engine. `forSpare`: the wait is a spare window's, which
+    /// memory pressure cancels (`sparesHeld`).
+    func waitForIdle(forSpare: Bool = false, _ action: @escaping @MainActor () -> Void) {
         idleAction = action
         lastInput = now()
         waiting = true
+        waitingForSpare = forSpare
         observeInput()
         armIdle(after: policy.idleInput)
         giveUpTimer.schedule(after: policy.maxWait) { @MainActor [weak self] in self?.finishWaiting() }
@@ -305,6 +320,7 @@ public final class ChromiumWarmup {
 
     private func finishWaiting() {
         waiting = false
+        waitingForSpare = false
         idleAction = nil
         idleTimer.cancel()
         giveUpTimer.cancel()

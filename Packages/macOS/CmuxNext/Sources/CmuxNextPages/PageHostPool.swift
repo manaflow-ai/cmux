@@ -34,6 +34,9 @@ public final class PageHostPool {
     var spareReady = false
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
+    /// Normal came back while a build was in flight (`refillSpare`): that build lost its spare to the
+    /// pressure, so the pool builds again when it ends.
+    var refillAfterBuild = false
     var activityMark: UInt64 = 0
     /// The pool's memory consumer: warning or critical drops the spare, and none is built or parked
     /// again until normal (Chrome's spare rule, ``SpareMemoryConsumer``).
@@ -64,7 +67,7 @@ public final class PageHostPool {
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
         spareMemory = SpareMemoryConsumer(
             name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
-            drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.scheduleBuild() })
+            drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })
     }
 
     /// Whether memory pressure lets the pool keep, build or park a spare now (normal only).

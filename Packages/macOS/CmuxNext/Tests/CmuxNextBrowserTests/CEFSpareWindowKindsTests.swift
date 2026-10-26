@@ -200,7 +200,8 @@ import Testing
     /// p07-memory-047: memory pressure holds the spares (`CEFEngine.holdSpareWindows`, from the
     /// warmup's memory consumer): holding closes the untaken ones, no spare is made, a taken spare
     /// whose tab closed before it joined is not given back, and a window that comes up asks for none.
-    /// Let go, a spare is made again.
+    /// A tab Chromium parked in a closed spare leaves with it (`CEFOrphanTabs.rehome`): the next
+    /// spare of that kind adopts nothing stale. Let go, a spare is made again.
     @Test func heldSparesCloseAndNoneIsMadeOrGivenBackUntilLetGo() throws {
         let (runtime, root) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -214,6 +215,8 @@ import Testing
         #expect(spares.prepare(.pages, runtime: runtime))
         try Self.comeUp(runtime, browser: 11)
         let browserSpare = try #require(spares.host(of: .browser))
+        // An extension's `chrome.tabs.create` put a tab into the untaken spare's window.
+        browserSpare.adoptChromiumTab(browser: 77)
         let taken = runtime.host(for: pageKey())
         let page = CEFTab(id: .random(), profile: pages, host: taken, runtime: runtime)
         taken.add(page)
@@ -233,6 +236,10 @@ import Testing
 
         spares.setHeld(false, runtime: runtime)
         #expect(spares.prepare(.browser, runtime: runtime), "let go, a spare is made again")
+        let tabKey = CEFPaneKey(pane: Self.pane(), profile: .default)
+        let next = runtime.host(for: tabKey)
+        #expect(next !== browserSpare && next.key == tabKey, "a tab's key takes the new spare")
+        #expect(spares.takeParked(for: tabKey).isEmpty, "the new spare adopted a tab parked in the closed one")
     }
 
     /// Only the engine's own profile: beginning it touches no process-wide Chromium state.

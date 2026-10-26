@@ -130,16 +130,35 @@ import Testing
         warmup.stop()
     }
 
-    /// Pressure that comes while a spare waits for its idle moment: the moment builds nothing.
+    /// Pressure that comes while a spare waits for its idle moment ends the wait in the level's turn,
+    /// with its input subscription (no wakeups for a spare that cannot be made), and the moment
+    /// builds nothing.
     @Test func pressureDuringTheIdleWaitBuildsNoSpare() {
         let engine = FakeWarmupEngine()
         let memory = ManualMemoryLevelRegistry()
         let warmup = warmup(engine: engine, memory: memory)
         warmup.start(defaultIsChromium: { false })
         engine.onSpareWindowNeeded?()
+        #expect(input.liveSubscriptions == 1, "the spare's idle wait hears the tap")
         memory.send(.warning)
+        #expect(input.liveSubscriptions == 0, "a warning ends the spare's idle wait and its subscription")
         passIdleMoment(warmup)
         #expect(engine.prepared.isEmpty, "a spare was built at warning")
+        warmup.stop()
+    }
+
+    /// Pressure ends only a spare's idle wait: a wait for `CefInitialize` (`chromiumLikely`) builds no
+    /// spare and goes on.
+    @Test func pressureLeavesAWaitThatIsNotASpares() {
+        let engine = FakeWarmupEngine()
+        let memory = ManualMemoryLevelRegistry()
+        let warmup = warmup(engine: engine, memory: memory)
+        let ran = Flag(false)
+        warmup.waitForIdle { ran.value = true }
+        memory.send(.warning)
+        #expect(input.liveSubscriptions == 1, "a warning ended a wait that builds no spare")
+        passIdleMoment(warmup)
+        #expect(ran.value)
         warmup.stop()
     }
 

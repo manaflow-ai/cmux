@@ -52,7 +52,7 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
     /// - Parameters:
     ///   - name: The pool's name in the memory report (stable, kebab-case).
     ///   - registry: The memory coordinator (injected).
-    ///   - spares: How many spares the pool holds now, from its own state.
+    ///   - spares: How many spares the pool holds now, from its own state (the memory report).
     ///   - drop: Closes the pool's spares, and cancels a warm that has not started.
     ///   - refill: Asks the pool for its next spare at its next idle moment.
     public init(
@@ -87,11 +87,10 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
     /// A spare has no size to scale: the level, not the limit, decides whether it stays.
     public func updateMemoryLimit(_ limit: MemoryLimit) {}
 
-    /// The critical level already closed the spares in its own turn; this closes one that a pool
-    /// made in between, so nothing is left above the critical limit.
+    /// Nothing to release in a slice: the level's own turn closed the spares, and no pool makes,
+    /// parks or gives one back until normal (``allowsSpares``).
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
-        if slice.limit.isCritical, spares() > 0 { drop() }
-        return .done
+        .done
     }
 
     /// No spare is nothing held; a spare's bytes live mostly in its web content or renderer process,

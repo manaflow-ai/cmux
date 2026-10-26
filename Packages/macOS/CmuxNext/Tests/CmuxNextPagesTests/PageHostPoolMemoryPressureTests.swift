@@ -44,6 +44,40 @@ import Testing
         #expect(pool.isSpareReady)
     }
 
+    /// A warning and then normal both land while a build is in flight, after it parked its spare and
+    /// before it loads: the warning closes that spare, the build ends with none, and the return to
+    /// normal still builds the spare again (with no `noteLikely`, `claim` or `release` to ask).
+    @Test func normalDuringAnInFlightBuildBuildsTheSpareAgain() async {
+        let memory = PageTestMemory()
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        let pool = Self.pool(memory)
+        defer { pool.dropSpare() }
+        let toggled = Toggled()
+        pool.onSpan = { name, _ in
+            guard name == "pool.makeSpare.park", !toggled.value else { return }
+            toggled.value = true
+            // Queued before the build's own next turn (`PageHostPool.nextTurn`), so it runs after
+            // `spare = host` and before the build looks at its spare again.
+            RunLoop.main.perform(inModes: [.common]) {
+                // main-proof: performed on the main run loop.
+                MainActor.assumeIsolated {
+                    memory.send(.warning)
+                    #expect(pool.spareHost == nil && pool.isBuilding, "the warning closed the in-flight spare")
+                    memory.send(.normal)
+                }
+            }
+        }
+        pool.follow(window)
+        pool.noteLikely()
+        let ready = await PageTestWait.value("spare built again", seconds: 10) { (done: @escaping (Bool) -> Void) in
+            pool.onSpareReady = { _ in done(true) }
+        }
+        pool.onSpan = nil
+        #expect(toggled.value, "the build never parked a spare")
+        #expect(ready == true, "normal came back during a build and no spare was built again")
+    }
+
     /// A pool made under pressure builds nothing, and an untouched host released at warning closes
     /// instead of going back to the spare slot.
     @Test func noSpareIsBuiltOrParkedUnderPressure() {
@@ -57,6 +91,10 @@ import Testing
         pool.noteLikely()
         #expect(!pool.timer.isScheduled && !pool.isBuilding)
         #expect(!pool.allowsSpare)
+    }
+
+    @MainActor private final class Toggled {
+        var value = false
     }
 
     private static func pool(_ memory: PageTestMemory) -> PageHostPool {

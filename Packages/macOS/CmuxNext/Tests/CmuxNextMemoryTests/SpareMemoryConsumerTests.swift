@@ -88,16 +88,6 @@ import Testing
         #expect(test.pool.refills == 1, "a repeated level asks nothing")
     }
 
-    /// A pool that made a spare between the critical level and its release slice loses it on the slice.
-    @Test func theCriticalSliceDropsASpareMadeInBetween() {
-        let test = harness(mode: .medium)
-        test.source.send(.critical)
-        #expect(test.pool.drops == 1)
-        test.pool.spares = 1
-        test.slicer.drain()
-        #expect(test.pool.drops == 2 && test.pool.spares == 0)
-    }
-
     /// A pool made under pressure learns it before its consumer's init returns: it never warms.
     @Test func aPoolMadeUnderPressureAllowsNoSpare() {
         let test = harness(mode: .off, initial: .warning)

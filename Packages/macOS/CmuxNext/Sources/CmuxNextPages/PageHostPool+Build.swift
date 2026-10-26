@@ -14,6 +14,13 @@ extension PageHostPool {
         }
     }
 
+    /// Memory pressure is back to normal: build the spare again. A build still in flight started
+    /// before the pressure, which closed its spare, so it asks for the next build when it ends.
+    func refillSpare() {
+        if building { refillAfterBuild = true }
+        scheduleBuild()
+    }
+
     private func idleDeadline() {
         guard shouldBuild else { return }
         guard !isTrackingMenu(), activity() == activityMark else {
@@ -31,7 +38,13 @@ extension PageHostPool {
     }
 
     private func build() async {
-        defer { building = false }
+        defer {
+            building = false
+            if refillAfterBuild {
+                refillAfterBuild = false
+                scheduleBuild()
+            }
+        }
         guard let recipe = measure("pool.makeSpare.configure", {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
