@@ -114,7 +114,8 @@
       "error": "control.unavailable",
       "invariants": [
         "person-only (HomeActionCatalog isPersonOnly): RegistryControlBridge refuses every socket run with \"Only a person in cmux can run this action\", whatever origin it claims",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no turn checkpoint: RegistryControlBridge.performAction refuses before the registry's perform, so no perform turn runs; the action step checks the typed reply and the settled snapshot (gen_actions.py asks for no turn on an error step)"
       ],
       "untested": [
         "the person's path: debug.key with the pet on (home.chiefPetEnabled is agent-settable; no step of this suite writes it yet)"
@@ -125,7 +126,8 @@
       "error": "control.unavailable",
       "invariants": [
         "person-only (HomeActionCatalog isPersonOnly): RegistryControlBridge refuses every socket run with \"Only a person in cmux can run this action\", whatever origin it claims",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no turn checkpoint: RegistryControlBridge.performAction refuses before the registry's perform, so no perform turn runs; the action step checks the typed reply and the settled snapshot (gen_actions.py asks for no turn on an error step)"
       ],
       "untested": [
         "the person's path: debug.key with the pet on (home.chiefPetEnabled is agent-settable; no step of this suite writes it yet)"
@@ -145,11 +147,11 @@
       "error": "control.unavailable",
       "invariants": [
         "no `conversation` argument and no conversation shown on Home: the run is refused with RefusalStrings.homeNotReady",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error"
       ],
       "untested": [
-        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)"
       ]
     },
     "home.newChief": {
@@ -232,7 +234,7 @@
       "untested": [
         "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)"
       ],
-      "note": "divergence: an id that names no conversation is not refused (`not_found`): HomeDockView.open takes any id and the run answers ok"
+      "note": "divergence, filed as p15-oracle-290: an id that names no conversation is not refused (`not_found`): HomeDockView.open takes any id and the run answers ok. This entry records today's answer; p15-oracle-290 makes the run refuse with refuseNotFound and turns this entry to `error: control.not_found` in the same commit, so the fix never reads as a regression"
     },
     "home.previousConversation": {
       "before": [
@@ -305,7 +307,7 @@
       "untested": [
         "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)"
       ],
-      "note": "divergence: home.nextConversation and home.previousConversation are focus actions (ActionCatalog.focusActionIDs) and show Home from any origin, but their sibling Select Conversation 1-9 is not listed there, so `cmux action run home.selectConversationByNumber` is refused where the next and previous steps run"
+      "note": "divergence, filed as p15-oracle-291: home.nextConversation and home.previousConversation are focus actions (ActionCatalog.focusActionIDs) and show Home from any origin, but their sibling Select Conversation 1-9 is not listed there, so `cmux action run home.selectConversationByNumber` is refused where the next and previous steps run. This entry records today's refusal; p15-oracle-291 adds the action to the focus set and turns this entry to the run's answer in the same commit"
     },
     "home.sendMessage": {
       "error": "control.unavailable",
@@ -365,7 +367,8 @@
       "error": "control.unavailable",
       "invariants": [
         "no window shows a Chief Home: the action is unavailable with HomeStopAllStrings.unavailable",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no turn checkpoint: RegistryControlBridge.performAction refuses before the registry's perform, so no perform turn runs; the action step checks the typed reply and the settled snapshot (gen_actions.py asks for no turn on an error step)"
       ],
       "untested": [
         "stopping the Chief and its subagents: needs a shown Chief Home with a running turn"
@@ -435,44 +438,45 @@
       "error": "control.unavailable",
       "invariants": [
         "person-only (HomeActionCatalog isPersonOnly): RegistryControlBridge refuses every socket run with \"Only a person in cmux can run this action\", whatever origin it claims",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error",
+        "no turn checkpoint: RegistryControlBridge.performAction refuses before the registry's perform, so no perform turn runs; the action step checks the typed reply and the settled snapshot (gen_actions.py asks for no turn on an error step)"
       ],
       "untested": [
-        "the person's path: debug.key with the pet on (home.chiefPetEnabled is agent-settable; no step of this suite writes it yet)",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "the person's path: debug.key with the pet on (home.chiefPetEnabled is agent-settable; no step of this suite writes it yet)"
       ]
     },
     "home.toggleChiefSettings": {
       "error": "control.unavailable",
       "invariants": [
         "no Chief Home is in front: with no Chief the run is refused (MiscHandlerStrings.noChief), with one it asks to show Home, which a socket run without focus may not (RefusalStrings.homeNeedsFocus)",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error"
       ],
       "untested": [
-        "the person's path (a palette or menu run, which may change the view): action.run's `focus` reaches case-v1 and driver_app.py with p15-oracle-072",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "the person's path (a palette or menu run, which may change the view): action.run's `focus` reaches case-v1 and driver_app.py with p15-oracle-072"
       ]
     },
     "home.togglePin": {
       "error": "control.unavailable",
       "invariants": [
         "no `conversation` argument and no conversation shown on Home: the run is refused with RefusalStrings.homeNotReady",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error"
       ],
       "untested": [
-        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)"
       ]
     },
     "home.unmuteConversation": {
       "error": "control.unavailable",
       "invariants": [
         "no `conversation` argument and no conversation shown on Home: the run is refused with RefusalStrings.homeNotReady",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error"
       ],
       "untested": [
-        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "the success path needs a Home conversation the case can name: a fresh session has none, and no facet or reply gives one before the run (p15-oracle-043's agents facet lists only the shown one)"
       ]
     },
     "space.clearColor": {
@@ -555,7 +559,7 @@
       "untested": [
         "the space's own fields (name, color, icon, theme, order): no snapshot-v1 facet lists spaces (rooms, the local daemon's profiles-v1); the case checks the run and its receipt only"
       ],
-      "note": "every-action-sweep.py TOGGLES matches `pin` in `pink`, so the generator adds a restore step that sets pink again: harmless (ok twice), but the regex should not take a color for a pin toggle"
+      "note": "divergence, filed as p15-oracle-293: every-action-sweep.py TOGGLES matches `pin` in `pink`, so the generator adds a restore step that sets pink again: harmless (ok twice), but the regex should not take a color for a pin toggle; p15-oracle-293 drops this restore step on regeneration"
     },
     "space.color.purple": {
       "receipt": "action.done",
@@ -785,9 +789,9 @@
       ],
       "untested": [
         "the space's own fields (name, color, icon, theme, order): no snapshot-v1 facet lists spaces (rooms, the local daemon's profiles-v1); the case checks the run and its receipt only",
-        "the ask path (no name argument)"
+        "the ask path (no name argument): a person's path; a socket run with no name refuses once p15-oracle-292 lands"
       ],
-      "note": "with a name; without one the registry asks for it (ActionRegistry.ask, which does not look at the origin), a person's path"
+      "note": "with a name; without one the registry asks for it (ActionRegistry.ask, which does not look at the origin), a person's path: divergence filed as p15-oracle-292 (a run that may not change the view gets the typed refusal); the case's answer with a name is correct today"
     },
     "space.selectByNumber": {
       "params": {
@@ -844,9 +848,9 @@
       ],
       "untested": [
         "the space's own fields (name, color, icon, theme, order): no snapshot-v1 facet lists spaces (rooms, the local daemon's profiles-v1); the case checks the run and its receipt only",
-        "the picker path (no icon argument)"
+        "the picker path (no icon argument): a person's path; a socket run with no icon refuses once p15-oracle-292 lands"
       ],
-      "note": "divergence, as workspace.setIcon: without an icon argument a socket run opens the picker whenever a window is open; the case passes the argument"
+      "note": "divergence, filed as p15-oracle-292 with workspace.setIcon: without an icon argument a socket run opens the picker whenever a window is open; the case passes the argument, whose answer is correct today"
     },
     "space.setTheme": {
       "params": {
@@ -1189,9 +1193,9 @@
         "the launch's workspace's icon is the SF Symbol star in the topology (set-workspace-metadata through IconHistory)"
       ],
       "untested": [
-        "the picker path (no icon argument)"
+        "the picker path (no icon argument): a person's path; a socket run with no icon refuses once p15-oracle-292 lands"
       ],
-      "note": "divergence: without an icon argument the handler opens the icon picker for any origin, so a socket run with no icon puts a popover in front of the person (the picker is a person's path; a script should get the typed refusal space.setIcon has, RoomStrings.iconArgumentRequired, which it reaches only with no window); the case passes the argument, the CLI and MCP path"
+      "note": "divergence, filed as p15-oracle-292: without an icon argument the handler opens the icon picker for any origin, so a socket run with no icon puts a popover in front of the person (the picker is a person's path; a script should get the typed refusal space.setIcon has, RoomStrings.iconArgumentRequired, which it reaches only with no window); the case passes the argument, the CLI and MCP path, whose answer is correct today"
     },
     "workspace.setTheme": {
       "params": {
@@ -1337,11 +1341,11 @@
       "error": "control.unavailable",
       "invariants": [
         "the launch's workspace has no page that plays or mutes sound: the run is refused with RefusalStrings.workspaceHasNoAudio",
-        "no facet changes: the refusal applies nothing"
+        "no facet changes: the refusal applies nothing",
+        "no restore step: the refusal changed nothing, so gen_actions.py (p15-oracle-071) runs no toggle again after an action step that expects an error"
       ],
       "untested": [
-        "muting a page that plays sound: no loopback page plays audio yet (p15-oracle-222's fixture server has none)",
-        "restore-1 runs the toggle again and expects ok, but the toggle is refused here, so the restore is refused too: gen_actions.py (p15-oracle-071) adds a toggle's restore even when its tuning names a typed error"
+        "muting a page that plays sound: no loopback page plays audio yet (p15-oracle-222's fixture server has none)"
       ]
     },
     "workspace.toggleTop": {
