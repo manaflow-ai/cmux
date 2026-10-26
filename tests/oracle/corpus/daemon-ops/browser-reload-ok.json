@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "chromium"
   ],
   "platforms": [
     "linux",
@@ -71,6 +73,16 @@
       }
     },
     {
+      "id": "wait-live",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/browsers/0/status",
+        "equals": "live",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -91,7 +103,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the live page reloads and the browser answers its BrowserSnapshot"
     }
   ],
   "invariants": [
@@ -100,5 +112,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked"
   ]
 }
