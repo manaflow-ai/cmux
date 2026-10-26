@@ -5,7 +5,9 @@
 //! Activation requires A2 to reject mounts under writable roots that are not
 //! whole filesystems, and G1 to reject group/world-writable roots. Shared-root
 //! resolve/check/perform serialization across daemon processes belongs to E1b/F.
-//! Stricter than Seatbelt: casefold directories are refused at every depth.
+//! Stricter than Seatbelt: only the filesystem allowlist below is supported;
+//! casefold directories and unverified flags on ext4/f2fs/tmpfs are refused.
+//! Device filesystems are traversed only for the existing /dev aliases/devices.
 //! Stricter: non-UTF-8 paths and anonymous/deleted proc-fd targets are refused.
 //! Opens use O_NONBLOCK while acquiring the fd (a FIFO without a reader fails
 //! ENXIO); the requested blocking mode is restored before handing it over.
@@ -100,27 +102,36 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
     resolve_with_flags(task, dir, path, flags, nspid, &directory_flags)
 }
 
-// Red-test seam for the filesystem allowlist; implemented after runner confirmation.
-fn classify_directory(_magic: u64, _flags: Result<c_long>) -> std::result::Result<(), String> {
-    Ok(())
+// Procfs is handled separately; device filesystem exceptions are path-scoped.
+fn classify_directory(magic: u64, flags: Result<c_long>) -> std::result::Result<(), String> {
+    let needs_flags = match magic {
+        0xef53 | 0xf2f5_2010 | 0x0102_1994 => true, // ext2/3/4, f2fs, tmpfs
+        0x5846_5342 | 0x9123_683e | 0x794c_7630 | 0x2fc1_2fc1 | 0xca45_1a4e => false,
+        _ => return Err(format!("unsupported filesystem magic {magic:#x}")),
+    };
+    match flags {
+        Ok(flags) if flags & 0x4000_0000 == 0 => Ok(()),
+        Err(ENOTTY | EOPNOTSUPP) if !needs_flags => Ok(()),
+        _ => Err(format!("casefold or unverified directory flags on filesystem {magic:#x}")),
+    }
 }
 
 fn proc_fd_number(name: &str) -> Result<u32> {
-    name.parse().map_err(|_| EACCES)
+    if name.is_empty()
+        || name.len() > 10
+        || (name.len() > 1 && name.starts_with('0'))
+        || !name.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(ENOENT);
+    }
+    name.parse::<i32>().map(|fd| fd as u32).map_err(|_| ENOENT)
 }
 
 // O_PATH descriptors cannot receive GETFLAGS; reopen the pinned directory.
 fn directory_flags(fd: RawFd) -> Result<c_long> {
     let readable = open_at(fd, ".", O_RDONLY | O_DIRECTORY | O_NONBLOCK, 0).map_err(|_| EACCES)?;
     let mut flags: c_long = 0;
-    if unsafe { ioctl(readable.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } < 0 {
-        // Filesystems without this inode-flags interface cannot enable Linux
-        // FS_CASEFOLD_FL. Unexpected failures are not treated as flag absence.
-        return match error() {
-            ENOTTY | EOPNOTSUPP => Ok(0),
-            _ => Err(EACCES),
-        };
-    }
+    checked(unsafe { ioctl(readable.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) })?;
     Ok(flags)
 }
 
@@ -137,10 +148,24 @@ fn resolve_with_flags(
         return Err(ENOENT);
     }
     let root = open_at(task, "root", O_PATH | O_DIRECTORY, 0).map_err(|_| EACCES)?;
-    let check_directory = |fd| {
-        if read_flags(fd)? & 0x4000_0000 != 0 { Err(EACCES) } else { Ok(()) }
+    let check_directory = |fd, device_route| {
+        let mut fs: statfs = unsafe { std::mem::zeroed() };
+        checked(unsafe { fstatfs(fd, &mut fs) }).map_err(|_| EACCES)?;
+        let flags = read_flags(fd);
+        // devtmpfs shares tmpfs's magic but may not implement GETFLAGS. Only
+        // traverse /dev toward the established aliases and literal devices.
+        if device_route
+            && fs.f_type as u64 == 0x0102_1994
+            && matches!(flags, Err(ENOTTY | EOPNOTSUPP))
+        {
+            return Ok(());
+        }
+        classify_directory(fs.f_type as u64, flags).map_err(|reason| {
+            eprintln!("sandbox directory refused: {reason}");
+            EACCES
+        })
     };
-    check_directory(root.as_raw_fd())?;
+    check_directory(root.as_raw_fd(), false)?;
     let mut directory_required = path.ends_with('/');
     let start = if path.starts_with('/') {
         path.to_owned()
@@ -250,7 +275,11 @@ fn resolve_with_flags(
             continue;
         }
         if metadata.st_mode & S_IFMT == S_IFDIR {
-            check_directory(pin.as_raw_fd())?;
+            let device_route = target == Path::new("/dev")
+                && ((queue.len() == 1
+                    && matches!(queue[0].as_str(), "null" | "zero" | "tty" | "stdout" | "stderr"))
+                    || (queue.len() == 2 && queue[0] == "fd"));
+            check_directory(pin.as_raw_fd(), device_route)?;
         } else if queue.is_empty() && directory_required {
             return Err(ENOTDIR);
         }
