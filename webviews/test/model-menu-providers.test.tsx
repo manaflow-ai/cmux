@@ -193,6 +193,7 @@ describe("groupVariants", () => {
     const groups = groupVariants(rows, rows[1]!.id);
     expect(groups).toHaveLength(1);
     expect(groups[0]!.offers).toHaveLength(1);
+    expect(groups[0]!.offers[0]!.model.id).toBe(rows[1]!.id);
     expect(groups[0]!.model.id).toBe(rows[1]!.id);
   });
 });
