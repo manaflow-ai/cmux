@@ -103,3 +103,11 @@ fn latest_code_block_bounds_json_and_masks_before_truncating() {
     assert_eq!(block["truncated"], true);
     assert!(block.to_string().len() <= MAX_FIELD_BYTES + 32);
 }
+
+#[test]
+fn latest_code_block_masks_secrets_decoded_from_markdown_info() {
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let block = extract("```AKIA&#81;7ZJ4XK2MD5P3WRT\necho ok\n```").unwrap();
+    assert!(!block.to_string().contains(&key), "{block}");
+    assert_eq!(block["language"], "[AWS access key]");
+}
