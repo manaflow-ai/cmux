@@ -70,7 +70,7 @@ final class TerminalThemeStore {
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = (try? await runner.runFiles(.userBlocking) { Self.read(url, logger: logger) }) ?? ([:], false)
+        let loaded = (try? await runner.runFiles(.userBlocking) { Self.read(url, logger: logger) }) ?? (themes: [:], complete: false)
         // A theme set before the file loaded wins.
         themes = loaded.themes.merging(themes) { _, current in current }
         keepsFile = !loaded.complete

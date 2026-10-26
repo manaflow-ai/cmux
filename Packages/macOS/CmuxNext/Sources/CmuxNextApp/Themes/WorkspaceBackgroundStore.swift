@@ -66,7 +66,7 @@ final class WorkspaceBackgroundStore {
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = (try? await runner.runFiles(.userBlocking) { TerminalThemeStore.read(url, logger: logger) }) ?? ([:], false)
+        let loaded = (try? await runner.runFiles(.userBlocking) { TerminalThemeStore.read(url, logger: logger) }) ?? (themes: [:], complete: false)
         // A background set before the file loaded wins.
         backgrounds = loaded.themes.merging(backgrounds) { _, current in current }
         keepsFile = !loaded.complete

@@ -87,13 +87,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
-    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.agent-pane.acpmux-host`): the
-    /// daemon lookup and start it runs (``AcpmuxDaemonLauncher``, the staged-file reads of ``putFile(sessionId:name:file:)``)
-    /// block a thread of its own, never a cooperative pool thread (the HomeCache pattern).
+    /// The daemon lookup, start and staged-file puts block this queue, never the pool (threading-model.md).
     // executor: com.cmuxterm.app.next.agent-pane.acpmux-host
     private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.acpmux-host", qos: .userInitiated)
-
-    /// Runs the actor on ``queue``.
     public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
@@ -220,7 +216,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, on: self) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -324,7 +320,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?,
+                                    on host: isolated AcpmuxHost) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {
