@@ -119,7 +119,7 @@ extension AppControl {
                     throw ControlError.invalidParams(String(localized: "runs.error.taskRequired", defaultValue: "A sandboxed run needs a task.", table: "Runs", bundle: .module))
                 }
                 let key = params["idempotencyKey"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
-                let api = try await Self.runsAPI(services)
+                let api = try await Self.runsAPI(services, requireLabs: true)
                 return try await Self.runJSON {
                     try await api.createSandboxRun(task: task, agent: params["agent"]?.stringValue, image: params["image"]?.stringValue,
                                                    timeoutMs: params["timeoutMs"]?.intValue, idempotencyKey: key)
@@ -128,12 +128,12 @@ extension AppControl {
             ControlMethod.async("runs.wait") { call in
                 let id = try Self.runID(call.params)
                 let wait = call.params["timeoutMs"]?.intValue ?? 10_000
-                let api = try await Self.runsAPI(services)
+                let api = try await Self.runsAPI(services, requireLabs: false)
                 return try await Self.runJSON { try await api.waitRun(id, timeoutMs: wait) }
             }.withDeadline(.fixed(.seconds(25))),
             ControlMethod.async("runs.cancel") { call in
                 let id = try Self.runID(call.params)
-                let api = try await Self.runsAPI(services)
+                let api = try await Self.runsAPI(services, requireLabs: false)
                 return try await Self.runJSON { try await api.cancelRun(id) }
             }.withDeadline(.fixed(.seconds(65))),
         ])
@@ -144,11 +144,13 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client, once Labs and the Cloud policy allow it.
-    nonisolated private static func runsAPI(_ services: AppServices) async throws -> CloudAPIClient {
+    /// The signed-in Cloud client, once the Cloud policy allows it. Labs gates only a new
+    /// sandboxed run (`requireLabs`): waiting on or cancelling one that exists stays open, so
+    /// turning Labs off mid-run never strands a billable VM.
+    nonisolated private static func runsAPI(_ services: AppServices, requireLabs: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
             if let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard services.settings?.snapshot.previewFeatures == true else {
+            guard !requireLabs || services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
             }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }
@@ -158,27 +160,43 @@ extension AppControl {
 
     /// One Run API call as JSON; the server's error code (`run_task_required`, …) passes through.
     nonisolated private static func runJSON(_ call: @Sendable () async throws -> Data) async throws -> JSONValue {
+        let data: Data
         do {
-            let data = try await call()
-            return data.isEmpty ? .object([:]) : try JSONValue.parse(data)
+            data = try await call()
         } catch let error as CloudAPIError {
-            switch error {
-            case .notSignedIn: throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module))
-            case .timedOut: throw ControlError(code: "timeout", message: error.description)
-            // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
-            case .http(401, _, _): throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module))
-            case .http(_, "run_sandbox_unavailable", _): throw ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
-            case .http(_, "run_image_invalid", _): throw ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
-            case .http(_, "run_agent_invalid", _): throw ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
-            case .http(_, "run_task_required", _): throw ControlError(code: "run_task_required", message: String(localized: "runs.error.taskInvalid", defaultValue: "A sandboxed run needs a task of at most 16,000 characters.", table: "Runs", bundle: .module))
-            case .http(_, "run_timeout_invalid", _): throw ControlError(code: "run_timeout_invalid", message: String(localized: "runs.error.timeoutInvalid", defaultValue: "The timeout must be 30 to 720 seconds.", table: "Runs", bundle: .module))
-            // A server or rate-limit refusal says nothing about the run: the caller may wait again.
-            case .http(let status, let code, _) where status >= 500 || status == 429:
-                throw ControlError(code: "unavailable", message: error.description, data: .object(["status": .number(Double(status)), "code": code.map(JSONValue.string) ?? .null]))
-            case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
-            case .noBackend, .transport: throw ControlError(code: "unavailable", message: error.description)
-            case .decoding: throw ControlError(code: "bad_response", message: error.description)
-            }
+            throw runError(error)
+        }
+        // A 2xx the app can't read says nothing about the run: `bad_response`, which the CLI
+        // treats as "the run may exist" on a create and waits through on a wait.
+        guard !data.isEmpty else { return .object([:]) }
+        do { return try JSONValue.parse(data) } catch {
+            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "cmux.com sent an answer the app couldn't read.", table: "Runs", bundle: .module))
+        }
+    }
+
+    /// The control error a Run API failure answers with (internal for its tests).
+    nonisolated static func runError(_ error: CloudAPIError) -> ControlError {
+        let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)
+        switch error {
+        case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
+        case .timedOut: return ControlError(code: "timeout", message: error.description)
+        // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
+        case .http(401, _, _, _, _): return ControlError(code: "not_signed_in", message: notSignedIn)
+        case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
+        case .http(_, "run_image_invalid", _, _, _): return ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
+        case .http(_, "run_agent_invalid", _, _, _): return ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
+        case .http(_, "run_task_required", _, _, _): return ControlError(code: "run_task_required", message: String(localized: "runs.error.taskInvalid", defaultValue: "A sandboxed run needs a task of at most 16,000 characters.", table: "Runs", bundle: .module))
+        case .http(_, "run_timeout_invalid", _, _, _): return ControlError(code: "run_timeout_invalid", message: String(localized: "runs.error.timeoutInvalid", defaultValue: "The timeout must be 30 to 720 seconds.", table: "Runs", bundle: .module))
+        // The rate limit answers before anything is stored: a definite refusal, not "may have started".
+        case .http(429, let code, _, _, _): return ControlError(code: "rate_limited", message: error.description, data: .object(["status": .number(429), "code": code.map(JSONValue.string) ?? .null]))
+        // A server failure says nothing about the run: the caller may wait again.
+        case .http(let status, let code, _, _, _) where status >= 500:
+            return ControlError(code: "unavailable", message: error.description, data: .object(["status": .number(Double(status)), "code": code.map(JSONValue.string) ?? .null]))
+        case .http(let status, let code, _, _, _): return ControlError(code: code ?? "http_\(status)", message: error.description)
+        // No backend configured: nothing was sent.
+        case .noBackend: return ControlError(code: "no_backend", message: error.description)
+        case .transport: return ControlError(code: "unavailable", message: error.description)
+        case .decoding: return ControlError(code: "bad_response", message: error.description)
         }
     }
 }

@@ -68,3 +68,19 @@ struct CloudAPIClientRunTests {
         }
     }
 }
+
+/// What the CLI acts on: a definite refusal (rate limit, no backend) is never "the run may have
+/// started", a server failure or an unreadable answer is, and an expired session is a sign-in.
+@Suite struct RunErrorMappingTests {
+    @Test func eachRunAPIFailureMapsToTheCodeTheCLIActsOn() {
+        #expect(AppControl.runError(.http(status: 401, code: nil, message: nil)).code == "not_signed_in")
+        #expect(AppControl.runError(.http(status: 403, code: "run_sandbox_unavailable", message: nil)).code == "run_sandbox_unavailable")
+        #expect(AppControl.runError(.http(status: 429, code: "rate_limited", message: nil, action: nil, traceId: "t1")).code == "rate_limited")
+        #expect(AppControl.runError(.http(status: 503, code: nil, message: nil)).code == "unavailable")
+        #expect(AppControl.runError(.http(status: 404, code: "run_not_found", message: nil)).code == "run_not_found")
+        #expect(AppControl.runError(.noBackend(URL(string: "http://127.0.0.1:1")!)).code == "no_backend")
+        #expect(AppControl.runError(.transport("offline")).code == "unavailable")
+        #expect(AppControl.runError(.decoding("bad")).code == "bad_response")
+        #expect(AppControl.runError(.timedOut("/api/runs")).code == "timeout")
+    }
+}

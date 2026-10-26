@@ -133,6 +133,138 @@
         }
       }
     },
+    "runs.error.badResponse": {
+      "comment": "A sandboxed run call got a reply from cmux.com that the app could not parse.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com sent an answer the app couldn't read."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com hat eine Antwort gesendet, die die App nicht lesen konnte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com a envoyé une réponse que l'app n'a pas pu lire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل cmux.com ردًا تعذّر على التطبيق قراءته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com envió una respuesta que la app no pudo leer."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 傳回了 App 無法讀取的回應。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com 返回了 App 无法读取的响应。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com이 앱에서 읽을 수 없는 응답을 보냈습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com からアプリが読み取れない応答が返されました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com je poslao odgovor koji aplikacija nije mogla pročitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com sendte et svar, som appen ikke kunne læse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com ha inviato una risposta che l'app non è riuscita a leggere."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com បានផ្ញើចម្លើយដែលកម្មវិធីមិនអាចអានបាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com sendte et svar appen ikke kunne lese."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com wysłał odpowiedź, której aplikacja nie mogła odczytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux.com enviou uma resposta que o app não conseguiu ler."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com прислал ответ, который приложение не смогло прочитать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com ส่งคำตอบที่แอปอ่านไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com, uygulamanın okuyamadığı bir yanıt gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com надіслав відповідь, яку застосунок не зміг прочитати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux.com đã gửi một phản hồi mà ứng dụng không đọc được."
+          }
+        }
+      }
+    },
     "runs.error.idRequired": {
       "comment": "runs.wait or runs.cancel refusal when no Run id was given.",
       "extractionState": "manual",
