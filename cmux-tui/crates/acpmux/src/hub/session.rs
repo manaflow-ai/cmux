@@ -154,6 +154,10 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
+    /// one it started itself for a task notification, which acpmux never prompted and
+    /// `turn` does not show (`subagent_retry.rs` waits for its end).
+    pub(super) harness_turn: AtomicBool,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end

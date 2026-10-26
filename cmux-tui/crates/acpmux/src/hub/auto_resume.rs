@@ -151,7 +151,7 @@ pub(super) fn check_cut(
 }
 
 /// Up to a fifth more than `delay`, the same for a chat each time.
-fn staggered(delay: u64, session_id: &str) -> u64 {
+pub(super) fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     session_id.hash(&mut h);
