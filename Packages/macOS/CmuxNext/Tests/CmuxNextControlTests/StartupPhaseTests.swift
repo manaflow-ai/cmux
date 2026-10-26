@@ -72,7 +72,7 @@ import Testing
         startup.noteLaunch(.window)
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(1_500))
-        _ = await claims.first { _ in true }
+        _ = await claims.first { @Sendable _ in true }
         // Main resumes here before the claimed deadline's hop: the frame comes first.
         startup.noteFirstFrame()
         #expect(startup.revealCause == .firstFrame)
@@ -227,7 +227,7 @@ import Testing
         let keeper = StartupLinkKeeper(on: work)
         let value = Task { @MainActor in await work.apply(.background, owner: "favicons.load") { 42 } }
         // Event-driven: the report itself resumes the test.
-        let first = await reports.first { _ in true }
+        let first = await reports.first { @Sendable _ in true }
         #expect(first?.work == .background)
         #expect(first?.owner == "favicons.load")
         #expect(first?.phase == .launching)
