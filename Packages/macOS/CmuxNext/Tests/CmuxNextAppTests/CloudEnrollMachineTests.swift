@@ -36,6 +36,7 @@ struct CloudEnrollMachineTests {
         let command = Self.enrollment.authorizeCommand
         #expect(command.contains("awk -v k='AAAAC3NzaC1lZDI1NTE5AAAAIE37Tl/9rijUPR8Dvy6OrvbHfOcb5zbYWEs2QJqEehL2'"), "a rerun matches the whole key, not a substring")
         #expect(command.contains(#"[ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f""#), "a file without a final newline gets one first")
+        #expect(command.contains(#"as_u env HOME="#), "the key goes to the cmux user's file whichever account the exec uses")
         #expect(command.contains("'\(Self.key) cmux-enroll:lane-vm-1'"))
         #expect(command.hasSuffix("cat /etc/ssh/ssh_host_ed25519_key.pub"))
     }

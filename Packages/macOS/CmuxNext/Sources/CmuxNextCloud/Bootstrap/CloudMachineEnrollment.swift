@@ -53,17 +53,21 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         return inet_pton(AF_INET, text, &v4) == 1 || inet_pton(AF_INET6, text, &v6) == 1
     }
 
-    /// Runs as the machine's user (the public exec's account, uid 1000 `cmux`): authorizes the
-    /// key once, starts sshd, prints the host key.
+    /// Authorizes the key once for the image's work user `cmux` (the ssh `User`), starts sshd and
+    /// prints the host key. The exec may run as root or as that user, so the key file is edited
+    /// as `cmux` either way (`as_u`), and root work goes through `root` (sudo when not root).
     public var authorizeCommand: String {
         let line = shellQuoted("\(publicKey) cmux-enroll:\(name)")
         let blob = shellQuoted(String(publicKey.dropFirst("ssh-ed25519 ".count)))
+        // A key already there is a whole `ssh-ed25519 <blob>` pair, not a substring of another line;
+        // a file without a final newline gets one before the new key.
+        let edit = #"umask 077; mkdir -p "$HOME/.ssh"; f="$HOME/.ssh/authorized_keys"; touch "$f"; if ! awk -v k=\#(blob) '{ for (i = 1; i < NF; i++) if ($i == "ssh-ed25519" && $(i + 1) == k) found = 1 } END { exit !found }' "$f"; then [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f"; printf '%s\n' \#(line) >> "$f"; fi; chmod 600 "$f""#
         return [
-            "set -eu", "umask 077", #"mkdir -p "$HOME/.ssh""#, #"f="$HOME/.ssh/authorized_keys""#, #"touch "$f""#,
-            // A key already there is a whole `ssh-ed25519 <blob>` pair, not a substring of another line.
-            #"if ! awk -v k=\#(blob) '{ for (i = 1; i < NF; i++) if ($i == "ssh-ed25519" && $(i + 1) == k) found = 1 } END { exit !found }' "$f"; then [ ! -s "$f" ] || [ -z "$(tail -c 1 "$f")" ] || printf '\n' >> "$f"; printf '%s\n' \#(line) >> "$f"; fi"#,
-            #"chmod 600 "$HOME/.ssh/authorized_keys""#,
-            "sudo -n systemctl enable --now ssh >/dev/null 2>&1 || sudo -n systemctl start ssh",
+            "set -eu", "u=cmux",
+            #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#,
+            #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#,
+            #"as_u env HOME="$(getent passwd "$u" | cut -d: -f6)" sh -c \#(shellQuoted(edit))"#,
+            "root systemctl enable --now ssh >/dev/null 2>&1 || root systemctl start ssh",
             "cat /etc/ssh/ssh_host_ed25519_key.pub",
         ].joined(separator: "; ")
     }
