@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -77,6 +78,36 @@ struct CloudStartSessionTests {
         #expect(refusal == CloudStartSessionStrings.notInChat)
         let mcp = try Self.refusal(f.services, Self.invocation(["agent": .string("claude"), "name": .string("dev")], origin: .mcp))
         #expect(mcp == CloudStartSessionStrings.notInChat)
+    }
+
+    /// An agent in a chat on a Cloud machine (one this command started) asks in that chat too.
+    @Test func anAgentInAChatOnACloudMachineIsFound() throws {
+        let f = Self.fixture()
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:vm-x", session: "remote-session-1", harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
+        f.session.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let found = try #require(CloudStartSession.chat("remote-session-1", services: f.services), "the machine's chat was not found")
+        #expect(found.agentSession?.session == "remote-session-1")
+        #expect(CloudStartSession.chat("no-such-session", services: f.services) == nil)
+    }
+
+    @Test func aRunStillStartingAnswersPendingWithWhatToRunNext() async throws {
+        let request = CloudStartSession.Request(machineID: "vm-a", name: nil, agent: "claude", cwd: nil)
+        let pending = CloudStartSession.pending(request)
+        #expect(pending["pending"] == .bool(true))
+        #expect(pending["machine_id"] == .string("vm-a"))
+        #expect(pending["text"] == .string(CloudStartSessionStrings.stillStarting))
+        // Through the race: the caller's wait ends before the run.
+        let runs = CloudStartSessionRuns()
+        runs.sleep = { _ in }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        let answered = try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: CloudStartSession.answerWithin, pending: pending) {
+            for await _ in gate { break }
+            return ["session_id": .string("s")]
+        }
+        #expect(answered["pending"] == .bool(true) && answered["session_id"] == nil)
     }
 
     @Test func aCardThatCannotShowStartsNothingAndLeavesNoAskOpen() async {
@@ -323,5 +354,25 @@ struct CloudStartSessionTests {
             _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, failing)
         }
         #expect(runs.count == 0)
+    }
+
+    @Test func runsThatEndTogetherKeepAtMostTheLimit() async throws {
+        let runs = CloudStartSessionRuns()
+        runs.sleep = { _ in }
+        let total = CloudStartSessionRuns.limit + 8
+        let keys = (0..<total).map { CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-\($0)", name: nil, agent: "claude", cwd: nil), caller: nil) }
+        // One gate per run: a stream has one reader at a time.
+        let gates = keys.map { _ in AsyncStream<Void>.makeStream() }
+        defer { for gate in gates { gate.continuation.finish() } }
+        for (key, gate) in zip(keys, gates) {
+            _ = try await runs.answer(key, within: .seconds(190), pending: Self.pending) {
+                for await _ in gate.stream { break }
+                return ["session_id": .string("s")]
+            }
+        }
+        // Every caller answered pending; now every run ends.
+        for gate in gates { gate.continuation.yield(()) }
+        for key in keys { await runs.settled(key) }
+        #expect(runs.keptCount <= CloudStartSessionRuns.limit)
     }
 }

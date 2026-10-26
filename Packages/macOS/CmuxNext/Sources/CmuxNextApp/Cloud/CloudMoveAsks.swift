@@ -171,7 +171,7 @@ final class CloudMoveAsks {
     }
 
     /// The local chat tab of agent session `session`, with its pane.
-    static func chat(_ session: String, services: AppServices) -> (TabModel, PaneModel)? {
+    private static func chat(_ session: String, services: AppServices) -> (TabModel, PaneModel)? {
         let tabs = services.agentTabs
         for pane in services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes) {
             if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }

@@ -92,7 +92,7 @@ final class CloudStartSessionAsks {
 /// goes on waits for that run. A run that ends with a caller still waiting has reached it and is
 /// dropped; one that ends after every caller answered `pending` is kept for the next same ask,
 /// which gets its end once. A kept run lasts at most ``kept`` (checked on every ask) and at most
-/// ``limit`` are kept, pruned when a run starts; no timer.
+/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer.
 @MainActor
 final class CloudStartSessionRuns {
     struct Key: Hashable {
@@ -182,7 +182,12 @@ final class CloudStartSessionRuns {
             do { outcome = .success(try await work()) } catch { outcome = .failure(error) }
             run.outcome = outcome
             if let self, runs[key] === run {
-                if run.waiting > 0 { runs[key] = nil } else { run.kept = now() }
+                if run.waiting > 0 {
+                    runs[key] = nil
+                } else {
+                    run.kept = now()
+                    trim(keeping: Self.limit)
+                }
             }
             return outcome
         }
@@ -194,10 +199,16 @@ final class CloudStartSessionRuns {
 
     var count: Int { runs.count }
 
-    private func prune() {
+    /// Drops expired kept runs, then the oldest kept ones beyond `keeping`.
+    private func trim(keeping: Int) {
         let cutoff = now() - Self.kept
         runs = runs.filter { $0.value.kept.map { $0 > cutoff } ?? true }
         let kept = runs.compactMap { key, run in run.kept.map { (key, $0) } }.sorted { $0.1 < $1.1 }
-        for (key, _) in kept.prefix(max(0, kept.count - Self.limit + 1)) { runs[key] = nil }
+        for (key, _) in kept.prefix(max(0, kept.count - keeping)) { runs[key] = nil }
     }
+
+    /// Before a new run: room for it among the kept ones.
+    private func prune() { trim(keeping: Self.limit - 1) }
+
+    var keptCount: Int { runs.values.filter { $0.kept != nil }.count }
 }

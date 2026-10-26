@@ -49,7 +49,7 @@ struct CloudStartSession {
                 }
             }
             guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-            guard let caller = invocation.callerAgentSession, let (tab, _) = CloudMoveAsks.chat(caller, services: services) else {
+            guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
                 throw ActionFailure(message: CloudStartSessionStrings.notInChat)
             }
             let shown = request.machineID.flatMap { services.machines.session($0)?.machine.title }
@@ -85,10 +85,22 @@ struct CloudStartSession {
     static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
 
     static func pending(_ request: Request) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["agent": .string(request.agent), "text": .string(CloudStartSessionStrings.stillStarting)]
+        var fields: [String: ActionResultValue] = ["pending": .bool(true), "agent": .string(request.agent), "text": .string(CloudStartSessionStrings.stillStarting)]
         if let id = request.machineID { fields["machine_id"] = .string(id) }
         if let name = request.name { fields["machine_name"] = .string(name) }
         return fields
+    }
+
+    /// The chat tab of agent session `session` on any machine: a chat on this Mac, or one on a
+    /// Cloud machine (a session this command started there may start another).
+    static func chat(_ session: String, services: AppServices) -> TabModel? {
+        let tabs = services.agentTabs
+        for (workspace, _) in services.machines.allWorkspaces {
+            for pane in workspace.screens.flatMap(\.panes) {
+                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return tab }
+            }
+        }
+        return nil
     }
 
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder.
