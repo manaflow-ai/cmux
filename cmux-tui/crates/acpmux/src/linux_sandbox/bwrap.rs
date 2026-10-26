@@ -467,7 +467,7 @@ mod tests {
     }
 
     /// The child is killed on the 20-second deadline. Shell loops exhaust
-    /// finite /proc and /proc/net/dev snapshots; no background jobs are made.
+    /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
     async fn real_bwrap_isolates_mounts_processes_and_network() {
         let bwrap = Path::new("/usr/bin/bwrap");
@@ -494,10 +494,11 @@ mod tests {
         let memory = p.claude_project.join("memory/keep");
         fs::write(&memory, "unchanged").unwrap();
         let host_pid_ns = fs::read_link("/proc/self/ns/pid").unwrap();
+        let host_net_ns = fs::read_link("/proc/self/ns/net").unwrap();
         let script = r#"
 set -eu
-outside=$1; secret=$2; secrets=$3; tmp=$4; scratch=$5; project=$6; host_pid_ns=$7
-file_marker=$8; directory_marker=$9
+outside=$1; secret=$2; secrets=$3; tmp=$4; scratch=$5; project=$6; host_pid_ns=$7; host_net_ns=$8
+file_marker=$9; directory_marker=${10}
 fail() { code=$1; shift; printf 'check %s: %s\n' "$code" "$*" >&2; exit "$code"; }
 # A nodev /dev/null mask can deny the open instead of returning EOF.
 # Capture stdout even on failure, so partial disclosure cannot pass.
@@ -543,35 +544,33 @@ if [ "$count" -gt 4 ]; then
     fail 30 "too many visible processes: count=$count entries=<$entries>"
 fi
 
-# Kernel modules can create down fallback devices (tunl0, gre0, ...). They
-# are harmless when IFF_UP is clear, so check flags rather than names.
-for net_path in /sys/class/net/*; do
-    iface=${net_path##*/}
-    flags=$(cat "$net_path/flags" 2>&1) || fail 31 "interface flags read failed: iface=$iface status=$? output=<$flags>"
-    flags_num=$(printf '%d' "$flags" 2>&1) || fail 32 "interface flags parse failed: iface=$iface flags=<$flags> output=<$flags_num>"
-    up=$((flags_num & 1))
-    if [ "$up" -ne 0 ] && [ "$iface" != lo ]; then
-        fail 33 "non-loopback interface is UP: iface=$iface flags=<$flags> decimal=$flags_num up=$up"
-    fi
-done
-
-ipv6_data=$(cat /proc/net/if_inet6 2>&1) || fail 34 "IPv6 address table read failed: status=$? output=<$ipv6_data>"
-bad_ipv6=$(printf '%s\n' "$ipv6_data" | awk 'NF >= 6 && $1 != "00000000000000000000000000000001" { print $0 }') || fail 35 "IPv6 address inspection failed: status=$? data=<$ipv6_data>"
-case "$bad_ipv6" in '') ;; *) fail 36 "non-loopback IPv6 address: observed=<$bad_ipv6> all=<$ipv6_data>";; esac
-
-fib_data=$(cat /proc/net/fib_trie 2>&1) || fib_data=
-if [ -n "$fib_data" ]; then
-    bad_ipv4=$(printf '%s\n' "$fib_data" | awk '/\|--/ && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $2 !~ /^0\./ && $2 !~ /^127\./ { print $2 }') || fail 37 "IPv4 address inspection failed: status=$? data=<$fib_data>"
-    case "$bad_ipv4" in '') ;; *) fail 38 "non-loopback IPv4 address: observed=<$bad_ipv4>";; esac
-else
-    route_data=$(cat /proc/net/route 2>&1) || fail 39 "route table read failed: status=$? output=<$route_data>"
-    bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF >= 1 && $1 != "lo" { print $0 }') || fail 40 "route inspection failed: status=$? data=<$route_data>"
-    case "$bad_route" in '') ;; *) fail 41 "non-loopback route: observed=<$bad_route> all=<$route_data>";; esac
+# The host's sysfs mount describes its network namespace. Use only the
+# per-reader /proc view here; loaded modules may create fallback devices.
+self_net_ns=$(readlink /proc/self/ns/net 2>&1) || fail 31 "network namespace readlink failed: status=$? output=<$self_net_ns>"
+case "$self_net_ns" in '') fail 32 "network namespace empty: observed=<$self_net_ns>";; esac
+if [ "$self_net_ns" = "$host_net_ns" ]; then
+    fail 33 "network namespace not isolated: sandbox=<$self_net_ns> host=<$host_net_ns>"
 fi
+net_data=$(cat /proc/net/dev 2>&1) || fail 34 "network interface table read failed: status=$? output=<$net_data>"
+bad_iface=$(printf '%s\n' "$net_data" | awk -F: '/:/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); if ($1 !~ /^(lo|tunl0|gre0|gretap0|erspan0|ip_vti0|ip6_vti0|sit0|ip6tnl0|ip6gre0)$/) print $0 }') || fail 35 "interface inspection failed: status=$? data=<$net_data>"
+case "$bad_iface" in '') ;; *) fail 36 "unexpected interface: observed=<$bad_iface> all=<$net_data>";; esac
 
-route_data=$(cat /proc/net/route 2>&1) || fail 42 "route table read failed: status=$? output=<$route_data>"
-bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF >= 1 && $1 != "lo" { print $0 }') || fail 43 "route inspection failed: status=$? data=<$route_data>"
-case "$bad_route" in '') ;; *) fail 44 "non-loopback route: observed=<$bad_route> all=<$route_data>";; esac
+ipv6_data=$(cat /proc/net/if_inet6 2>&1) || fail 37 "IPv6 address table read failed: status=$? output=<$ipv6_data>"
+bad_ipv6=$(printf '%s\n' "$ipv6_data" | awk 'NF && (NF != 6 || $1 != "00000000000000000000000000000001") { print $0 }') || fail 38 "IPv6 address inspection failed: status=$? data=<$ipv6_data>"
+case "$bad_ipv6" in '') ;; *) fail 39 "non-loopback IPv6 address: observed=<$bad_ipv6> all=<$ipv6_data>";; esac
+
+fib_data=$(cat /proc/net/fib_trie 2>&1) || fail 40 "IPv4 address table read failed: status=$? output=<$fib_data>"
+# Each leaf address precedes its /prefix scope/type line. Only LOCAL
+# entries are assigned addresses; UNICAST/BROADCAST entries are not.
+bad_ipv4=$(printf '%s\n' "$fib_data" | awk '/\|--/ { address=$2 } $NF == "LOCAL" && address !~ /^127\.[0-9]+\.[0-9]+\.[0-9]+$/ { print "address=<" address "> " $0 }') || fail 41 "IPv4 LOCAL address inspection failed: status=$? data=<$fib_data>"
+case "$bad_ipv4" in '') ;; *) fail 42 "non-loopback IPv4 LOCAL address: observed=<$bad_ipv4> all=<$fib_data>";; esac
+
+route_data=$(cat /proc/net/route 2>&1) || fail 43 "IPv4 route table read failed: status=$? output=<$route_data>"
+bad_route=$(printf '%s\n' "$route_data" | awk 'NR > 1 && NF { print $0 }') || fail 44 "IPv4 route inspection failed: status=$? data=<$route_data>"
+case "$bad_route" in '') ;; *) fail 45 "unexpected IPv4 route: observed=<$bad_route> all=<$route_data>";; esac
+ipv6_route_data=$(cat /proc/net/ipv6_route 2>&1) || fail 46 "IPv6 route table read failed: status=$? output=<$ipv6_route_data>"
+bad_ipv6_route=$(printf '%s\n' "$ipv6_route_data" | awk 'NF && (NF != 10 || $10 != "lo") { print $0 }') || fail 47 "IPv6 route inspection failed: status=$? data=<$ipv6_route_data>"
+case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<$bad_ipv6_route> all=<$ipv6_route_data>";; esac
 "#;
         let mut command = strings(&["/bin/sh", "-c", script, "acpmux-bwrap-test"]);
         command.extend(
@@ -583,6 +582,7 @@ case "$bad_route" in '') ;; *) fail 44 "non-loopback route: observed=<$bad_route
                 &p.claude_tmp_project,
                 &p.claude_project,
                 &host_pid_ns,
+                &host_net_ns,
             ]
             .into_iter()
             .map(|path| path.to_str().unwrap().to_owned()),
