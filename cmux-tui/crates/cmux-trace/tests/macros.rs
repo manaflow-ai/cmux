@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 
 use cmux_trace::names::{CATALOG, catalog_id};
 use cmux_trace::{
-    Decoded, DecodedRecord, FLAG_ID, NameKind, Phase, Role, SCOPE_STACK_DEPTH, category, decode,
-    scope_stack, trace_async_begin, trace_async_end, trace_counter, trace_flow_in, trace_flow_out,
-    trace_instant, trace_scope,
+    CatalogName, Decoded, DecodedRecord, FLAG_ID, NameKind, Phase, Role, SCOPE_STACK_DEPTH,
+    TracerConfig, category, decode, scope_stack, trace_async_begin, trace_async_end, trace_counter,
+    trace_flow_in, trace_flow_out, trace_instant, trace_scope,
 };
 
 struct Counting;
@@ -77,13 +77,15 @@ fn child_process() {
         Some("points") => child_points(&dir),
         Some("stack") => child_stack(&dir),
         Some("alloc") => child_alloc(&dir),
+        Some("rings") => child_rings(&dir),
+        Some("catalog") => child_catalog(&dir),
         other => panic!("unknown child mode {other:?}"),
     }
 }
 
-/// Starts the black box as the daemon with the shared catalog and waits for its file.
+/// Starts the black box as the daemon and waits for its file.
 fn start(dir: &Path) {
-    cmux_trace::init_blackbox(dir, Role::Daemon, CATALOG)
+    cmux_trace::init_blackbox(dir, Role::Daemon)
         .expect("first init")
         .wait()
         .expect("the black box moved into its file");
@@ -207,6 +209,81 @@ fn nested_scopes_decode_as_nested_begin_end_pairs() {
     run_child("nested");
 }
 
+// MARK: scopes across trace.start and trace.stop
+
+/// The B/E records of `decoded`, paired per thread: (tags of whole pairs, tags of open begins). A
+/// begin's tag is its `arg0`, and its end carries the same tag (`set_end_args`). Panics on an end
+/// with no open begin, or one that closes another scope's begin.
+fn pairs(decoded: &Decoded) -> (Vec<u64>, Vec<u64>) {
+    let mut by_thread: HashMap<(u32, u32), Vec<DecodedRecord>> = HashMap::new();
+    for record in &decoded.records {
+        by_thread.entry((record.thread_index, record.thread_generation)).or_default().push(*record);
+    }
+    let (mut whole, mut open_tags) = (Vec::new(), Vec::new());
+    for records in by_thread.values_mut() {
+        records.sort_by_key(|record| (record.position, record.slot));
+        let mut open: Vec<DecodedRecord> = Vec::new();
+        for record in records.iter() {
+            match Phase::from_raw(record.phase) {
+                Some(Phase::Begin) => open.push(*record),
+                Some(Phase::End) => {
+                    let begin = open.pop().unwrap_or_else(|| {
+                        panic!("an E with no B: {} tag {}", text(decoded, record), record.arg0)
+                    });
+                    assert_eq!(
+                        (begin.name, begin.arg0),
+                        (record.name, record.arg0),
+                        "an E closed another B"
+                    );
+                    whole.push(begin.arg0);
+                }
+                _ => {}
+            }
+        }
+        open_tags.extend(open.iter().map(|record| record.arg0));
+    }
+    whole.sort_unstable();
+    open_tags.sort_unstable();
+    (whole, open_tags)
+}
+
+fn tagged_scope(tag: u64) -> cmux_trace::ScopeGuard {
+    let mut scope = trace_scope!(daemon, "daemon.request", tag);
+    scope.set_end_args(tag, 0u64);
+    scope
+}
+
+fn child_rings(dir: &Path) {
+    start(dir);
+    let read = |path: &Path| decode(&std::fs::read(path).expect("reads")).expect("decodes");
+    let open_across_start = tagged_scope(1);
+    cmux_trace::start_recording(0).expect("starts the first recording");
+    drop(open_across_start);
+    drop(tagged_scope(2));
+    let open_across_restart = tagged_scope(3);
+    let first = cmux_trace::stop().expect("stops the first recording");
+    let recording = first.recording_path.expect("a recording file");
+    assert_eq!(pairs(&read(&recording)), (vec![2], vec![3]), "the first recording");
+
+    // The second recording reuses the ring slot; a scope of the first ends in neither.
+    cmux_trace::start_recording(0).expect("starts the second recording");
+    drop(open_across_restart);
+    drop(tagged_scope(4));
+    let open_across_stop = tagged_scope(5);
+    cmux_trace::stop().expect("stops the second recording");
+    drop(open_across_stop);
+    assert_eq!(pairs(&read(&recording)), (vec![4], vec![5]), "the second recording");
+
+    drop(tagged_scope(6));
+    let blackbox = cmux_trace::status().and_then(|status| status.blackbox_path).expect("a file");
+    assert_eq!(pairs(&read(&blackbox)), (vec![6], vec![1]), "the black box");
+}
+
+#[test]
+fn a_scope_open_across_start_or_stop_leaves_no_end_without_its_begin() {
+    run_child("rings");
+}
+
 // MARK: async
 
 fn child_async(dir: &Path) {
@@ -304,6 +381,7 @@ fn instants_flows_and_counters_record_their_phase_and_numbers() {
 
 fn nest(level: u32, deepest: &mut Option<cmux_trace::ScopeStack>) {
     if level == 0 {
+        let _innermost = trace_scope!(action, "action.perform");
         *deepest = Some(scope_stack());
         return;
     }
@@ -326,13 +404,26 @@ fn child_stack(dir: &Path) {
     }
     assert_eq!(scope_stack().depth(), 0, "the guards popped their scopes");
 
-    // Deeper than the stack keeps: the depth counts every scope, the outermost 16 are named.
+    // Deeper than the stack keeps: the depth counts every scope, the innermost 16 are named.
     let mut deepest = None;
     nest(SCOPE_STACK_DEPTH as u32 + 4, &mut deepest);
     let deepest = deepest.expect("reached the bottom");
-    assert_eq!(deepest.depth(), SCOPE_STACK_DEPTH as u32 + 4);
-    assert_eq!(deepest.sites().count(), SCOPE_STACK_DEPTH);
+    assert_eq!(deepest.depth(), SCOPE_STACK_DEPTH as u32 + 5);
+    let names: Vec<&str> = deepest.names().collect();
+    assert_eq!(names.len(), SCOPE_STACK_DEPTH);
+    assert_eq!(names[0], "action.perform", "the innermost scope is named first");
+    assert!(names[1..].iter().all(|name| *name == "daemon.request.nested"));
     assert_eq!(scope_stack().depth(), 0, "the deep scopes popped");
+
+    // Deeper than the stack has slots: the innermost scope is still named first.
+    let mut deepest = None;
+    nest(3 * SCOPE_STACK_DEPTH as u32, &mut deepest);
+    let deepest = deepest.expect("reached the bottom");
+    assert_eq!(deepest.depth(), 3 * SCOPE_STACK_DEPTH as u32 + 1);
+    let names: Vec<&str> = deepest.names().collect();
+    assert_eq!(names.len(), SCOPE_STACK_DEPTH);
+    assert_eq!(names[0], "action.perform", "the innermost scope is named first");
+    assert_eq!(scope_stack().depth(), 0, "the deeper scopes popped");
 
     // A guard dropped out of order takes the scopes above it off the stack.
     let outer = trace_scope!(daemon, "daemon.request");
@@ -341,8 +432,22 @@ fn child_stack(dir: &Path) {
     assert_eq!(scope_stack().depth(), 0);
     drop(inner);
     assert_eq!(scope_stack().depth(), 0);
-    let _again = trace_scope!(daemon, "daemon.request");
+    let again = trace_scope!(daemon, "daemon.request");
     assert_eq!(scope_stack().names().collect::<Vec<_>>(), ["daemon.request"]);
+    drop(again);
+
+    // A guard taken off the stack out of order leaves alone the scopes opened at its depth since.
+    let outer = trace_scope!(daemon, "daemon.request");
+    let inner = trace_scope!(daemon, "daemon.request.parse");
+    drop(outer);
+    let x = trace_scope!(action, "action.perform");
+    let y = trace_scope!(action, "action.commit");
+    drop(inner);
+    assert_eq!(scope_stack().names().collect::<Vec<_>>(), ["action.commit", "action.perform"]);
+    drop(y);
+    assert_eq!(scope_stack().names().collect::<Vec<_>>(), ["action.perform"]);
+    drop(x);
+    assert_eq!(scope_stack().depth(), 0);
 }
 
 #[test]
@@ -373,6 +478,26 @@ fn child_alloc(dir: &Path) {
 #[test]
 fn a_recorded_trace_point_allocates_nothing() {
     run_child("alloc");
+}
+
+// MARK: catalog
+
+fn child_catalog(dir: &Path) {
+    static OTHER: [CatalogName; 1] =
+        [CatalogName { id: 1, kind: NameKind::Catalog, category: 0, text: "action.dispatch" }];
+    cmux_trace::init_process(TracerConfig::for_process(dir, Role::Daemon, &OTHER))
+        .expect("first init")
+        .wait()
+        .expect("the black box moved into its file");
+    trace_instant!(action, "action.perform");
+    let decoded = snapshot();
+    let record = decoded.records.first().expect("the instant");
+    assert_eq!(text(&decoded, record), "action.perform", "the process ring took another catalog");
+}
+
+#[test]
+fn the_process_ring_always_names_the_shared_catalog() {
+    run_child("catalog");
 }
 
 // MARK: catalog
@@ -434,6 +559,10 @@ fn the_catalog_is_swifts_signpost_name_table() {
         ("ghostty", category::GHOSTTY),
         ("resize", category::RESIZE),
     ];
+    assert_eq!(category::NAMES.len(), categories.len());
+    for (text, mask) in categories {
+        assert_eq!(category::NAMES[mask.trailing_zeros() as usize], text, "category::NAMES");
+    }
     for name in CATALOG {
         assert_eq!(name.kind, NameKind::Catalog);
         let prefix = name.text.split('.').next().expect("a prefix");
@@ -445,4 +574,37 @@ fn the_catalog_is_swifts_signpost_name_table() {
         assert_eq!(catalog_id(name.text), name.id);
     }
     assert_eq!(catalog_id("daemon.request.parse"), 0, "an unknown name has no catalog id");
+}
+
+// MARK: expansion
+
+/// The lines of `source` from `header` to the first line that is `}`.
+fn macro_block<'a>(source: &'a str, header: &str) -> Vec<&'a str> {
+    let lines: Vec<&str> = source.lines().collect();
+    let start = lines.iter().position(|line| *line == header).unwrap_or_else(|| panic!("{header}"));
+    let end = start + lines[start..].iter().position(|line| *line == "}").expect("its end");
+    lines[start..=end].to_vec()
+}
+
+/// The module doc shows `tests/snapshots/macro_expansion.txt` as the macros' templates; this keeps
+/// it the source's: the off path is the `if $crate::enabled(..)` with nothing evaluated before it.
+#[test]
+fn the_documented_expansion_is_the_macros_source() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = std::fs::read_to_string(root.join("src/macros.rs")).expect("reads macros.rs");
+    let mut expected = macro_block(&source, "macro_rules! __trace_emit {").join("\n");
+    expected.push_str("\n\n");
+    expected.push_str(&macro_block(&source, "macro_rules! trace_scope {").join("\n"));
+    expected.push('\n');
+    let snapshot = std::fs::read_to_string(root.join("tests/snapshots/macro_expansion.txt"))
+        .expect("reads the snapshot");
+    assert_eq!(
+        snapshot, expected,
+        "the macros changed: update tests/snapshots/macro_expansion.txt"
+    );
+    // Each full arm's body: its consts and static, then the branch, then any argument.
+    for body in expected.split(") => {{").skip(1) {
+        let branch = body.find("if $crate::enabled(__CMUX_TRACE_CATEGORY) {").expect("the branch");
+        assert!(!body[..branch].contains("$arg"), "an argument is evaluated before the branch");
+    }
 }

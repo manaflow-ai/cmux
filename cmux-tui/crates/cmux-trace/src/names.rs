@@ -3,7 +3,7 @@
 //! are append-only and never reused; a name's category is the part of its text before the first dot.
 //! `tests/macros.rs` reads `SignpostName.swift` and fails when the two tables differ.
 //!
-//! A process passes [`CATALOG`] to [`crate::init_blackbox`], and the trace macros
+//! Every process ring starts with [`CATALOG`] ([`crate::init_blackbox`]), and the trace macros
 //! ([`crate::trace_scope!`] and the others) resolve a catalog text to its id at compile time, so a
 //! catalog trace point needs no lookup and no interning. Chrome registers its categories the same way,
 //! statically (`base/trace_event/builtin_categories.h`).
@@ -88,11 +88,20 @@ pub const CATALOG: &[CatalogName] = &[
     name(68, RESIZE, "resize.frame"),
 ];
 
-// `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order.
+// `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its
+// category's name, as every trace point's must (`TraceSite::new`).
 const _: () = {
     let mut index = 0;
     while index < CATALOG.len() {
-        assert!(CATALOG[index].id as usize == index + 1, "catalog ids are 1..=len in order");
+        let entry = &CATALOG[index];
+        assert!(entry.id as usize == index + 1, "catalog ids are 1..=len in order");
+        assert!(
+            crate::macros::has_category_prefix(
+                entry.text,
+                crate::macros::CATEGORY_NAMES[entry.category as usize]
+            ),
+            "a catalog name starts with its category's name and a dot"
+        );
         index += 1;
     }
 };

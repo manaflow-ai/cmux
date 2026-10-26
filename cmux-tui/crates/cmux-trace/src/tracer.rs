@@ -127,6 +127,24 @@ impl InternedName {
     }
 }
 
+/// The ring a record went into: the black box (the heap ring and the file it is copied into are
+/// one), or one recording, named by the epoch its start set. A scope's end goes only into the ring
+/// its begin went into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RingId(u64);
+
+impl RingId {
+    const BLACKBOX: RingId = RingId(0);
+
+    fn of(word: u64) -> RingId {
+        if (word & SLOT_MASK) as usize == SLOT_RECORDING {
+            RingId(word & !(EPOCH_ONE - 1) | SLOT_RECORDING as u64)
+        } else {
+            RingId::BLACKBOX
+        }
+    }
+}
+
 /// The chunk a writer owns.
 #[derive(Clone, Copy, Debug)]
 struct Owned {
@@ -274,18 +292,24 @@ impl Tracer {
     }
 
     /// Writes `record` as the thread whose place is `state`, into the active ring; with
-    /// `interned`, under that name's id in the ring. No lock or allocation; the read-modify-writes
-    /// are the chunk claim's, once per 31 records.
+    /// `interned`, under that name's id in the ring; with `only_in`, only while that ring is the
+    /// active one. The ring it went into, if it was written. No lock or allocation; the
+    /// read-modify-writes are the chunk claim's, once per 31 records.
     #[inline]
     pub(crate) fn write(
         &self,
         state: &mut WriterState,
         mut record: Record,
         interned: Option<&InternedName>,
-    ) {
+        only_in: Option<RingId>,
+    ) -> Option<RingId> {
         let word = self.active.load(Ordering::Acquire);
+        let ring_id = RingId::of(word);
+        if only_in.is_some_and(|only_in| only_in != ring_id) {
+            return None;
+        }
         let (slot, epoch) = ((word & SLOT_MASK) as usize, word >> 8);
-        let Some(ring) = self.ring(slot) else { return };
+        let ring = self.ring(slot)?;
         if let Some(owned) = state.chunk.filter(|owned| owned.epoch != epoch) {
             if let Some(old) = self.ring(owned.slot) {
                 old.complete(owned.chunk, owned.lap);
@@ -299,7 +323,7 @@ impl Tracer {
         let mut owned = match state.chunk {
             Some(owned) => owned,
             None => {
-                let Some((chunk, lap)) = ring.claim(index, generation) else { return };
+                let (chunk, lap) = ring.claim(index, generation)?;
                 Owned { slot, epoch, chunk, lap, next_slot: 1 }
             }
         };
@@ -311,6 +335,7 @@ impl Tracer {
             owned.next_slot += 1;
             state.chunk = Some(owned);
         }
+        Some(ring_id)
     }
 
     /// A thread's exit (its TLS destructor): completes its chunk and marks each of its entries
@@ -463,13 +488,13 @@ impl<'a> Writer<'a> {
 
     #[inline]
     pub fn write(&mut self, record: Record) {
-        self.tracer.write(&mut self.state, record, None);
+        self.tracer.write(&mut self.state, record, None, None);
     }
 
     /// `record` under `name`'s id in the active ring (`record.name` is ignored).
     #[inline]
     pub fn write_interned(&mut self, name: &InternedName, record: Record) {
-        self.tracer.write(&mut self.state, record, Some(name));
+        self.tracer.write(&mut self.state, record, Some(name), None);
     }
 }
 
