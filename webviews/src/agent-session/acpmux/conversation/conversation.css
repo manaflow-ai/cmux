@@ -1203,7 +1203,7 @@ pre.cv-math-source {
   transition: none;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
-   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old transform for that
+   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
    frame, with the latest row under the card. */
 .acpmux-thread {
   transition: none;
