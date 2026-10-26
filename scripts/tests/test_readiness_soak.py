@@ -275,5 +275,197 @@ class WebKitMatcherTests(unittest.TestCase):
             self.assertFalse(soak.owns_webkit(90938, 90859), "a pid the call has no answer for is not the app's")
 
 
+ASAN_REPORT = """=================================================================
+==4242==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000010 at pc 0x0001 bp 0x0002 sp 0x0003
+READ of size 8 at 0x602000000010 thread T0
+    #0 0x0001 in CmuxNextApp.Workspace.close() Workspace.swift:42
+SUMMARY: AddressSanitizer: heap-use-after-free Workspace.swift:42 in CmuxNextApp.Workspace.close()
+==4242==ABORTING
+"""
+TSAN_REPORT = """==================
+WARNING: ThreadSanitizer: data race (pid=5151)
+  Write of size 8 at 0x7b0400000000 by thread T3:
+    #0 CmuxNextControl.Router.route() Router.swift:10
+SUMMARY: ThreadSanitizer: data race Router.swift:10 in CmuxNextControl.Router.route()
+==================
+"""
+
+
+def report_soak(args=None, setup=None, events=None, zombies=None, out=None):
+    """A Soak whose report() runs on the given state, with no app: no samples file, a full-length run."""
+    soak = soak_module.Soak.__new__(soak_module.Soak)
+    defaults = dict(app_config=None, stress=False, zombie_gate="warn", warmup=0, settle=0, idle=0, hours=0,
+                    max_growth_mb=300, max_growth_percent=25, max_fd_growth=100, max_app_cpu=10, max_daemon_cpu=5,
+                    max_idle_app_cpu=1, max_idle_daemon_cpu=0.5, max_idle_acpmux_cpu=0.5, idle_cpu_gate="warn",
+                    terminals=0, browsers=0, agents=0)
+    soak.args = types.SimpleNamespace(**{**defaults, **(args or {})})
+    if out is None:
+        soak.scratch = tempfile.TemporaryDirectory()  # removed with the soak
+        out = soak.scratch.name
+    soak.out = out
+    soak.samples = None
+    soak.setup = {"terminals": 0, "browsers": 0, "agents": 0, **(setup or {})}
+    soak.events = events or []
+    soak.zombies = zombies or {}
+    soak.sanitizer_count = sum(1 for e in soak.events if e.get("sanitizer"))
+    soak.app = "/tmp/app"
+    return soak
+
+
+class SanitizerReportTests(unittest.TestCase):
+    """--app-config asan|tsan: each sanitizer report in the log_path folder or app.log is a crash event."""
+
+    def test_headers_name_tool_kind_and_pid(self):
+        reports = soak_module.sanitizer_reports("noise\n" + ASAN_REPORT + "more\n" + TSAN_REPORT)
+        self.assertEqual(reports, [{"tool": "AddressSanitizer", "what": "heap-use-after-free", "pid": 4242},
+                                   {"tool": "ThreadSanitizer", "what": "data race", "pid": 5151}])
+
+    def test_summary_lines_and_plain_warnings_are_not_reports(self):
+        text = "SUMMARY: AddressSanitizer: heap-use-after-free x\nWARNING: something else\n==1==ABORTING\n"
+        self.assertEqual(soak_module.sanitizer_reports(text), [])
+
+    def test_a_new_report_is_a_crash_event_once(self):
+        with tempfile.TemporaryDirectory() as out:
+            folder = os.path.join(out, "sanitizer")
+            os.makedirs(folder)
+            app_log = os.path.join(out, "app.log")
+            with open(app_log, "w") as handle:
+                handle.write(TSAN_REPORT)  # an earlier run's log: not this run's
+            soak = report_soak(args={"app_config": "asan"}, out=out)
+            soak.sanitizer = soak_module.SanitizerLogs(folder, [app_log])
+            soak.check_sanitizer()
+            self.assertEqual(soak.events, [])
+            log = os.path.join(folder, "asan.cmux.4242")
+            with open(log, "w") as handle:
+                handle.write(ASAN_REPORT[:120])  # still being written: no full header line yet
+            soak.check_sanitizer()
+            self.assertEqual(soak.events, [])
+            with open(log, "a") as handle:
+                handle.write(ASAN_REPORT[120:])
+            soak.check_sanitizer()
+            soak.check_sanitizer()
+            self.assertEqual([e["kind"] for e in soak.events], ["crash"])
+            self.assertIn("AddressSanitizer report: heap-use-after-free (pid 4242, asan.cmux.4242)", soak.events[0]["detail"])
+            with open(app_log, "a") as handle:  # a helper without log_path writes to stderr
+                handle.write(TSAN_REPORT)
+            soak.check_sanitizer()
+            self.assertEqual(soak.sanitizer_count, 2)
+            result = soak.report()
+            self.assertFalse(result["ok"])
+            self.assertIn("2 crash event(s)", result["failures"])
+            self.assertEqual(result["sanitizer"], {"mode": "asan", "logs": None, "reports": 2})
+
+    def test_options_keep_the_callers_and_set_the_log_path(self):
+        env = soak_module.sanitizer_env("asan", "/out/sanitizer", {"ASAN_OPTIONS": "detect_leaks=1"})
+        self.assertEqual(env, {"ASAN_OPTIONS": "detect_leaks=1:log_path=/out/sanitizer/asan:log_exe_name=1"})
+        self.assertTrue(soak_module.sanitizer_env("tsan", "/o", {})["TSAN_OPTIONS"].startswith("log_path=/o/tsan:"))
+
+    def test_app_config_must_match_the_builds_runtime(self):
+        with tempfile.TemporaryDirectory() as app:
+            os.makedirs(os.path.join(app, "Contents/Frameworks"))
+            soak = report_soak(args={"app_config": "asan"})
+            soak.app = app
+            with self.assertRaisesRegex(SystemExit, "not a asan build"):
+                soak.identify()
+            open(os.path.join(app, "Contents/Frameworks", soak_module.SANITIZER_RUNTIMES["tsan"]), "w").close()
+            soak.args.app_config = None
+            with self.assertRaisesRegex(SystemExit, "run it with --app-config tsan"):
+                soak.identify()
+
+
+class ChromiumOffTests(unittest.TestCase):
+    VMMAP = """Process:         cmux [4242]
+
+MALLOC ZONE                                    SIZE       SIZE       SIZE       SIZE      COUNT  ALLOCATED  FRAG SIZE  % FRAG   COUNT
+===========                                 =======  =========  =========  =========  =========  =========  =========  ======  ======
+DefaultMallocZone_0x100f2c000                 30.0M      12.1M      12.1M         0K     100000      10.0M       2.1M     18%       5
+PartitionAlloc_0x10a000000                    50.0M      40.0M      40.0M         0K          0         0K         0K      0%       0
+===========                                 =======  =========  =========  =========  =========  =========  =========  ======  ======
+TOTAL                                         80.0M      52.1M      52.1M         0K     100000      10.0M       2.1M     18%       5
+"""
+
+    def test_vmmap_zone_names(self):
+        self.assertEqual(soak_module.malloc_zones(self.VMMAP), ["DefaultMallocZone", "PartitionAlloc"])
+
+    def test_partition_alloc_makes_the_run_invalid(self):
+        soak = report_soak(args={"app_config": "asan"})
+        soak.chromium_off, soak.app_pid = True, 4242
+        listed = types.SimpleNamespace(returncode=0, stdout=self.VMMAP)
+        with mock.patch.object(soak_module, "run", lambda *argv, **kw: listed):
+            soak.check_chromium_off({4242: "app"})
+        self.assertEqual([e["kind"] for e in soak.events], ["chromium-loaded"])
+        self.assertTrue(any(f.startswith("invalid asan run: Chromium loaded") for f in soak.report()["failures"]))
+
+    def test_system_zone_only_passes(self):
+        soak = report_soak(args={"app_config": "asan"})
+        soak.chromium_off, soak.app_pid = True, 4242
+        listed = types.SimpleNamespace(returncode=0, stdout=self.VMMAP.replace("PartitionAlloc_0x10a000000", "QuartzCore_0x1"))
+        with mock.patch.object(soak_module, "run", lambda *argv, **kw: listed):
+            soak.check_chromium_off({4242: "app"})
+        self.assertEqual(soak.events, [])
+        self.assertEqual(soak.report()["failures"], [])
+
+
+class ZombieTests(unittest.TestCase):
+    """A child of this copy's processes left in state Z for a whole sample interval is a zombie, counted per hour."""
+
+    PS = "  100     1 Ss\n  201   100 Z\n  202   100 Z+\n  203   900 Z\n  204   100 S\n  300   150 Z\n"
+
+    def test_zombies_of_the_copys_processes_only(self):
+        self.assertEqual(soak_module.zombies_in(self.PS, {100: "app", 150: "webkit"}), [(201, 100), (202, 100), (300, 150)])
+
+    def test_counted_after_two_samples_and_reported_per_hour(self):
+        soak = report_soak()
+        soak.zombies_last = set()
+        kinds = {100: "app", 150: "webkit"}
+        with mock.patch.object(soak_module, "run", lambda *argv, **kw: types.SimpleNamespace(stdout=self.PS)):
+            self.assertEqual(soak.check_zombies(kinds, 100), 0, "a child exiting this tick may be reaped by the next")
+            self.assertEqual(soak.check_zombies(kinds, 4000), 2)
+            self.assertEqual(soak.check_zombies(kinds, 8000), 2)
+        self.assertEqual(sorted(soak.zombies), [201, 202], "a WebKit process's children are not this copy's")
+        samples = [{"elapsed_s": 9000, "zombies": 2}]
+        summary = soak.zombie_summary(samples)
+        self.assertEqual(summary, {"total": 2, "per_hour": [0, 2, 0], "by_parent_kind": {"app": 2}, "at_end": 2})
+        result = soak.report()
+        self.assertEqual(result["zombies"]["total"], 2)
+        self.assertTrue(any("2 zombie children" in w for w in result["warnings"]))
+        soak.args.zombie_gate = "fail"
+        self.assertTrue(any("2 zombie children" in f for f in soak.report()["failures"]))
+
+
+class StressTests(unittest.TestCase):
+    def test_chromium_pages_become_webkit_with_chromium_off(self):
+        asked = []
+
+        class Base:
+            def add_tab(self, workspace_id, pane_id, kind):
+                asked.append(kind)
+
+            def size_window(self):
+                raise ShapeError("display too small")
+
+        class ShapeError(RuntimeError):
+            pass
+
+        module = types.SimpleNamespace(Stress=Base, StressShapeError=ShapeError)
+        off = soak_module.soak_stress(module, chromium_off=True)()
+        for kind in ("terminal", "chromium", "webkit", "chat"):
+            off.add_tab("w", "p", kind)
+        soak_module.soak_stress(module, chromium_off=False)().add_tab("w", "p", "chromium")
+        self.assertEqual(asked, ["terminal", "webkit", "webkit", "chat", "chromium"])
+        self.assertEqual(off.size_window(), {})
+        self.assertEqual(off.window_note, "display too small")
+
+    def test_the_real_stress_module_loads_and_has_the_hooks(self):
+        module = soak_module.load_stress()
+        for name in ("add_tab", "size_window", "build", "send", "close"):
+            self.assertTrue(callable(getattr(module.Stress, name)), name)
+        self.assertTrue(issubclass(module.StressShapeError, RuntimeError))
+
+    def test_stress_not_built_fails_the_run(self):
+        soak = report_soak(args={"stress": True}, setup={"stress": "not built: display too small"})
+        self.assertIn("setup: STRESS not built: display too small", soak.report()["failures"])
+
+
 if __name__ == "__main__":
     unittest.main()
