@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextInputDiagnostics
 import CmuxNextPages
@@ -125,7 +126,13 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        service.router.register(DebugHibernationControl.methods(services) + Self.traceMethods(services)) // debug.memory and trace.* serve release
+        service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
+        if services.features.isEnabled(.traceControl) {
+            let app = RuntimeTraceRecording(blackBox: services.traceBlackBox?.blackBox, work: services.work)
+            let parts = TraceControlParts(app: app, daemon: services.daemon.traceLink, secureInput: SystemSecureInput())
+            service.router.register(TraceControl(parts: parts).methods)
+        }
         // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
