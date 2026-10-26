@@ -2157,3 +2157,74 @@ async fn an_unadoptable_full_access_host_ends_once_mdm_turns_full_access_off() {
         "the unadoptable full-access agent ran on under the managed off"
     );
 }
+
+/// A daemon whose harness declares no modes, with one chat whose harness moved itself into full
+/// access (`bypassPermissions`) and then ran `then`, stopped with its host left running: the
+/// daemon, the chat and the harness's pid.
+async fn left_in_bypass(tag: &str, then: Option<&str>) -> (Daemon, String, i64) {
+    let mut daemon = Daemon::new(tag, "ask");
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    for text in std::iter::once("set-mode: bypassPermissions").chain(then) {
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        rpc.call("session/prompt", prompt).await;
+    }
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    (daemon, session, harness_pid)
+}
+
+/// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
+fn record_mdm_off(daemon: &Daemon) {
+    let state = daemon.home.join("start-mode.json");
+    let mut recorded: Value = std::fs::read(&state)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    recorded["fullAccessManaged"] = json!(false);
+    std::fs::write(&state, recorded.to_string()).unwrap();
+}
+
+/// Review 27 of #23322: a host the next daemon adopted with MDM unset, whose harness had moved
+/// itself into full access without declaring modes, ends when the off is pushed later. That
+/// daemon learnt the mode only from the log, which the push reads too.
+#[tokio::test]
+async fn an_adopted_host_that_moved_itself_into_full_access_ends_when_mdm_turns_it_off() {
+    let (mut daemon, _session, harness_pid) = left_in_bypass("mdmpush", None).await;
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/status", json!({})).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(alive(harness_pid), "the next daemon ended the agent before the push");
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the adopted agent in bypassPermissions ran on after MDM turned full access off"
+    );
+}
+
+/// Review 27 of #23322: a subagent's mode is not its session's. A subagent that reported an
+/// asking mode after the session's harness moved into full access does not hide that mode from
+/// the next daemon, which ends the host under MDM's off.
+#[tokio::test]
+async fn a_subagents_mode_does_not_hide_its_sessions_full_access_across_a_restart() {
+    let (mut daemon, _session, harness_pid) =
+        left_in_bypass("mdmsub", Some("subagent-mode: default")).await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a subagent's asking mode hid the session's bypassPermissions under the managed off"
+    );
+}
