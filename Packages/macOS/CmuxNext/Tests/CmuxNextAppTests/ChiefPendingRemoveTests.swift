@@ -218,6 +218,22 @@ struct ChiefPendingRemoveTests {
         #expect(Self.drawn(store).filter { $0.ref == .builtIn(.chief) }.count == 1, "two Chiefs draw")
     }
 
+    /// A confirmed Chief (label hidden) removed, then added again (label shown) before the remove is refused: the
+    /// mirror puts the confirmed Chief back and drops the add it replays over it. The add settles with it: the Chief
+    /// draws as confirmed, its label edit offered again.
+    @Test func aRefusedRemoveSettlesTheAddItDropped() async throws {
+        let (_, store, end) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief), refusingRemoves: true)
+        defer { end() }
+        try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
+        try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
+                                     "to": ["section": "sec_top"]]], title: "Add", undoable: false)
+        try #require(store.isPending(SidebarLayoutDocument.chiefItemID), "the Chief added again is not pending")
+        let restored = { (Self.drawn(store).first { $0.ref == .builtIn(.chief) }?.showsLabel) == false }
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { restored() && !store.isPending(SidebarLayoutDocument.chiefItemID) }
+        #expect(restored(), "the Chief draws the dropped add's label, not the confirmed record's")
+        #expect(!store.isPending(SidebarLayoutDocument.chiefItemID), "the add the refusal dropped still counts as pending")
+    }
+
     /// A daemon that answers every change (with an inverse) and echoes none; its document is the test's.
     @MainActor final class AnsweringRemote: SidebarDocRemote {
         var document: Data

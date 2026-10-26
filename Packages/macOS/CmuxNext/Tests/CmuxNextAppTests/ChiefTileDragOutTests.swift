@@ -142,15 +142,21 @@ struct ChiefTileDragOutTests {
         #expect(!h.dragging, "the drag stayed alive after its release went to another window")
     }
 
-    /// The sidebar leaves its window mid-drag: the band's release monitor goes with it.
-    @Test func aBandDragsMonitorGoesWhenTheSidebarLeavesItsWindow() throws {
+    /// The sidebar leaves its window mid-drag: the band's drag ends with it (no release can reach it), its release
+    /// monitor goes, its card leaves and the Chief's tile shows again; nothing is removed.
+    @Test func aBandDragEndsWhenTheSidebarLeavesItsWindow() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(document: false)
         defer { h.window.orderOut(nil) }
         _ = try h.dragChiefOut()
-        let drag = try #require(h.region?.reorder, "the band holds no drag")
+        let region = try #require(h.region)
+        let drag = try #require(region.reorder, "the band holds no drag")
         try #require(drag.pointerEnd != nil, "the band's drag watches no release")
         h.sidebar.removeFromSuperview()
         #expect(drag.pointerEnd == nil, "the band's release monitor outlived its window")
+        #expect(region.reorder == nil, "the band's drag outlived its window")
+        #expect(drag.hidden.allSatisfy { $0.alphaValue == 1 }, "the Chief's tile stayed hidden under a card that is gone")
+        #expect(drag.lift.superview == nil, "the drag's card stayed up")
+        #expect(h.removed.isEmpty, "leaving the window removed the Chief")
     }
 }
