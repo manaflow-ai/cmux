@@ -31,7 +31,12 @@ public final class RemoteViewPageTab: BrowserTab {
     @ObservationIgnored public let record: RemoteViewTabRecord?
     @ObservationIgnored public let contentView: NSView
     @ObservationIgnored public var onNavigate: ((URL) -> Void)?
+    /// The address the App builds this tab again from after a discard (`BrowserAddressPage`):
+    /// its record, set by the App while `memoryDiscardRemoteTabs` is on; nil: never discarded.
+    @ObservationIgnored public var wakeAddress: URL?
     @ObservationIgnored private let session: RemoteViewPageSession?
+    /// A woken tab's last frame until the stream presents its first one.
+    @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
@@ -62,6 +67,7 @@ public final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
+        session?.onFirstFrame = { [weak self] in self?.wakeCover.remove() }
         #if DEBUG
         Self.live.add(self)
         #endif
@@ -101,7 +107,13 @@ public final class RemoteViewPageTab: BrowserTab {
         if visible { session?.resume() } else { session?.pause() }
     }
 
+    /// The stream's last frame (a video layer is not drawn by `cacheDisplay`); a tab with no
+    /// stream draws its notice.
     public func snapshot() async throws -> CGImage {
+        if let session {
+            guard let picture = await session.lastFrame?.picture() else { throw BrowserTabError.snapshotUnavailable }
+            return picture
+        }
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
@@ -114,5 +126,23 @@ public final class RemoteViewPageTab: BrowserTab {
     public func setZoom(_ zoom: Double) {}
     public func exitContentFullscreen() {}
     public func showDevTools() {}
-    public func close() { session?.pause() }
+    public func close() {
+        wakeCover.remove()
+        session?.pause()
+    }
+}
+
+extension RemoteViewPageTab: BrowserAddressPage {}
+
+extension RemoteViewPageTab: BrowserWakeStandIn {
+    /// Covers a streaming tab with its last frame until the new stream presents its first.
+    @discardableResult
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        guard session != nil else { return false }
+        wakeCover.show(picture, decoded: decoded, in: contentView, above: nil, cap: cap, clock: clock)
+        return true
+    }
+
+    /// The last frame covers the page now (tests, debug).
+    public var showsWakeCover: Bool { wakeCover.isShown }
 }

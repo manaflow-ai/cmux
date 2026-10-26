@@ -17,6 +17,7 @@ final class MetalFramePresenter: RemoteFramePresenter {
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private nonisolated let renderer: MetalYUVRenderer
     private var frameSize: CGSize = .zero
+    private(set) var shownFrame: RemoteDecodedFrame?
 
     init?() {
         metalLayer.pixelFormat = .bgra8Unorm
@@ -42,8 +43,12 @@ final class MetalFramePresenter: RemoteFramePresenter {
 
     private nonisolated func drainOnRenderQueue() {
         guard let frame = mailbox.take(), renderer.render(frame) else { return }
-        let size = frame.pixelSize
-        Task { @MainActor [weak self] in self?.reportSize(size) }
+        Task { @MainActor [weak self] in self?.rendered(frame) }
+    }
+
+    private func rendered(_ frame: RemoteDecodedFrame) {
+        shownFrame = frame
+        reportSize(frame.pixelSize)
     }
 
     private func reportSize(_ size: CGSize) {

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Pages that can save their history for hibernation: the App closes the
 /// page and later recreates it from the state.
@@ -76,8 +77,72 @@ extension BrowserRestoreState {
     /// The back/forward history `page` can be recreated from (Duplicate Tab,
     /// Reopen Closed Tab): a hibernated page's saved state, else what a live
     /// page saves now.
+    /// A cmux page's address is no history: duplicating or reopening it opens its address.
     @MainActor public static func history(of page: any BrowserTab) -> BrowserRestoreState? {
-        if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
-        return (page as? any BrowserHibernationSource)?.hibernationState()
+        let state = (page as? HibernatedBrowserTab)?.restoreState ?? (page as? any BrowserHibernationSource)?.hibernationState()
+        if case .page? = state { return nil }
+        return state
+    }
+}
+
+/// A page the App builds from a cmux address, with no engine history (a remote desktop, a remote
+/// browser stream, a machine's browser tab). It hibernates to that address
+/// (`BrowserRestoreState.page`): the discard closes the page, its stream and its decoder, the
+/// placeholder keeps its last frame, and showing the tab builds the page again, which connects.
+/// Chrome's discard does the same for any tab (`TabLifecycleUnit::Discard` in
+/// chrome/browser/resource_coordinator/tab_lifecycle_unit.cc closes the WebContents and keeps the
+/// navigation entry to reload from).
+public protocol BrowserAddressPage: BrowserTab, BrowserHibernationSource {
+    /// The address the App builds this page from again; nil while it cannot be built again with
+    /// the same result (then it is never discarded).
+    @MainActor var wakeAddress: URL? { get }
+}
+
+extension BrowserAddressPage {
+    public var supportsHibernation: Bool { wakeAddress != nil }
+    /// No form posts: the page is no web document.
+    public var showsFormSubmission: Bool { false }
+    /// No web notifications: the page is no web document.
+    public var allowsNotifications: Bool { false }
+    public func hibernationState() -> BrowserRestoreState? { wakeAddress.map(BrowserRestoreState.page) }
+}
+
+/// A woken page's last frame over its view until the page presents its own first frame
+/// (`BrowserWakeStandIn` for pages with no engine paint signal, such as a remote stream). The
+/// page removes it on that frame; the cap and a close remove it too.
+@MainActor public final class BrowserWakeCover {
+    private var view: NSView?
+    private var cap: DemandTimer?
+
+    public init() {}
+
+    /// The picture covers the page now.
+    public var isShown: Bool { view != nil }
+
+    /// Covers `host` with `picture`, above its subview `sibling` (nil: above every subview), until
+    /// `remove()` or until `cap` passes on `clock`.
+    public func show(_ picture: CGImage, decoded: Bool, in host: NSView, above sibling: NSView?, cap: Duration,
+                     clock: any Clock<Duration>) {
+        remove()
+        // Pixels already decoded cover the page from the swap's first frame.
+        let cover = decoded ? BrowserPictureView(decoded: picture) : BrowserPictureView(picture: { picture })
+        cover.frame = host.bounds
+        cover.autoresizingMask = [.width, .height]
+        host.addSubview(cover, positioned: .above, relativeTo: sibling)
+        view = cover
+        let timer = DemandTimer(owner: "BrowserWakeCover", clock: clock)
+        // Justified delay: the cap of a stand-in, not a poll; the first frame or a close cancels it.
+        timer.schedule(after: cap) { @MainActor [weak self, weak cover] in
+            guard let self, let cover, self.view === cover else { return }
+            self.remove()
+        }
+        self.cap = timer
+    }
+
+    public func remove() {
+        cap?.cancel()
+        cap = nil
+        view?.removeFromSuperview()
+        view = nil
     }
 }

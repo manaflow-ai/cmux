@@ -64,6 +64,11 @@ public final class RemoteDesktopPane {
     private let presenter: any RemoteFramePresenter
     private var tasks: [Task<Void, Never>] = []
     private var pipeline: RemoteDecodePipeline?
+    /// The running session's frame gate: closed at `stop()`, so a hidden pane presents nothing.
+    private var delivery: RemoteFrameGate?
+    /// Runs on the main actor when a started session presents its first frame (a woken tab's
+    /// picture then goes, `BrowserWakeCover`).
+    public var onFirstFrame: (() -> Void)?
     /// Armed while no frame was shown in this session; the first decoded
     /// frame consumes it and tells the reducer (`frameShown`).
     private let firstFrame = OneShotSignal()
@@ -99,10 +104,18 @@ public final class RemoteDesktopPane {
         guard tasks.isEmpty else { return }
         let presenter = self.presenter
         let firstFrame = self.firstFrame
+        let gate = RemoteFrameGate()
+        delivery = gate
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            presenter.present(frame)
-            guard firstFrame.consume() else { return }
-            Task { @MainActor in self?.apply(.frameShown) }
+            let outcome = gate.deliver(frame, to: presenter)
+            guard outcome != .dropped else { return }
+            let first = outcome == .first
+            let shown = firstFrame.consume()
+            guard first || shown else { return }
+            Task { @MainActor in
+                if shown { self?.apply(.frameShown) }
+                if first { self?.onFirstFrame?() }
+            }
         }
         if let frameSource = source as? any RemoteViewFrameSource {
             let frames = frameSource.decodedFrames()
@@ -128,6 +141,8 @@ public final class RemoteDesktopPane {
     /// (a hidden or closed tab never sends media). The last frame stays.
     public func stop() {
         stopAllUpstreams()
+        delivery?.close()
+        delivery = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
         pipeline = nil
@@ -141,6 +156,9 @@ public final class RemoteDesktopPane {
 
     /// The size of the last presented frame, in stream pixels (debug surfaces, tests).
     public var framePixels: CGSize { view.video.framePixels }
+
+    /// The frame on screen, kept while the pane is stopped: a hidden tab's picture.
+    public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
 
     /// Frames replaced before display by the latest-frame-wins presenter.
     public var discardedFrames: Int { presenter.discardedFrames }

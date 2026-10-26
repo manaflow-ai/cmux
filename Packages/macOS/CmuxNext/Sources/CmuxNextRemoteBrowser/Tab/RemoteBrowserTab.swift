@@ -31,6 +31,12 @@ public final class RemoteBrowserTab: BrowserTab {
     @ObservationIgnored private var sentKeys: [UInt32: NSEvent] = [:]
     @ObservationIgnored private var sentOrder: [UInt32] = []
     private static let sentKeyLimit = 64
+    /// The address the App builds this tab again from after a discard, given the page shown now
+    /// (`BrowserAddressPage`); unset (the default, and while `memoryDiscardRemoteTabs` is off) the
+    /// tab is never discarded.
+    @ObservationIgnored public var makeWakeAddress: (@MainActor (_ page: URL?) -> URL?)?
+    /// A woken tab's last frame until the stream presents its first one.
+    @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
     public init(id: BrowserTabID, profile: BrowserProfileID, url: URL?, pane: RemoteBrowserPane, channel: any RemoteBrowserPageChannel) {
         self.id = id
@@ -39,6 +45,7 @@ public final class RemoteBrowserTab: BrowserTab {
         self.channel = channel
         state = BrowserTabState(url: url)
         pane.view.eventTarget = self
+        pane.onFirstFrame = { [weak self] in self?.wakeCover.remove() }
     }
 
     public var contentView: NSView { pane.view }
@@ -134,16 +141,23 @@ public final class RemoteBrowserTab: BrowserTab {
         window.makeFirstResponder(contentView)
     }
 
+    /// A hidden tab decodes nothing (Chrome stops a hidden tab's frames: `RenderWidgetHostImpl::WasHidden`
+    /// in content/browser/renderer_host/render_widget_host_impl.cc): the pane pauses in the same turn
+    /// and the host is told; shown again, the pane subscribes and asks for a keyframe.
     public func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         channel.setVisible(visible)
+        if !visible {
+            pane.pause()
+        } else if failure == nil {
+            pane.start()
+        }
     }
 
+    /// The last frame of the stream (a video layer is not drawn by `cacheDisplay`).
     public func snapshot() async throws -> CGImage {
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
-        return image
+        guard let picture = await pane.lastFrame?.picture() else { throw BrowserTabError.snapshotUnavailable }
+        return picture
     }
 
     /// Scripts run through the browser host on the runtime host (RT7), not here.
@@ -158,10 +172,34 @@ public final class RemoteBrowserTab: BrowserTab {
     public func showDevTools() {}
 
     public func close() {
+        wakeCover.remove()
         pane.stop()
         channel.close()
     }
 }
 
 extension RemoteBrowserTab: RemoteBrowserEventTarget {}
+
+extension RemoteBrowserTab: BrowserAddressPage {
+    /// Waking starts a new runtime, so the remote page's back and forward history would be lost:
+    /// a tab with history is not discarded (the host keeps it while the tab is only hidden). A
+    /// failed tab is not built again either.
+    public var wakeAddress: URL? {
+        guard failure == nil, !state.canGoBack, !state.canGoForward else { return nil }
+        return makeWakeAddress?(state.url)
+    }
+}
+
+extension RemoteBrowserTab: BrowserWakeStandIn {
+    /// Covers the page with its last frame until the new stream presents its first.
+    @discardableResult
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        guard failure == nil else { return false }
+        wakeCover.show(picture, decoded: decoded, in: pane.view, above: nil, cap: cap, clock: clock)
+        return true
+    }
+
+    /// The last frame covers the page now (tests, debug).
+    public var showsWakeCover: Bool { wakeCover.isShown }
+}
 #endif

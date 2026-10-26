@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFeatures
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -40,6 +41,9 @@ extension RemoteBrowserPages {
             holder.newBrowserTab(url: child.url, background: disposition == .backgroundTab) { surface in
                 answer(String(describing: surface))
             }
+        }
+        if services.features.isEnabled(.memoryDiscardRemoteTabs) {
+            tab.makeWakeAddress = { page in MachineBrowserRecord(machine: machine, initialURL: page ?? initialURL).url }
         }
         machineKeys.insert(key)
         sessions = sessions.filter { $0.value.value != nil }

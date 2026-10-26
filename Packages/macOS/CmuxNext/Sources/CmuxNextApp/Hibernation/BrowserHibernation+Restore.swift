@@ -26,7 +26,8 @@ extension BrowserHibernation {
     }
 
     /// The `restore` effect: recreates the engine page from the saved
-    /// history; the lifecycle shows it if it is still selected when it lands.
+    /// history, or a cmux page from its address (`BrowserAddressPage`); the lifecycle shows it if
+    /// it is still selected when it lands.
     func restore(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let placeholder = cache.browsers[key]?.tab as? HibernatedBrowserTab else {
             cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
@@ -36,6 +37,14 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        if case .page(let address) = placeholder.restoreState {
+            guard let page = buildPage?(key, address) ?? cache.appPage(rebuilding: address, key: key) else {
+                cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
+                return
+            }
+            finishRestore(key, token: token, page: page)
+            return
+        }
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:

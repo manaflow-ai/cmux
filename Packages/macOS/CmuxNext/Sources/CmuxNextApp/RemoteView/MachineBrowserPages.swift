@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFeatures
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -40,6 +41,7 @@ struct MachineBrowserPages {
                 guard let cache else { return }
                 MachineBrowserPages(cache: cache).openLocally(key, machine: record.machine, url: url)
             })
+        page.isDiscardable = services.features.isEnabled(.memoryDiscardRemoteTabs)
         #if DEBUG
         page.onStart = { [weak cache, weak page] in
             guard let cache, let page else { return }
@@ -82,6 +84,7 @@ struct MachineBrowserPages {
                     page.phase = .failed(name, RemoteBrowserStrings.hostDidNotStart)
                     return
                 }
+                page.handOverWakeCover(to: tab)
                 cache.swapPage(key, with: tab)
             case .failure(.notInstalled):
                 page.phase = nil

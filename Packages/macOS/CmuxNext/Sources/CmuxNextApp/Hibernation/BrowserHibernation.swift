@@ -652,6 +652,10 @@ final class BrowserHibernation {
             var mayAsk = false
             if user {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
+            } else if tab is any BrowserAddressPage {
+                // A cmux page has no page script to ask (it would never answer): the planner's facts decide.
+                exemption = self.flatMap { PageProbe().keepReason($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting,
+                                                                  for: HibernationPlanner.discardReason(at: $0.pressure), doubted: false) }
             } else {
                 let probe = await Self.probe(tab)
                 if probe.audible { self?.audible?.heard(key) }
@@ -697,6 +701,10 @@ final class BrowserHibernation {
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
     }
+
+    /// Builds a discarded cmux page again from its address (`BrowserAddressPage`); nil builds it
+    /// as the tab's record does (`TabContentCache.appPage(rebuilding:key:)`). A seam for tests.
+    var buildPage: ((_ key: String, _ address: URL) -> (any BrowserTab)?)?
 
     /// Takes a hidden page's picture (a seam for tests).
     var capture: (any BrowserTab) async -> CGImage? = { tab in

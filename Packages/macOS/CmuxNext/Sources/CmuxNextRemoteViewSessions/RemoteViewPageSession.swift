@@ -113,6 +113,15 @@ public final class RemoteViewPageSession {
     public var view: NSView { pane.view }
     public var focusTarget: NSView { pane.view.focusView }
 
+    /// The frame on screen, kept while the session is paused: a hidden tab's picture.
+    public var lastFrame: RemoteDecodedFrame? { pane.lastFrame }
+
+    /// Runs when a resumed stream presents its first frame.
+    public var onFirstFrame: (() -> Void)? {
+        get { pane.onFirstFrame }
+        set { pane.onFirstFrame = newValue }
+    }
+
     /// `debug.remote_view` state of this session: the source, the session
     /// state and the decode counters.
     public func debugState() async -> JSONValue {
@@ -167,6 +176,11 @@ public final class RemoteViewPageSession {
     #else
     public var view: NSView { NSView() }
     public var focusTarget: NSView { view }
+    public var lastFrame: RemoteDecodedFrame? { nil }
+    public var onFirstFrame: (() -> Void)? {
+        get { nil }
+        set {}
+    }
     public func resume() {}
     public func pause() {}
     #endif
