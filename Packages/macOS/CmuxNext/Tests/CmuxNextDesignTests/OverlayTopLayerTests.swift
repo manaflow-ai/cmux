@@ -14,6 +14,27 @@ import Testing
         let overlaysInTopLayer = true
         // A main window takes the keyboard back when a modal ends; a borderless test window must be able to.
         override var canBecomeKey: Bool { true }
+
+        // As the App's `ShellWindow` does: only a modal of the top layer takes the keyboard.
+        override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+            if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
+            return super.makeFirstResponder(responder)
+        }
+    }
+
+    /// A view that counts the moves its tracking area hears.
+    final class MoveCounter: NSView {
+        var moves = 0
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
+
+        override func mouseMoved(with event: NSEvent) { moves += 1 }
     }
 
     /// A button that takes the keyboard whatever the Full Keyboard Access setting.
@@ -28,9 +49,9 @@ import Testing
         /// Stands in for a Chromium page attached as a view (p03-rendering-045), below the overlays.
         let page: NSView
 
-        init() {
+        init(styleMask: NSWindow.StyleMask = [.borderless]) {
             _ = NSApplication.shared
-            window = TopLayerWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400), styleMask: [.borderless],
+            window = TopLayerWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400), styleMask: styleMask,
                                     backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
@@ -123,6 +144,138 @@ import Testing
         defer { dialog.dismiss() }
         let blocked = try #require(content.hitTest(NSPoint(x: 580, y: 20)))
         #expect(blocked.isDescendant(of: f.host.topLayer), "a click reached the page under a modal")
+    }
+
+    @Test func aClickOnAnAgentCursorTagReachesItInTheWindow() throws {
+        let f = Fixture()
+        defer { f.close() }
+        let tags = AgentCursorTagClickTests.Tags()
+        f.host.agentCursorTags = tags
+        _ = f.host.agentCursorLayer
+        // A popover elsewhere: the full-size window and modal containers above the cursor are in place.
+        let popover = f.host.present(Self.view(), options: OverlayOptions(kind: .popover, anchor: NSRect(x: 400, y: 100, width: 10, height: 10)))
+        defer { popover.dismiss() }
+        let content = try #require(f.window.contentView)
+        let carrier = try #require(f.host.agentCursorCarrier)
+        #expect(carrier.isDescendant(of: f.host.topLayer))
+        withExtendedLifetime(tags) {
+            // The tag is at (100, 50, 120, 22), y-down in the content view's coordinates.
+            let onTag = NSPoint(x: 150, y: content.bounds.height - 61)
+            #expect(content.hitTest(onTag) === carrier, "a container above the cursor took the tag's click")
+            #expect(content.hitTest(NSPoint(x: 20, y: 20)) === f.page, "the cursor took a click off its tags")
+        }
+    }
+
+    @Test func aClickInABlockingRegionWithNoOverlayViewEndsAtTheLayer() throws {
+        let f = Fixture()
+        defer { f.close() }
+        let content = try #require(f.window.contentView)
+        // A modal with no scrim: nothing of it is under the corner, and the page below must not get the click.
+        let dialog = f.host.present(Self.view(), options: OverlayOptions(kind: .dialog, isModal: true, passesThroughClicks: false))
+        defer { dialog.dismiss() }
+        #expect(content.hitTest(NSPoint(x: 590, y: 10)) === f.host.topLayer)
+    }
+
+    @Test func aNonModalOverlayNeverTakesThePanesKeyboard() throws {
+        let f = Fixture()
+        defer { f.close() }
+        let pane = KeyButton(frame: NSRect(x: 10, y: 10, width: 80, height: 30))
+        f.page.addSubview(pane)
+        #expect(f.window.makeFirstResponder(pane))
+        let content = Self.view()
+        let button = KeyButton(frame: NSRect(x: 10, y: 10, width: 80, height: 30))
+        content.addSubview(button)
+        let popover = f.host.present(content, options: OverlayOptions(kind: .popover, anchor: NSRect(x: 300, y: 200, width: 10, height: 10)))
+        defer { popover.dismiss() }
+        // A click on the popover's button asks the window to make it first responder: the window refuses.
+        #expect(!f.window.makeFirstResponder(button), "a popover took the window's keyboard")
+        #expect(f.window.firstResponder === pane)
+        #expect(!f.host.keyboardIsInWindowTopLayer)
+
+        // While a modal shows, the top layer has the keyboard, as the key panel had it.
+        let dialog = Self.view(240, 120)
+        let ok = KeyButton(frame: NSRect(x: 10, y: 10, width: 80, height: 30))
+        dialog.addSubview(ok)
+        let modal = f.host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false))
+        #expect(f.window.firstResponder === ok)
+        #expect(f.host.keyboardIsInWindowTopLayer)
+        modal.dismiss()
+        #expect(f.window.firstResponder === pane, "the keyboard did not go back to the pane")
+    }
+
+    @Test func aKeyboardMovedBesideATabDialogStaysWhenTheLayerMoves() throws {
+        let f = Fixture()
+        defer { f.close() }
+        let pageField = NSTextField(frame: NSRect(x: 10, y: 10, width: 100, height: 22))
+        f.page.addSubview(pageField)
+        let dialog = Self.view(240, 120)
+        let ok = KeyButton(frame: NSRect(x: 10, y: 10, width: 80, height: 30))
+        dialog.addSubview(ok)
+        // A tab dialog: the rest of the window takes clicks.
+        let handle = f.host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, passesThroughClicks: false,
+                                                                    modalRegion: NSRect(x: 200, y: 100, width: 300, height: 250)))
+        defer { handle.dismiss() }
+        #expect(f.window.firstResponder === ok)
+        // The person clicks into the page beside the dialog and types there.
+        #expect(f.window.makeFirstResponder(pageField))
+        // A page child window shows, then goes: the overlays move into the panel and back.
+        f.host.setPlanesWantPanel(true)
+        #expect(Self.focused(in: f.window) === pageField, "moving the layer into the panel took the keyboard")
+        #expect(f.host.madePanel?.isKeyWindow != true)
+        f.host.setPlanesWantPanel(false)
+        #expect(Self.focused(in: f.window) === pageField, "moving the layer back took the keyboard")
+    }
+
+    @Test func aBlockingModalTurnsOffTheTrafficLights() throws {
+        let f = Fixture(styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
+        defer { f.close() }
+        let close = try #require(f.window.standardWindowButton(.closeButton))
+        let zoom = try #require(f.window.standardWindowButton(.zoomButton))
+        #expect(close.isEnabled)
+
+        // A tab dialog leaves the rest of the window usable, the traffic lights too.
+        let tab = f.host.present(Self.view(), options: OverlayOptions(kind: .dialog, isModal: true, passesThroughClicks: false,
+                                                                      modalRegion: NSRect(x: 200, y: 100, width: 300, height: 250)))
+        #expect(close.isEnabled)
+        tab.dismiss()
+
+        // A dimming modal blocks the whole window. The titlebar draws above the content view, so its buttons
+        // are turned off instead of covered; one that was already off stays off after.
+        zoom.isEnabled = false
+        let dialog = f.host.present(Self.view(), options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                         passesThroughClicks: false))
+        #expect(!close.isEnabled, "the close button takes clicks under a modal")
+        #expect(f.window.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
+        dialog.dismiss()
+        #expect(close.isEnabled)
+        #expect(!zoom.isEnabled, "a button that was off came back on")
+    }
+
+    @Test func aHoverUnderTheLayerReachesOnlyTheLayer() throws {
+        let f = Fixture()
+        defer { f.close() }
+        let below = MoveCounter(frame: f.page.bounds)
+        f.page.addSubview(below)
+        func move(_ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+                                            windowNumber: f.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        }
+        // No overlay takes the point: the window sends the move on as usual.
+        let toast = f.host.present(Self.view(), options: OverlayOptions(kind: .toast))
+        defer { toast.dismiss() }
+        #expect(!f.host.routeCoveredHover(try move(NSPoint(x: 20, y: 380))))
+
+        let content = MoveCounter(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        let dialog = f.host.present(content, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                     passesThroughClicks: false))
+        defer { dialog.dismiss() }
+        // On the scrim: handled here, so the view below never hears it.
+        #expect(f.host.routeCoveredHover(try move(NSPoint(x: 5, y: 5))))
+        #expect(content.moves == 0)
+        // On the dialog: only the dialog's own tracking area hears it.
+        #expect(f.host.routeCoveredHover(try move(content.convert(NSPoint(x: 100, y: 60), to: nil))))
+        #expect(content.moves == 1)
+        #expect(below.moves == 0)
     }
 
     @Test func aDialogKeepsItsKeysInTheWindow() throws {

@@ -8,11 +8,11 @@ import CmuxNextFocus
 enum FocusResponderClassifier {
     static func classify(_ responder: NSResponder?, in controller: WindowController) -> FocusEvent.Responder {
         guard let view = responder as? NSView else { return .windowOrNone }
-        // A control of an overlay in the window's top layer (a dialog's field or button) holds the keyboard
-        // outside every pane, as a text field does: the focus model leaves it there (not `windowOrNone`,
-        // which re-applies the pane's focus and would take the keyboard from the dialog).
+        // A control of the window's top layer while a modal shows (a dialog's field or button) holds the
+        // keyboard outside every pane, as a text field does: the focus model leaves it there (not
+        // `windowOrNone`, which re-applies the pane's focus and would take the keyboard from the dialog).
         if let window = controller.window, let host = WindowOverlayHost.existingHost(for: window),
-           host.isTopLayerInWindow, view.isDescendant(of: host.topLayer) {
+           host.holdsKeyboardInWindowTopLayer(view) {
             return .textField
         }
         if view.isDescendant(of: controller.sidebar.container) {

@@ -130,6 +130,9 @@ public final class WindowOverlayHost {
     /// a first responder change there is a move. Kept here, as `endModal` runs after it left.
     var modalLeftWindowUsable = false
     var keyObserver: (any NSObjectProtocol)?
+    /// The traffic lights a whole-window blocking overlay in the top layer turned off (``syncWindowButtons()``).
+    /// Nil while they are not blocked.
+    var blockedWindowButtons: [NSButton]?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
     /// Carries `agentCursorLayer` (made on first use; `WindowOverlayHost+AgentCursor`).
@@ -156,6 +159,7 @@ public final class WindowOverlayHost {
         topLayer.onCancel = { [weak self] in self?.escape() }
         topLayer.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         topLayer.onResize = { [weak self] in self?.topLayerDidResize() }
+        topLayer.hasKeyboard = { [weak self] in self?.keyboardIsInWindowTopLayer ?? false }
         if isAppHost || !prefersWindowTopLayer { mountTopLayer(in: panel) }
     }
 
@@ -276,6 +280,7 @@ public final class WindowOverlayHost {
         keyObserver = nil
         stopObservingWindow()
         removeAgentCursor()
+        syncWindowButtons()
         if topLayer.window === window { topLayer.removeFromSuperview() }
         if let window {
             if let madePanel, madePanel.parent === window { window.removeChildWindow(madePanel) }
@@ -294,6 +299,7 @@ public final class WindowOverlayHost {
         guard let window else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         let windowBefore = overlayWindow
+        let modalHadKeyboard = modalHoldsKeyboard
         if usesPanel {
             mountTopLayer(in: panel)
             if wanted { attachPanel(to: window) } else { detachPanel() }
@@ -301,7 +307,8 @@ public final class WindowOverlayHost {
             detachPanel()
             mountTopLayer(inWindowContent: wanted || agentCursorCarrier != nil ? window.contentView : nil)
         }
-        if overlayWindow !== windowBefore { topLayerDidChangeWindow() }
+        if overlayWindow !== windowBefore { topLayerDidChangeWindow(restoringKeyboard: modalHadKeyboard) }
+        syncWindowButtons()
         placeAgentCursor()
         onPanelChange?()
     }
@@ -321,46 +328,6 @@ public final class WindowOverlayHost {
         window.removeChildWindow(madePanel)
         madePanel.orderOut(nil)
         stopObservingWindow()
-    }
-
-    /// The top layer fills `panel`'s content (window coordinates: the panel has the window's frame).
-    private func mountTopLayer(in panel: OverlayHostPanel) {
-        guard let root = panel.contentView, topLayer.superview !== root else { return }
-        topLayer.frame = root.bounds
-        root.addSubview(topLayer)
-    }
-
-    /// The top layer becomes the last subview of the window's content view, or leaves it (nil).
-    private func mountTopLayer(inWindowContent content: NSView?) {
-        guard let content else {
-            if let window, topLayer.window === window { topLayer.removeFromSuperview() }
-            return
-        }
-        if topLayer.frame != content.bounds { topLayer.frame = content.bounds }
-        if topLayer.superview !== content || content.subviews.last !== topLayer {
-            content.addSubview(topLayer, positioned: .above, relativeTo: nil)
-        }
-    }
-
-    /// The top layer moved between the panel and the window: the mouse routing follows its new home, and a
-    /// modal's keyboard (lost when its view left a window) goes to the newest modal in the new one.
-    private func topLayerDidChangeWindow() {
-        mouseRouting = nil
-        cachedRegions = nil
-        let top = handles.last { $0.options.isModal }
-        madePanel?.acceptsKey = top != nil && usesPanel
-        // A modal that already took the keyboard (``beginModal(_:)`` ran) takes it again in its new window.
-        if let top, overlayWindow != nil, keyObserver != nil { giveKeyboard(to: top) }
-        updateMouseRouting()
-    }
-
-    /// The window resized the top layer while it is in the window: the overlays follow, as the panel's do
-    /// on the window's resize notification.
-    private func topLayerDidResize() {
-        guard isTopLayerInWindow else { return }
-        handles.forEach(layout)
-        updateMouseRouting()
-        placeAgentCursor()
     }
 
     /// Child order, bottom to top: page windows, this panel, then app panels

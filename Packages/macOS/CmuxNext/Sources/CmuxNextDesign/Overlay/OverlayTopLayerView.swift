@@ -17,7 +17,7 @@ public import AppKit
 public final class OverlayTopLayerView: NSView {
     /// The layout overlay planes live here, below the presented overlays (panel only: in the window
     /// they stay in their layout root).
-    public let planeContainer = NSView()
+    public let planeContainer: NSView = OverlayContainerView()
     let paneContainer = OverlayContainerView()
     let windowContainer = OverlayContainerView()
     let modalContainer = OverlayContainerView()
@@ -30,6 +30,8 @@ public final class OverlayTopLayerView: NSView {
     var onCycleKeyView: ((Bool) -> Bool)?
     /// The view's size changed (the window resized): the host places its overlays again.
     var onResize: (() -> Void)?
+    /// A modal of the layer has the window's keyboard (in the window; the panel is key only then).
+    var hasKeyboard: (() -> Bool)?
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
@@ -67,12 +69,19 @@ public final class OverlayTopLayerView: NSView {
         if changed { onResize?() }
     }
 
-    /// In the window, only interactive overlays take the mouse; the rest of the window is hit below.
+    /// In the window, only interactive overlays take the mouse; the rest of the window is hit below. A
+    /// blocking region with no overlay view under the point ends here, at the empty mouse handlers.
     override public func hitTest(_ point: NSPoint) -> NSView? {
         guard isWindowTopLayer else { return super.hitTest(point) }
         let local = superview.map { convert(point, from: $0) } ?? point
         guard acceptsMouse?(local) == true else { return nil }
-        return super.hitTest(point)
+        return super.hitTest(point) ?? self
+    }
+
+    /// The pointer is over a region the layer covers and no overlay view there set a cursor: the arrow,
+    /// not the I-beam or pointing hand of a view below (``WindowOverlayHost/routeCoveredHover(_:)``).
+    override public func cursorUpdate(with event: NSEvent) {
+        if isWindowTopLayer { NSCursor.arrow.set() } else { super.cursorUpdate(with: event) }
     }
 
     /// A blocking region never drags the window (its titlebar runs under the full-size content).
@@ -103,6 +112,13 @@ public final class OverlayTopLayerView: NSView {
         default:
             super.keyDown(with: event)
         }
+    }
+
+    /// In the window, key equivalents reach the overlays only while a modal has the keyboard, as only a key
+    /// panel got them: a toast's button, or a dialog fading out, never takes the content's Return.
+    override public func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard !isWindowTopLayer || hasKeyboard?() == true else { return false }
+        return super.performKeyEquivalent(with: event)
     }
 
     override public func cancelOperation(_ sender: Any?) {

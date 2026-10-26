@@ -12,6 +12,8 @@ extension ShellWindow {
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
+        // A hover under an overlay of the window's top layer reaches only the overlay (feature `overlayTopLayer`).
+        if WindowOverlayHost.isCoverableHover(event.type), WindowOverlayHost.existingHost(for: self)?.routeCoveredHover(event) == true { return }
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
@@ -83,6 +85,18 @@ extension ShellWindow: OverlayTopLayerHosting {
 
     /// An overlay control of the top layer has the keyboard: no content shortcut runs below it.
     var overlayHasKeyboard: Bool { WindowOverlayHost.existingHost(for: self)?.keyboardIsInWindowTopLayer == true }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
+        if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
+        // A modal of the top layer has the keys: only the top layer sees them, as only the key panel did; the
+        // content below (an empty workspace's Return) never does. The main menu still comes after.
+        if let host = WindowOverlayHost.existingHost(for: self), host.keyboardIsInWindowTopLayer {
+            return host.topLayer.performKeyEquivalent(with: event)
+        }
+        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func selectNextKeyView(_ sender: Any?) {
         if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: true) != true { super.selectNextKeyView(sender) }

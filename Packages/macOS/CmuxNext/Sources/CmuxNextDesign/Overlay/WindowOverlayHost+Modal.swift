@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextInput
 
 extension WindowOverlayHost {
@@ -61,12 +61,25 @@ extension WindowOverlayHost {
         overlayWindow.makeFirstResponder(Self.keyViews(in: handle.content).first ?? handle.content)
     }
 
-    /// The keyboard is in the window's top layer: an overlay's control there is the window's first
-    /// responder. The window's key routing treats the window as a panel over it then (no content shortcut
-    /// runs), as it did while the overlay panel was key.
+    /// The keyboard is in the window's top layer while a modal shows there: an overlay's control is the
+    /// window's first responder. The window's key routing treats the window as a panel over it then (no
+    /// content shortcut runs), as it did while the overlay panel was key.
     public var keyboardIsInWindowTopLayer: Bool {
-        guard isTopLayerInWindow, let responder = window?.firstResponder as? NSView else { return false }
-        return responder.isDescendant(of: topLayer)
+        guard let responder = window?.firstResponder as? NSView else { return false }
+        return holdsKeyboardInWindowTopLayer(responder)
+    }
+
+    /// `view` is a control of the window's top layer while a modal shows there (a dialog's field or button).
+    public func holdsKeyboardInWindowTopLayer(_ view: NSView) -> Bool {
+        isTopLayerInWindow && handles.contains { $0.options.isModal } && view.isDescendant(of: topLayer)
+    }
+
+    /// The window must not make `responder` its first responder: a view of the window's top layer while no
+    /// modal shows (a popover, a toast's action, a menu). The overlay panel took the keyboard only while a
+    /// modal showed (``beginModal(_:)``); a click on any other overlay leaves the keyboard in the pane.
+    public func refusesFirstResponder(_ responder: NSResponder?) -> Bool {
+        guard isTopLayerInWindow, let view = responder as? NSView, view.isDescendant(of: topLayer) else { return false }
+        return !handles.contains { $0.options.isModal }
     }
 
     /// Tab or Shift-Tab reached the window (a field editor's `insertTab`) while the keyboard is in a modal

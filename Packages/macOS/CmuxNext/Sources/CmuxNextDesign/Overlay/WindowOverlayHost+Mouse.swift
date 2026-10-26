@@ -47,6 +47,43 @@ extension WindowOverlayHost {
         }
     }
 
+    /// Whether `type` is a hover event ``routeCoveredHover(_:)`` may keep from the views below the top layer.
+    public nonisolated static func isCoverableHover(_ type: NSEvent.EventType) -> Bool {
+        type == .mouseMoved || type == .mouseEntered || type == .cursorUpdate
+    }
+
+    /// A hover event of the window at a point its top layer covers (an interactive overlay, a modal's region,
+    /// a scrim) reaches only the top layer: true when it was handled here and the window must not send it on.
+    /// AppKit sends tracking-area events by geometry, under any view above; Chromium sends each pointer event
+    /// to the one target its hit test picks (`content/browser/renderer_host/render_widget_host_input_event_router.cc`),
+    /// so nothing below a dialog or a popover hovers, shows its tooltip or sets its cursor, as under the panel.
+    /// A move goes to the top layer's own tracking areas there; an enter or cursor update of an area below is
+    /// dropped (the arrow shows). Exits always pass, so a hover that began before the overlay can end.
+    public func routeCoveredHover(_ event: NSEvent) -> Bool { // perf-hot: 5us main-turn (every hover event of a window with a top layer)
+        guard Self.isCoverableHover(event.type), isTopLayerInWindow, let window, event.window === window else { return false }
+        let point = topLayer.convert(event.locationInWindow, from: nil)
+        guard acceptsMouse(at: point) else { return false }
+        var areas: [(view: NSView, area: NSTrackingArea)] = []
+        Self.collectTrackingAreas(in: topLayer, into: &areas)
+        if event.type == .mouseMoved {
+            for (view, area) in areas where area.options.contains(.mouseMoved) {
+                let rect = area.options.contains(.inVisibleRect) ? view.visibleRect : area.rect
+                guard rect.contains(view.convert(event.locationInWindow, from: nil)) else { continue }
+                (area.owner as? NSResponder)?.mouseMoved(with: event)
+            }
+            return true
+        }
+        guard let area = event.trackingArea, !areas.contains(where: { $0.area === area }) else { return false }
+        if event.type == .cursorUpdate { (topLayer.hitTest(topLayer.convert(point, to: topLayer.superview)) ?? topLayer).cursorUpdate(with: event) }
+        return true
+    }
+
+    /// Every tracking area of the shown views of `view`'s tree, with the view it was added to.
+    private static func collectTrackingAreas(in view: NSView, into areas: inout [(view: NSView, area: NSTrackingArea)]) {
+        areas += view.trackingAreas.map { (view: view, area: $0) }
+        for child in view.subviews where !child.isHidden { collectTrackingAreas(in: child, into: &areas) }
+    }
+
     /// One pointer event seen by `mouseRouting`: a click may give the overlay the keyboard; a move, a
     /// drag or a tracking-area enter or exit routes the mouse (button ups pass by).
     func routingEvent(_ event: NSEvent) {
