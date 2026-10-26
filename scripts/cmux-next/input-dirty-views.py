@@ -61,10 +61,14 @@ def is_cmux_image(name):
     return bool(name) and bool(CMUX_IMAGE.match(name))
 
 
-def first_cmux_frame(frames):
-    """Index of the first frame in cmux's own images, or None."""
+# The recorder's own capture path: left out when the app's names (or atos) show it (a stripped bench build).
+OWN_FRAMES = ("InputDirtyRecorder", "InputDirtyHook")
+
+
+def first_cmux_frame(frames, resolved=None):
+    """Index of the first frame in cmux's own images that is not the recorder's own, or None."""
     for index, frame in enumerate(frames or []):
-        if is_cmux_image(frame.get("image")):
+        if is_cmux_image(frame.get("image")) and not any(o in frame_label(frame, resolved or {}) for o in OWN_FRAMES):
             return index
     return None
 
@@ -88,7 +92,7 @@ def rows_from_runs(runs, resolved=None):
             if not site.get("off_target"):
                 continue
             frames = site.get("frames") or []
-            first = first_cmux_frame(frames)
+            first = first_cmux_frame(frames, resolved)
             where = frame_label(frames[first], resolved) if first is not None else "(no cmux frame)"
             owner = site.get("view_class") or site.get("layer_class") or "?"
             row = rows.setdefault((owner, where), {
@@ -164,6 +168,8 @@ def self_test():
     wanted = wanted_offsets(runs)
     assert set(wanted) == {"cmux DEV.debug.dylib"} and wanted["cmux DEV.debug.dylib"] == {0x1234, 0x99, 0x10}, wanted
     assert first_cmux_frame([frame("libswiftCore.dylib", 1)]) is None
+    own = [frame("cmux DEV.debug.dylib", 0x5, "InputDirtyHook.block(calling:)"), frame("cmux DEV.debug.dylib", 0x6, "Row.update()")]
+    assert first_cmux_frame(own) == 1, "the recorder's own frame is never the site"
     assert parse_atos("f() (in cmux) (A.swift:3)\n0x100\n", [1, 2]) == {1: "f() (A.swift:3)"}
     summary = summarize({"report": {"turns": {"closed": 3, "dispatch_ms": {"p50": 1}}, "dirty_calls": 4, "off_target_calls": 2,
                                     "dropped_calls": 0, "sites": runs[1]["report"]["sites"]}})

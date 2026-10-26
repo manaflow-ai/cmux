@@ -214,7 +214,8 @@ struct InputDirtyRecorderTests {
         let recorder = InputDirtyRecorder()
         recorder.install()
         defer { recorder.remove() }
-        let data = try JSONEncoder().encode(await recorder.report())
+        let report = await recorder.report()
+        let data = try JSONEncoder().encode(report)
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         for key in ["installed", "dirty_calls", "off_target_calls", "dropped_calls", "site_limit", "turns", "sites"] {
             #expect(object[key] != nil, "missing \(key)")
