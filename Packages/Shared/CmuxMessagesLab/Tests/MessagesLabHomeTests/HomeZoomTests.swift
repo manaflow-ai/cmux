@@ -53,4 +53,24 @@ import Testing
         #expect(view.headerHeight == header)
         #expect(view.fieldTop == fieldTop)
     }
+
+    /// A canvas camera scales the pane's ancestors (their bounds), not the chat's zoom: the field's text keeps the
+    /// window's scale at zoom 1 and the window's scale times the zoom when zoomed, whatever the camera does.
+    @Test func aCanvasCameraDoesNotChangeTheFieldTextScale() async throws {
+        let rig = try await HomeChatRig(history: 10, width: 600)
+        defer { rig.stop() }
+        let view = rig.view
+        let field = try #require(view.controller.demo?.compose.textView.view)
+        let backing = try #require(rig.window.backingScaleFactor as CGFloat?)
+        let camera = NSView(frame: view.frame)
+        rig.window.contentView = camera
+        camera.addSubview(view)
+        camera.setBoundsSize(NSSize(width: view.frame.width / 2, height: view.frame.height / 2))  // the camera at 200%
+        field.applyScale()
+        #expect(field.layer?.contentsScale == backing)
+
+        view.zoom = 1.5
+        field.applyScale()
+        #expect(field.layer?.contentsScale == backing * 1.5)
+    }
 }
