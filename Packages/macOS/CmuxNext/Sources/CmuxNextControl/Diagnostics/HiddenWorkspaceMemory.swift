@@ -6,14 +6,15 @@ public import CmuxNextWakeups
 /// before a hang report is built. No timer: the sampling moments are the transitions, so the samples are not
 /// biased toward report times.
 ///
-/// A transition's sample waits for the main thread's idle time (``note(_:)``): the main thread only reads which
+/// A transition's sample waits for the main thread's idle time (``workspaceDidShow()``, ``appDidResignActive()``): the main thread only reads which
 /// workspace holds each browser tab, which workspaces no window shows and each tab's renderer frames (the
 /// App's ``Capture``, O(browser tabs), one in-process shim call per tab); the renderer pids, their footprints and
 /// the attribution (``MemorySampler``) run on a background lane. Transitions that come before that idle time
 /// join the first one's sample, under its trigger.
 ///
-/// The App makes one and holds it with its hang reports, which call ``note(_:)`` at each transition and
-/// ``sampleNow(_:)`` before a report; tests pass a fake capture and pid list.
+/// The App makes one with its hang reports, which call ``sampleNow(_:)`` before a report; its window manager and
+/// its resign-active subscription call ``workspaceDidShow()`` and ``appDidResignActive()``. Tests pass a fake
+/// capture and pid list.
 @MainActor public final class HiddenWorkspaceMemory {
     /// One browser tab as the main thread sees it.
     public struct Placement: Sendable {
@@ -64,9 +65,19 @@ public import CmuxNextWakeups
         self.rendererPIDs = rendererPIDs
     }
 
+    /// A window showed a workspace and hid the one it showed.
+    public func workspaceDidShow() {
+        note(.workspaceSwitch)
+    }
+
+    /// The app stopped being the active app (told by the app's one resign-active subscription).
+    public func appDidResignActive() {
+        note(.resignActive)
+    }
+
     /// A transition: one sample in the main thread's next idle time (at most 5 s later), under `trigger` unless a
     /// sample already waits, which this one joins.
-    public func note(_ trigger: MemorySampler.Trigger) {
+    private func note(_ trigger: MemorySampler.Trigger) {
         guard pending == nil else { return }
         pending = trigger
         mainWork.postIdle(owner: "HiddenWorkspaceMemory", maxDelay: .seconds(5)) { [weak self] _ in

@@ -192,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
             guard let services else { return }
-            services.startIdleWakeups(watchdog: control.watchdog)
+            services.startIdleWakeups(watchdog: control.watchdog, hiddenWorkspaceMemory: AppProcessRoot.shared.hangReports?.memory)
             control.idleWakeups = services.idleWakeups  // the person's input ends an idle period at that input
         }
         DebugTimings.markReveal(services.launchReveal)
@@ -295,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window); AppProcessRoot.shared.hangReports?.workspaceDidShow() }
+        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window); AppProcessRoot.shared.hangReports?.memory?.workspaceDidShow() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         launchOpens.release { item in  // services exist now: nothing is held while this runs
             switch item {
