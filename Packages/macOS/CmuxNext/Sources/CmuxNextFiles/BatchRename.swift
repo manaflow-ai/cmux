@@ -38,8 +38,11 @@ public struct BatchRename: Sendable, Equatable {
 
     /// Why one new name cannot be used.
     public enum Problem: Sendable, Equatable {
-        /// Empty, `/`, `..`, too long, or a number past `Int.max` (a huge start number).
+        /// Empty, `/`, `..` or too long.
         case invalid
+        /// Format's number for this item is past `Int.max`: the start number is too large for
+        /// this many items. `to` is the old name, as no new name exists.
+        case numberTooLarge
         /// Another item in this rename gets the same name.
         case duplicate
         /// An item not in this rename has the name.
@@ -80,7 +83,9 @@ public struct BatchRename: Sendable, Equatable {
             let renamed = newName(for: name, offset: offset)
             let to = renamed ?? name
             let problem: Problem?
-            if renamed == nil || !namer.isValid(to) {
+            if renamed == nil {
+                problem = .numberTooLarge
+            } else if !namer.isValid(to) {
                 problem = .invalid
             } else if seen.contains(to) {
                 problem = .duplicate

@@ -16,7 +16,8 @@ public typealias TerminalLinkCheck = @Sendable (_ text: String, _ cwd: String?) 
 /// kept a few seconds, so a file a program writes after printing its path
 /// becomes a link on the next hover. A check started before ``setCheck(_:)`` answers for the
 /// check it ran, so its answer is dropped, as Chromium drops a reply bound to a
-/// `WeakPtrFactory` that was invalidated (base/memory/weak_ptr.h).
+/// `WeakPtrFactory` that was invalidated (base/memory/weak_ptr.h); the view still hears of it
+/// when the new check has not asked about that text, so Ghostty asks again under the new check.
 nonisolated final class TerminalLinkFilter: Sendable {
     typealias Check = TerminalLinkCheck
     /// Runs one check off the caller's thread.
@@ -94,7 +95,10 @@ nonisolated final class TerminalLinkFilter: Sendable {
             schedule { [self] in
                 let isLink = check(key.text, key.cwd)
                 let changed: (@Sendable () -> Void)? = state.withLock { state in
-                    guard state.generation == generation else { return nil }
+                    guard state.generation == generation else {
+                        let unasked = state.answers[key] == nil && !state.pending.contains(key)
+                        return unasked ? state.changed : nil
+                    }
                     let before = state.answers[key]?.isLink
                     if state.answers.count >= Self.capacity { state.answers.removeAll() }
                     state.answers[key] = Answer(isLink: isLink, at: .now)
