@@ -12,6 +12,8 @@ import Darwin
 ///   with a rate over the last 10 complete seconds.
 /// - `frame_schedulers`: each window's display link, its active clients and the links it made, and the app's
 ///   budgeted scheduler (``MainWorkScheduler``: the control queue, the daemon store drain).
+/// - `vsync`: the ``VSyncHub``'s live links and its main fan-out's hop (`main_hop_p99_ms`; the hop stays while
+///   it is under 0.1 ms, threading-model.md's VSyncHub row).
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
 ///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
 ///   the main actor.
@@ -53,6 +55,7 @@ enum DebugWakeups {
             }),
             "frame_schedulers": .array(schedulers),
             "display_links": JSONValue(budgeted.displayClock.liveLinks),
+            "vsync": budgeted.displayClock.hub.map { hub in JSONValue.object(hub.debugCounts.mapValues { JSONValue.number($0) }) } ?? JSONValue.null,
             "active_frame_clients": .array(all.flatMap(\.activeClients).map { .string($0) }),
         ]
         if params["run_loop"]?.boolValue == true {

@@ -77,8 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.startupTrace = startupTrace
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
-        // One display link per display, shared by the app, window and budgeted frame schedulers.
-        let displays = DisplayClock()
+        // One display link per display, on that display's vsync thread (VSyncHub), shared by the app,
+        // window and budgeted frame schedulers through one coalesced main post per vsync.
+        let displays = DisplayClock(hub: VSyncHub())
         FrameScheduler.install(displays: displays)
         // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
         // work for the settle. The marks are queued first, so each shows before the held work it opens.

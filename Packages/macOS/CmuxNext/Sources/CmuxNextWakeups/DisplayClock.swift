@@ -29,9 +29,16 @@ public import QuartzCore
 /// link of the display they are on now, `ui/display/mac/display_link_mac.h`). So a display whose
 /// screen went away never keeps its subscribers on the deadline's 10 Hz.
 ///
+/// With a ``VSyncHub`` (the app's), the hub holds each display's only link on the display's vsync
+/// thread, and this clock is one of its subscribers: each vsync reaches main as one coalesced post,
+/// at most one pending (``VSyncHub/mainLink(display:onTick:)``; Chrome's `VSyncCallbackMac` posting
+/// to the thread that registered it, `ui/display/mac/display_link_mac.mm`). Without one, the clock
+/// makes a link on the main run loop per display: the measured fallback of threading-model.md's
+/// VSyncHub row, a main link next to the hub's.
+///
 /// ```swift
 /// // The composition root builds the app's clock and installs it:
-/// let displays = DisplayClock()
+/// let displays = DisplayClock(hub: VSyncHub())
 /// FrameScheduler.install(displays: displays)
 /// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
 ///
@@ -60,24 +67,34 @@ public final class DisplayClock {
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
     private let mediaTime: @MainActor () -> CFTimeInterval
+    /// The hub whose display threads hold this clock's links (nil: main-run-loop links).
+    public let hub: VSyncHub?
     private var displays: [CGDirectDisplayID: Display] = [:]
 
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
 
     /// - Parameters:
-    ///   - makeLink: Makes a display's link; nil: a `CADisplayLink` of the `NSScreen` with that number
-    ///     on the main run loop.
+    ///   - hub: The app's vsync hub; nil: no hub.
+    ///   - makeLink: Makes a display's link; nil: `hub`'s main link of that display, or without a hub a
+    ///     `CADisplayLink` of the `NSScreen` with that number on the main run loop.
     ///   - displayOf: Resolves a window's display; nil: the window's screen, else the main screen.
     ///   - isVisible: Whether a window can be seen; nil: not miniaturized, the app not hidden, and,
     ///     while the window is on screen, some part of it visible.
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
-    public init(makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil, isVisible: VisibilityResolver? = nil,
-                clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+    public init(hub: VSyncHub? = nil, makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
+                isVisible: VisibilityResolver? = nil, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() }) {
-        self.makeLink = makeLink ?? { display, clock in DisplayClock.systemLink(display, clock) }
+        self.hub = hub
+        if let makeLink {
+            self.makeLink = makeLink
+        } else if let hub {
+            self.makeLink = DisplayClock.hubLinks(hub)
+        } else {
+            self.makeLink = { display, clock in DisplayClock.systemLink(display, clock) }
+        }
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
         self.clock = clock
@@ -324,6 +341,16 @@ public final class DisplayClock {
     }
 
     // MARK: System links
+
+    /// Links that ride `hub`'s display threads: each vsync of the display is one main post that ticks the clock.
+    private static func hubLinks(_ hub: VSyncHub) -> LinkFactory {
+        { display, clock in
+            hub.mainLink(display: display) { [weak clock] tick in
+                clock?.displayDidFire(display, timestamp: tick.timestamp, refreshInterval: tick.refreshInterval,
+                                      targetTimestamp: tick.targetTimestamp)
+            }
+        }
+    }
 
     /// Springs step every display frame: 120 Hz on ProMotion (never below 80), the display's rate elsewhere.
     private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
