@@ -39,11 +39,9 @@
         "method": "sidebar_layout.update",
         "params": {
           "op": {
-            "kind": "section.add",
-            "section": {},
-            "index": 0
-          },
-          "oracle_unknown": true
+            "kind": "item.remove",
+            "id": "itm_oracle_missing"
+          }
         },
         "idempotencyKey": "sidebar-layout-update-error.call"
       },
@@ -55,7 +53,7 @@
         "before",
         "settled"
       ],
-      "note": "oracle_unknown breaks its catalog type (request contains unknown parameters); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_item) and writes nothing: the old layout reducer finds no such item"
     }
   ],
   "invariants": [
