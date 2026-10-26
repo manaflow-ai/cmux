@@ -2686,6 +2686,12 @@ class Tokens(unittest.TestCase):
         self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
         self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
 
+    def test_every_limiter_message_counts(self):
+        for said in ("You have exceeded a secondary rate limit", "You have triggered an abuse detection mechanism",
+                     "Too many requests"):
+            self.assertEqual(rescue.rate_limit_wait(403, {}, said, 0.0, 0), 60.0, said)
+        self.assertIsNone(rescue.rate_limit_wait(403, {}, "Resource not accessible by integration", 0.0, 0))
+
     def test_a_spent_budget_waits_for_its_reset(self):
         reset = str(int(rescue.time.time()) + 100)
         seen, patch = self.refusing([(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset}, b"{}")])
@@ -2898,13 +2904,17 @@ class Workflow(unittest.TestCase):
         timeout = self.doc["jobs"]["rescue"]["timeout-minutes"] * 60
         self.assertGreaterEqual(timeout, rescue.JOB_TIMEOUT_SECONDS)
         # A sweeper adopts runs, then gives a rescue under way its grace, within a hosted job's 6 hours.
-        self.assertLessEqual(rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS,
+        self.assertLessEqual(rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS,
                              timeout - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
         self.assertLessEqual(timeout, 6 * 60 * 60)
         watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
         # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
         self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
-        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS,
+        # A handover joins its rescues for the grace: it holds a whole cancel, its re-run and the
+        # watch's rate-limit waits, so the process never exits with a run cancelled and not re-run.
+        self.assertGreaterEqual(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS
+                                + rescue.RATE_LIMIT_WAIT_SECONDS)
+        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
 

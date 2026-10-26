@@ -446,17 +446,17 @@ ADMISSION_JOB = "macos / macOS compile admission"
 CANCEL_WAIT_SECONDS = 20 * 60
 FORCE_CANCEL_AFTER_SECONDS = 90
 FORCE_CANCEL_AGAIN_SECONDS = 5 * 60
-# A rescue may run this long past the watch's end, so a refusal found late
-# in the watch still gets its cancel settled and its re-run.
-RESCUE_GRACE_SECONDS = 25 * 60
-# Room for the rate-limit waits (RATE_LIMIT_WAIT_SECONDS, which must equal it).
+# Room for one watch's waits through GitHub rate limits (RATE_LIMIT_WAIT_SECONDS).
 _RATE_LIMIT_ROOM_SECONDS = 15 * 60
+# A rescue may run this long past the watch's end, so a refusal found late
+# in the watch still gets its cancel settled and its re-run, rate-limit waits
+# included (a sweeper's handover joins its rescues for this long).
+RESCUE_GRACE_SECONDS = 25 * 60 + _RATE_LIMIT_ROOM_SECONDS
 # Kept back from the job timeout for checkout and the summary.
 JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
 # ci-owned-pool-rescue.yml's timeout-minutes: the longest watch (an E2E
 # run's), its rescue grace, and the margin.
-JOB_TIMEOUT_SECONDS = (E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + _RATE_LIMIT_ROOM_SECONDS
-                       + JOB_TIMEOUT_MARGIN_SECONDS)
+JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails within the runner's setup; a real failure of the first
@@ -930,7 +930,10 @@ def rate_limit_wait(code: int, headers: Mapping[str, str], body: str, now: float
     get = {str(key).lower(): str(value) for key, value in (headers or {}).items()}.get
     retry_after = (get("retry-after") or "").strip()
     remaining = (get("x-ratelimit-remaining") or "").strip()
-    limited = code == 429 or bool(retry_after) or remaining == "0" or "rate limit" in body.lower()
+    said = body.lower()
+    # The same messages scripts/ci/gh_budget_wait.sh treats as a rate limit.
+    limited = code == 429 or bool(retry_after) or remaining == "0" or any(
+        phrase in said for phrase in ("rate limit", "abuse detection", "too many requests"))
     if not limited:
         return None
     if retry_after.isdigit():

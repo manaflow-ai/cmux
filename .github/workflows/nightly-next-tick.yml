@@ -111,7 +111,6 @@ jobs:
       # re-run, run 40340830337) is never requested again below ("already on
       # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
-        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
         # The promotion below must run even when this check cannot.
         continue-on-error: true
         env:
