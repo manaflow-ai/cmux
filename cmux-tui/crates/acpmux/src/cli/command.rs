@@ -313,7 +313,7 @@ pub enum Command {
         rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "hosts")]
+    #[command(subcommand, alias = "hosts", visible_alias = "peer")]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -1196,4 +1196,168 @@ pub fn flatten(c: Command) -> Command {
 pub enum RouterCmd {
     /// Start the phase-one local router listeners.
     Serve,
+}
+
+#[cfg(test)]
+mod help_contract_tests {
+    use super::Cli;
+    use clap::{CommandFactory, Parser};
+    use std::collections::{HashMap, HashSet};
+
+    const REMOTE_DOCS: &[(&str, &str)] = &[
+        (
+            "docs/remote-agents-and-cloud.md",
+            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
+        ),
+        ("acpmux README", include_str!("../../README.md")),
+        ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+    ];
+
+    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
+        text.lines()
+            .flat_map(|line| {
+                let needle = format!("{binary} ");
+                let mut rest = line;
+                let mut commands = Vec::new();
+                while let Some(offset) = rest.find(&needle) {
+                    let prefix = &rest[..offset];
+                    let in_command_context = prefix.trim().is_empty()
+                        || prefix.chars().last().is_some_and(|character| {
+                            matches!(character, '`' | '\'' | '"' | ';' | '|' | '&' | '(' | '$')
+                        });
+                    if in_command_context {
+                        let mut command = Vec::new();
+                        for raw in rest[offset..].split_whitespace() {
+                            if raw.starts_with('…') || raw.starts_with("...") {
+                                break;
+                            }
+                            let token = raw.trim_matches(|c: char| "`'\",);:<>".contains(c));
+                            if token.is_empty()
+                                || token.starts_with('#')
+                                || matches!(token, "&&" | "||" | ";" | "|")
+                            {
+                                break;
+                            }
+                            command.push(token.to_owned());
+                            if raw.contains('`') {
+                                break;
+                            }
+                        }
+                        if command.len() > 1 {
+                            commands.push(command);
+                        }
+                    }
+                    rest = &rest[offset + needle.len()..];
+                }
+                commands
+            })
+            .collect()
+    }
+
+    fn command_shapes() -> HashMap<Vec<String>, HashSet<String>> {
+        fn visit(
+            command: &clap::Command,
+            path: &mut Vec<String>,
+            shapes: &mut HashMap<Vec<String>, HashSet<String>>,
+        ) {
+            let mut flags = HashSet::new();
+            for argument in command.get_arguments() {
+                if let Some(long) = argument.get_long() {
+                    flags.insert(format!("--{long}"));
+                }
+                if let Some(short) = argument.get_short() {
+                    flags.insert(format!("-{short}"));
+                }
+            }
+            shapes.insert(path.clone(), flags);
+            for subcommand in command.get_subcommands() {
+                for name in
+                    std::iter::once(subcommand.get_name()).chain(subcommand.get_all_aliases())
+                {
+                    path.push(name.to_owned());
+                    visit(subcommand, path, shapes);
+                    path.pop();
+                }
+            }
+        }
+
+        let mut shapes = HashMap::new();
+        visit(&Cli::command(), &mut Vec::new(), &mut shapes);
+        shapes
+    }
+
+    fn documented_shape(
+        words: &[String],
+        shapes: &HashMap<Vec<String>, HashSet<String>>,
+    ) -> Option<Vec<String>> {
+        let mut start = 1;
+        while words
+            .get(start)
+            .is_some_and(|word| matches!(word.as_str(), "--json" | "--suppress-reads"))
+        {
+            start += 1;
+        }
+        if words.get(start).is_some_and(|word| !word.starts_with('-')) {
+            let mut candidate = vec![words[start].clone()];
+            if candidate[0] == "peer" {
+                candidate[0] = "host".to_owned();
+            }
+            if !shapes.keys().any(|known| known == &candidate) {
+                return None;
+            }
+        }
+        let mut command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
+        let mut path = Vec::new();
+        while let Some(word) = command.next() {
+            let candidate = if path.is_empty() && word == "peer" { "host" } else { word.as_str() };
+            let mut next = path.clone();
+            next.push(candidate.to_owned());
+            if !shapes.keys().any(|known| known == &next) {
+                break;
+            }
+            path = next;
+        }
+        // A binary invocation containing only root flags (for example
+        // `acpmux --version`) still belongs to the documented surface.
+        Some(path)
+    }
+
+    #[test]
+    fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
+        let shapes = command_shapes();
+        let mut missing = Vec::new();
+        for (source, text) in REMOTE_DOCS {
+            for words in tokens(text, "acpmux") {
+                let Some(path) = documented_shape(&words, &shapes) else {
+                    missing.push(format!("{source}: {} (command)", words.join(" ")));
+                    continue;
+                };
+                let mut flags = HashSet::new();
+                flags.extend(
+                    shapes.get(&Vec::new()).into_iter().flat_map(|flags| flags.iter().cloned()),
+                );
+                for end in 1..=path.len() {
+                    flags.extend(
+                        shapes
+                            .get(&path[..end].to_vec())
+                            .into_iter()
+                            .flat_map(|flags| flags.iter().cloned()),
+                    );
+                }
+                for word in words.iter().skip(1).filter(|word| word.starts_with('-')) {
+                    let flag = word.split('=').next().unwrap_or(word);
+                    if flag == "--" || flag == "-" || !flags.contains(flag) {
+                        missing.push(format!("{source}: {} (flag {flag})", words.join(" ")));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn peer_alias_still_parses_after_host_becomes_canonical() {
+        let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
+        assert!(parsed.is_ok(), "peer alias stopped working: {parsed:?}");
+    }
 }
