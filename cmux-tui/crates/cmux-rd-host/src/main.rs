@@ -9,6 +9,7 @@
 //! The host and the test app are Linux (X11); encode-selftest and bench also build on macOS.
 //! Design: plans/cmux-next/remote-desktop.md. Wire: crate cmux-rd-proto.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 // macOS builds only the encoder self-test and the bench; the host (X11) is Linux.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 

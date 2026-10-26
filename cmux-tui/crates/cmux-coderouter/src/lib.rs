@@ -1,4 +1,7 @@
 //! The local CodeRouter security boundary and phase-one listeners.
+
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use axum::{
     Router,
     body::Body,
@@ -460,10 +463,11 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
             }
         }
     };
-    let spawned = std::thread::Builder::new().name("router-owners".into()).spawn(move || {
-        watch();
-        let _ = gone.send(());
-    });
+    let spawned =
+        cmux_threads::spawn("router-owners", cmux_threads::ThreadQos::Utility, move || {
+            watch();
+            let _ = gone.send(());
+        });
     if let Err(e) = spawned {
         tracing::warn!("the router cannot watch its owners: {e}");
     }
@@ -506,7 +510,7 @@ async fn serve_owned(
     // stops during it (no owner left) returns from main without waiting
     // for that thread.
     let (locked, lock_rx) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new().name("router-lock".into()).spawn(move || {
+    cmux_threads::spawn("router-lock", cmux_threads::ThreadQos::Utility, move || {
         let _ = locked.send(fs4::FileExt::lock(&lock).map(|()| lock));
     })?;
     let lock = tokio::time::timeout(std::time::Duration::from_secs(30), lock_rx)
