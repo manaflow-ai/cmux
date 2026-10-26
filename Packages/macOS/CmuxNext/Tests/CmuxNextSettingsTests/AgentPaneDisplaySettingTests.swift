@@ -96,7 +96,7 @@ struct AgentPaneDisplaySettingTests {
         let descriptor = try #require(SettingsSchema.descriptor(for: path))
         let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": .bool(on)])])])
         let expected: JSONValue = .string(on ? "full" : "compact")
-        // Settings, the palette and the App Store card read this descriptor value.
+        // Settings and the palette read this descriptor value.
         #expect(descriptor.effectiveValue(in: root) == expected)
         let chat = AgentPaneDisplaySetting(fileRoot: root).values[descriptor.id] ?? descriptor.defaultValue
         #expect(chat == expected)
