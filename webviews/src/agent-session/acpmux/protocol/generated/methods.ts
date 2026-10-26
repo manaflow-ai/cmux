@@ -84,6 +84,9 @@ export interface AcpmuxRequests {
   "_acpmux/history": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
+  "_acpmux/watch_add": { params: unknown; result: unknown };
+  "_acpmux/watch_ls": { params: unknown; result: unknown };
+  "_acpmux/watch_rm": { params: unknown; result: unknown };
   "_acpmux/ask": { params: unknown; result: unknown };
   "_acpmux/warm": { params: unknown; result: unknown };
   "_acpmux/prewarm": { params: unknown; result: unknown };
@@ -323,6 +326,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/watch_add", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/watch_ls", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/watch_rm", kind: "request", acp: false, typed: false },
   { name: "_acpmux/ask", kind: "request", acp: false, typed: false },
   { name: "_acpmux/warm", kind: "request", acp: false, typed: false },
   { name: "_acpmux/prewarm", kind: "request", acp: false, typed: false },

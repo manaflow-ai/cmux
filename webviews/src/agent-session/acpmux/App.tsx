@@ -5919,6 +5919,10 @@ function AcpmuxPane() {
     wide: reviewing,
   });
   // Labs: a workflow's card opens Session Info's Background tasks, which lists its phases and agents.
+  const toggleSessionInfo = useRef(inspector.toggle);
+  useLayoutEffect(() => {
+    toggleSessionInfo.current = inspector.toggle;
+  }, [inspector.toggle]);
   const revealInspector = inspector.reveal;
   useEffect(() => {
     configureWorkflowCardOpen(revealInspector ? () => revealInspector("tasks") : undefined);
@@ -6547,6 +6551,10 @@ function AcpmuxPane() {
         }
       },
       command(name, sessionId) {
+        if (name === "toggleSessionInfo") {
+          toggleSessionInfo.current?.();
+          return;
+        }
         // Native palette rows carry the session id that was focused when the action was queued.
         // Handle them after the current render has installed its row callbacks; the listener below
         // drops a command whose page has since switched to another session.

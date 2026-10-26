@@ -187,6 +187,14 @@ because the daemon runs a prompt id once and answers a repeat with the first run
 after a restart. `--no-wait` and `--detach` return once the daemon has accepted the prompt. The TUI
 reconnects on its own when the daemon restarts and re-attaches the selected session.
 
+A failure acpmux knows the remedy for says what to do on the next line, and under `--json` adds
+`errorKind` and `recovery` to the error object (the [typed errors](#typed-errors) below):
+
+```
+acpmux: runtime: No space left on device (os error 28)
+  The disk is full. Free space on the disk that holds /home/me/proj: 0.4 GB free of 252 GB.
+```
+
 ```
 acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
 acpmux exec -m claude "one-shot"                              # same, and the session is deleted afterwards
@@ -217,6 +225,17 @@ turn change and the wait subscribes to hub events, so nothing is missed between 
 and the subscribe. `done` means a turn ended while no client was attached. `send` reports
 `prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
 turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
+
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
+with no watches. Older cursor fields default safely. Peer replay uses eight workers.
+The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
@@ -1175,7 +1194,10 @@ carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_start
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band
 (`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
-Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed, and
+`--print` then prints that turn's error (`error` under `--json`), never the reply of the turn
+before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when
+it runs). When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 
@@ -1195,6 +1217,27 @@ list with no daemon running, which the cmux app bundle records for its web pages
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
+
+### Typed errors
+
+An error a client sees can say what kind of failure it is and what to do, in three keys added
+beside what was there: on a request's JSON-RPC error `data`, on the `turn_error` and `turn_result`
+records of a failed turn, and so on the session's `lastTurn`. The error's own message (`error`,
+`errorText`) stays a whole sentence, so a client that reads only that still reads well.
+
+- `errorKind`: `disk.full` (a write hit a full disk or quota), `disk.low` (`daemon status`:
+  under `diskLowBytes`, 1 GiB by default, free on acpmux's disk), `peer.unreachable` (the peer
+  did not answer; the request was not sent), `daemon.restarting` (the daemon is
+  shutting down), `spawn.failed` (the harness's program or folder is missing) or `agent.exited`
+  (the agent's process ended mid-turn). A client treats a kind it does not know as a plain error.
+- `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
+  holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
+  use 3.0 GB; `acpmux session stop <session> --purge` removes a chat you no longer need."
+  acpmux never deletes anything itself.
+- `details`: only the keys that apply: `path`, `freeBytes`, `totalBytes`, `peer` (its name in
+  `acpmux host ls`), `lastSeenAt` (RFC 3339), `binary`, `cwd`, `exitCode`,
+  `signal`, `queued` (the message waits in the outbox and goes when the peer or daemon is back),
+  `retryAfterMs`. The schema is `ErrorDetails` in `spec/acpmux-protocol.json`.
 
 ## Persistence and portability
 
