@@ -11,7 +11,8 @@ import CmuxNextTabs
 /// mouse itself with one local event monitor, like the App's link drag. Over a window's sidebar the list shows
 /// the drop outline; a release there adds the item. A release anywhere else, Escape, a lost release (the next
 /// press) or the app going inactive (its `applicationDeactivated` event, the same monitor) ends it with nothing
-/// added. The owner (Home's page) keeps one instance; the monitor holds it weakly and goes with the drag.
+/// added. The owner (Home's page) keeps one instance; the monitor holds it until the drag ends, so an owner gone
+/// mid-drag (its page closed) leaves no monitor or ghost behind.
 @MainActor
 public final class ChiefDragIn {
     /// What the drag reaches in the App: the sidebar of the app window under a screen point (below the ghost's
@@ -51,8 +52,9 @@ public final class ChiefDragIn {
     public func begin(at screenPoint: CGPoint) -> Bool {
         guard drag == nil, !host.isBusy() else { return false }
         let drag = Drag(ghost: LinkDragGhost(title: SidebarItemInfo.fallback(for: .builtIn(.chief)).title))
+        // Strong until `finish` removes the monitor: the drag keeps this alive however its owner goes.
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown, .appKitDefined]) {
-            [weak self] event in self?.handle(event) ?? event
+            event in self.handle(event)
         }
         self.drag = drag
         drag.ghost.show(at: screenPoint)
