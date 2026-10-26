@@ -120,8 +120,9 @@ impl Hub {
         }
     }
 
-    /// A family message about to reach `session`'s agent (`provenance` a family prompt's or a
-    /// sub-session's retry; any other prompt: Ok(None), no gate): checked again
+    /// A family message about to reach `session`'s agent (`provenance` a family prompt's, a
+    /// sub-session's retry, or a continuation of either; any other prompt: Ok(None), no gate):
+    /// checked again
     /// (`family_dispatch_check`) under the family gate, which the caller holds until the
     /// message is written. An MDM off push waits on the gate (`full_access_turned_off`), so a
     /// message checked under the old bound is written before the push returns, and one checked
@@ -131,8 +132,7 @@ impl Hub {
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>, RpcError> {
-        use super::subsession_guard::{is_family_prompt, is_family_retry};
-        if !(is_family_prompt(provenance) || is_family_retry(provenance)) {
+        if !super::subsession_guard::is_family(provenance) {
             return Ok(None);
         }
         let gate = self.family_gate.read().await;

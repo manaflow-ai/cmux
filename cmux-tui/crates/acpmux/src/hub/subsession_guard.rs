@@ -125,6 +125,14 @@ pub(super) fn is_family_retry(provenance: Option<&Value>) -> bool {
     provenance.is_some_and(|p| p.get("manual").is_some() && p.get("from").is_some())
 }
 
+/// A family prompt, a sub-session's retry, or the automatic continuation of either's cut turn,
+/// which speaks for the same sender (`from`, `auto_resume.rs`): checked as a family message.
+pub(super) fn is_family(provenance: Option<&Value>) -> bool {
+    let continuation =
+        provenance.is_some_and(|p| p["kind"] == "auto_resume" && p.get("from").is_some());
+    is_family_prompt(provenance) || is_family_retry(provenance) || continuation
+}
+
 /// The refusal of a child that would ask less than its caller.
 pub(super) fn asks_less(why: &str) -> RpcError {
     refusal(
@@ -574,8 +582,8 @@ impl Hub {
         })
     }
 
-    /// A family prompt (`provenance` of kind `subsession_message`, or a retry
-    /// a sub-session asked for, `from` it) about to run in `session`: refused
+    /// A family prompt (`provenance` of kind `subsession_message`, a retry
+    /// a sub-session asked for, `from` it, or a continuation of either) about to run in `session`: refused
     /// when its sender is gone or the receiver now asks less than the sender,
     /// by mode or policy (either changed while it waited in the queue, or the
     /// agent's start changed the mode).
@@ -584,8 +592,7 @@ impl Hub {
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let family = |p: &&Value| is_family_prompt(Some(p)) || is_family_retry(Some(p));
-        let Some(p) = provenance.filter(family) else {
+        let Some(p) = provenance.filter(|p| is_family(Some(p))) else {
             return Ok(());
         };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();

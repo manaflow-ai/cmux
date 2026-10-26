@@ -545,8 +545,9 @@ impl Hub {
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for_since(session, stops).await;
+                let mut family_gate = None;
                 let refusal = match &fallback {
-                    Ok(_) => self
+                    Ok(_) => match self
                         .check_dispatch(
                             session,
                             control,
@@ -557,7 +558,18 @@ impl Hub {
                             client,
                         )
                         .await
-                        .err(),
+                    {
+                        // A family message is checked again, and held until it is resent: an
+                        // off push may have come since its first write (`family_gate`).
+                        Ok(()) => match self.family_gate(session, run.provenance.as_ref()).await {
+                            Ok(gate) => {
+                                family_gate = gate;
+                                None
+                            }
+                            Err(e) => Some(e),
+                        },
+                        Err(e) => Some(e),
+                    },
                     Err(_) => None,
                 };
                 match (fallback, refusal) {
@@ -591,7 +603,10 @@ impl Hub {
                                 json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
                                 &turn_id,
                                 false,
-                                || self.watch_stalled_turn(session, None),
+                                || {
+                                    drop(family_gate);
+                                    self.watch_stalled_turn(session, None)
+                                },
                             )
                             .await;
                         }
@@ -613,6 +628,12 @@ impl Hub {
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             (Err(e), false) => Some(super::auto_resume::CutTurn {
+                // A family message's continuation speaks for its sender (`is_family`).
+                from: run
+                    .provenance
+                    .as_ref()
+                    .filter(|p| super::subsession_guard::is_family(Some(p)))
+                    .and_then(|p| p["from"].as_str()),
                 prompt_id: &prompt_id,
                 turn_id: &turn_id,
                 control,
