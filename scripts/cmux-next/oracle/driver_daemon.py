@@ -17,6 +17,10 @@ but `subscriptions`) are one cut. A release daemon, or a push-base daemon from b
 is the `settings.snapshot` result after the schema's capture rules, which check_snapshot_schema.py owns.
 Nothing here normalizes: volatile fields, path rewrites and id labels are normalize.py's (task 013).
 
+With `facets: v0` in the session context (facets_v0.py capture, p15-oracle-006) a case reads only push-base
+methods (no `oracle-state`), runs on the wall clock and refuses advance_clock, so the push base and any later SHA
+give comparable snapshots; the snapshot schema is then the v0 one (facets_v0.write_schema).
+
 Each case gets:
 - its own state root `/tmp/o/<run6>/<case6>` (oracle.py gives it out), holding the daemon's socket
   (`s.sock`, so every socket path stays <= 100 bytes, under Linux's 108-byte sun_path), state, HOME,
@@ -123,6 +127,7 @@ for _path in (str(HERE), str(SDK)):
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
 import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
+from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -172,7 +177,6 @@ STOP_S = 60.0
 SHUTDOWN_S = 120.0
 EXIT_S = 10.0
 LOG_TAIL_BYTES = 2048
-MISSING = object()
 
 
 # ------------------------------------------------------------------------------------- the daemon facet
@@ -206,13 +210,16 @@ def is_unknown_command(reply: Mapping[str, Any]) -> bool:
     return reply.get("ok") is False and isinstance(error, str) and UNKNOWN_COMMAND.format(ORACLE_STATE) in error
 
 
-def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-    """The `facets.daemon` value of the daemon behind `reads`."""
+def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]] = None, *,
+                         v0: bool = False) -> Dict[str, Any]:
+    """The `facets.daemon` value of the daemon behind `reads`; `v0` reads push-base methods only (no oracle-state)."""
     schema = load_schema() if schema is None else schema
     props = daemon_properties(schema)
-    reply = reads.command(ORACLE_STATE)
+    reply = {} if v0 else reads.command(ORACLE_STATE)
     facet: Dict[str, Any] = {}
-    if reply.get("ok") is True:
+    if v0:
+        session = reads.operation("session.snapshot", SELECTORS)
+    elif reply.get("ok") is True:
         data = reply.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("session"), dict):
             raise DriverError(f"{ORACLE_STATE} replied without a session: {reply!r:.300}")
@@ -727,6 +734,9 @@ class Daemon:
                                      f"{log_tail(self.paths.log)}", step)
         try:
             self.conn = ProtocolConnection(str(self.paths.socket), REQUEST_S * self.scale)
+            # The daemon numbers clients as it registers them (public_client_id), so the resource connection
+            # answers once before the control client connects: every start gives each connection the same id.
+            self.conn.request("session.ping", SELECTORS, timeout=REQUEST_S * self.scale)
             self.raw = CmuxClient(str(self.paths.socket), timeout=REQUEST_S * self.scale)
             self.identity = self.command("identify", step)
         except CmuxError as error:
@@ -822,7 +832,7 @@ class Daemon:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Pure helpers: pointers, predicates, selectors
+# Pure helpers: selectors and step references (pointers and predicates: case_values.py)
 
 
 class CaseReads:
@@ -853,58 +863,6 @@ class CaseReads:
         info = snapshot.get("session") if isinstance(snapshot, dict) else None
         if isinstance(info, dict) and info.get("name") == self.case_session:
             info["name"] = SESSION_NAME
-
-
-def decode_pointer(pointer: str) -> List[str]:
-    if pointer == "":
-        return []
-    if not pointer.startswith("/"):
-        raise ValueError(f"JSON pointer {pointer!r} does not start with /")
-    return [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
-
-
-def resolve_pointer(value: Any, pointer: str) -> Any:
-    """The value at `pointer` (RFC 6901), or MISSING."""
-    for part in decode_pointer(pointer):
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        elif isinstance(value, list) and part.isdigit() and (part == "0" or not part.startswith("0")) \
-                and int(part) < len(value):
-            value = value[int(part)]
-        else:
-            return MISSING
-    return value
-
-
-def predicate_holds(wait: Mapping[str, Any], value: Any, baseline: Any) -> bool:
-    """The waitFor condition of case-v1 (`equals` or `predicate`) on the value at its pointer."""
-    if "equals" in wait:
-        return value is not MISSING and value == wait["equals"]
-    predicate = wait["predicate"]
-    if isinstance(predicate, str):
-        sized = isinstance(value, (list, dict, str))
-        return {
-            "exists": value is not MISSING,
-            "absent": value is MISSING,
-            "empty": sized and len(value) == 0,
-            "nonEmpty": sized and len(value) > 0,
-            "changed": value != baseline,
-        }[predicate]
-    op, target = predicate["op"], predicate["value"]
-    if value is MISSING:
-        return False
-    if op == "lengthEquals":
-        return isinstance(value, (list, dict, str)) and len(value) == target
-    if op == "contains":
-        if isinstance(value, str) and isinstance(target, str):
-            return target in value
-        if isinstance(value, dict) and isinstance(target, str):
-            return target in value
-        return isinstance(value, list) and target in value
-    numbers = (int, float)
-    if not (isinstance(value, numbers) and isinstance(target, numbers)) or isinstance(value, bool):
-        return False
-    return {"gt": value > target, "gte": value >= target, "lt": value < target, "lte": value <= target}[op]
 
 
 def encode_selector(kind: str, value: Any) -> str:
@@ -1042,6 +1000,9 @@ class CaseRun:
         self.case_env = case_environment(self.paths, seed, isolation)
         self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
+        # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
+        # of the push base and one of a later SHA compare.
+        self.v0 = session_ctx.get("facets") == "v0"
         self.state = CaseState()
         self.host = host_meta()
         self.dirty = False
@@ -1224,6 +1185,9 @@ class CaseRun:
     def op_advance_clock(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
         ms = int(step["args"]["ms"])
+        if self.v0:
+            raise CaseError("Crash", "advance_clock: v0 facets run on the wall clock (the push base has no "
+                                     "oracle-advance-clock; the virtual clock is p15-oracle-185)", step_id)
         if not self.daemon.running:
             raise CaseError("Failure", "advance_clock: the daemon is not running", step_id)
         try:
@@ -1271,7 +1235,7 @@ class CaseRun:
             return not_comparable(f"the daemon is not running (killed at step {self.state.killed_by})")
         reads = CaseReads(self.daemon, self.paths.session, REQUEST_S * self.scale)
         try:
-            return capture_daemon_facet(reads, self.schema.doc)
+            return capture_daemon_facet(reads, self.schema.doc, v0=self.v0)
         except CmuxError as error:
             raise self.sdk_failure(error, step, "daemon facet") from None
         except DriverError as error:
@@ -1296,7 +1260,7 @@ class CaseRun:
                 "product": "daemon",
                 "sha": self.sha,
                 "host": self.host,
-                "clock": "virtual" if self.daemon.virtual_clock else "wall",
+                "clock": "virtual" if self.daemon.virtual_clock and not self.v0 else "wall",
                 "capturedAtMs": int(time.time() * 1000),
                 "facets": list(facets),
             },
@@ -1513,7 +1477,14 @@ class DaemonSession:
             raise ValueError(f"--binary {binary} is not an executable")
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
-        self.schema_path = str(session_ctx.get("snapshot_schema") or normalize.DEFAULT_SCHEMA)
+        if session_ctx.get("facets") not in (None, "v0", "v1"):
+            raise ValueError(f"facets {session_ctx.get('facets')!r} is v0 or v1")
+        default_schema = normalize.DEFAULT_SCHEMA
+        if session_ctx.get("facets") == "v0" and not session_ctx.get("snapshot_schema"):
+            import facets_v0  # sibling (p15-oracle-006): the v1 schema cut to the push-base methods
+
+            default_schema = facets_v0.write_schema(Path(str(session_ctx.get("out_dir") or "/tmp/oracle")))
+        self.schema_path = str(session_ctx.get("snapshot_schema") or default_schema)
         schema, refusal = load_snapshot_schema(self.schema_path)
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
