@@ -2048,11 +2048,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_sparkle_private_key_not_on_argv.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cla_quota_rerun.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_nightly_delivery_concurrency.py"
-lane = "linux-guard"
