@@ -74,7 +74,6 @@
   },
   "unchecked": {
    "CMUXMobileCore": 7,
-   "CmuxIrohTransport": 7,
    "CmuxMobileRPC": 3,
    "CmuxMobileSSH": 7,
    "CmuxMobileShellModel": 7,
@@ -136,6 +135,7 @@
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
     "CmuxHomeRender": 1,
+    "CmuxIrohTransport": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 6,
     "CmuxNextApp": 7,
