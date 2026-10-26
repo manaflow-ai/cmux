@@ -1007,12 +1007,15 @@ fn ensure_checked_under<E>(
     home: &Path,
     check: impl FnOnce(&Worktree) -> Result<(), E>,
 ) -> Result<Result<Ensured, E>, String> {
-    let ensured = ensure_worktree_under(folder, name, base, home)?;
-    let Err(refused) = check(&ensured.worktree) else { return Ok(Ok(ensured)) };
-    if ensured.reused != Some("worktree") {
-        remove_made(folder.into(), &ensured.worktree, ensured.reused == Some("branch"));
-    }
-    Ok(Err(refused))
+    let ensured = |ensured: Ensured| {
+        let Err(refused) = check(&ensured.worktree) else { return Ok(ensured) };
+        // One that was there stays; a new one goes, with its branch unless that was there.
+        if ensured.reused != Some("worktree") {
+            remove_made(folder.into(), &ensured.worktree, ensured.reused == Some("branch"));
+        }
+        Err(refused)
+    };
+    ensure_locked(folder, name, base, home, ensured)
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
