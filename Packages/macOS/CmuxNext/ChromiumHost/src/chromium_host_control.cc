@@ -444,6 +444,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   // dropped; the reader reads to EOF).
   bool FlushLocked() {
     iovec iov[kMaxBatch];
+    // wakeup-allow: bounded each pass writes one batch; ends when the outbox is empty or the socket takes no more
     for (;;) {
       const std::vector<int>* fds = nullptr;
       const size_t count = outbox.Gather(iov, kMaxBatch, &fds);
