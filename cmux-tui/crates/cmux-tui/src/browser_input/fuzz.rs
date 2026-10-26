@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::fuzzing::FuzzBytes;
+use std::sync::PoisonError;
 
 const NARROW_SURFACES: u8 = 8;
 /// Past the live-lane limit, so idle-lane eviction and refusal are reachable.
@@ -173,14 +174,17 @@ impl Driver {
         let kind = event_kind(selector, params);
         let surface = SurfaceHandle::RemoteBrowserUnsupported;
         let _ = self.dispatcher.enqueue(BrowserInputEvent { surface_id, surface, kind });
-        if let Some(lane) = self.dispatcher.lanes.lock().unwrap().get(&surface_id) {
+        if let Some(lane) =
+            self.dispatcher.lanes.lock().unwrap_or_else(PoisonError::into_inner).get(&surface_id)
+        {
             self.lanes.entry(Arc::as_ptr(lane) as usize).or_insert_with(|| lane.clone());
         }
     }
 
     /// One worker turn on the front ready lane; false when none is ready.
     fn run_one_turn(&self) -> bool {
-        let lane = self.scheduler.ready.lock().unwrap().lanes.pop_front();
+        let lane =
+            self.scheduler.ready.lock().unwrap_or_else(PoisonError::into_inner).lanes.pop_front();
         let Some(lane) = lane else {
             return false;
         };
@@ -203,7 +207,7 @@ impl Driver {
             .values()
             .map(|lane| lane.lane.queued_count.load(Ordering::Acquire))
             .sum::<usize>();
-        let admission = self.scheduler.admission.lock().unwrap();
+        let admission = self.scheduler.admission.lock().unwrap_or_else(PoisonError::into_inner);
         assert_eq!(admission.queued_events, queued, "global admission drifted from lane counts");
         assert!(
             admission.queued_events <= GLOBAL_QUEUE_CAPACITY + GLOBAL_RELEASE_RESERVE_CAPACITY,
@@ -216,7 +220,10 @@ impl Driver {
             admission.retained_bytes
         );
         drop(admission);
-        assert!(self.dispatcher.lanes.lock().unwrap().len() <= MAX_BROWSER_INPUT_SURFACES);
+        assert!(
+            self.dispatcher.lanes.lock().unwrap_or_else(PoisonError::into_inner).len()
+                <= MAX_BROWSER_INPUT_SURFACES
+        );
     }
 
     fn drain(&mut self) {
@@ -226,7 +233,7 @@ impl Driver {
             assert!(turns < DRAIN_TURNS, "browser input lanes did not drain");
         }
         self.check();
-        let admission = self.scheduler.admission.lock().unwrap();
+        let admission = self.scheduler.admission.lock().unwrap_or_else(PoisonError::into_inner);
         assert_eq!(admission.queued_events, 0, "drained lanes left admitted events");
         assert_eq!(admission.retained_bytes, 0, "drained lanes left admitted bytes");
     }
