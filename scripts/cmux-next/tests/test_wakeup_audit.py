@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """wakeup-audit.py finds idle wakeups over the full tree (CmuxNext Sources, the app-linked Shared packages,
-cmux-tui crate sources, webviews/src) and judges escapes by the closed vocabulary. Each case writes a small
+cmux-tui crate sources, webviews/src, the CEFShim and Chromium Host C++/ObjC, ghostty-next Zig) and judges
+escapes by the closed vocabulary. Each case writes a small
 fixture repository to a temp dir and runs the script on it with --root.
 
   python3 scripts/cmux-next/tests/test_wakeup_audit.py
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -357,9 +359,9 @@ class WakeupAuditTests(unittest.TestCase):
         ])
 
     def test_unknown_lang_is_an_error(self) -> None:
-        result = self.audit.run("--lang", "zig")
+        result = self.audit.run("--lang", "kotlin")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("unknown --lang zig", result.stderr)
+        self.assertIn("unknown --lang kotlin", result.stderr)
 
 
 class FocusedFixtureTests(unittest.TestCase):
@@ -705,6 +707,323 @@ class FocusedFixtureTests(unittest.TestCase):
         lines = self.audit.run("--queue", "demand-sync").stdout.splitlines()
         self.assertEqual(lines, ["swift:CmuxNextApp\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/Toast.swift:4\t"
                                  "demand-sync\toneshot"])
+
+
+SHIM = "Packages/macOS/CmuxNext/CEFShim/src"
+HOST = "Packages/macOS/CmuxNext/ChromiumHost/src"
+GHOSTTY = "ghostty-next/src"
+
+# The Chromium Host's wire reader: every turn blocks in ReadAll's read().
+HOST_MAIN = """\
+#include <thread>
+#include <unistd.h>
+
+bool ReadAll(int fd, void* buffer, size_t length) {
+  size_t done = 0;
+  while (done < length) {
+    ssize_t n = read(fd, static_cast<char*>(buffer) + done, length - done);
+    if (n <= 0) return false;
+    done += static_cast<size_t>(n);
+  }
+  return true;
+}
+
+void ReadWire(int fd) {
+  for (;;) {
+    char raw[8];
+    if (!ReadAll(fd, raw, sizeof raw)) break;
+    Post(raw);
+  }
+  ArmQuitDeadline();
+}
+
+void Poll(int fd) {
+  fcntl(fd, F_SETFL, O_NONBLOCK);
+  while (true) {
+    char c;
+    if (read(fd, &c, 1) < 0 && errno == EAGAIN) continue;
+    Handle(c);
+  }
+}
+
+void ArmQuitDeadline() {
+  std::thread([] {
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    _exit(0);
+  }).detach();
+}
+"""
+
+SHIM_TIMERS = """\
+#import <Foundation/Foundation.h>
+
+// dispatch_after( in a comment, and NSTimer in "a string NSTimer" are not code.
+static const char* kDoc = "usleep(1000) PostDelayedTask(";
+static const char* kRaw = R"js(setTimeout(() => sleep(1), 10); "dispatch_after(")js";
+static const long kBig = 1'000'000;
+
+void Later() {
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    Run();
+  });
+}
+
+void Blink() {
+  [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(tick:) userInfo:nil repeats:YES];
+}
+
+void Once() {
+  CFRunLoopTimerRef t = CFRunLoopTimerCreateWithHandler(nullptr, CFAbsoluteTimeGetCurrent() + 1, 0, 0, 0, ^(CFRunLoopTimerRef) {});
+}
+
+void Every() {
+  CFRunLoopTimerRef t = CFRunLoopTimerCreateWithHandler(nullptr, CFAbsoluteTimeGetCurrent() + 1, 2.0, 0, 0, ^(CFRunLoopTimerRef) {});
+}
+
+void Pump() {
+  DoWork();
+  CefPostDelayedTask(TID_UI, base::BindOnce(&Pump), 33);
+}
+
+void Timeout() {
+  CefPostDelayedTask(TID_UI, base::BindOnce(&GiveUp), 5000);
+}
+
+bool Labels(const std::string& name) {
+  size_t start = 0;
+  // wakeup-allow: bounded one pass over the labels of a host name, no wait
+  while (true) {
+    size_t dot = name.find('.', start);
+    if (dot == std::string::npos) break;
+    start = dot + 1;
+  }
+  return true;
+}
+
+void Spin() {
+  for (;;) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    Tick();
+  }
+}
+"""
+
+ZIG_THREAD = """\
+const xev = @import("xev");
+
+const Thread = @This();
+
+loop: xev.Loop,
+cursor_h: xev.Timer,
+cursor_c: xev.Completion = .{},
+coalesce: xev.Timer,
+stop: xev.Async,
+
+const Compression = struct {
+    timer: xev.Timer,
+
+    fn schedule(self: *Compression, loop: *xev.Loop) void {
+        self.timer.reset(loop, &self.c, &self.cancel_c, 5000, Compression, self, compressCallback);
+    }
+
+    fn compressCallback(self: ?*Compression, _: *xev.Loop, _: *xev.Completion, _: xev.Timer.RunError!void) xev.CallbackAction {
+        _ = self;
+        return .disarm;
+    }
+};
+
+pub fn threadMain(self: *Thread) !void {
+    // self.coalesce.reset( in a comment is not a call.
+    const doc = "self.cursor_h.run(";
+    _ = doc;
+    self.stop.wait(&self.loop, &self.stop_c, Thread, self, stopCallback);
+    self.cursor_h.run(&self.loop, &self.cursor_c, 600, Thread, self, cursorTimerCallback);
+    try self.loop.run(.until_done);
+}
+
+fn cursorTimerCallback(self_: ?*Thread, _: *xev.Loop, _: *xev.Completion, _: xev.Timer.RunError!void) xev.CallbackAction {
+    const t = self_.?;
+    t.cursor_h.run(&t.loop, &t.cursor_c, 600, Thread, t, cursorTimerCallback);
+    return .disarm;
+}
+
+fn handleResize(self: *Thread) void {
+    self.coalesce.reset(&self.loop, &self.coalesce_c, &self.coalesce_cancel_c, 25, Thread, self, coalesceCallback);
+}
+
+fn coalesceCallback(self_: ?*Thread, _: *xev.Loop, _: *xev.Completion, _: xev.Timer.RunError!void) xev.CallbackAction {
+    _ = self_;
+    return .disarm;
+}
+
+fn killPid(pid: i32) void {
+    while (true) {
+        if (posix.system.waitpid(pid, null, 1) != 0) break;
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+}
+
+test "timers" {
+    std.Thread.sleep(1);
+    var t = try xev.Timer.init();
+    t.run(&loop, &c, 1, void, null, cb);
+}
+"""
+
+
+def load_audit_module():
+    spec = importlib.util.spec_from_file_location("wakeup_audit", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["wakeup_audit"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class CxxAndZigTests(unittest.TestCase):
+    """--lang cxx (CEFShim/src and ChromiumHost/src) and the report-only --lang zig (ghostty-next/src)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        fixture(self.root)
+        self.audit = Audit(self.root)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def by_line(self, lang: str, rel: str) -> dict[int, tuple[str, str, str]]:
+        return {h["line"]: (h["rule"], h["shape"], h["status"]) for h in self.audit.at(rel, "--lang", lang)}
+
+    # cxx ----------------------------------------------------------------------------------------------------
+
+    def test_host_wire_reader_blocks_and_a_non_blocking_poll_spins(self) -> None:
+        write(self.root, f"{HOST}/browser_host_main.mm", HOST_MAIN)
+        self.assertEqual(self.by_line("cxx", "ChromiumHost/src/browser_host_main.mm"), {
+            15: ("spin-loop", "blocking", "blocking"),  # ReadWire: ReadAll() blocks in read() every turn
+            25: ("spin-loop", "loop", "hit"),           # O_NONBLOCK + EAGAIN: read() returns at once
+            34: ("sleep", "oneshot", "hit"),            # the quit deadline's one sleep
+        })
+        queue = self.audit.run("--queue", "--lang", "cxx").stdout.splitlines()
+        self.assertEqual(queue, [
+            f"cxx:host/browser_host_main\t{HOST}/browser_host_main.mm:25\tspin-loop\tloop",
+            f"cxx:host/browser_host_main\t{HOST}/browser_host_main.mm:34\tsleep\toneshot",
+        ])
+
+    def test_shim_timers_are_one_shot_or_loop_by_how_they_rearm(self) -> None:
+        write(self.root, f"{SHIM}/shim_timers.mm", SHIM_TIMERS)
+        self.assertEqual(self.by_line("cxx", "CEFShim/src/shim_timers.mm"), {
+            9: ("dispatch-after", "oneshot", "hit"),
+            15: ("ns-timer", "loop", "hit"),            # repeats:YES
+            19: ("cf-timer", "oneshot", "hit"),         # interval 0
+            23: ("cf-timer", "loop", "hit"),            # interval 2.0
+            28: ("delayed-task", "loop", "hit"),        # Pump posts itself
+            32: ("delayed-task", "oneshot", "hit"),     # posts another function once
+            38: ("spin-loop", "loop", "escaped"),
+            47: ("spin-loop", "loop", "hit"),
+            48: ("sleep", "loop", "hit"),
+        })
+
+    def test_cxx_strict_fails_on_an_open_hit_and_passes_when_escaped_or_blocking(self) -> None:
+        write(self.root, f"{HOST}/browser_host_main.mm", HOST_MAIN.split("void Poll")[0])
+        self.assertEqual(self.audit.run("--strict", "--lang", "cxx").returncode, 0)
+        write(self.root, f"{SHIM}/later.mm", "void Later() {\n  dispatch_after(t, q, ^{ Run(); });\n}\n")
+        self.assertEqual(self.audit.run("--strict", "--lang", "cxx").returncode, 1)
+        write(self.root, f"{SHIM}/later.mm",
+              "void Later() {\n  // wakeup-allow: deadline the reply arrives within 1 s or the page is gone\n"
+              "  dispatch_after(t, q, ^{ Run(); });\n}\n")
+        self.assertEqual(self.audit.run("--strict", "--lang", "cxx").returncode, 0)
+
+    def test_cxx_reads_only_the_two_src_folders(self) -> None:
+        line = "void S() { usleep(1000); }\n"
+        for rel in (f"{SHIM}/a.cc", f"{HOST}/b.h", "Packages/macOS/CmuxNext/CEFShim/tests/t.cc",
+                    "Packages/macOS/CmuxNext/ChromiumHost/tests/t.cpp", f"{SHIM}/notes.txt"):
+            write(self.root, rel, line)
+        hits = self.audit.hits("--lang", "cxx")
+        self.assertEqual(sorted(h["file"] for h in hits), sorted([f"{HOST}/b.h", f"{SHIM}/a.cc"]))
+        self.assertEqual(sorted(h["group"] for h in hits), ["cxx:host/b", "cxx:shim/a"])
+
+    # zig ----------------------------------------------------------------------------------------------------
+
+    def test_zig_timers_are_named_by_field_and_rearming_callbacks_are_loops(self) -> None:
+        write(self.root, f"{GHOSTTY}/renderer/Thread.zig", ZIG_THREAD)
+        self.assertEqual(self.by_line("zig", "renderer/Thread.zig"), {
+            15: ("xev-timer:Compression.timer", "oneshot", "hit"),
+            29: ("xev-timer:cursor_h", "loop", "hit"),
+            35: ("xev-timer:cursor_h", "loop", "hit"),
+            40: ("xev-timer:coalesce", "oneshot", "hit"),
+            51: ("sleep", "loop", "hit"),
+        })
+        self.assertEqual({h["group"] for h in self.audit.hits("--lang", "zig")}, {"zig:renderer"})
+
+    def test_zig_skips_tests_benchmarks_gtk_and_build(self) -> None:
+        sleep = "fn f() void {\n    std.Thread.sleep(1);\n}\n"
+        for rel in ("termio/Exec.zig", "termio/Exec_test.zig", "terminal/testing.zig", "benchmark/Bench.zig",
+                    "apprt/gtk/App.zig", "build/Config.zig"):
+            write(self.root, f"{GHOSTTY}/{rel}", sleep)
+        self.assertEqual([h["file"] for h in self.audit.hits("--lang", "zig")], [f"{GHOSTTY}/termio/Exec.zig"])
+
+    def test_zig_is_report_only(self) -> None:
+        write(self.root, f"{GHOSTTY}/renderer/Thread.zig", ZIG_THREAD)
+        result = self.audit.run("--strict", "--lang", "zig")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("wakeup-audit zig [report-only]: hit 5", result.stdout)
+        queue = self.audit.run("--queue", "--lang", "zig").stdout.splitlines()
+        self.assertEqual(len(queue), 5)
+        self.assertTrue(all(line.startswith("zig:renderer\t") for line in queue))
+
+    def test_zig_without_the_submodule_reports_nothing(self) -> None:
+        result = self.audit.run("--strict", "--lang", "zig")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.audit.hits("--lang", "zig"), [])
+
+    # The pre-push guardrail's path mapping (p14-energy-006) ---------------------------------------------------
+
+    def test_lang_of_maps_the_paths_each_audit_reads(self) -> None:
+        lang_of = load_audit_module().lang_of
+        self.assertEqual(lang_of(f"{SHIM}/shim_process.mm"), "cxx")
+        self.assertEqual(lang_of(f"{HOST}/browser_host_main.mm"), "cxx")
+        self.assertEqual(lang_of("Packages/macOS/CmuxNext/CEFShim/tests/t.cc"), None)
+        self.assertEqual(lang_of("Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"), "swift")
+        self.assertEqual(lang_of("Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/DemandTimer.swift"), None)
+        self.assertEqual(lang_of("cmux-tui/crates/core/src/wake.rs"), "rust")
+        self.assertEqual(lang_of("cmux-tui/crates/core/tests/idle.rs"), None)
+        self.assertEqual(lang_of("webviews/src/pages/home/poll.ts"), "web")
+        self.assertEqual(lang_of("webviews/src/pages/home/poll.test.ts"), None)
+        self.assertEqual(lang_of(f"{GHOSTTY}/renderer/Thread.zig"), None)  # report-only: no guardrail
+
+
+class CheckoutTests(unittest.TestCase):
+    """The audit over this checkout (p14-energy-113 acceptance)."""
+
+    repo = HERE.parents[2]
+
+    def hits(self, lang: str) -> list[dict]:
+        result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--root", str(self.repo), "--json", "--lang", lang],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)["hits"]
+
+    def test_cefshim_has_no_timers_and_the_host_wire_reader_blocks(self) -> None:
+        hits = self.hits("cxx")
+        waits = ("spin-loop", "sleep", "timed-wait")
+        self.assertEqual([h for h in hits if h["file"].startswith(SHIM) and h["rule"] not in waits], [])
+        source = (self.repo / HOST / "browser_host_main.mm").read_text(encoding="utf-8").split("\n")
+        start = next(i for i, line in enumerate(source) if line.startswith("void ReadWire("))
+        loop = next(i + 1 for i in range(start, len(source)) if "for (;;)" in source[i])
+        reader = [h for h in hits if h["file"] == f"{HOST}/browser_host_main.mm" and h["line"] == loop]
+        self.assertEqual([(h["rule"], h["status"]) for h in reader], [("spin-loop", "blocking")])
+
+    def test_ghostty_next_report_lists_the_known_timers(self) -> None:
+        if not (self.repo / GHOSTTY).is_dir():
+            self.skipTest("ghostty-next is not checked out")
+        rules = {(h["file"].removeprefix(GHOSTTY + "/"), h["rule"]) for h in self.hits("zig")}
+        for expected in [("renderer/Thread.zig", "xev-timer:render_h"), ("renderer/Thread.zig", "xev-timer:cursor_h"),
+                         ("renderer/Thread.zig", "xev-timer:Compression.timer"),
+                         ("termio/Thread.zig", "xev-timer:scroll"), ("termio/Thread.zig", "xev-timer:coalesce"),
+                         ("termio/Thread.zig", "xev-timer:sync_reset"),
+                         ("terminal/search/Thread.zig", "xev-timer:refresh"),
+                         ("termio/Exec.zig", "xev-timer:termios_timer")]:
+            self.assertIn(expected, rules)
 
 
 if __name__ == "__main__":
