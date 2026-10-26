@@ -241,6 +241,13 @@ final class CEFSpareWindow {
         }
     }
 
+    /// The Chromium Host ended (`CEFRuntime.hostEnded`): every spare's window and the tabs parked there
+    /// went with it, so nothing is rehomed (no browser id of the dead host reaches the next one) and the spares close.
+    func hostEnded(runtime: CEFRuntime) {
+        parked = [:]
+        drop(runtime: runtime)
+    }
+
     /// `ensureCreated` asked Chromium for a window of `key`: one a spare would have served counts
     /// in `windowsBuiltOnKeyTurn`. A spare's own window never counts.
     func noteWindowBuilt(for key: CEFPaneKey) {
