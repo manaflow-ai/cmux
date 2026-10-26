@@ -56292,127 +56292,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download Updates Automatically"
+            "value": "Download and Install Updates Automatically"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "تنزيل التحديثات وتثبيتها تلقائيًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Automatski preuzmi i instaliraj ažuriranja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Hent og installer opdateringer automatisk"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Updates automatisch laden und installieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Descargar e instalar actualizaciones automáticamente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "Télécharger et installer les mises à jour automatiquement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Scarica e installa gli aggiornamenti automaticamente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデートを自動的にダウンロード"
+            "value": "アップデートを自動的にダウンロードしてインストール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "ទាញយក និងដំឡើងបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "업데이트 자동 다운로드 및 설치"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Last ned og installer oppdateringer automatisk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Automatycznie pobieraj i instaluj aktualizacje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Baixar e instalar atualizações automaticamente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Автоматически загружать и устанавливать обновления"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "ดาวน์โหลดและติดตั้งอัปเดตโดยอัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Güncellemeleri otomatik olarak indir ve yükle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Автоматично завантажувати та встановлювати оновлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "value": "Tự động tải xuống và cài đặt bản cập nhật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "自动下载并安装更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Download Updates Automatically"
+            "state": "translated",
+            "value": "自動下載並安裝更新"
           }
         }
       }
@@ -56423,127 +56423,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "إيقاف: يواصل cmux البحث عن التحديثات ويعرض «يتوفر تحديث»؛ نقرة واحدة تنزّله وتثبّته. مفعّل افتراضيًا في إصدارات NIGHTLY وDEV."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Isključeno: cmux i dalje provjerava ažuriranja i prikazuje „Dostupno ažuriranje“; jedan klik ga preuzima i instalira. Uključeno po zadanom u NIGHTLY i DEV verzijama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Fra: cmux søger stadig efter opdateringer og viser »Opdatering tilgængelig«; ét klik henter og installerer den. Til som standard i NIGHTLY- og DEV-builds."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Aus: cmux sucht weiter nach Updates und zeigt „Update verfügbar“; ein Klick lädt und installiert es. In NIGHTLY- und DEV-Builds standardmäßig an."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Desactivado: cmux sigue buscando actualizaciones y muestra «Actualización disponible»; un clic la descarga e instala. Activado de forma predeterminada en las compilaciones NIGHTLY y DEV."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "Désactivé : cmux recherche toujours les mises à jour et affiche « Mise à jour disponible » ; un clic la télécharge et l’installe. Activé par défaut dans les versions NIGHTLY et DEV."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Disattivato: cmux controlla comunque gli aggiornamenti e mostra «Aggiornamento disponibile»; un clic lo scarica e lo installa. Attivo per impostazione predefinita nelle build NIGHTLY e DEV."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ: 見つかったアップデートは待機し、1回のクリックでダウンロードしてインストールします。"
+            "value": "オフ：cmux はアップデートの確認を続け、「アップデートがあります」を表示します。クリックするとダウンロードしてインストールします。NIGHTLY と DEV ビルドでは既定でオンです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "បិទ៖ cmux នៅតែពិនិត្យរកបច្ចុប្បន្នភាព ហើយបង្ហាញ «មានបច្ចុប្បន្នភាព»; ចុចម្តងដើម្បីទាញយក និងដំឡើង។ បើកតាមលំនាំដើមក្នុងកំណែ NIGHTLY និង DEV។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "끄면 cmux는 계속 업데이트를 확인하고 '업데이트 있음'을 표시하며, 한 번 클릭하면 다운로드하여 설치합니다. NIGHTLY 및 DEV 빌드에서는 기본적으로 켜져 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Av: cmux ser fortsatt etter oppdateringer og viser «Oppdatering tilgjengelig»; ett klikk laster ned og installerer den. På som standard i NIGHTLY- og DEV-bygg."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Wył.: cmux nadal sprawdza aktualizacje i pokazuje „Dostępna aktualizacja”; jedno kliknięcie ją pobiera i instaluje. W kompilacjach NIGHTLY i DEV domyślnie włączone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Desativado: o cmux continua verificando atualizações e mostra “Atualização disponível”; um clique baixa e instala. Ativado por padrão nas versões NIGHTLY e DEV."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Выкл.: cmux по-прежнему проверяет обновления и показывает «Доступно обновление»; один щелчок загружает и устанавливает его. В сборках NIGHTLY и DEV включено по умолчанию."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "ปิด: cmux ยังคงตรวจหาอัปเดตและแสดง “มีอัปเดต” คลิกครั้งเดียวเพื่อดาวน์โหลดและติดตั้ง เปิดเป็นค่าเริ่มต้นในบิลด์ NIGHTLY และ DEV"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Kapalı: cmux güncellemeleri denetlemeye devam eder ve “Güncelleme Var” gösterir; tek tıklama indirip yükler. NIGHTLY ve DEV sürümlerinde varsayılan olarak açıktır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Вимк.: cmux і далі перевіряє оновлення та показує «Доступне оновлення»; одне клацання завантажує та встановлює його. У збірках NIGHTLY і DEV увімкнено за замовчуванням."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "value": "Tắt: cmux vẫn kiểm tra bản cập nhật và hiển thị “Có bản cập nhật”; một lần nhấp sẽ tải xuống và cài đặt. Bật theo mặc định trong bản NIGHTLY và DEV."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "关闭：cmux 仍会检查更新并显示“有可用更新”；点按一次即可下载并安装。NIGHTLY 和 DEV 版本默认开启。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Off: a found update waits, and one click downloads and installs it."
+            "state": "translated",
+            "value": "關閉：cmux 仍會檢查更新並顯示「有可用更新」；按一下即可下載並安裝。NIGHTLY 與 DEV 版本預設開啟。"
           }
         }
       }

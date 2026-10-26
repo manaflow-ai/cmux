@@ -312,6 +312,9 @@ pub struct PromptOptions {
     /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
     /// (`Hub::full_access_hold`).
     pub full_access_device: Option<String>,
+    /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
+    /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
+    pub no_queue: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -578,6 +581,7 @@ impl Hub {
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
+        hub.recover_staged_replacements();
         hub.load_from_store(deferred);
         if !deferred {
             hub.load_logs();

@@ -479,14 +479,15 @@ impl RetryReason {
 pub struct RetryParams {
     /// The chat's id, name or unique prefix.
     pub session_id: String,
-    /// One of the chat's failed subagents to resume instead. Refused for now
-    /// (`retry.subagent_unsupported`), never taken as the chat's own turn.
+    /// One of the chat's failed subagents to resume instead, by its id or agent id
+    /// (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_id: Option<String>,
 }
 
-/// What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
-/// failed prompt) and the turn it started.
+/// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+/// attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+/// it started.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RetryResult {

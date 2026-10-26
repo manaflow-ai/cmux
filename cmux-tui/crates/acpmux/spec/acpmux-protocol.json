@@ -3008,7 +3008,7 @@
           "type": "string"
         },
         "subagentId": {
-          "description": "One of the chat's failed subagents to resume instead. Refused for now\n(`retry.subagent_unsupported`), never taken as the chat's own turn.",
+          "description": "One of the chat's failed subagents to resume instead, by its id or agent id\n(`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.",
           "type": [
             "string",
             "null"
@@ -3030,7 +3030,7 @@
       "type": "string"
     },
     "RetryResult": {
-      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the\nfailed prompt) and the turn it started.",
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next\nattempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn\nit started.",
       "properties": {
         "kind": {
           "$ref": "#/types/RetryKind"

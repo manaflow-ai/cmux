@@ -605,13 +605,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Off: a found update waits, and one click downloads and installs it.</string>
+			<string>Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.</string>
 			<key>pfm_name</key>
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
+			<string>Download and Install Updates Automatically</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -708,7 +708,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>900</integer>
+			<integer>600</integer>
 			<key>pfm_description</key>
 			<string>A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.</string>
 			<key>pfm_name</key>
