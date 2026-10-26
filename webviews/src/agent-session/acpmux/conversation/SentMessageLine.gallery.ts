@@ -133,8 +133,8 @@ export default agentPaneEntry({
       snapshot: sent(),
       play: async (ctx) => {
         await openTurn(ctx);
-        const rows = ctx.document.querySelectorAll<HTMLElement>(".cv-sent");
-        rows[2]?.click();
+        // Trusted clicks settle before the next step, so Raw is clicked where it rests.
+        await ctx.click({ role: "button", name: /net-retries: done/ });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
         await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
