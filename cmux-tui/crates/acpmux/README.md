@@ -172,8 +172,8 @@ acpmux wait NAME… --until ready|permission|closed|done|running [--all] [--time
 acpmux wait NAME --match "tests pass" | --regex "pass(ed)?"   # until the agent's output contains it
 acpmux last NAME [-n 3]                                       # last reply text
 acpmux history NAME                                           # one line per turn: status, wall time, tools, tokens, prompt
-acpmux pending                                                # every pending permission, with the option ids to answer it
-acpmux session allow NAME [OPTION] | acpmux session deny NAME
+acpmux pending                                                # every pending permission, and how to answer it
+acpmux session deny NAME                                      # an allow is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
