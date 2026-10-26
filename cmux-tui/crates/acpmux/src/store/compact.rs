@@ -194,17 +194,12 @@ impl LocalStore {
         if staged.segments.iter().any(|s| s.tmp.is_none()) {
             return Ok(false);
         }
-        // The record goes first: a crash between two renames leaves a log that may hold nothing,
-        // and the record keeps it from passing for a purged chat's. Until it says complete, a
-        // later pass compacts the log again. Written before the lock: one left by a commit that
-        // then refuses only has the log compacted again.
         let mut marker = Marker {
             last_seq: staged.last_seq,
             at: now_ms(),
             complete: false,
             stats: staged.stats,
         };
-        write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         {
             let mut writers = self.writers.lock_or_recover();
             let now = self.segments(id)?;
@@ -216,6 +211,11 @@ impl LocalStore {
             if !unchanged {
                 return Ok(false);
             }
+            // The record goes before the renames: a crash between two of them leaves a log that
+            // may hold nothing, and the record keeps it from passing for a purged chat's. Until it
+            // says complete, a later pass compacts the log again. Only a commit that goes ahead
+            // writes it, so a refused one leaves the chat's folder as it was.
+            write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
                 w.close(id);
