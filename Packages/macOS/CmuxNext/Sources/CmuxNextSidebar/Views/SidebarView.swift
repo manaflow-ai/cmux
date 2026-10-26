@@ -105,6 +105,11 @@ public final class SidebarView: NSView {
         get { list.inputTap }
         set { list.inputTap = newValue }
     }
+    /// The app's sidebar document store (the App injects it): the list follows its events (`SidebarListView.docStore`).
+    public var docStore: SidebarDocStore? {
+        get { list.docStore }
+        set { list.docStore = newValue }
+    }
     public init(model: SidebarModel, design: DesignSettings = .shared) {
         self.model = model
         self.design = design

@@ -10,45 +10,48 @@ public nonisolated enum SidebarDocEvent: Hashable, Sendable {
     case faviconsChanged
 }
 
-/// One observer of a `SidebarDocStore`; `cancel()` stops its events (the store keeps the handler until then).
+/// One observer of a `SidebarDocStore`, as Chromium's `base::CallbackListSubscription` (base/callback_list.h): its
+/// events stop on `cancel()` or when it is released, whichever comes first. The store holds it weakly.
 @MainActor
 public final class SidebarDocObservation {
     private weak var store: SidebarDocStore?
-    private weak var observers: SidebarDocObservers?
-    private let id: UInt64
+    fileprivate private(set) var handler: (@MainActor (SidebarDocEvent) -> Void)?
 
-    fileprivate init(store: SidebarDocStore, observers: SidebarDocObservers, id: UInt64) {
+    fileprivate init(store: SidebarDocStore, handler: @escaping @MainActor (SidebarDocEvent) -> Void) {
         self.store = store
-        self.observers = observers
-        self.id = id
+        self.handler = handler
     }
 
     /// The store this observes; nil once cancelled or once the store is gone.
     public var observed: SidebarDocStore? { store }
 
     public func cancel() {
-        observers?.remove(id)
-        observers = nil
+        handler = nil
         store = nil
     }
 }
 
-/// A store's observers by id (`SidebarDocStore.observe(_:)`), told in no particular order.
+/// A store's observers in the order they were added, as `base::ObserverList` (base/observer_list.h) keeps them.
 @MainActor
 final class SidebarDocObservers {
-    private var handlers: [UInt64: @MainActor (SidebarDocEvent) -> Void] = [:]
-    private var nextID: UInt64 = 0
-
-    func add(_ handler: @escaping @MainActor (SidebarDocEvent) -> Void, of store: SidebarDocStore) -> SidebarDocObservation {
-        nextID &+= 1
-        handlers[nextID] = handler
-        return SidebarDocObservation(store: store, observers: self, id: nextID)
+    @MainActor private struct Entry {
+        weak var observation: SidebarDocObservation?
+        var isLive: Bool { observation?.handler != nil }
     }
 
-    fileprivate func remove(_ id: UInt64) { handlers[id] = nil }
+    private var entries: [Entry] = []
 
-    /// Tells every observer `event`; one that cancels or adds an observer meanwhile changes only the next event's list.
+    func add(_ handler: @escaping @MainActor (SidebarDocEvent) -> Void, of store: SidebarDocStore) -> SidebarDocObservation {
+        entries.removeAll { !$0.isLive }
+        let observation = SidebarDocObservation(store: store, handler: handler)
+        entries.append(Entry(observation: observation))
+        return observation
+    }
+
+    /// Tells each observer `event` in the order they were added. One cancelled or released by an earlier handler is
+    /// skipped; one added meanwhile hears the next event (`ObserverListPolicy::EXISTING_ONLY`).
     func tell(_ event: SidebarDocEvent) {
-        for handler in Array(handlers.values) { handler(event) }
+        for entry in entries { entry.observation?.handler?(event) }
+        entries.removeAll { !$0.isLive }
     }
 }

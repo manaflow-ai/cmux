@@ -46,7 +46,7 @@ public final class SidebarDocStore {
     /// The lists told this store's events (`observe(_:)`): a direct subscriber registry, no app-wide broadcast.
     @ObservationIgnored private let observers = SidebarDocObservers()
 
-    /// Tells `handler` each event of this store, synchronously, until the returned observation is cancelled.
+    /// Tells `handler` each event of this store, synchronously, until the returned observation is cancelled or released.
     public func observe(_ handler: @escaping @MainActor (SidebarDocEvent) -> Void) -> SidebarDocObservation {
         observers.add(handler, of: self)
     }

@@ -165,14 +165,15 @@ final class SidebarListView: NSView {
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
-        followDocStore()
     }
-    /// Observes the app's document store, once per store: a drop sent to it settles on its events and the link rows
-    /// redraw on its favicons. Called again before each drop and on each move to a window, in case the store changed.
-    func followDocStore(_ store: SidebarDocStore? = SidebarDocStore.current) {
-        guard docObservation?.observed !== store else { return }
-        docObservation?.cancel()
-        docObservation = store?.observe { [weak self] event in self?.docStoreEvent(event) }
+    /// The app's sidebar document store (the App injects it, `SidebarView.docStore`): a drop sent to it settles on its
+    /// events, the link rows redraw on its favicons, and a drop reads the key of the change it sent.
+    var docStore: SidebarDocStore? {
+        didSet {
+            guard docStore !== oldValue else { return }
+            docObservation?.cancel()
+            docObservation = docStore?.observe { [weak self] event in self?.docStoreEvent(event) }
+        }
     }
     private func docStoreEvent(_ event: SidebarDocEvent) {
         switch event {
@@ -202,7 +203,6 @@ final class SidebarListView: NSView {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-            docObservation?.cancel()
             for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
             for subscription in pointerEnds { subscription.cancel() }
         }
@@ -210,7 +210,7 @@ final class SidebarListView: NSView {
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
-    /// This list's observation of the document store (`followDocStore`).
+    /// This list's observation of `docStore` (released with the list, which ends it).
     private(set) var docObservation: SidebarDocObservation?
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
@@ -231,7 +231,7 @@ final class SidebarListView: NSView {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
-        if window != nil { hoverCards.register(hoverCard); followDocStore() }
+        if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }
