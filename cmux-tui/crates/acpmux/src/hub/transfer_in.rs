@@ -183,6 +183,7 @@ impl Hub {
             if !super::transfer::is_plain_id(agent_id) {
                 continue;
             }
+            let _state_lock = super::transfer::harness_state_lock();
             self.recover_durable_marker(root, &entry.path(), agent_id);
         }
         if let Ok(entries) = std::fs::read_dir(root) {

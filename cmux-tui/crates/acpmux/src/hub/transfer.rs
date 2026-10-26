@@ -8,6 +8,12 @@ use std::sync::Mutex;
 /// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
+/// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
+/// sweep that read a marker finishes with it before its import's rollback or a retry runs.
+pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
+    HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
     let tmp = path.with_extension(format!(
         "{}.importing",
@@ -349,6 +355,7 @@ impl Hub {
         let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let _state_lock = harness_state_lock();
         if std::fs::symlink_metadata(&marker).is_ok() {
             return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
         }
@@ -384,6 +391,7 @@ impl Hub {
         let Some(session_dir) = self.store.session_dir(&meta.id) else { return false };
         let Some(root) = session_dir.parent() else { return false };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let _state_lock = harness_state_lock();
         let Some(value) =
             std::fs::read(&marker).ok().and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
         else {
