@@ -108,14 +108,19 @@ public struct DaemonLauncher: Sendable {
     /// longer than that bound plus the time to reach the owner.
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
+    /// Put on every endpoint this launcher hands out (``DaemonEndpoint/wireStats``), so the
+    /// connections to its daemon count there; its socket probe counts there too. Nil counts nothing.
+    public let wireStats: DaemonWireStats?
 
     public init(
         configuration: Configuration,
         environment: @escaping @Sendable () async -> [String: String],
         ensureTimeout: Duration = .seconds(20),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        wireStats: DaemonWireStats? = nil
     ) {
         self.configuration = configuration
+        self.wireStats = wireStats
         rememberedSocket = RememberedSocket(configuration.rememberedSocket)
         self.environmentProvider = environment
         self.ensureTimeout = ensureTimeout
@@ -135,7 +140,8 @@ public struct DaemonLauncher: Sendable {
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
-        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
+        wireStats: DaemonWireStats? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -151,7 +157,8 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
+                              wireStats: wireStats)
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -406,6 +413,7 @@ public struct DaemonLauncher: Sendable {
         let remembered = rememberedSocket
         let handoff = handoff
         let clock = clock
+        let wireStats = wireStats
         return {
             // A daemon exiting for a version handoff still answers `server
             // status` for a moment: start its successor only once it is gone.
@@ -414,12 +422,14 @@ public struct DaemonLauncher: Sendable {
                 handoff.cancel(pid: exiting)
             }
             if let path = remembered.take() {
-                if DaemonSocketMemory.acceptsConnections(path) {
+                if DaemonSocketMemory.acceptsConnections(path, wireStats: wireStats) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
-                    return DaemonEndpoint(socketPath: path)
+                    return DaemonEndpoint(socketPath: path, wireStats: wireStats)
                 }
             }
-            return try await ensureRecordingOutcome().endpoint
+            var endpoint = try await ensureRecordingOutcome().endpoint
+            endpoint.wireStats = wireStats
+            return endpoint
         }
     }
 
