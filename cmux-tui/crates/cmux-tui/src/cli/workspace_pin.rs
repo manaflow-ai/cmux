@@ -6,7 +6,8 @@
 
 const ACTION: &str = "workspace pin-unpin";
 
-/// The app action and its arguments for `workspace <ws> pin|unpin [flags]`, or None for other words.
+/// The app action and its arguments for `workspace <ws> pin|unpin [flags]`, or None for other
+/// words.
 pub(super) fn action(command_args: &[String]) -> Option<(String, Vec<String>)> {
     let [scope, workspace, verb, rest @ ..] = command_args else { return None };
     if scope != "workspace" || workspace.starts_with('-') {
@@ -17,7 +18,8 @@ pub(super) fn action(command_args: &[String]) -> Option<(String, Vec<String>)> {
         "unpin" => "false",
         _ => return None,
     };
-    let mut args = vec!["--target".to_owned(), workspace.clone(), "--pinned".to_owned(), pinned.to_owned()];
+    let mut args =
+        vec!["--target".to_owned(), workspace.clone(), "--pinned".to_owned(), pinned.to_owned()];
     args.extend(rest.iter().cloned());
     Some((ACTION.to_owned(), args))
 }

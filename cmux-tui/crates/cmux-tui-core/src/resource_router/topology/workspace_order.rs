@@ -72,7 +72,8 @@ fn insert_pinned(
             .workspaces
             .iter()
             .map(|workspace| {
-                let pinned = presentation.workspace(&workspace.key).is_some_and(|record| record.pinned);
+                let pinned =
+                    presentation.workspace(&workspace.key).is_some_and(|record| record.pinned);
                 (workspace.public_id.as_str().to_owned(), pinned)
             })
             .collect::<HashMap<_, _>>()
