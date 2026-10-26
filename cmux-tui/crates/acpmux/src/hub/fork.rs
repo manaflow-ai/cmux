@@ -123,6 +123,11 @@ impl Hub {
                 ));
             }
             let homes = self.harness_homes().with_env(&[&fork_env]);
+            // The chat may be older than Claude's retention: its kept transcript (claude_keep.rs).
+            if is_claude {
+                self.restore_claude_transcript(session, homes.claude.clone(), sid.clone(), true)
+                    .await;
+            }
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through(&homes.codex, &sid, cut_ms)
