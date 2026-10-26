@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A memory source `optchat-chief memory import-from detect --json` found on this Mac.
 public struct MemorySource: Decodable, Equatable, Sendable {
