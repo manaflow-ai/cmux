@@ -148,7 +148,7 @@ extension ScreenContentView {
     }
 
     /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
-    /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
+    /// tick (``displayFrameBegan(at:)``), so a burst of events costs one presentation (one layout
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
@@ -218,8 +218,8 @@ extension ScreenContentView {
         let zooming = zoomMotion.pane
         var placedHosts: [PaneHostView] = []
         var changed = force
-        // The container shows the camera; a fling on the render server owns it until it lands.
-        let translation = geometry.viewShift(offset: scrollState.spring.value) - strip
+        // The container shows the camera (a resampled pan's frame offset); a fling on the render server owns it until it lands.
+        let translation = geometry.viewShift(offset: shownCameraOffset) - strip
         if stripContainer.fling == nil, stripContainer.translation != translation {
             stripContainer.setTranslation(translation)
             changed = true

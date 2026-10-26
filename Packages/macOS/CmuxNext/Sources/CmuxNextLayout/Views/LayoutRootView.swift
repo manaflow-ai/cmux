@@ -555,6 +555,8 @@ public final class LayoutRootView: NSView {
     private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
+            // A resampled pan's event that waited for this frame shows now, unresampled.
+            for view in screenViews.values where !view.isHidden { view.presentFramePan(at: nil) }
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()

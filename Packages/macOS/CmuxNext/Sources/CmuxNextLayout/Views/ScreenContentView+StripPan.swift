@@ -53,16 +53,24 @@ extension ScreenContentView {
     /// container, else the camera's resting value).
     var layoutOffset: CGFloat { panBase ?? scrollState.spring.value }
 
+    /// The camera offset the strip container shows: during a resampled pan on it, the offset its last
+    /// frame showed (``ColumnScrollState/presentedPan``), else the camera. Every presentation reads
+    /// this, so a frame's spring step never puts the real offset back over the resampled one.
+    var shownCameraOffset: CGFloat {
+        guard scrollState.resamplesPan, panBase != nil, let pan = scrollState.presentedPan else { return scrollState.spring.value }
+        return pan
+    }
+
     /// Shows a pan event on the strip container: its translation (and its rings' plane's) moves to the
-    /// camera, or to `offset` (a resampled pan, ``presentFramePan(at:)``); the pan's first event takes
-    /// the offset the views are laid out at as its base. No display frame and no overlay sync is asked
-    /// for: the rings move with the translation, and nothing else the overlay sync places moves.
+    /// camera it shows (``shownCameraOffset``); the pan's first event takes the offset the views are
+    /// laid out at as its base. No display frame and no overlay sync is asked for: the rings move with
+    /// the translation, and nothing else the overlay sync places moves.
     /// Returns false when the container cannot carry it (``pansOnContainer``).
-    func presentPanOnContainer(at offset: CGFloat? = nil) -> Bool { // perf-hot: 0.3ms motion-frame
+    func presentPanOnContainer() -> Bool { // perf-hot: 0.3ms motion-frame
         guard pansOnContainer else { return false }
         let base = panBase ?? laidOutStripOffset
         panBase = base
-        stripContainer.setTranslation(geometry.viewShift(offset: offset ?? scrollState.spring.value) - geometry.viewShift(offset: base))
+        stripContainer.setTranslation(geometry.viewShift(offset: shownCameraOffset) - geometry.viewShift(offset: base))
         updateScrollbar()
         if !userMotionActive {
             userMotionActive = true

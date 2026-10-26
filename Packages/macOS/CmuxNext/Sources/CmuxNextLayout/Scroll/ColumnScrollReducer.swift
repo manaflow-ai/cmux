@@ -91,20 +91,43 @@ nonisolated extension ColumnScrollState {
     /// (`InputResampler`, `ui/base/prediction/linear_resampling.cc`; Chrome resamples the frame's
     /// scroll updates at `BeginFrameArgs::frame_time` in `InputHandlerProxy::DeliverInputForBeginFrame`),
     /// then rubber-banded. It lies between the two newest real samples or past the newest within the
-    /// resampler's cap, never behind the older one. Visual only: ``spring`` keeps the real offset, so the
+    /// resampler's cap, never behind the older one nor back from what the last frame showed against the
+    /// newest event's direction; ``presentedPan`` keeps it for every presentation until the next frame. Visual only: ``spring`` keeps the real offset, so the
     /// snap and the fling read real samples. Not resampled (``resamplesPan`` off, too few samples, or
     /// a nil `frameTime`: a frame with no display time) it is the real offset.
     public mutating func framePan(at frameTime: TimeInterval?) -> CGFloat? {
-        guard var live = gesture, live.framePending, let strip else { return nil }
+        guard var live = gesture, live.framePending, strip != nil else { return nil }
         live.framePending = false
-        gesture = live
         var raw = live.raw
         if let frameTime, let sample = live.resampler?.resample(frameTime: frameTime) {
-            let previous = live.raw - (live.samples.last?.delta ?? 0)
+            let delta = live.samples.last?.delta ?? 0
+            let previous = live.raw - delta
             raw = CGFloat(sample.location.x)
-            if (raw - previous) * (live.raw - previous) < 0 { raw = previous }
+            if (raw - previous) * delta < 0 { raw = previous }
+            // Never back against the newest event from what the last frame showed: a frame that extrapolated
+            // past a sample, then a slower event, would else step the strip backward
+            // (`ScrollPredictor::ResampleEvent`, third_party/blink/renderer/platform/widget/input/scroll_predictor.cc).
+            if let shown = live.shownRaw, (raw - shown) * delta < 0 { raw = shown }
         }
+        live.shownRaw = raw
+        gesture = live
+        return presentedPan
+    }
+
+    /// The strip pan the last frame showed (rubber-banded), or nil when no frame of the gesture showed
+    /// one: during a resampled pan the strip shows this, not the camera (``spring`` keeps the real offset).
+    public var presentedPan: CGFloat? {
+        guard let raw = gesture?.shownRaw, let strip else { return nil }
         return ColumnStripGeometry.rubberBand(raw, contentWidth: strip.contentWidth, viewportWidth: strip.viewportWidth)
+    }
+
+    /// The gesture's newest event showed in its own turn, unresampled (its first event, or one under
+    /// Reduce Motion): the frames after it go on from there.
+    public mutating func panShownUnresampled() {
+        guard var live = gesture else { return }
+        live.framePending = false
+        live.shownRaw = live.raw
+        gesture = live
     }
 
     private mutating func finish(animated: Bool, into effects: inout ColumnScrollEffects) {
@@ -153,6 +176,7 @@ nonisolated extension ColumnScrollState {
         spring.value += delta
         spring.target += delta
         gesture?.raw += delta
+        gesture?.shownRaw? += delta
         // The resampler's samples are in the old camera: the next two events start it again.
         if delta != 0 { gesture?.resampler?.reset() }
 
@@ -193,6 +217,7 @@ nonisolated extension ColumnScrollState {
                 let raw = new.clamp(live.raw)
                 if raw != live.raw { live.resampler?.reset() }
                 live.raw = raw
+                live.shownRaw = live.shownRaw.map(new.clamp)
                 gesture = live
             }
         }

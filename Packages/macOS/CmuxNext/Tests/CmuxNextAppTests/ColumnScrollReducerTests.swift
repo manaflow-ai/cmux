@@ -63,6 +63,41 @@ struct ColumnScrollReducerTests {
         #expect(abs(shown - (base + 10)) < 0.001)
     }
 
+    /// A frame that extrapolated past the newest sample, then a slower event: the next frame would interpolate
+    /// behind what the strip showed although every event moved forward. As Chromium's
+    /// `ScrollPredictor::ResampleEvent` zeroes a predicted delta against the event's, the strip holds instead.
+    @Test func aDeceleratingEventNeverStepsTheStripBack() throws {
+        var state = Self.state(resamples: true)
+        let base = state.spring.value
+        state.reduce(.gestureChanged(deltaX: -10, time: 10.000))
+        state.reduce(.gestureChanged(deltaX: -10, time: 10.008))
+        // Sample time 10.010, 2 ms (within the 4 ms cap) past the newest event: 2.5 pt ahead of it.
+        let extrapolated = try #require(state.framePan(at: 10.015))
+        #expect(abs(extrapolated - (base + 22.5)) < 0.001)
+        state.reduce(.gestureChanged(deltaX: -1, time: 10.016))
+        // The resampler alone: 21 + 2.3 / 8 = 21.29, 1.2 pt behind the last frame.
+        let next = try #require(state.framePan(at: 10.0233))
+        #expect(next >= extrapolated, "the strip stepped back from \(extrapolated) to \(next)")
+        #expect(state.presentedPan == next)
+    }
+
+    /// Every presentation between frames shows what the last frame showed, not the real offset; the gesture's
+    /// first event (shown in its own turn) is where the frames go on from.
+    @Test func thePresentedPanStaysUntilTheNextFrame() throws {
+        var state = Self.state(resamples: true)
+        let base = state.spring.value
+        #expect(state.presentedPan == nil, "no frame showed the gesture yet")
+        state.reduce(.gestureChanged(deltaX: -10, time: 10.000))
+        state.panShownUnresampled()
+        #expect(state.presentedPan == base + 10)
+        #expect(state.framePan(at: 10.004) == nil, "the first event already showed")
+        state.reduce(.gestureChanged(deltaX: -10, time: 10.008))
+        state.reduce(.gestureChanged(deltaX: -10, time: 10.016))
+        let shown = try #require(state.framePan(at: 10.019))
+        #expect(state.framePan(at: 10.027) == nil)
+        #expect(state.presentedPan == shown && shown < state.spring.value)
+    }
+
     @Test func withoutResamplingOrAFrameTimeAFrameShowsTheRealOffset() throws {
         var off = Self.state(resamples: false)
         Self.pan(&off)

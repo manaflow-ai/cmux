@@ -65,24 +65,31 @@ extension ScreenContentView {
         motionTurn { apply(reduceCamera(.page(to: offset, animated: !context.reduceMotion))) }
     }
 
-    func beginUserScroll() {
+    /// Begins a strip pan. `trackpad`: a trackpad gesture (``LayoutRootView`` scroll routing), whose
+    /// pan the feature `stripPanResampling` resamples; a scrollbar thumb drag follows the pointer, as
+    /// Chromium resamples only touchpad and touchscreen scroll updates.
+    func beginUserScroll(trackpad: Bool = false) {
         // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
         cpuTakesCamera()
         // And from a fling on the render server, where it shows.
         takeCameraFromServer()
         // Feature `stripPanResampling`: the pan shows at each frame's time (`presentFramePan`). Not under
         // Reduce Motion, as resampled drags (p04-input-040).
-        scrollState.resamplesPan = context.resamplesStripPan && !context.reduceMotion
+        scrollState.resamplesPan = trackpad && context.resamplesStripPan && !context.reduceMotion
         scrollState.reduce(.gestureBegan)
     }
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
-        // A resampled pan on the strip container: after its first event, the next frame shows it.
-        if scrollState.resamplesPan, panBase != nil, pansOnContainer {
-            context.requestFrames()
-            return
+        if scrollState.resamplesPan {
+            // A resampled pan on the strip container: after its first event, the next frame shows it.
+            // Reduce Motion turned on mid-pan steps no frames: the event shows now, unresampled.
+            if panBase != nil, pansOnContainer, !context.reduceMotion {
+                context.requestFrames()
+                return
+            }
+            scrollState.panShownUnresampled()
         }
         // On the strip container: one layer property, no frame. Else the panes move (`presentPan`).
         if !presentPanOnContainer() { presentPan() }
@@ -91,10 +98,10 @@ extension ScreenContentView {
     /// A display frame began during a resampled pan (``ColumnScrollState/resamplesPan``): the pan
     /// events since the last frame show now, at the offset resampled at `frameTime` (Chrome's scroll
     /// resampling at the begin-frame, `ui/base/prediction/linear_resampling.cc`). Nil `frameTime` (a
-    /// frame stepped by hand) shows the real offset.
+    /// frame stepped by hand, or Reduce Motion's settling frame) shows the real offset.
     func presentFramePan(at frameTime: TimeInterval?) { // perf-hot: 0.3ms motion-frame
-        guard scrollState.resamplesPan, panBase != nil, let offset = scrollState.framePan(at: frameTime) else { return }
-        if !presentPanOnContainer(at: offset) { presentPan() }
+        guard scrollState.resamplesPan, panBase != nil, scrollState.framePan(at: frameTime) != nil else { return }
+        if !presentPanOnContainer() { presentPan() }
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the

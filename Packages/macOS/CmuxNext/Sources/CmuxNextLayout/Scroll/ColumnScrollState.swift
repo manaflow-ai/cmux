@@ -38,6 +38,8 @@ public nonisolated struct ColumnScrollState: Hashable, Sendable {
         var resampler: InputResampler?
         /// A pan event came after the last frame's ``framePan(at:)``.
         var framePending = false
+        /// The unbanded offset the last frame showed (``ColumnScrollState/presentedPan``); nil before one did.
+        var shownRaw: CGFloat?
     }
 
     public struct Sample: Hashable, Sendable {
