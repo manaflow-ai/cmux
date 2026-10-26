@@ -1,6 +1,5 @@
-// A chat refused because another binary's acpmux holds this app's socket (2026-10-22: "not signed
-// by this app's team", with only Retry, which asked the same daemon again forever) offers Restart
-// acpmux beside Retry.
+// A chat refused because another binary's acpmux holds this app's socket (2026-10-22: with only
+// Retry, which asked the same daemon again) offers Restart acpmux beside Retry.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
