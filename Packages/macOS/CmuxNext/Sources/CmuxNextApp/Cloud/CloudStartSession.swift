@@ -91,7 +91,8 @@ struct CloudStartSession {
         let key = CloudStartSessionRuns.Key(request, caller: caller, account: services.cloud.account)
         CloudHandlers.result("start cloud session", context) {
             try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
-                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, services: services)
+                    let cloud = services.cloud
+                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, account: key.account, now: { cloud.account }, services: services)
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
                     do {
                         // The account the agent asked in: a switch while the card was open refuses.

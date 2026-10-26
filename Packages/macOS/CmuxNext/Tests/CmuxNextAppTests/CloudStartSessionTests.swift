@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
+import Observation
 import Testing
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): its arguments are checked
@@ -140,7 +141,7 @@ struct CloudStartSessionTests {
         let asks = CloudStartSessionAsks()
         for _ in 0..<2 {
             await #expect(throws: ActionFailure(message: CloudStartSessionStrings.noPage(Self.asked))) {
-                try await asks.ask(tab: "tab-without-page", text: "ask", asked: Self.asked, services: services)
+                try await asks.ask(tab: "tab-without-page", text: "ask", asked: Self.asked, account: Self.account, now: { Self.account }, services: services)
             }
         }
     }
@@ -375,7 +376,7 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
-        let first = Task { try await asks.ask(tab: "chat-1", text: "first", asked: Self.asked, services: services) }
+        let first = Task { try await asks.ask(tab: "chat-1", text: "first", asked: Self.asked, account: Self.account, now: { Self.account }, services: services) }
         await cards.shownIn("chat-1")
         #expect(cards.shown["chat-1"]?.first?.state == .ask)
         cards.click("chat-1", "start")
@@ -383,7 +384,7 @@ struct CloudStartSessionTests {
         // Started: the run goes on, and the chat's card is still the first ask's.
         asks.show(tab: "chat-1", token: token, .working, "starting", services: services)
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.askOpen(Self.asked))) {
-            _ = try await asks.ask(tab: "chat-1", text: "second", asked: Self.asked, services: services)
+            _ = try await asks.ask(tab: "chat-1", text: "second", asked: Self.asked, account: Self.account, now: { Self.account }, services: services)
         }
         #expect(cards.shown["chat-1"]?.first?.text == "starting")
         // Another ask's token changes nothing.
@@ -400,12 +401,31 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
-        let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", asked: Self.asked, services: services) }
+        let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", asked: Self.asked, account: Self.account, now: { Self.account }, services: services) }
         await cards.shownIn("chat-2")
         cards.click("chat-2", "notNow")
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined(Self.asked))) { _ = try await ask.value }
         #expect(cards.shown["chat-2"] == nil)
         #expect(asks.open["chat-2"] == nil)
+    }
+
+    @MainActor @Observable final class SignedIn {
+        var account: [String?]
+        init(_ account: [String?]) { self.account = account }
+    }
+
+    /// A sign-out or team switch while the card is open ends it: the run says so, and the chat may ask again.
+    @Test func anAccountChangeEndsAnOpenCard() async throws {
+        let services = Self.fixture().services
+        let asks = CloudStartSessionAsks(), cards = Cards()
+        cards.install(asks)
+        let signedIn = SignedIn(Self.account)
+        let ask = Task { try await asks.ask(tab: "chat-3", text: "ask", asked: Self.asked, account: Self.account, now: { signedIn.account }, services: services) }
+        await cards.shownIn("chat-3")
+        signedIn.account = ["user-1", "team-2"]
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(Self.asked))) { _ = try await ask.value }
+        #expect(cards.shown["chat-3"] == nil)
+        #expect(asks.open["chat-3"] == nil)
     }
 
     // MARK: A run that outlasts its caller's answer
@@ -420,6 +440,22 @@ struct CloudStartSessionTests {
     static let pending: CloudStartSessionRuns.Fields = ["pending": .bool(true)]
     /// A caller's wait that never ends by itself (the run's end cancels it).
     static let waits: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
+
+    /// A caller that answered pending leaves nothing waiting on a run that never ends.
+    @Test func aCallerThatAnsweredPendingHoldsNothingOnTheRun() async throws {
+        let runs = CloudStartSessionRuns()
+        runs.sleep = { _ in }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        let answered = try await runs.answer(Self.key, within: .seconds(1), pending: Self.pending) {
+            for await _ in gate { break }
+            return ["session_id": .string("never")]
+        }
+        #expect(answered == Self.pending)
+        #expect(runs.waitingCount == 0)
+        #expect(runs.count == 1, "the run goes on")
+        runs.forgetAll()
+    }
 
     @Test func aRunItsCallerSawEndIsNotKept() async throws {
         let runs = CloudStartSessionRuns()

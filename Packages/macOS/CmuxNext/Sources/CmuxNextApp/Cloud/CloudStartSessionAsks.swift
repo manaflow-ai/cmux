@@ -3,7 +3,8 @@ import CmuxNextAgentPane
 import Foundation
 
 /// An agent's ask to start a Cloud session, as a card in its own chat (``AgentToolCards``): the
-/// agent's run waits for the person's Start or Not now, for at most ``wait``. The ask owns its
+/// agent's run waits for the person's Start or Not now, for at most ``wait``, and while the
+/// account it was asked in stays signed in (a sign-out or team switch ends the card). The ask owns its
 /// chat's card from the ask until its run ends (``finish(tab:token:failure:services:)``): another
 /// ask in that chat meanwhile is refused, and never replaces it.
 @MainActor
@@ -17,13 +18,17 @@ final class CloudStartSessionAsks {
     /// when the chat has no page. The app's tool cards by default; a test's own.
     var present: (@MainActor (_ cards: [AgentPaneToolCard], _ tab: String, _ services: AppServices, _ answer: @escaping AgentToolCards.Answer) -> Bool)?
 
+    enum Answer: Sendable { case start, notNow, expired, accountChanged }
+
     /// Shows the card in chat tab `tab` and returns its token once the person clicks Start. Throws
-    /// when they choose Not now, when nobody answers within ``wait``, or when the chat has no page.
-    func ask(tab: String, text: String, asked: CloudStartSessionStrings.Asked, services: AppServices) async throws -> UUID {
+    /// when they choose Not now, when nobody answers within ``wait``, when the signed-in account
+    /// stops being `account` (`now`, read on every change), or when the chat has no page.
+    func ask(tab: String, text: String, asked: CloudStartSessionStrings.Asked, account: [String?],
+             now: @escaping @MainActor @Sendable () -> [String?], services: AppServices) async throws -> UUID {
         guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen(asked)) }
         let token = UUID()
-        let (answers, continuation) = AsyncStream<Bool?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        guard set([Self.askCard(tab: tab, text: text)], tab: tab, services: services, answer: { _, action, _ in continuation.yield(action == "start") }) else {
+        let (answers, continuation) = AsyncStream<Answer>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        guard set([Self.askCard(tab: tab, text: text)], tab: tab, services: services, answer: { _, action, _ in continuation.yield(action == "start" ? .start : .notNow) }) else {
             continuation.finish()
             _ = set([], tab: tab, services: services) { _, _, _ in }
             throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
@@ -33,22 +38,37 @@ final class CloudStartSessionAsks {
         let deadline = Task {
             // wakeup-allow: one-shot deadline for the person's answer on the card
             try? await Task.sleep(for: Self.wait)
-            continuation.yield(nil)
+            continuation.yield(.expired)
+        }
+        // task-owner: the card's watch on the signed-in account; cancelled below with the card.
+        let watch = Task { @MainActor in
+            for await signedIn in ObservationStream(now) where signedIn != account {
+                continuation.yield(.accountChanged)
+                return
+            }
         }
         defer {
             deadline.cancel()
+            watch.cancel()
             continuation.finish()
         }
-        var answer: Bool?
+        var answer = Answer.expired
         for await value in answers {
             answer = value
             break
         }
-        guard answer == true else {
+        switch answer {
+        case .start:
+            return token
+        case .notNow, .expired, .accountChanged:
             finish(tab: tab, token: token, failure: nil, services: services)
-            throw ActionFailure(message: answer == false ? CloudStartSessionStrings.declined(asked) : CloudStartSessionStrings.expired(asked))
+            let message = switch answer {
+            case .notNow: CloudStartSessionStrings.declined(asked)
+            case .accountChanged: CloudStartSessionStrings.accountChanged(asked)
+            default: CloudStartSessionStrings.expired(asked)
+            }
+            throw ActionFailure(message: message)
         }
-        return token
     }
 
     /// The card while its run goes on; only the ask that owns it changes it.
@@ -125,8 +145,9 @@ final class CloudStartSessionRuns {
 
     private final class Run {
         var task: Task<Outcome, Never>?
-        /// Callers waiting for its end now.
-        var waiting = 0
+        /// Callers waiting for its end now, each resumed when it ends, or removed at its own deadline.
+        var waiters: [UUID: AsyncStream<Outcome?>.Continuation] = [:]
+        var waiting: Int { waiters.count }
         var outcome: Outcome?
         /// When it ended with nobody waiting (kept for the next same ask).
         var kept: ContinuousClock.Instant?
@@ -174,11 +195,11 @@ final class CloudStartSessionRuns {
     /// run's end (handed out once), the one going on, else `work`, started now.
     func answer(_ key: Key, within: Duration, pending: Fields, _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
         let run = take(key, work)
-        if let outcome = run.outcome, run.kept != nil { return try outcome.get() }
-        run.waiting += 1
+        if let outcome = run.outcome { return try outcome.get() }
+        let caller = UUID()
         let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        // task-owner: this caller's wait for the run; ends with the run, which has its own deadlines.
-        let waiter = Task { @MainActor in continuation.yield(await run.task?.value) }
+        // The run's end resumes it (``take``); nothing else waits on the run for this caller.
+        run.waiters[caller] = continuation
         // task-owner: this caller's answer deadline; cancelled below once the run ends first.
         let deadline = Task { @MainActor [sleep] in
             await sleep(within)
@@ -186,7 +207,7 @@ final class CloudStartSessionRuns {
         }
         defer {
             deadline.cancel()
-            waiter.cancel()
+            run.waiters[caller] = nil
             continuation.finish()
         }
         var ended: Outcome?
@@ -194,7 +215,6 @@ final class CloudStartSessionRuns {
             ended = value
             break
         }
-        run.waiting -= 1
         // An end that came as the deadline did still reaches this caller.
         if let outcome = ended ?? run.outcome { return try outcome.get() }
         return pending
@@ -219,8 +239,10 @@ final class CloudStartSessionRuns {
             let outcome: Outcome
             do { outcome = .success(try await work()) } catch { outcome = .failure(error) }
             run.outcome = outcome
+            let reached = !run.waiters.isEmpty
+            for waiter in run.waiters.values { waiter.yield(outcome) }
             if let self, runs[key] === run {
-                if run.waiting > 0 {
+                if reached {
                     runs[key] = nil
                 } else {
                     run.kept = now()
@@ -249,4 +271,6 @@ final class CloudStartSessionRuns {
     private func prune() { trim(keeping: Self.limit - 1) }
 
     var keptCount: Int { runs.values.filter { $0.kept != nil }.count }
+    /// Callers waiting on any run now (tests: a caller that answered pending holds nothing).
+    var waitingCount: Int { runs.values.reduce(0) { $0 + $1.waiting } }
 }
