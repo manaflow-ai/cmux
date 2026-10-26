@@ -18,7 +18,10 @@ EXTENSION = f"{FW}/cmux DEV t Helper (Renderer).app/Contents/MacOS/cmux DEV t He
 NETWORK = f"{FW}/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper --type=utility --utility-sub-type=network.mojom.NetworkService"
 CRASHPAD = f"{FW}/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper --type=crashpad-handler --database=/x"
 PLUGIN = f"{FW}/cmux DEV t Helper (Plugin).app/Contents/MacOS/cmux DEV t Helper (Plugin) --type=ppapi"
-HOST = f"{FW}/cmux DEV t Chromium Host.app/Contents/MacOS/cmux DEV t Chromium Host --cmux-socket=/tmp/h.sock"
+# The Chromium Host: a second executable of the app (embed-cef.sh), started with no --type.
+HOST = f"{APP}/Contents/MacOS/cmux DEV t Chromium Host --framework=/x/Chromium Embedded Framework.framework"
+# The Chromium Host app of older builds, in Contents/Frameworks.
+OLD_HOST = f"{FW}/cmux DEV t Chromium Host.app/Contents/MacOS/cmux DEV t Chromium Host --cmux-socket=/tmp/h.sock"
 BARE_HELPER = f"{FW}/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper"
 # A --type process whose executable is not in a Helper app (the app's own binary run as a subprocess).
 OUTSIDE = f"{APP}/Contents/MacOS/cmux DEV --type=utility --utility-sub-type=x.mojom.X"
@@ -74,6 +77,7 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(tp.chromium_kind(PLUGIN), "cef-helper")
         self.assertEqual(tp.chromium_kind(BARE_HELPER), "cef-helper")
         self.assertEqual(tp.chromium_kind(HOST), "cef-host")
+        self.assertEqual(tp.chromium_kind(OLD_HOST), "cef-host")
         self.assertIsNone(tp.chromium_kind(OUTSIDE), "a --type outside a Helper app is not a Chromium helper")
 
     def test_process_type_kind_reads_the_type_alone(self):
@@ -86,6 +90,9 @@ class ClassifierTests(unittest.TestCase):
 
     def test_non_chromium_processes_have_no_kind(self):
         self.assertIsNone(tp.chromium_kind(f"{APP}/Contents/MacOS/cmux DEV"))
+        # The host's name only at the end of the executable: an argument naming it is not the host.
+        self.assertIsNone(tp.chromium_kind(f"{APP}/Contents/MacOS/cmux DEV t Chromium Host Tool"))
+        self.assertIsNone(tp.chromium_kind("/bin/zsh -c ls /x.app/Contents/MacOS/cmux DEV t Chromium Host"))
         self.assertIsNone(tp.chromium_kind(f"{APP}/Contents/Resources/bin/cmux-tui __terminal-host --owner a@1"))
         self.assertIsNone(tp.chromium_kind("/bin/zsh -f"))
         # A shell whose arguments name a helper or a --type is not a Chromium process of its own.

@@ -58,7 +58,10 @@ final class HostPressureIndicatorView: NSView {
         self.notifications = notifications
         self.toasts = toasts
         self.windowVisible = windowVisible
-        self.makeService = service ?? { HostPressureService.shared(acpmux: QuitAgents.environment(services)) }
+        self.makeService = service ?? {
+            HostPressureService.shared(acpmux: QuitAgents.environment(services),
+                                       memoryPressure: services.memoryPressure.hostPressureSubscription)
+        }
         self.onVisibilityChange = onVisibilityChange
         super.init(frame: .zero)
         isHidden = true
