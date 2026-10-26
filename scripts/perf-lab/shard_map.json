@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 13330,
-            "T2": 18960
+            "T1": 14020,
+            "T2": 19680
           },
           "stories": {
             "T1": [
@@ -14,6 +14,7 @@
               "activation-stress",
               "blocking-hangs",
               "chat-anim",
+              "command-pan",
               "daemon-ops",
               "home-idle",
               "launch-cold",
@@ -28,7 +29,11 @@
               "new-tab-daemon",
               "new-tab-page",
               "omnibar",
+              "omnibar-click",
+              "omnibar-click-webkit",
               "open-panel",
+              "palette-open",
+              "palette-open-webkit",
               "pane-stress",
               "perf-gate",
               "sidebar",
@@ -54,8 +59,10 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "command-pan-stress",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "perceived-speed"
             ]
           }
         }
@@ -70,7 +77,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 18960
+            "T2": 19680
           },
           "stories": {
             "T2": [
@@ -90,8 +97,10 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "command-pan-stress",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "perceived-speed"
             ]
           }
         }
@@ -106,7 +115,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6660
+            "T1": 7000
           },
           "stories": {
             "T0": [
@@ -115,17 +124,19 @@
             "T1": [
               "activation-stress",
               "blocking-hangs",
+              "command-pan",
               "daemon-ops",
-              "launch-cold",
               "launch-cold-realistic",
               "motion",
-              "new-browser-tab",
-              "new-tab-daemon",
-              "new-tab-page",
+              "new-browser-tab-webkit",
               "omnibar",
+              "omnibar-click",
+              "open-panel",
+              "palette-open-webkit",
               "pane-stress",
               "switch",
-              "tab-switch-stages"
+              "tab-switch",
+              "tab-switch-repeat"
             ]
           }
         },
@@ -133,7 +144,7 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 6670
+            "T1": 7020
           },
           "stories": {
             "T0": [
@@ -143,16 +154,19 @@
               "activation",
               "chat-anim",
               "home-idle",
+              "launch-cold",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
-              "new-browser-tab-webkit",
+              "new-browser-tab",
               "new-surfaces-matrix",
-              "open-panel",
+              "new-tab-daemon",
+              "new-tab-page",
+              "omnibar-click-webkit",
+              "palette-open",
               "perf-gate",
               "sidebar",
-              "tab-switch",
-              "tab-switch-repeat"
+              "tab-switch-stages"
             ]
           }
         }
