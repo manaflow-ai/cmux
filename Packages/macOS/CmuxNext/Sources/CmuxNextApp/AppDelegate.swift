@@ -155,6 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
+        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
+        }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
