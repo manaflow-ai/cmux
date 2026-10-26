@@ -82,6 +82,7 @@ extension PageWebView {
         router.close()
         webKitPieces?.bridge.uninstall()
         endChromium()
+        chromiumRecovery = nil
         userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
         traceOpenEnd(.closedBeforePaint)

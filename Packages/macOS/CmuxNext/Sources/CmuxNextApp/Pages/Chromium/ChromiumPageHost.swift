@@ -63,7 +63,10 @@ final class ChromiumPageHost: PageChromiumHosting {
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {
+            // The host ended before the browser existed (`CEFRuntime.hostEnded`): the page waits for its supervisor.
+            let endedWithHost = tab.browserEndedWithHost
             tab.close()
+            if endedWithHost { throw PageChromiumStartError.browserEnded }
             throw Failure.browserNotCreated
         }
         return chromiumPage

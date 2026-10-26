@@ -85,8 +85,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         onEvent?(.ended)
     }
 
+    /// The tab's DevTools call; a call the host's end failed (the page's setup, before its session
+    /// hears ``PageChromiumEvent/ended``) throws ``PageChromiumStartError/browserEnded``.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
-        try await tab.devTools(method: method, params: params)
+        do {
+            return try await tab.devTools(method: method, params: params)
+        } catch where tab.browserEndedWithHost {
+            throw PageChromiumStartError.browserEnded
+        }
     }
 
     /// The tab's own evaluation, in the page's world with no gesture: the fork's `tabEvaluate` on

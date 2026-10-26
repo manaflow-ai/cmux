@@ -13,7 +13,8 @@ import os
 /// through `LoadIfNecessary` (content/browser/renderer_host/navigation_controller_impl.cc).
 ///
 /// The page view holds it (``PageWebView/chromiumRecovery``) from the end until the page shows in an
-/// engine again, or closes.
+/// engine again, or closes; a discard keeps it, so the discarded page's restore reopens it as the
+/// answer says (``PageWebView/restoreDiscardedPage()``), never in a Chromium the supervisor gave up on.
 @MainActor
 final class PageChromiumRecovery {
     private weak var page: PageWebView?
@@ -54,11 +55,11 @@ final class PageChromiumRecovery {
         pageShown()
     }
 
-    /// The page may show now (``PageWebView/setEngineVisible(_:)``): once the supervisor answered and
-    /// the page shows in its window, it reopens in WebKit or in a new Chromium page, and the page view
-    /// lets this object go.
+    /// The page may show now (``PageWebView/setEngineVisible(_:)``, ``PageWebView/restoreDiscardedPage()``):
+    /// once the supervisor answered and the page shows in its window, not discarded, it reopens in
+    /// WebKit or in a new Chromium page, and the page view lets this object go.
     func pageShown() {
-        guard let outcome, let page, page.isShownInWindow else { return }
+        guard let outcome, let page, page.isShownInWindow, !page.isDiscarded else { return }
         page.chromiumRecovery = nil
         switch outcome {
         case .gaveUp: page.fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended; its supervisor gave up")

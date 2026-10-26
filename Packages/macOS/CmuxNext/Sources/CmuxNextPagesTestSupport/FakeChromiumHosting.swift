@@ -24,6 +24,15 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// supervisor, the fake answers no page in the turn of its browser's end.
     private var supervisorWaiters: [@MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void] = []
 
+    /// While set, ``makePage(_:chatOpen:)`` waits for its browser until ``endHeldBrowsers()``, as a
+    /// page of the Chromium Host waits while the host makes its browser.
+    public var holdsBrowsers = false
+    /// How many ``makePage(_:chatOpen:)`` calls wait for their browser now.
+    public var heldBrowsers: Int { browserWaiters.count }
+    /// Runs each time a ``makePage(_:chatOpen:)`` call starts to wait (tests wait on it).
+    public var onBrowserHeld: (() -> Void)?
+    private var browserWaiters: [CheckedContinuation<Void, any Error>] = []
+
     /// The error ``makePage(_:chatOpen:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
 
@@ -44,9 +53,16 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     ///   - page: The page to show.
     ///   - chatOpen: The agent chat open the page shows, if any.
     /// - Returns: The new page.
-    /// - Throws: ``Refused`` while ``fails`` is set.
+    /// - Throws: ``Refused`` while ``fails`` is set; ``PageChromiumStartError/browserEnded`` when
+    ///   ``endHeldBrowsers()`` ended the browser it waited for.
     public func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
         if fails { throw Refused() }
+        if holdsBrowsers {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                browserWaiters.append(continuation)
+                onBrowserHeld?()
+            }
+        }
         let fake = FakeChromiumPage()
         fake.senderURL = page.url().absoluteString
         made.append(fake)
@@ -60,6 +76,14 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
         supervisorAsks += 1
         supervisorWaiters.append(answer)
+    }
+
+    /// The Chromium Host ended with the browsers it was making: every ``makePage(_:chatOpen:)`` that
+    /// waits throws ``PageChromiumStartError/browserEnded`` (its task resumes after this turn).
+    public func endHeldBrowsers() {
+        let waiters = browserWaiters
+        browserWaiters = []
+        for waiter in waiters { waiter.resume(throwing: PageChromiumStartError.browserEnded) }
     }
 
     /// Answers every page waiting in ``supervisorOutcome(then:)`` with `outcome`, in this turn.

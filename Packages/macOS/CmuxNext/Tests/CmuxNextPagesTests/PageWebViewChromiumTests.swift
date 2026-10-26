@@ -313,11 +313,25 @@ extension PageWebViewChromiumTests {
             await view.chromiumStart?.value
             views.append(view)
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
+        let window = pageWindow()
         window.contentView?.addSubview(views[0])
         #expect(views.allSatisfy(\.showsChromium))
         return (views, window)
+    }
+
+    /// A window that shows the pages added to its content view.
+    private func pageWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// Eight Chromium pages still on their way, the first in `window`: their starts have not run yet.
+    private func eightStartingPages(_ hosting: FakeChromiumHosting, in window: NSWindow) throws -> [PageWebView] {
+        let views = try (0..<8).map { _ in try makeView(hosting) }
+        views.forEach { $0.chromiumClock = PageTestClock.never }
+        window.contentView?.addSubview(views[0])
+        return views
     }
 
     /// How many of `views` show in WebKit.
@@ -424,7 +438,145 @@ extension PageWebViewChromiumTests {
         views.dropFirst().forEach { $0.close() }
         window.close()
     }
+
+    /// The Chromium Host ends while it makes the browsers of eight pages, one shown: every page waits
+    /// for the supervisor with no WebKit engine, and after its give-up only the shown page builds one.
+    /// Before the fix each failed `makePage` reopened its page in WebKit at once, hidden pages too.
+    @Test func aBrowserEndWhileThePagesAreMadeWaitsForTheSupervisor() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.holdsBrowsers = true
+        let window = pageWindow()
+        let views = try eightStartingPages(hosting, in: window)
+        let starts = views.compactMap(\.chromiumStart)
+        #expect(starts.count == 8)
+        let held: Bool? = await PageTestWait.value("eight browsers held") { done in
+            hosting.onBrowserHeld = { [unowned hosting] in if hosting.heldBrowsers == 8 { done(true) } }
+        }
+        #expect(held == true)
+        hosting.onBrowserHeld = nil
+
+        hosting.endHeldBrowsers()
+        for start in starts { await start.value }
+        #expect(hosting.supervisorAsks == 8)
+        #expect(hosting.made.isEmpty)
+        #expect(views.allSatisfy { $0.chromiumRecovery != nil && $0.chromiumStart == nil })
+        #expect(onWebKit(views) == 0)
+        #expect(webKitEngines(views) == 0)
+
+        hosting.finishSupervision(.gaveUp)
+        #expect(webKitEngines(views) == 1)
+        #expect(views[0].engineDecision == .webKit(.chromiumFailed))
+        window.contentView?.addSubview(views[1])
+        #expect(webKitEngines(views) == 2)
+        #expect(hosting.made.isEmpty)
+        views.forEach { $0.close() }
+        window.close()
+    }
+
+    /// The browser ends during the setup of eight pages, one shown, whether the page hears the end
+    /// first (``PageChromiumEvent/ended`` before its setup call fails) or only its setup call's typed
+    /// failure: every page waits for the supervisor, and after its give-up only the shown page builds
+    /// a WebKit engine. Before the fix the end went unheard before the session, and the failed setup
+    /// call reopened every page in WebKit at once.
+    @Test(arguments: [true, false])
+    func aBrowserEndDuringThePagesSetupWaitsForTheSupervisor(hearsEnded: Bool) async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { page in
+            page.answer = { [unowned page] _, _ in
+                guard page.devToolsFailure == nil else { return nil }
+                if hearsEnded { page.onEvent?(.ended) }
+                page.devToolsFailure = hearsEnded ? HostGone() as any Error : PageChromiumStartError.browserEnded
+                return nil
+            }
+        }
+        let window = pageWindow()
+        let views = try eightStartingPages(hosting, in: window)
+        for start in views.compactMap(\.chromiumStart) { await start.value }
+
+        #expect(hosting.made.count == 8)
+        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(hosting.supervisorAsks == 8)
+        #expect(views.allSatisfy { !$0.showsChromium && $0.chromiumRecovery != nil })
+        #expect(onWebKit(views) == 0)
+        #expect(webKitEngines(views) == 0)
+
+        hosting.finishSupervision(.gaveUp)
+        #expect(webKitEngines(views) == 1)
+        #expect(views[0].engineDecision == .webKit(.chromiumFailed))
+        #expect(hosting.made.count == 8)
+        views.forEach { $0.close() }
+        window.close()
+    }
+
+    /// A hidden page whose browser ended is discarded while it waits; after the give-up it shows:
+    /// it reopens in WebKit and makes no new Chromium page, whether its restore comes before it is in
+    /// the window or after. Before the fix the discard dropped the wait and the restore started Chromium.
+    @Test func aPageDiscardedWhileItWaitsShowsInWebKitAfterTheGiveUp() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (views, window) = try await eightPages(hosting)
+        endBrowser(hosting)
+        let decoder = PageSnapshotEncoder(start: { _, done in done(nil) }, decode: { _, done in done(nil) })
+        #expect(views[1].discardPage(decoder: decoder))
+        #expect(views[2].discardPage(decoder: decoder))
+        #expect(views[1].isDiscarded && views[1].chromiumRecovery != nil)
+        #expect(views[2].isDiscarded && views[2].chromiumRecovery != nil)
+
+        hosting.finishSupervision(.gaveUp)
+        #expect(views[1].webKitPieces == nil)
+        #expect(views[2].webKitPieces == nil)
+
+        // In the window, then the lifecycle's restore.
+        window.contentView?.addSubview(views[1])
+        #expect(views[1].webKitPieces == nil, "a discarded page built an engine before its restore")
+        views[1].restoreDiscardedPage()
+        // The restore, then in the window.
+        views[2].restoreDiscardedPage()
+        #expect(views[2].webKitPieces == nil, "a hidden page built an engine")
+        window.contentView?.addSubview(views[2])
+
+        for view in views[1...2] {
+            #expect(!view.isDiscarded)
+            #expect(view.engineDecision == .webKit(.chromiumFailed))
+            #expect(view.webKitPieces?.view.isHidden == false)
+            #expect(view.chromiumStart == nil)
+            #expect(view.chromiumRecovery == nil)
+        }
+        #expect(hosting.made.count == 8)
+        views.forEach { $0.close() }
+        window.close()
+    }
+
+    /// A discarded page that waits is restored before the supervisor answers: it starts no Chromium
+    /// page while the host restarts, and one once the supervisor brought Chromium back.
+    @Test func aDiscardedPageRestoredBeforeTheAnswerStartsChromiumOnlyAfterTheRestart() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (views, window) = try await eightPages(hosting)
+        endBrowser(hosting, pages: 2)
+        let decoder = PageSnapshotEncoder(start: { _, done in done(nil) }, decode: { _, done in done(nil) })
+        #expect(views[1].discardPage(decoder: decoder))
+        window.contentView?.addSubview(views[1])
+        views[1].restoreDiscardedPage()
+        #expect(views[1].chromiumStart == nil)
+        #expect(views[1].chromiumRecovery != nil)
+        #expect(hosting.made.count == 8)
+
+        hosting.finishSupervision(.restarted)
+        await views[0].chromiumStart?.value
+        await views[1].chromiumStart?.value
+        #expect(hosting.made.count == 10)
+        #expect(views[1].showsChromium)
+        #expect(webKitEngines(views) == 0)
+        views.forEach { $0.close() }
+        window.close()
+    }
 }
+
+/// The error a Chromium Host's end fails a page's pending DevTools call with (no typed end).
+private struct HostGone: Error {}
 
 /// A dynamic source with two resources: `a.png` (typed) and `b.json` (typed by its name).
 @MainActor
