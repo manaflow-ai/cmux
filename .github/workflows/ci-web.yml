@@ -665,8 +665,13 @@ jobs:
 
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
+          scope = needs["web-subarea-scope"]
+          route = scope.get("outputs", {}).get("react_apps")
+          if scope["result"] != "success" or route not in {"true", "false"}:
+              print(f"invalid React app scope: {scope}", file=sys.stderr)
+              sys.exit(1)
           base_line = os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
-          required = inputs["web"] == "true" and (needs["web-subarea-scope"]["outputs"].get("react_apps") == "true" or base_line)
+          required = inputs["web"] == "true" and (route == "true" or base_line)
           required_jobs = ["react-apps-check-shard", "react-doctor"]
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")

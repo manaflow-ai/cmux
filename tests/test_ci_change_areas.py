@@ -1935,6 +1935,7 @@ def run_web_status(
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
     subareas: dict[str, str] | None = None,
+    context: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -1974,6 +1975,9 @@ def run_web_status(
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
         "WEB_NEEDS": json.dumps(needs),
+        "GITHUB_REF": "refs/pull/1/merge",
+        "GITHUB_BASE_REF": "feat-cmux-next",
+        **(context or {}),
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -4753,6 +4757,45 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
         },
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_feat_base_web_status_requires_react_even_without_a_subarea_route() -> None:
+    subareas = dict.fromkeys(("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"), "false")
+    results = dict.fromkeys(WEB_JOBS, "skipped")
+    results["web-subarea-scope"] = "success"
+    for ref, expected in (("refs/heads/feat-cmux-next", 1), ("refs/pull/1/merge", 0)):
+        result = run_web_status(results=results, subareas=subareas, context={"GITHUB_REF": ref})
+        assert result.returncode == expected, (ref, result.stderr)
+    results["react-apps-check"] = "success"
+    result = run_web_status(results=results, subareas=subareas, context={"GITHUB_REF": "refs/heads/feat-cmux-next"})
+    assert result.returncode == 0, result.stderr
+    for invalid in (None, "", "unknown"):
+        malformed = dict(subareas)
+        if invalid is None:
+            malformed.pop("react_apps")
+        else:
+            malformed["react_apps"] = invalid
+        result = run_web_status(results=results, subareas=malformed, context={"GITHUB_REF": "refs/heads/feat-cmux-next"})
+        assert result.returncode != 0, invalid
+
+
+def test_react_aggregate_requires_base_shards_but_preserves_pr_path_routing() -> None:
+    script = workflow_job_step_script("react-apps-check", "Check webview test shards", WEB_WORKFLOW)
+    for event, ref, route, shard_result, expected in (
+        ("push", "refs/heads/feat-cmux-next", "false", "skipped", 1),
+        ("push", "refs/heads/feat-cmux-next", "false", "success", 0),
+        ("pull_request", "refs/pull/1/merge", "false", "skipped", 0),
+        ("pull_request", "refs/pull/1/merge", "true", "skipped", 1),
+        ("pull_request", "refs/pull/1/merge", "true", "success", 0),
+        ("push", "refs/heads/feat-cmux-next", "unknown", "success", 1),
+        ("push", "refs/heads/feat-cmux-next", None, "success", 1),
+    ):
+        needs = {name: {"result": shard_result} for name in ("react-apps-check-shard", "react-doctor", "react-apps-base-check")}
+        needs["web-subarea-scope"] = {"result": "success", "outputs": {} if route is None else {"react_apps": route}}
+        result = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=10,
+            env={**os.environ, "GITHUB_EVENT_NAME": event, "GITHUB_REF": ref, "GITHUB_BASE_REF": "feat-cmux-next",
+                 "WEB_INPUTS": json.dumps({"web": "true"}), "WEB_NEEDS": json.dumps(needs)})
+        assert result.returncode == expected, (event, ref, route, shard_result, result.stderr)
 
 
 def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
