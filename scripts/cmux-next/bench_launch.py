@@ -1041,8 +1041,9 @@ class BenchApp:
     """A tagged DEV app launched for a bench, its socket, and its teardown.
 
     `env` adds to (and overrides) BASE_ENV; `args` are launch arguments after the binary (for this process only,
-    for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `config` is written as the
-    app's cmux.json; `window` is
+    for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `pass_fds` are descriptors the
+    app inherits (subprocess.Popen pass_fds; a bench's CMUX_NEXT_LAUNCH_MARKS_FD pipe), read at each launch, so a
+    relaunch may pass a new pipe; `config` is written as the app's cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
     `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
@@ -1060,8 +1061,9 @@ class BenchApp:
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
                  fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
-                 lab_check=None):
+                 lab_check=None, pass_fds=()):
         self.args = tuple(args)
+        self.pass_fds = tuple(pass_fds)
         self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
         host_file = os.environ.get(LAB_HOST_FILE)
         if host is None and host_file:
@@ -1119,6 +1121,15 @@ class BenchApp:
             if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
                 pids.append(int(pid))
         return pids
+
+    def tag_processes(self):
+        """(pid, command) of every process of this tag (TagTeardown's rule: the bundle's executables, its daemon's
+        terminal hosts and holders): a daemon an earlier run left counts, which ``running_pids`` does not see."""
+        if self.teardown:
+            return self.teardown.processes()
+        sys.path.insert(0, HERE)
+        from tag_teardown import TagTeardown
+        return TagTeardown(self.app).processes()
 
     def session(self):
         """This account's GUI session now (the injected read, else ``gui_session``)."""
@@ -1283,7 +1294,15 @@ class BenchApp:
         note(f"bench-launch: {mute_output()}")
         running = self.running_pids()
         if not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
-            self.start_fresh()  # only with no app of the tag running: its state is not in use
+            left = self.tag_processes()
+            if left:
+                self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": [pid for pid, _ in left],
+                                          "log_tail": "",
+                                          "detail": f"processes of tag {self.tag} still run (pid "
+                                                    f"{', '.join(str(pid) for pid, _ in left)}): the launch would "
+                                                    "adopt that daemon and its session, not an empty one; end them "
+                                                    f"(tag_teardown.py \"{self.app}\") or pick a fresh tag"})
+            self.start_fresh()  # only with no process of the tag running: its state is not in use
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
                                       "detail": f"an app of {self.app} already runs (pid {', '.join(map(str, running))}); "
@@ -1304,7 +1323,8 @@ class BenchApp:
             with finder_limits() as changed:
                 self.launched_at = time.time()
                 spawned = time.monotonic()
-                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
+                                                stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
