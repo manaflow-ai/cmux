@@ -4,6 +4,31 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Retention(args) => {
+            let client = connect(true).await?;
+            let archive = args.archive.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_RETENTION,
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+                println!(
+                    "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
+                    v["chats"],
+                    v["olderThanDays"],
+                    mb("freedBytes"),
+                    mb("bytesBefore"),
+                    if args.dry_run { "would be freed (dry run)" } else { "freed" }
+                );
+                println!("skipped: {}", v["skipped"]);
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -455,6 +480,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::SelfUpdate { channel }) => {
             crate::cli::hosts::self_update(&channel, json_out).await
         }
+        // A file of this person's: no daemon needed.
+        Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
+            crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
         Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
@@ -565,6 +594,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // match stays total without a panic.
                 PeerCmd::SelfUpdate { channel } => {
                     return crate::cli::hosts::self_update(&channel, json_out).await;
+                }
+                PeerCmd::Hold { name, reason, until, release } => {
+                    return crate::cli::hosts::hold(name, reason, until, release, json_out);
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
