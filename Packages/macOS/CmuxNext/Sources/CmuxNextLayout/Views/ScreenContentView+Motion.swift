@@ -51,8 +51,10 @@ extension ScreenContentView {
     }
 
     // MARK: Animation
+    /// Motion the CPU steps: a fling on the render server is not (the reducer's spring rests on its target).
     var hasMotion: Bool {
-        if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
+        let camera = scrollState.spring
+        if !isUserScrolling && (camera.value != camera.target || camera.velocity != 0) { return true }
         if rowsMoving || areasMoving { return true }
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
@@ -105,7 +107,7 @@ extension ScreenContentView {
         // The panes landed: their terminals' grids go to the PTY once, now.
         if holdsGrids, !panesMoving { holdsGrids = false }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
+            if scrollState.spring.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -137,23 +139,17 @@ extension ScreenContentView {
         }
         for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
         if scrollRidesFrames {
-            if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+            if !isUserScrolling { _ = scrollState.spring.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
         }
         return true
     }
-
-    /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
-    /// frame, and a gap of a frame or two must not drop the window's display link (an idle
-    /// scheduler drops its link, and the next event would make a new one). About 67 ms at 120 Hz.
-    static let panTickTail = 8
 
     /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
     /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
-        panTicksLeft = Self.panTickTail
         if panPresentedInFrame {
             panPresentationPending = true
         } else {
@@ -165,17 +161,15 @@ extension ScreenContentView {
     }
 
     /// A display frame began (the layout's frame tick, before its springs step): the pan events
-    /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
-    /// ticks (``panTickTail`` frames after its last event).
+    /// that waited in the last frame show now. Returns true while a pan that moves the frames keeps
+    /// the frame ticks: until its finger lifts, so a gap of a frame or two between trackpad events
+    /// never drops the window's display link (an idle scheduler drops its link, and the next event
+    /// would make a new one). A pan on the strip container (``panBase``) shows each event in its own
+    /// turn and keeps none.
     func displayFrameBegan() -> Bool {
         panPresentedInFrame = false
         if panPresentationPending { applyPresentation() }
-        guard panTicksLeft > 0, isUserScrolling else {
-            panTicksLeft = 0
-            return false
-        }
-        panTicksLeft -= 1
-        return true
+        return isUserScrolling && panBase == nil
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
@@ -207,13 +201,25 @@ extension ScreenContentView {
         }
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
-        let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
+        // A pan on the strip container keeps the strip laid out at its base; anything else lays it out at
+        // the camera, and the container's translation goes back to zero (``presentPanOnContainer()``).
+        if panBase != nil, !(isUserScrolling && pansOnContainer) { panBase = nil }
+        let layoutOffset = self.layoutOffset
+        laidOutStripOffset = layoutOffset
+        let strip = geometry.viewShift(offset: layoutOffset)
+        let restStrip = isUserScrolling ? strip : geometry.viewShift(offset: scrollState.spring.target)
         // Only a dock the CPU grows in moves the strip's range: with none, the range is the rest one.
         let docks = growingDocks
         let uncovered = uncoveredRect, clip = docks.isEmpty ? restStripRange : stripRange(in: geometry, beside: docks)
         let zooming = zoomMotion.pane
         var placedHosts: [PaneHostView] = []
         var changed = force
+        // The container shows the camera; a fling on the render server owns it until it lands.
+        let translation = geometry.viewShift(offset: scrollState.spring.value) - strip
+        if stripContainer.fling == nil, stripContainer.translation != translation {
+            stripContainer.setTranslation(translation)
+            changed = true
+        }
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
@@ -315,7 +321,7 @@ extension ScreenContentView {
         if gesturing, changed {
             userMotionActive = true
             context.userMotionStepped()
-        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0 {
+        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0, stripContainer.fling == nil {
             // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
             // Render-server springs still running end it at their landing (`renderSpringLanded`).
             userMotionActive = false

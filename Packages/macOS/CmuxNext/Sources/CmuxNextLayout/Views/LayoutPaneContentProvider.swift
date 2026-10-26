@@ -54,6 +54,13 @@ final class LayoutViewContext {
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
+    /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
+    /// frames then (`ScreenContentView.pansOnContainer`).
+    var childWindowContentShows: () -> Bool = { false }
+    /// A screen's strip started or stopped showing away from where its views are laid out
+    /// (`StripClipContainerView.showsMoved`).
+    var stripMovedDidChange: () -> Void = {}
     /// A change turn handed a screen's springs to the render server: the window's `motion.run` begins
     /// (`LayoutMotionTrace`); its landing ends it through ``userMotionEnded``.
     var renderMotionBegan: () -> Void = {}

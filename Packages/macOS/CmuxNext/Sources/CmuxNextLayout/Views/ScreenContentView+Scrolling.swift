@@ -34,8 +34,8 @@ extension ScreenContentView {
             return hasMotion || rowsNeedFrames
         }
         scrollState.mode = mode
-        let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
-                                               anchor: ScreenDividers(screen: self).dragAnchorColumn))
+        let effects = reduceCamera(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
+                                         anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
         let needsFrames = apply(effects)
@@ -47,7 +47,7 @@ extension ScreenContentView {
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
         cpuTakesCamera()
-        return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
+        return apply(reduceCamera(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
@@ -62,34 +62,64 @@ extension ScreenContentView {
     func page(to offset: CGFloat) {
         scrollbarFlash = true
         cpuTakesCamera()
-        motionTurn { apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion))) }
+        motionTurn { apply(reduceCamera(.page(to: offset, animated: !context.reduceMotion))) }
     }
 
     func beginUserScroll() {
         // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
         cpuTakesCamera()
+        // And from a fling on the render server, where it shows.
+        takeCameraFromServer()
         scrollState.reduce(.gestureBegan)
     }
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
-        presentPan()
+        // On the strip container: one layer property, no frame. Else the panes move (`presentPan`).
+        if !presentPanOnContainer() { presentPan() }
     }
 
-    /// Ends a trackpad gesture: projects the fling and springs to a snap point.
+    /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the
+    /// strip container the fling runs on the render server (`startPanFling`), else on the CPU.
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
         // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
         panPresentationPending = false
-        motionTurn { apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))) }
+        let onContainer = panBase != nil && pansOnContainer
+        motionTurn {
+            let effects = scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
+            guard onContainer, effects.needsFrames, startPanFling() else { return apply(effects) }
+            // The landing reports the leading column (`panFlingLanded`); the focus moves now, as on the CPU.
+            if let pane = effects.focus {
+                lastFocused = pane
+                context.model.focus(pane, source: .scroll)
+            }
+            return false
+        }
     }
 
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
         cpuTakesCamera()
-        motionTurn { apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion))) }
+        motionTurn { apply(reduceCamera(.wheel(direction: direction, animated: !context.reduceMotion))) }
+    }
+
+    /// `event` on the reducer. During a fling on the render server, an event that leaves the camera
+    /// where it rests (a focus sync that reveals the column it lands on) lets the fling go on; one
+    /// that moves it takes the camera first (``takeCameraFromServer()``), so it moves from where the
+    /// strip shows.
+    private func reduceCamera(_ event: ColumnScrollEvent) -> ColumnScrollEffects {
+        guard stripContainer.fling != nil else { return scrollState.reduce(event) }
+        var probe = scrollState
+        let effects = probe.reduce(event)
+        if probe.spring == scrollState.spring {
+            scrollState = probe
+            return effects
+        }
+        takeCameraFromServer()
+        return scrollState.reduce(event)
     }
 
     @discardableResult
