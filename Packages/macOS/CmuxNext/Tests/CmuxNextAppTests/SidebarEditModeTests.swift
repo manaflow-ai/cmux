@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): Edit Sidebar makes its items
@@ -29,6 +30,8 @@ import Testing
             region.onRemoveItem = { [unowned self] in removed.append($0) }
             region.frame = NSRect(x: 0, y: 0, width: 240, height: 360)
             region.update(content, width: 240)
+            // The wiggle runs only while the item shows (LoopVisibility): a window that reads visible.
+            _ = WindowVisibilitySource.of(window, name: "editModeTest") { _ in .visible }
             window.contentView = region
             window.orderFrontRegardless()
             region.layoutSubtreeIfNeeded()

@@ -407,9 +407,7 @@ public final class StatusIndicatorLayer {
         // is Unix time mod its cycle (`SpinnerClock`), so a spinner that shows later, or resumes
         // after its window was hidden, joins in step with the rest (sidebar rows, tabs, hover
         // cards, chrome spinners) and with the web pages' spinners, which read the same clock.
-        let cycle = animation.duration * (animation.autoreverses ? 2 : 1)
-        animation.beginTime = target.convertTime(clock.beginTime(cycle: cycle), from: nil)
-        target.add(animation, forKey: wanted.key)
+        LoopVisibility.add(animation, to: target, forKey: wanted.key, clock: clock)
     }
 
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {
