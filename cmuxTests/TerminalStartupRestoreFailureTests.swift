@@ -100,6 +100,10 @@ struct TerminalStartupRestoreFailureTests {
     func failedDockAdoptionClearsSourceHibernationTracking() throws {
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let restoreBatch = SurfaceResumeRunPromptBatch.shared
+        restoreBatch.reset()
+        restoreBatch.beginRestorePass()
+        defer { restoreBatch.reset() }
         let source = Workspace(agentSessionAutoResumeDefaults: defaults.store)
         defer { source.teardownAllPanels() }
         let dock = DockSplitStore(
@@ -192,6 +196,7 @@ struct TerminalStartupRestoreFailureTests {
         #expect(controller.terminalInputByPanel[sourceKey] == nil)
         #expect(controller.lifecycleChangeByPanel[sourceKey] == nil)
         #expect(controller.teardownValidationEpochByPanel[sourceKey] == nil)
+        #expect(restoreBatch.claimAgentRestore(kind: "codex", sessionID: sessionID) == .owner)
     }
 
     @Test("Closing a staged relaunch cancels its restore transaction and releases its claim")
