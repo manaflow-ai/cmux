@@ -18,7 +18,8 @@
 //! - `server_families.rs` (tasks 026, 029): the `<family>_params!` and
 //!   `server_command_enum!` macros `src/server_families.rs` includes; the
 //!   daemon expands them into its request params and `Command` variants for
-//!   the families `server-families.json` lists, with its `refused_fields`.
+//!   the families `server-families.json` lists, with its `refused_fields`
+//!   and `boxed` variants.
 
 #[path = "build-support/client_requests.rs"]
 mod client_requests;
@@ -184,6 +185,8 @@ fn server_families(manifest: &Path, schemas: &Schemas) -> Result<String, BuildEr
     let mut families = server_families::read(&schemas.sdk.doc, &listed)
         .map_err(|e| BuildError(format!("{}: {e}", schemas.sdk.path.display())))?;
     server_families::add_refused_fields(&mut families, &list.doc)
+        .map_err(|e| BuildError(format!("{}: {e}", list.path.display())))?;
+    server_families::box_variants(&mut families, &list.doc)
         .map_err(|e| BuildError(format!("{}: {e}", list.path.display())))?;
     Ok(server_families::emit(&families))
 }

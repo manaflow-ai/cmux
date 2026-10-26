@@ -18,7 +18,10 @@
 //!
 //! `server-families.json` `refused_fields` adds, per command, a pre-rename
 //! field the handler refuses: `Option<serde_json::Value>`. The structs ignore
-//! unknown fields, as the hand-written enum did.
+//! unknown fields, as the hand-written enum did. Its `boxed` names, per
+//! command, a params struct the enum holds in a `Box`, with its reason: one
+//! large, rarely sent command must not grow every `Command` (clippy's
+//! `large_enum_variant`, which cannot see a macro's variants).
 //!
 //! The output is two kinds of `#[macro_export]` macro, so the structs are local
 //! types of the daemon crate (which owns the field types the schema names by
@@ -28,8 +31,8 @@
 //!   Each object type the family names by ref is a parameter, in name order.
 //! - `server_command_enum! { <family> = <module>; <enum> }` appends one variant
 //!   per command of every listed family to the enum it is given: a newtype
-//!   over the struct in `<module>`, or a unit variant for a command with no
-//!   fields.
+//!   over the struct in `<module>` (or over its `Box`), or a unit variant for
+//!   a command with no fields.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -142,6 +145,8 @@ pub struct Command {
     pub method_id: u16,
     pub variant: String,
     pub fields: Vec<Field>,
+    /// The enum holds the params in a `Box` (`server-families.json` `boxed`).
+    pub boxed: bool,
 }
 
 impl Command {
@@ -231,6 +236,33 @@ pub fn add_refused_fields(families: &mut [Family], doc: &Value) -> Result<(), Em
     Ok(())
 }
 
+/// Marks the commands `server-families.json` `boxed` (`{command: reason}`):
+/// the enum holds their params in a `Box`. A boxed command must be a generated
+/// command with params and needs a reason.
+pub fn box_variants(families: &mut [Family], doc: &Value) -> Result<(), EmitError> {
+    let Some(boxed) = doc.get("boxed") else {
+        return Ok(());
+    };
+    let boxed =
+        boxed.as_object().ok_or_else(|| error("$.boxed", "must be an object of commands"))?;
+    for (wire, reason) in boxed {
+        let path = format!("$.boxed.{wire}");
+        let command = families
+            .iter_mut()
+            .flat_map(|family| family.commands.iter_mut())
+            .find(|command| command.wire == *wire)
+            .ok_or_else(|| error(&path, "is not a command of a listed family"))?;
+        if reason.as_str().is_none_or(|reason| reason.trim().is_empty()) {
+            return Err(error(&path, "needs a reason"));
+        }
+        if command.fields.is_empty() {
+            return Err(error(&path, "has no params to box"));
+        }
+        command.boxed = true;
+    }
+    Ok(())
+}
+
 fn family(
     name: &str,
     id: u8,
@@ -251,7 +283,10 @@ fn family(
         }
         let variant = pascal(wire).ok_or_else(|| error(&path, "is not a kebab-case name"))?;
         let fields = request_fields(&path, wire, command, types, &mut refs)?;
-        found.insert(method_id, Command { wire: wire.clone(), method_id, variant, fields });
+        found.insert(
+            method_id,
+            Command { wire: wire.clone(), method_id, variant, fields, boxed: false },
+        );
     }
     if found.is_empty() {
         return Err(error(format!("$.families.{name}"), "has no command with a method_id"));
@@ -609,6 +644,13 @@ fn emit_enum(code: &mut String, families: &[Family]) {
             let _ = writeln!(code, "            #[doc = {doc:?}]");
             let _ = writeln!(code, "            #[serde(rename = {:?})]", command.wire);
             match command.params() {
+                Some(params) if command.boxed => {
+                    let _ = writeln!(
+                        code,
+                        "            {}(::std::boxed::Box<${}::{params}>),",
+                        command.variant, family.snake
+                    );
+                }
                 Some(params) => {
                     let _ = writeln!(
                         code,

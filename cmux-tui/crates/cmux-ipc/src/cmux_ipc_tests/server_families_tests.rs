@@ -223,3 +223,42 @@ fn server_families_refused_fields_need_a_listed_command_and_a_reason() {
     assert!(schema_field.message.contains("schema field"), "{schema_field}");
     assert!(refuse(json!({"refused_fields": {"probe": {"x": "why"}}})).is_ok());
 }
+
+#[test]
+fn server_families_boxed_needs_a_listed_command_with_params_and_a_reason() {
+    let string = json!({"kind": "scalar", "name": "string"});
+    let schema =
+        schema_with(json!({"a": {"type": string, "presence": "required", "nullable": false}}));
+    let families = emitter::read(&schema, &["probe-family".to_owned()]).unwrap();
+    let boxed = |list: Value| {
+        let mut families = families.clone();
+        emitter::box_variants(&mut families, &list).map(|()| families)
+    };
+    let unknown = boxed(json!({"boxed": {"other": "why"}})).unwrap_err();
+    assert_eq!(unknown.path, "$.boxed.other");
+    let no_reason = boxed(json!({"boxed": {"probe": " "}})).unwrap_err();
+    assert_eq!(no_reason.path, "$.boxed.probe");
+    let mut empty = emitter::read(&schema_with(json!({})), &["probe-family".to_owned()]).unwrap();
+    let no_params =
+        emitter::box_variants(&mut empty, &json!({"boxed": {"probe": "why"}})).unwrap_err();
+    assert!(no_params.message.contains("no params"), "{no_params}");
+    let unboxed = emitter::emit(&families);
+    assert!(unboxed.contains("Probe($probe_family::ProbeParams),"), "{unboxed}");
+    let code = emitter::emit(&boxed(json!({"boxed": {"probe": "why"}})).unwrap());
+    assert!(code.contains("Probe(::std::boxed::Box<$probe_family::ProbeParams>),"), "{code}");
+}
+
+#[test]
+fn server_families_boxes_create_surface_with_receipt() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("server-families.json");
+    let list: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut families = emitter::read(&sdk_schema(), &listed()).unwrap();
+    emitter::box_variants(&mut families, &list).unwrap();
+    let boxed: Vec<&str> = families
+        .iter()
+        .flat_map(|family| &family.commands)
+        .filter(|command| command.boxed)
+        .map(|command| command.wire.as_str())
+        .collect();
+    assert_eq!(boxed, ["create-surface-with-receipt"]);
+}

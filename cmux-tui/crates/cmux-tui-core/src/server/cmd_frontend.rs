@@ -104,9 +104,9 @@ pub(super) fn sidebar_plugin(
 pub(super) fn create_surface_with_receipt_command(
     mux: &Arc<Mux>,
     client: u64,
-    request: CreateSurfaceWithReceiptParams,
+    request: Box<CreateSurfaceWithReceiptParams>,
 ) -> anyhow::Result<Value> {
-    create_surface_with_receipt(mux, client, request)
+    create_surface_with_receipt(mux, client, *request)
 }
 
 pub(super) fn ids(mux: &Arc<Mux>, kind: Option<String>) -> anyhow::Result<Value> {

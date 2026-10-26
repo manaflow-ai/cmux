@@ -683,6 +683,21 @@ fn server_generated_tabs_keeps_null_apart_from_absent() {
     assert!(missing_history.is_err(), "history is required even though it may be null");
 }
 
+/// Parse, dispatch and the pending queue move every `Command` by value, so
+/// the generated variants keep it as small as the hand-written enum was
+/// (376 bytes on 64-bit, with `create-surface-with-receipt` boxed). A family
+/// migration that grows it names its large command in server-families.json
+/// `boxed`. clippy's `large_enum_variant` cannot see the macro's variants.
+#[test]
+fn server_generated_tabs_keeps_command_small() {
+    assert!(
+        size_of::<Command>() <= 376,
+        "Command is {} bytes; box the large variant in server-families.json `boxed`",
+        size_of::<Command>()
+    );
+    assert!(size_of::<Request>() <= 408, "Request is {} bytes", size_of::<Request>());
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 1_000,
