@@ -15,6 +15,7 @@
 #       [--url URL] [--label NAME] [--out DIR] [--no-fail] [--keep-running]
 #       [--max-cpu 0.5] [--max-wakeups 5] [--max-host-cpu 0.2]
 #       [--max-host-wakeups 2] [--max-helper-cpu 1.0] [--fresh]
+#       [--env NAME=VALUE ...] [--setting dotted.key=JSON ...]
 #
 # --fresh starts from an empty daemon session for the tag (removes its
 # saved tabs, which would otherwise restore Chromium tabs into every run).

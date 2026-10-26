@@ -2,6 +2,7 @@
 import type { ChipHostFixture } from "../format";
 import { resetLinkStore, seedLinkStore } from "../../agent-session/acpmux/chips/linkStore";
 import { resetPullRequestStore } from "../../agent-session/acpmux/chips/pullRequestStore";
+import { resetReferenceExistence } from "../../agent-session/acpmux/chips/referenceExistence";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { setProjectIconHost } from "../../agent-session/acpmux/projectIcon";
 
@@ -9,6 +10,7 @@ import { setProjectIconHost } from "../../agent-session/acpmux/projectIcon";
 export function installChipHost(fixture: ChipHostFixture | undefined): void {
   resetLinkStore();
   resetPullRequestStore();
+  resetReferenceExistence();
   if (!fixture) {
     setChipHost(undefined);
     setProjectIconHost(undefined);

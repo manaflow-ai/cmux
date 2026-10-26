@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
+#[cfg(unix)]
+mod open_file_limit;
 use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
@@ -17,6 +19,7 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+mod persist_retry;
 #[cfg(windows)]
 mod windows;
 
@@ -130,6 +133,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the store, the sockets and any agent: launchd's soft limit is 256.
+    #[cfg(unix)]
+    open_file_limit::raise();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -363,10 +369,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
-    crate::config::write_atomic(
-        &home().join("daemon.pid"),
-        std::process::id().to_string().as_bytes(),
-    )?;
+    // The pid file only explains a dropped connection (`client::closed_error`):
+    // a daemon that cannot write it (a full disk) serves without it and tries
+    // again, never exits (`daemon/persist_retry.rs`).
+    let pid_retry = {
+        let (path, pid) = (home().join("daemon.pid"), std::process::id().to_string());
+        persist_retry::write_or_retry("daemon.pid", move || {
+            crate::config::write_atomic(&path, pid.as_bytes())
+        })
+    };
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
     let ws_listener = match ws_listener {
@@ -474,6 +485,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
+            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+            hub.hold_policies_again().await;
             hub.finish_startup().await;
             // After the login env import: it names harness homes.
             let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
@@ -524,6 +538,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // After the agents: their model streams go through the router.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
+    // Cancelled and finished before the removal, so a late retry never puts it back.
+    if let Some(retry) = pid_retry {
+        retry.abort();
+        let _ = retry.await;
+    }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
     for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);
