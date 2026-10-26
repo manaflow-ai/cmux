@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 21940,
-            "T2": 32040
+            "T2": 33180
           },
           "stories": {
             "T1": [
@@ -89,6 +89,7 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "anim-perf",
               "app-perf",
               "automation-typing",
               "browser-engine-chromium",
@@ -105,13 +106,16 @@
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-chromium",
               "pane-scale",
+              "pane-zoom",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "split-spring",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"
@@ -129,7 +133,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 32040
+            "T2": 33180
           },
           "stories": {
             "T2": [
@@ -150,6 +154,7 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "anim-perf",
               "app-perf",
               "automation-typing",
               "browser-engine-chromium",
@@ -166,13 +171,16 @@
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "pane-chromium",
               "pane-scale",
+              "pane-zoom",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "split-spring",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"

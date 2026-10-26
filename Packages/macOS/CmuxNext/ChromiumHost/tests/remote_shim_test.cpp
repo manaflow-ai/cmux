@@ -199,6 +199,13 @@ std::string NavigationState(int browser) {
   return out;
 }
 
+std::string ExtensionList(int browser) {
+  char* s = cmux_shim_ext_list(browser);
+  std::string out = s ? s : "<null>";
+  cmux_shim_free(s);
+  return out;
+}
+
 void OnEvent(void*, int, int browser_id, int, int64_t a, int64_t b, const char*, const char* s2) {
   ++seen.events;
   CHECK(a == 7 && b == 8);
@@ -644,6 +651,39 @@ int main() {
       host.Send(ack);
       CHECK(PumpUntil([&] { return NavigationState(browser) == "{\"index\":1}"; }));
     }
+  }
+
+  // An extension change is async with pending keys (task 026): the list is hidden until its
+  // REPLY, and the reply callback reads the list the host pushed before it.
+  {
+    static std::string list_in_reply;
+    static int ext_replies = 0;
+    static int ext_browser = browser;
+    host.Send(Mirror(cmux_remote::kOpExtList, browser, "[\"before\"]"));
+    CHECK(PumpUntil([&] { return ExtensionList(browser) == "[\"before\"]"; }));
+    cmux_remote_shim_set_reply(nullptr, [](void*, uint32_t, const void*, size_t) {
+      list_in_reply = ExtensionList(ext_browser);
+      ++ext_replies;
+    });
+    CHECK(cmux_shim_ext_set_enabled(browser, "abc", 0) == 1);
+    const uint32_t token = cmux_remote_shim_last_reply_token();
+    CHECK(token != 0);
+    CHECK(ExtensionList(browser) == "<null>");
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpExtSetEnabled && got[0].token == token);
+    host.Send(Mirror(cmux_remote::kOpExtList, browser, "[\"after\"]"));
+    PumpUntil([] { return false; }, std::chrono::milliseconds(50));  // the MIRROR applies
+    CHECK(ExtensionList(browser) == "<null>");  // still pending: the op has not answered
+    cmux_host::control::TlvWriter verdict;
+    verdict.I32(0);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = token;
+    reply.fields = verdict.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return ext_replies == 1; }));
+    CHECK(list_in_reply == "[\"after\"]");
+    cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
   // Settings changes after initialize go now, and into the replay log for the next host.

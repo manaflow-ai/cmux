@@ -141,6 +141,9 @@ pub(super) struct MessageWriter {
     /// leaves as that request's REPLY or ERROR frame. `None` on the
     /// connection's own writer and for every line.
     pub(super) reply: Option<Arc<FrameCall>>,
+    /// The connection's caller class for `debug-daemon-locks`, read by its
+    /// reader and dispatcher with no lock (server/origin_gate.rs sets it).
+    pub(super) lock_caller: Arc<crate::diagnostics::LockCallerCell>,
 }
 
 impl MessageWriter {
@@ -163,6 +166,7 @@ impl MessageWriter {
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
             reply: None,
+            lock_caller: Arc::default(),
         }
     }
 

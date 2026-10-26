@@ -10101,6 +10101,7 @@
         "required": true
       }
     },
+    "request:debug-daemon-locks": {},
     "request:delete-bookmark": {
       "/bookmark": {
         "ty": "string",
@@ -19001,6 +19002,12 @@
       }
     },
     "response:create-workspace-group": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:debug-daemon-locks": {
       "/data": {
         "ty": "json",
         "required": true
