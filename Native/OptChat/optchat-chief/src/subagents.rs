@@ -867,6 +867,7 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.map(|r| r.id),
                 });
                 Ok(note)
             }

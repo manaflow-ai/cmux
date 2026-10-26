@@ -96,6 +96,18 @@ extension StateResourceClient {
         return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
     }
 
+    /// Reopens closed workspace `workspace` (`ws_…`) by the id it had
+    /// (`closed.reopen {workspace}`, a `cmux://workspace/` link to a closed
+    /// workspace): the workspace member of the newest closed group that
+    /// recorded it. It reopens as a new workspace (the reply's `workspaceID`).
+    ///
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when
+    ///   no closed group holds the workspace (it is open, or its record is gone).
+    @discardableResult
+    public func reopenClosed(workspace: String) async throws -> ReopenedItem {
+        try await stateMutation("closed.reopen", ["workspace": .string(workspace)], as: ReopenedItem.self)
+    }
+
     /// The window ids of install `installID`'s window records (`window_record.list`).
     public func windowRecordIDs(installID: String) async throws -> [String] {
         let list = try await connection.resourceRequest({ id in

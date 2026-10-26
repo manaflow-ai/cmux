@@ -12,9 +12,10 @@ import Foundation
 /// a workspace through `windows.reveal(workspaceID:)` and
 /// `WindowActivation`. It never runs a command, sends text or changes
 /// state; the only things it creates are the agent tab for a session no tab
-/// shows, as opening that session from history does, and a closed tab a tab
+/// shows, as opening that session from history does, a closed tab a tab
 /// link names, reopened from Recently Closed under its own id
-/// (``DurableTabLink``). An agent link (`agent/<harness>/<session>`) only
+/// (``DurableTabLink``), and a closed workspace a workspace link names,
+/// reopened from Recently Closed (``DurableWorkspaceLink``). An agent link (`agent/<harness>/<session>`) only
 /// reveals a tab this app already shows that session in, then, when the user
 /// opened it, gives that tab's input the keyboard.
 @MainActor
@@ -45,8 +46,13 @@ struct DeepLinkNavigator {
             guard let pane = services.pane(id: id) else { throw Self.gone }
             try reveal(pane, intent)
         case .workspace(let id):
+            // Open: show it. Closed: reopen it from Recently Closed and show it
+            // (DurableWorkspaceLink; a Chief reply links the workspaces it names, cmux#25572).
             let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
-            guard let workspace else { throw Self.gone }
+            guard let workspace else {
+                DurableWorkspaceLink.open(id, intent: intent, services: services)
+                return
+            }
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent, asking: asking)
