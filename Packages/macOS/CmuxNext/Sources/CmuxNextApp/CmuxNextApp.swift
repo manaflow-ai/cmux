@@ -88,6 +88,8 @@ public struct CmuxNextApp {
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
+        environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
