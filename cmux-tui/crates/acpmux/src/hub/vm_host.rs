@@ -41,8 +41,11 @@ pub const REMOTE_REFUSED: &str = "vmHost.remote";
 /// Whether the machine under `root` is a VM cmux created for one owner: a
 /// readable `vm-kind` of `owner`, and no team files root.
 pub(crate) fn cmux_vm_at(root: &Path) -> bool {
-    if root.join(TEAM_FILES_ROOT).exists() {
-        return false;
+    // Fail closed, as the peer bridge's `team_files_present`: only "not found" means no team
+    // files root; one this user cannot stat (a root-only `/srv/team`) counts as there.
+    match std::fs::symlink_metadata(root.join(TEAM_FILES_ROOT)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return false,
     }
     std::fs::read_to_string(root.join(KIND_FILE)).is_ok_and(|kind| kind.trim() == "owner")
 }
