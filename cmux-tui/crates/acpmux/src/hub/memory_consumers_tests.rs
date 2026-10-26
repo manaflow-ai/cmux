@@ -60,9 +60,15 @@ fn consumer_bytes(hub: &Hub, name: &str) -> Option<u64> {
     hub.memory().registry().report().into_iter().find(|c| c.name == name).and_then(|c| c.bytes)
 }
 
-#[test]
-fn memory_warning_empties_the_lossless_caches_and_critical_trims_sessions() {
+/// The next `_acpmux/harnesses_changed` payload, or None within a second.
+async fn next_change(rx: &mut tokio::sync::broadcast::Receiver<serde_json::Value>) -> Option<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await.ok()?.ok().map(|_| ())
+}
+
+#[tokio::test]
+async fn memory_warning_empties_the_lossless_caches_and_critical_trims_sessions() {
     let hub = hub();
+    let mut changes = hub.subscribe_harness_changes();
     let home = settled_codex_home("levels");
     let env = BTreeMap::from([("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned())]);
     let before = hub.pool.auth_cache().fingerprint("codex", &env);
@@ -95,7 +101,55 @@ fn memory_warning_empties_the_lossless_caches_and_critical_trims_sessions() {
     );
     assert!(hub.live_models.lock().unwrap().is_empty(), "the curated lists stand in");
     assert_eq!(consumer_bytes(&hub, names::LIVE_MODELS), Some(0));
+    assert!(next_change(&mut changes).await.is_some(), "watchers read _acpmux/models again");
     let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn memory_warning_keeps_a_tail_that_a_start_or_a_failure_still_quotes() {
+    let hub = hub();
+    let line = || VecDeque::from(["Not logged in".to_owned()]);
+    let starting = session(&hub, "s-memory-starting");
+    *starting.stderr_tail.lock().unwrap() = line();
+    // An agent that died in `initialize`: no child, status still idle, and
+    // `explain_start_failure` reads the tail under `spawn_lock`.
+    let spawning = starting.spawn_lock.try_lock().unwrap();
+    let died = session(&hub, "s-memory-died");
+    *died.stderr_tail.lock().unwrap() = line();
+    // An agent that died on its own: the failed turn or request quotes it.
+    died.meta.lock().unwrap().status = SessionStatus::Disconnected;
+    let stopped = session(&hub, "s-memory-stopped");
+    *stopped.stderr_tail.lock().unwrap() = line();
+
+    hub.memory().registry().voter().set_level(PressureLevel::Warning);
+    assert_eq!(
+        *starting.stderr_tail.lock().unwrap(),
+        line(),
+        "the start still explains its failure"
+    );
+    assert_eq!(*died.stderr_tail.lock().unwrap(), line(), "the exit still says why");
+    assert!(stopped.stderr_tail.lock().unwrap().is_empty(), "acpmux stopped it: nothing quotes it");
+    drop(spawning);
+}
+
+#[test]
+fn memory_live_lists_from_disk_fill_only_harnesses_without_one() {
+    let hub = hub();
+    hub.live_models.lock().unwrap().insert("claude".into(), vec![model("opus")]);
+    let cached = |id: &str| BTreeMap::from([("claude".to_owned(), vec![model(id)])]);
+    assert!(!hub.add_live_lists(cached("haiku")), "a probed list is newer than the disk");
+    assert_eq!(hub.live_models_for("claude").unwrap(), [model("opus")]);
+    hub.live_models.lock().unwrap().clear();
+    assert!(hub.add_live_lists(cached("haiku")), "a refill is announced");
+    assert_eq!(hub.live_models_for("claude").unwrap(), [model("haiku")]);
+}
+
+#[test]
+fn memory_live_lists_stay_without_a_runtime_to_announce_their_change() {
+    let hub = hub();
+    hub.live_models.lock().unwrap().insert("claude".into(), vec![model("opus")]);
+    hub.memory().registry().voter().set_level(PressureLevel::Critical);
+    assert_eq!(hub.live_models.lock().unwrap().len(), 1);
 }
 
 #[test]

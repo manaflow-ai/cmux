@@ -4,16 +4,18 @@
 //!
 //! - Lossless, emptied at warning: the parsed login files behind the pool keys
 //!   (read again on the next fingerprint), and the stderr tail of each session
-//!   with no agent process (a new agent's turn starts a new tail).
+//!   whose agent acpmux stopped (no failure report can quote it any more).
 //! - Lossy, at critical: each session's completed prompt outcomes past its
 //!   newest [`CRITICAL_PROMPT_OUTCOMES`] (an older retry runs again), and the
 //!   live model lists (the curated lists stand in; they come back from disk at
-//!   normal, or with the next probe).
+//!   normal, or with the next probe). Watchers hear both changes as
+//!   `_acpmux/harnesses_changed`.
 //! - Reported only: the chat index and the login environment, which are the
 //!   daemon's working state.
 
 use super::{Hub, Session, prompt_ledger};
 use crate::memory::{inline_bytes, string_bytes};
+use crate::store::SessionStatus;
 use cmux_memory::{MemoryConsumer, PressureLevel, Registration, Retention};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, Weak};
@@ -88,17 +90,20 @@ impl Session {
         })
     }
 
-    /// Drops the stderr tail when no agent process and no turn runs: nothing
-    /// quotes it until an agent starts, and its turn starts a new tail.
-    /// Whether it did.
-    pub(crate) fn drop_stderr_tail_without_agent(&self) -> bool {
+    /// Drops the stderr tail of an agent acpmux stopped: no process, no
+    /// start (`spawn_lock`, whose failure quotes the tail), no turn, and an
+    /// idle or closed status. An agent that died on its own leaves the session
+    /// disconnected, and the start, turn or request it failed still quotes its
+    /// tail. Whether it dropped lines.
+    pub(crate) fn drop_stderr_tail_of_stopped_agent(&self) -> bool {
+        let Ok(_starting) = self.spawn_lock.try_lock() else { return false };
         let Ok(child) = self.child.try_lock() else { return false };
-        if child.is_some() || self.turn().is_some() {
+        let stopped = matches!(self.status(), SessionStatus::Idle | SessionStatus::Closed);
+        if child.is_some() || self.turn().is_some() || !stopped {
             return false;
         }
         let tail =
             std::mem::take(&mut *self.stderr_tail.lock().unwrap_or_else(PoisonError::into_inner));
-        drop(child);
         !tail.is_empty()
     }
 
@@ -158,7 +163,7 @@ impl Hub {
                 on(|hub, level| {
                     if releases_lossless(level) {
                         hub.sessions().iter().for_each(|s| {
-                            s.drop_stderr_tail_without_agent();
+                            s.drop_stderr_tail_of_stopped_agent();
                         });
                     }
                 }),
@@ -192,8 +197,9 @@ impl Hub {
     }
 
     /// The live model lists: emptied at critical, read back from their disk
-    /// cache when the level returns to normal (on the runtime that built the
-    /// hub; with none, the next probe fills them).
+    /// cache when the level returns to normal, each change announced to
+    /// watchers, on the runtime that built the hub. A hub built with no
+    /// runtime could neither announce nor refill them, so it keeps them.
     fn live_models_consumer(self: &Arc<Self>) -> MemoryConsumer {
         let runtime = tokio::runtime::Handle::try_current().ok();
         let emptied = Arc::new(AtomicBool::new(false));
@@ -204,19 +210,24 @@ impl Hub {
             Retention::Lossy,
             move || bytes_hub.upgrade().map(|hub| hub.live_models_bytes()),
             move |level| {
-                let Some(hub) = release_hub.upgrade() else { return };
+                let (Some(hub), Some(runtime)) = (release_hub.upgrade(), &runtime) else { return };
                 match level {
                     PressureLevel::Critical => {
                         let lists = std::mem::take(
                             &mut *hub.live_models.lock().unwrap_or_else(PoisonError::into_inner),
                         );
-                        emptied.store(true, Ordering::Relaxed);
-                        drop(lists);
+                        if !lists.is_empty() {
+                            emptied.store(true, Ordering::Relaxed);
+                            drop(lists);
+                            runtime.spawn(async move { hub.announce_harnesses().await });
+                        }
                     }
                     PressureLevel::Normal if emptied.swap(false, Ordering::Relaxed) => {
-                        if let Some(runtime) = &runtime {
-                            runtime.spawn(async move { hub.load_live_cache().await });
-                        }
+                        runtime.spawn(async move {
+                            if hub.load_live_cache().await {
+                                hub.announce_harnesses().await;
+                            }
+                        });
                     }
                     _ => {}
                 }

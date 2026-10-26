@@ -66,6 +66,19 @@ pub fn memory_lines(m: &Value) -> Vec<String> {
             mb(c.get("bytes").and_then(Value::as_u64)),
         ));
     }
+    lines.push(format!(
+        "  sessions: {} total",
+        mb(obj.get("session_bytes").and_then(Value::as_u64)),
+    ));
+    // The largest sessions (`memory.top`), by name or, without one, by id.
+    for s in obj.get("top").and_then(Value::as_array).into_iter().flatten() {
+        let name = s.get("name").and_then(Value::as_str).filter(|n| !n.is_empty());
+        lines.push(format!(
+            "    {}: {}",
+            name.or_else(|| s.get("session_id").and_then(Value::as_str)).unwrap_or("-"),
+            mb(s.get("bytes").and_then(Value::as_u64)),
+        ));
+    }
     lines
 }
 
@@ -82,6 +95,11 @@ mod tests {
                 {"name": "pool.auth_cache", "retention": "lossless", "bytes": 0},
                 {"name": "chats.index", "retention": "lossy", "bytes": null},
             ],
+            "session_bytes": 3_500_000u64,
+            "top": [
+                {"session_id": "s-1", "name": "claude-2", "bytes": 3_000_000u64},
+                {"session_id": "s-2", "name": "", "bytes": 500_000u64},
+            ],
         });
         assert_eq!(
             memory_lines(&m),
@@ -89,6 +107,9 @@ mod tests {
                 "24.0 MB footprint, pressure warning",
                 "  pool.auth_cache (lossless): 0.0 MB",
                 "  chats.index (lossy): -",
+                "  sessions: 3.5 MB total",
+                "    claude-2: 3.0 MB",
+                "    s-2: 0.5 MB",
             ]
         );
     }
