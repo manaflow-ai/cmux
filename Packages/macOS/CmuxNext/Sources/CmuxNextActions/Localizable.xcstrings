@@ -287,13 +287,13 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser"
+            "value": "Webbrowser"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser"
+            "value": "Webbrowser"
           }
         },
         "es": {
@@ -311,7 +311,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser"
+            "value": "Browser web"
           }
         },
         "ja": {
