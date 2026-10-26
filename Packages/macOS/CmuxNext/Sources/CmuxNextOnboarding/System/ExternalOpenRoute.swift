@@ -10,6 +10,10 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A terminal tab in the current window's focused pane, started in
     /// `cwd`, then `command` typed into its shell (already shell-quoted).
     case terminal(cwd: String?, command: String?)
+    /// An `ssh://` link: a terminal tab that runs `target.command`, after
+    /// the App's confirmation (`ExternalLinkGate`): a page must not make
+    /// cmux connect to a host it picks without the person's answer.
+    case ssh(SSHLinkTarget)
     /// Any other file: the shared file opener (`file.open`), which shows
     /// Markdown in the Markdown page, text and code in the code editor page,
     /// and images, PDFs and media in a browser tab.
@@ -129,18 +133,34 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     /// and `--` ends ssh's options, so a crafted link cannot pass an option
     /// (`-oProxyCommand=...`) to ssh.
     func ssh(_ url: URL) -> ExternalOpenRoute {
+        // Only `[user@]host[:port]`: no password, path, query or fragment, nothing a page could
+        // hope cmux passes on, and every character as written ASCII (Foundation maps some
+        // letters, the Kelvin sign, to ASCII ones before `host` is read).
+        let text = url.absoluteString
+        guard text.unicodeScalars.allSatisfy(\.isASCII), url.password(percentEncoded: true) == nil,
+              url.query(percentEncoded: true) == nil, url.fragment(percentEncoded: true) == nil,
+              ["", "/"].contains(url.path(percentEncoded: true)), Self.portIsWellFormed(url) else { return .unsupported }
         guard let host = url.host(percentEncoded: false), Self.isHostName(host) else { return .unsupported }
-        var target = host.contains(":") ? "[\(host)]" : host
-        if let user = url.user(percentEncoded: false) {
-            guard Self.isLogin(user) else { return .unsupported }
-            target = "\(user)@\(target)"
+        var user: String?
+        if let login = url.user(percentEncoded: false) {
+            guard Self.isLogin(login) else { return .unsupported }
+            user = login
         }
-        var command = "ssh"
         if let port = url.port {
             guard (1...65535).contains(port) else { return .unsupported }
-            command += " -p \(port)"
         }
-        return .terminal(cwd: nil, command: "\(command) -- \(ShellQuote.quote(target))")
+        return .ssh(SSHLinkTarget(user: user, host: host, port: url.port))
+    }
+
+    /// A `:` after the host names a port URL could read (`host:` or `host:abc` is refused, never
+    /// read as no port).
+    static func portIsWellFormed(_ url: URL) -> Bool {
+        guard url.port == nil, let rest = url.absoluteString.split(separator: "/", maxSplits: 3, omittingEmptySubsequences: false).dropFirst(2).first
+        else { return true }
+        var authority = Substring(rest)
+        if let at = authority.lastIndex(of: "@") { authority = authority[authority.index(after: at)...] }
+        if authority.hasPrefix("["), let close = authority.firstIndex(of: "]") { authority = authority[authority.index(after: close)...] }
+        return !authority.contains(":")
     }
 
     /// `x-man-page://ls`, `x-man-page://1/ls`, `x-man-page:///ls`.
@@ -154,19 +174,68 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         return .terminal(cwd: nil, command: "man \(ShellQuote.quote(topic))")
     }
 
+    /// ASCII only: a look-alike letter (Cyrillic `а`, the Kelvin sign) would name another host
+    /// than the one the confirmation seems to show.
     static func isHostName(_ host: String) -> Bool {
         !host.isEmpty && !host.hasPrefix("-") && host.count <= 253
-            && host.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || ".-_:%".unicodeScalars.contains($0) }
+            && host.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".-_:%".unicodeScalars.contains($0)) }
     }
 
     static func isLogin(_ user: String) -> Bool {
         !user.isEmpty && !user.hasPrefix("-") && user.count <= 64
-            && user.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0) }
+            && user.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
     }
 
     static func isManToken(_ token: String) -> Bool {
         !token.hasPrefix("-") && token.count <= 128
             && token.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._+:-".unicodeScalars.contains($0) }
+    }
+}
+
+/// Where an `ssh://[user@]host[:port]` link connects, as parsed: the host
+/// and user are restricted to the characters a host name or login can hold
+/// (``ExternalOpenRouter``), and `--` ends ssh's options, so a crafted link
+/// cannot pass an option (`-oProxyCommand=...`), an identity file or a
+/// command to ssh.
+public nonisolated struct SSHLinkTarget: Equatable, Sendable {
+    public let user: String?
+    /// The host as the link names it, percent-decoded, without IPv6 brackets.
+    public let host: String
+    public let port: Int?
+
+    public init(user: String?, host: String, port: Int?) {
+        self.user = user
+        self.host = host
+        self.port = port
+    }
+
+    /// `user@host:port` as parsed (an IPv6 host in brackets), what the confirmation names.
+    public var display: String {
+        let bracketed = host.contains(":") ? "[\(host)]" : host
+        return (user.map { "\($0)@" } ?? "") + bracketed + (port.map { ":\($0)" } ?? "")
+    }
+
+    /// The host as trust is keyed (``trustKey(_:)``).
+    public var trustKey: String { Self.trustKey(host) }
+
+    /// `host` without IPv6 brackets, lowercased: OpenSSH lowercases the host before it reads
+    /// its config, and DNS names compare without case. Nothing else is folded: `example.com.`
+    /// or another spelling of an address is another string to ssh's `Host` patterns, so it asks.
+    /// An IPv6 zone (`fe80::1%en0`) keeps its spelling: it names an interface, not a DNS label.
+    public static func trustKey(_ host: String) -> String {
+        var key = host.trimmingCharacters(in: .whitespaces)
+        if key.hasPrefix("["), key.hasSuffix("]") { key = String(key.dropFirst().dropLast()) }
+        let zone = key.firstIndex(of: "%").map { String(key[$0...]) } ?? ""
+        let address = String(key.dropLast(zone.count))
+        // ASCII letters only: Unicode lowercasing folds the Kelvin sign into `k`.
+        return String(decoding: address.utf8.map { (65...90).contains($0) ? $0 + 32 : $0 }, as: UTF8.self) + zone
+    }
+
+    /// The command typed into the new terminal, as Terminal runs the link.
+    public var command: String {
+        let bracketed = host.contains(":") ? "[\(host)]" : host
+        let target = user.map { "\($0)@\(bracketed)" } ?? bracketed
+        return "ssh" + (port.map { " -p \($0)" } ?? "") + " -- \(ShellQuote.quote(target))"
     }
 }
 

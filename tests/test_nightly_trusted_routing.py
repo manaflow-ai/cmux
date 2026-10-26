@@ -125,13 +125,11 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
-    def test_warm_next_pushes_share_one_slot_and_every_other_route_has_its_own(self):
-        # Per-run slots (de5912c9fe41) queued every push FIFO on the one warm runner;
-        # waits past the rescue's 930 s limit moved builds to Blacksmith (2026-10-19:
-        # 39318999424, 39320477722, 39329116254). Attempt 1 of a warm-routed nightly-next
-        # push now shares one slot (one runs, the newest waits). Every route that can
-        # land on Blacksmith keeps a slot per run, so a stuck hosted holder (#21917)
-        # never blocks the warm slot.
+    def test_every_nightly_build_has_its_own_slot(self):
+        # A shared warm slot (nightly-next-build-app-warm) replaced waiting builds, which
+        # the nightly rule forbids, and its holder stuck on a dead label (2026-10-26)
+        # held every newer promotion. The warm route is a pool now, so every route,
+        # warm or Blacksmith, keeps a slot per run.
         job = DOC['jobs']['build-nightly-app']
         def group(**changes):
             context = {
@@ -144,9 +142,8 @@ class NightlyTrustedRouting(unittest.TestCase):
             return re.sub(r'\$\{\{(.*?)\}\}',
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
-        self.assertEqual(group(), 'nightly-next-build-app-warm')
-        self.assertEqual(group(**{'github.run_id': '2'}), group())
-        # The shared slot exists exactly when runs-on picks the warm runner.
+        self.assertEqual(group(), 'nightly-build-app-1')
+        self.assertNotEqual(group(**{'github.run_id': '2'}), group())
         self.assertIn('glaeda-side-std-xcode-26.6', select())
         self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')

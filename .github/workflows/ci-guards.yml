@@ -735,6 +735,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
 
+      - name: Validate that no workflow polls the API with GITHUB_TOKEN
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_token_polling.py
+
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -888,6 +892,14 @@ jobs:
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+
+      - name: Validate the CI quota hold gate stays on optional workflows only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_hold_gate.py
+
+      - name: Validate the PR size advisory and its exclusion allowlist
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_size_advisory.py
 
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1244,9 +1256,25 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
+      - name: Validate the feat-cmux-next channel pointer only moves forward
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_point_channel.py
+
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate nightly builds and signers never cancel or replace a waiting run
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_delivery_concurrency.py
+
+      - name: Validate nightly publish-path gh calls wait through a rate limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_budget_wait.py
+
+      - name: Validate publish gh calls go out as the release App first, github.token as fallback
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_app_token.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1390,6 +1418,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next R2 publisher
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_nightly_next_r2.py
+
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
@@ -1464,6 +1496,10 @@ jobs:
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_unsigned_resume.py
+
+      - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_runner.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
