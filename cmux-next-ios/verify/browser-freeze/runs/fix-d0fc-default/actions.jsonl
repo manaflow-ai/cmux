@@ -1,0 +1,59 @@
+{"t": 1792813114.99, "utc": "03:38:34", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 68.8, "key": "new-44d03d19-t1", "mac_ws": "ws_7d0d28ff2abe757ffc2d672328d9b8b5"}
+{"t": 1792813119.0, "utc": "03:38:39", "tab": "A", "act": "back", "rtt": 1.72}
+{"t": 1792813204.47, "utc": "03:40:04", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 56.31}
+{"t": 1792813218.53, "utc": "03:40:18", "tab": "A", "act": "long-scroll", "rtt": 0.26, "swipes": 15, "seconds": 12.9, "reconnecting": []}
+{"t": 1792813219.94, "utc": "03:40:19", "tab": "A", "act": "scroll-down", "rtt": 1.2}
+{"t": 1792813220.84, "utc": "03:40:20", "tab": "A", "act": "forward", "skipped": "no button"}
+{"t": 1792813232.07, "utc": "03:40:32", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792813244.18, "utc": "03:40:44", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792813249.31, "utc": "03:40:49", "tab": "A", "act": "scroll-up", "rtt": 1.73}
+{"t": 1792813261.27, "utc": "03:41:01", "tab": "A", "act": "tap", "rtt": null, "at": [146, 374]}
+{"t": 1792813346.32, "utc": "03:42:26", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz002", "type_s": 55.7}
+{"t": 1792813391.68, "utc": "03:43:11", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "load_s": 42.2, "key": "new-c204dde7-t1", "mac_ws": "ws_14f0d8814144cafad04adb38a7b6b690"}
+{"t": 1792813392.93, "utc": "03:43:12", "tab": "B", "act": "scroll-up", "rtt": 1.02}
+{"t": 1792813452.99, "utc": "03:44:12", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 31.83}
+{"t": 1792813462.92, "utc": "03:44:22", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}
+{"t": 1792813512.22, "utc": "03:45:12", "tab": "B", "act": "switch", "name": "B", "s": 4.3, "page": true}
+{"t": 1792813513.42, "utc": "03:45:13", "tab": "B", "act": "forward", "rtt": 0.8}
+{"t": 1792813516.77, "utc": "03:45:16", "tab": "B", "act": "scroll-up", "rtt": 1.12}
+{"t": 1792813519.07, "utc": "03:45:19", "tab": "B", "act": "scroll-up", "rtt": 1.02}
+{"t": 1792813522.09, "utc": "03:45:22", "tab": "B", "act": "scroll-down", "rtt": 1.85}
+{"t": 1792813534.36, "utc": "03:45:34", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792813536.99, "utc": "03:45:36", "tab": "B", "act": "scroll-down", "rtt": 1.29}
+{"t": 1792813549.13, "utc": "03:45:49", "tab": "B", "act": "tap", "rtt": null, "at": [74, 481]}
+{"t": 1792813554.07, "utc": "03:45:54", "tab": "B", "act": "search", "error": "no address bar or pill"}
+{"t": 1792813566.06, "utc": "03:46:06", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792813578.68, "utc": "03:46:18", "tab": "B", "act": "forward", "rtt": null}
+{"t": 1792813582.75, "utc": "03:46:22", "tab": "B", "act": "scroll-up", "rtt": 2.25}
+{"t": 1792813586.2, "utc": "03:46:26", "tab": "B", "act": "forward", "rtt": 1.46}
+{"t": 1792813589.04, "utc": "03:46:29", "tab": "B", "act": "scroll-down", "rtt": 1.73}
+{"t": 1792813592.0, "utc": "03:46:32", "tab": "B", "act": "scroll-down", "rtt": 1.16}
+{"t": 1792813626.96, "utc": "03:47:06", "tab": "B", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}
+{"t": 1792813665.73, "utc": "03:47:45", "tab": "B", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792813676.1, "utc": "03:47:56", "tab": "B", "act": "tap", "rtt": null, "at": [161, 614]}
+{"t": 1792813685.8, "utc": "03:48:05", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792813697.27, "utc": "03:48:17", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792813706.77, "utc": "03:48:26", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792813716.02, "utc": "03:48:36", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792813751.56, "utc": "03:49:11", "tab": "C", "act": "open", "name": "C", "url": "https://duckduckgo.com", "error": "could not get back to the Workspaces list"}
+{"t": 1792813762.23, "utc": "03:49:22", "tab": "C", "act": "back", "rtt": null}
+{"t": 1792813775.28, "utc": "03:49:35", "tab": "C", "act": "back", "rtt": null}
+{"t": 1792813786.72, "utc": "03:49:46", "tab": "C", "act": "tap", "rtt": null, "at": [187, 538]}
+{"t": 1792813798.96, "utc": "03:49:58", "tab": "C", "act": "tap", "rtt": null, "at": [166, 292]}
+{"t": 1792813808.8, "utc": "03:50:08", "tab": "C", "act": "scroll-down", "rtt": null}
+{"t": 1792813809.53, "utc": "03:50:09", "tab": "C", "act": "background", "seconds": 20.0}
+{"t": 1792813840.97, "utc": "03:50:40", "tab": "C", "act": "scroll-down", "rtt": null}
+{"t": 1792813847.15, "utc": "03:50:47", "tab": "C", "act": "scroll-up", "rtt": 3.92}
+{"t": 1792813851.62, "utc": "03:50:51", "tab": "C", "act": "scroll-up", "rtt": 2.31}
+{"t": 1792813857.71, "utc": "03:50:57", "tab": "C", "act": "scroll-down", "rtt": 4.53}
+{"t": 1792813864.4, "utc": "03:51:04", "tab": "C", "act": "search", "error": "no address bar or pill"}
+{"t": 1792813865.23, "utc": "03:51:05", "tab": "C", "act": "still-idle", "seconds": 125}
+{"t": 1792813991.31, "utc": "03:53:11", "tab": "C", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792813995.23, "utc": "03:53:15", "tab": "C", "act": "scroll-down", "rtt": 3.14}
+{"t": 1792814040.98, "utc": "03:54:00", "tab": "C", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}
+{"t": 1792814093.59, "utc": "03:54:53", "tab": "C", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792814102.57, "utc": "03:55:02", "tab": "C", "act": "scroll-down", "rtt": null}
+{"t": 1792814114.67, "utc": "03:55:14", "tab": "C", "act": "scroll-down", "rtt": null}
+{"t": 1792814118.87, "utc": "03:55:18", "tab": "C", "act": "forward", "skipped": "no button"}
+{"t": 1792814131.13, "utc": "03:55:31", "tab": "C", "act": "tap", "rtt": null, "at": [218, 377]}
+{"t": 1792814179.4, "utc": "03:56:19", "tab": "C", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}

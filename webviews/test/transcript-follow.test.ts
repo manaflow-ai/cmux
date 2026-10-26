@@ -136,4 +136,99 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     expect(await belowView(page)).toBeLessThanOrEqual(2);
     await page.close();
   });
+
+  test("a touch tap keeps a short streaming reply's reserved queue room", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 560 }, hasTouch: true });
+    await installPaintedFrames(page);
+    if (process.env.CMUX_TOUCH_CAPTURE?.includes("dark")) await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showRows" in window);
+    await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(true));
+    const history = Array.from({ length: 18 }, (_, index) => [
+      row(`room-user-${index}`, "user", `Prompt ${index}`),
+      row(`room-answer-${index}`, "assistant", paragraph(index)),
+    ]).flat();
+    await show(page, [...history, row("room-stream", "assistant", "Short streaming reply", { streaming: true })]);
+    await frames(page, 4);
+    await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(false));
+    await frames(page, 2);
+    const bottom = () =>
+      page.locator('[data-row-id="room-stream"]').evaluate((node) => node.getBoundingClientRect().bottom);
+    const before = await bottom();
+    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.touchscreen.tap(box.x + 12, box.y + 120);
+    await frames(page, 3);
+    const moved = (await bottom()) - before;
+    if (process.env.CMUX_TOUCH_CAPTURE) {
+      console.log(`TOUCH_CAPTURE_${process.env.CMUX_TOUCH_CAPTURE}=${(await page.screenshot()).toString("base64")}`);
+    }
+    console.log(`touch tap reserved-room movement: ${moved}px`);
+    expect(Math.abs(moved)).toBeLessThanOrEqual(1);
+    await page.close();
+  });
+
+  test("a small upward wheel before a stream snapshot releases bottom follow", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showRows" in window);
+
+    const history = Array.from({ length: 18 }, (_, index) => [
+      row(`history-user-${index}`, "user", `Prompt ${index}`),
+      row(`history-answer-${index}`, "assistant", paragraph(index)),
+    ]).flat();
+    let text = paragraph(18);
+    const current = [...history, row("stream", "assistant", text, { version: 1, streaming: true })];
+    await show(page, current);
+    await frames(page, 3);
+    expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)).toBeGreaterThan(
+      0,
+    );
+
+    // A viewer at the bottom follows the same stream update.
+    text += `\n\n${paragraph(19)}`;
+    await show(page, [...history, row("stream", "assistant", text, { version: 2, streaming: true })]);
+    await frames(page, 2);
+    expect(await belowView(page)).toBeLessThanOrEqual(2);
+
+    // The capture listener updates rows before the browser delivers the scroll event. A two-pixel
+    // wheel is below the stray-scroll deadband, but it is still an intentional move up and must
+    // release following before the streamed layout pass can pin the view back to the bottom.
+    const beforeHeight = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
+    text += `\n\n${paragraph(20)}\n\n${paragraph(21)}`;
+    const next = [...history, row("stream", "assistant", text, { version: 3, streaming: true })];
+    await page.evaluate((rows) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.addEventListener(
+        "wheel",
+        () => {
+          (window as unknown as { __showRowsSync(rows: unknown): void }).__showRowsSync(rows);
+        },
+        { capture: true, once: true },
+      );
+    }, next);
+    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 120);
+    await page.mouse.wheel(0, -2);
+    await frames(page, 3);
+    await page.waitForFunction((height) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      return node !== null && node.scrollHeight >= height + 20;
+    }, beforeHeight);
+    const metrics = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      return {
+        currentHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+        scrollTop: node.scrollTop,
+        fromEnd: node.scrollHeight - node.clientHeight - node.scrollTop,
+        follow: (window as unknown as { __followSnapshot(): { following: boolean } }).__followSnapshot().following,
+      };
+    });
+    console.log(`stream follow metrics: ${JSON.stringify({ beforeHeight, ...metrics })}`);
+    expect(metrics.fromEnd).toBeGreaterThan(20);
+    await page.close();
+  });
 });

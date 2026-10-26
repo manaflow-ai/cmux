@@ -534,3 +534,206 @@ fn chief_usage_finds_the_tool_beside_the_cli_then_on_path() {
     assert_eq!(find_tool(&named, None), Some("/x/optchat-chief".into()));
     assert_eq!(find_tool(&none, Some(dir.path())), None);
 }
+
+// ---- Scriptable verbs and Home features (plans/cmux-next/chief-tui.md) ----
+
+#[test]
+fn message_refs_take_seq_hash_seq_and_ids_with_a_part() {
+    use super::script::{MessageRef, parse_ref};
+    assert_eq!(parse_ref("#12").unwrap(), (MessageRef::Seq(12), None));
+    assert_eq!(parse_ref("12").unwrap(), (MessageRef::Seq(12), None));
+    assert_eq!(parse_ref("#12:1").unwrap(), (MessageRef::Seq(12), Some(1)));
+    assert_eq!(parse_ref("msg_01ABC").unwrap(), (MessageRef::Id("msg_01ABC".into()), None));
+    assert_eq!(parse_ref("msg_01ABC:2").unwrap(), (MessageRef::Id("msg_01ABC".into()), Some(2)));
+    for bad in ["#0", "#x", "", "msg_", "conv_1"] {
+        assert!(parse_ref(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn reactions_are_tapbacks_by_name_and_emoji_otherwise() {
+    use super::script::reaction_kind;
+    assert_eq!(reaction_kind("like").unwrap(), json!({"tapback": "like"}));
+    assert_eq!(reaction_kind("question").unwrap(), json!({"tapback": "question"}));
+    assert_eq!(reaction_kind("🎉").unwrap(), json!({"emoji": "🎉"}));
+    assert!(reaction_kind(" ").is_err());
+}
+
+#[test]
+fn script_verbs_parse_their_flags_and_the_chat_target() {
+    use super::script::{Author, parse};
+    let request = parse(&strings(&[
+        "send",
+        "hello",
+        "there",
+        "--reply-to",
+        "#3",
+        "--attach",
+        "a.png",
+        "--attach=b.txt",
+        "--wait",
+        "--timeout",
+        "0",
+        "--chat",
+        "conv_X",
+        "--json",
+    ]))
+    .unwrap();
+    assert_eq!(request.word, "send");
+    assert_eq!(request.words, vec!["hello", "there"]);
+    assert_eq!(request.reply_to.as_deref(), Some("#3"));
+    assert_eq!(request.attach.len(), 2);
+    assert!(request.wait && request.json);
+    assert_eq!(request.timeout_secs, None, "--timeout 0 waits without a limit");
+    assert_eq!(request.target.chat.as_deref(), Some("conv_X"));
+    let waiting =
+        parse(&strings(&["wait", "--after", "7", "--from", "me", "--text", "ok"])).unwrap();
+    assert_eq!(
+        (waiting.after, waiting.from, waiting.contains.as_deref()),
+        (Some(7), Author::Me, Some("ok"))
+    );
+    assert_eq!(
+        parse(&strings(&["wait", "--from", "agent_x"])).unwrap().from,
+        Author::Id("agent_x".into())
+    );
+    assert!(parse(&strings(&["read", "--last", "many"])).is_err());
+    assert!(parse(&strings(&["read", "--bogus"])).is_err());
+    // --cloud-api implies --cloud; tailnet auth needs no token.
+    let cloud = parse(&strings(&[
+        "chats",
+        "--cloud-api",
+        "http://100.64.0.9:8080",
+        "--cloud-auth",
+        "tailscale",
+    ]))
+    .unwrap();
+    let target = cloud.target.resolve().unwrap();
+    assert!(target.cloud);
+    assert_eq!(target.lease.unwrap().access_token, None);
+    assert!(parse(&strings(&["chats", "--cloud-auth", "magic"])).is_err());
+    // The chat takes the same target flags.
+    assert_eq!(
+        parse_args(&strings(&["--chat", "conv_Y"])).unwrap().target.chat.as_deref(),
+        Some("conv_Y")
+    );
+}
+
+#[test]
+fn cloud_events_become_conversation_events_items() {
+    use super::backend::cloud_item;
+    let message = message(4, "agent_01CHIEF", "hi", "k4");
+    let changed = json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 5,
+        "seq": 9, "transaction": "tx", "change": {"kind": "message", "message": message}});
+    let item = cloud_item(&changed, CONV).unwrap();
+    assert_eq!(adapt(&item, CONV), Some(UiEvent::Message(message.clone())));
+    let updated = json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 6,
+        "change": {"kind": "message-updated", "message": message}});
+    assert_eq!(
+        adapt(&cloud_item(&updated, CONV).unwrap(), CONV),
+        Some(UiEvent::Updated(message.clone()))
+    );
+    let cursor = json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 7,
+        "change": {"kind": "read-cursor", "participant": "agent_01CHIEF", "seq": 4}});
+    assert_eq!(
+        adapt(&cloud_item(&cursor, CONV).unwrap(), CONV),
+        Some(UiEvent::Cursor { participant: "agent_01CHIEF".into(), seq: 4 })
+    );
+    let typing = json!({"event": "cloud-conversation-typing", "conversation": CONV,
+        "participant": "agent_01CHIEF", "on": true});
+    assert_eq!(
+        adapt(&cloud_item(&typing, CONV).unwrap(), CONV),
+        Some(UiEvent::Typing { participant: "agent_01CHIEF".into(), on: true })
+    );
+    let resynced = json!({"event": "cloud-conversation-resynced", "conversation": CONV,
+        "summary": {"id": CONV, "title": "Chief"}, "messages": [message]});
+    assert!(matches!(
+        adapt(&cloud_item(&resynced, CONV).unwrap(), CONV),
+        Some(UiEvent::Snapshot { .. })
+    ));
+    // Another conversation's events and other events are not this chat's.
+    assert_eq!(cloud_item(&changed, "conv_other"), None);
+    assert_eq!(
+        cloud_item(&json!({"event": "cloud-inbox-reset", "conversation": CONV}), CONV),
+        None
+    );
+}
+
+#[test]
+fn a_chats_chief_is_agent_mux_else_its_agent_participant() {
+    use super::backend::chief_of;
+    let person = json!({"id": "user_local", "kind": "human", "display_name": "Me"});
+    let mux = json!({"id": "agent_mux", "kind": "agent", "display_name": "mux"});
+    let other = json!({"id": "agent_01OTHER", "kind": "agent", "display_name": "Ops"});
+    assert_eq!(chief_of(&json!({"participants": [person, other, mux]})), "agent_mux");
+    assert_eq!(chief_of(&json!({"participants": [person, other]})), "agent_01OTHER");
+    assert_eq!(chief_of(&json!({"participants": [person]})), "agent_mux");
+    assert_eq!(chief_of(&json!({"inbox": {"dm_peer": "agent_01CLOUD"}})), "agent_01CLOUD");
+}
+
+#[test]
+fn wait_matches_the_author_seq_and_text() {
+    use super::script::{Author, wait_matches};
+    let reply = message(5, "agent_01OTHER", "done: 3 files", "k5");
+    let mine = message(6, "user_local", "thanks", "k6");
+    assert!(wait_matches(&reply, 4, &Author::Chief, "agent_01OTHER", None));
+    assert!(!wait_matches(&reply, 5, &Author::Chief, "agent_01OTHER", None), "seq must be after");
+    assert!(!wait_matches(&reply, 4, &Author::Chief, "agent_mux", None), "another Chief");
+    assert!(wait_matches(&reply, 4, &Author::Anyone, "agent_mux", Some("3 files")));
+    assert!(!wait_matches(&reply, 4, &Author::Anyone, "agent_mux", Some("4 files")));
+    assert!(wait_matches(&mine, 4, &Author::Me, "agent_mux", None));
+    assert!(!wait_matches(&mine, 4, &Author::Anyone, "agent_mux", None));
+    assert!(wait_matches(&mine, 4, &Author::Id("user_local".into()), "agent_mux", None));
+}
+
+#[test]
+fn the_chat_shows_seq_replies_and_reactions() {
+    let mut chat = Chat { width: 60, ..Chat::default() };
+    let first = message(3, "agent_mux", "the plan", "k3");
+    let lines: Vec<String> = chat.message(&first).into_iter().map(|(_, l)| l).collect();
+    assert!(lines[1].ends_with("#3"), "{lines:?}");
+    let mut reply = message(4, "user_local", "ok", "k4");
+    reply["reply_to"] = json!({"message_id": "msg_3", "part_index": 0});
+    reply["reactions"] = json!([
+        {"author": "agent_mux", "part_index": 0, "kind": {"tapback": "like"}, "at": "x"},
+        {"author": "user_2", "part_index": 0, "kind": {"tapback": "like"}, "at": "x"},
+        {"author": "user_2", "part_index": 0, "kind": {"emoji": "🎉"}, "at": "x"}]);
+    let lines: Vec<String> = chat.message(&reply).into_iter().map(|(_, l)| l).collect();
+    assert!(lines.iter().any(|l| l.trim() == "↳ #3"), "{lines:?}");
+    assert_eq!(lines.last().unwrap().trim(), "👍 2 · 🎉 1");
+    // A reaction to a message shown earlier is a note line (scrollback is not redrawn).
+    let mut reacted = first.clone();
+    reacted["reactions"] =
+        json!([{"author": "user_local", "part_index": 0, "kind": {"tapback": "love"}, "at": "x"}]);
+    let (lines, gap) = chat.apply(&UiEvent::Updated(reacted));
+    assert_eq!(gap, None);
+    assert!(lines[0].1.contains("#3 ♥ 1"), "{lines:?}");
+}
+
+#[test]
+fn turn_watch_follows_the_chats_own_chief() {
+    let other = "agent_01OTHER";
+    let mut watch = TurnWatch::new(1).of_chief(other);
+    // agent_mux typing in a group chat is not this chat's Chief.
+    watch.on(&UiEvent::Cursor { participant: "agent_mux".into(), seq: 1 });
+    assert!(!watch.read);
+    watch.on(&UiEvent::Cursor { participant: other.into(), seq: 1 });
+    watch.on(&UiEvent::Typing { participant: other.into(), on: true });
+    watch.on(&UiEvent::Message(message(2, other, "hi", "k2")));
+    watch.on(&UiEvent::Typing { participant: other.into(), on: false });
+    assert!(watch.done);
+    assert_eq!(watch.replies.len(), 1);
+}
+
+#[test]
+fn chat_rows_name_the_chief_and_unread() {
+    use super::script::{chat_row, chat_row_text};
+    let summary = json!({"id": CONV, "title": "Chief", "last_seq": 9,
+        "read_cursors": {"user_local": 6},
+        "participants": [{"id": "agent_mux", "kind": "agent", "display_name": "mux"}]});
+    let row = chat_row(&summary, true);
+    assert_eq!(row["unread"], 3);
+    assert_eq!(row["chief"], "agent_mux");
+    let line = chat_row_text(1, &row);
+    assert!(line.starts_with("*  1  "), "{line}");
+    assert!(line.contains("#9  unread 3"), "{line}");
+}

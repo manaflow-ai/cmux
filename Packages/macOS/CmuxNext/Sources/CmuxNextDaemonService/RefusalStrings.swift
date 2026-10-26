@@ -87,12 +87,12 @@ public nonisolated enum RefusalStrings {
     static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
-    /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
+    /// `DaemonCapability.required` and `optional` (check-daemon-capabilities.sh),
     /// so a running daemon without one is an older build: restarting cmux
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.shared.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapability.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {
@@ -197,6 +197,8 @@ public nonisolated enum RefusalStrings {
     public static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     public static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
+    /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
+    public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
