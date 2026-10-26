@@ -142,6 +142,23 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1)
     }
 
+    @Test("A fire that runs more than one entry counts as one coalesced fire; a fire of one entry does not")
+    func coalescedFiresCountWakesThatRanSeveralEntries() {
+        let rig = WakeUpQueueRig()
+        for at: UInt64 in [100, 101, 102] {
+            rig.queue.insert(owner: "a\(at)", at: at * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        }
+        rig.fire()
+        #expect(rig.queue.count == 0)
+        #expect(rig.queue.coalescedFires == 1, "three entries shared one wake")
+        rig.queue.insert(owner: "alone", at: 500 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        rig.fire()
+        #expect(rig.fires == 2)
+        #expect(rig.queue.coalescedFires == 1, "a wake that runs one entry saved nothing")
+        #expect(rig.ledger.snapshot().allSatisfy { $0.owner != MainWakeUpQueue.ledgerOwner || $0.reason == "fire" },
+                "coalescing is not a wake, so it adds no ledger record")
+    }
+
     @Test("A new top with a later fire date re-arms later, so the wake runs both entries")
     func newLaterTopRearms() {
         let rig = WakeUpQueueRig()
