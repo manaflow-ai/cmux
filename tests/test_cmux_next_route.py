@@ -220,6 +220,34 @@ class GraphGenerator(unittest.TestCase):
                 self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
+class MacReleaseInputs(unittest.TestCase):
+    """mac_release: what the Linux Release check (-Onone, no Xcode project) cannot see."""
+
+    def test_package_swift_edits_and_additions_stay_on_linux(self):
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], set()))["mac_release"], "false")
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], set(), [source]))["mac_release"], "false")
+
+    def test_xcode_only_inputs_and_app_target_membership_need_the_mac(self):
+        for changed, added in (
+            (["cmux.xcodeproj/project.pbxproj"], []),
+            (["App/Info.plist"], []),
+            (["App/cmux.entitlements"], []),
+            (["App/Assets.xcassets/Contents.json"], []),
+            (["Config/Release.xcconfig"], []),
+            ([f"{PACKAGE}/Package.resolved"], []),
+            (["scripts/cmux-next/embed-cef.sh"], []),
+            (["App/Gone.swift"], ["App/Gone.swift"]),
+        ):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), added))["mac_release"], "true")
+
+    def test_every_tier_includes_it(self):
+        self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
+
+
 class PullRequestTiers(unittest.TestCase):
     def test_changed_swift_suite_is_prioritized(self):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])

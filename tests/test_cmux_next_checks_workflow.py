@@ -2096,10 +2096,10 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]
 
     def context(self, changed: list[str], *, event: str = "pull_request", labels: tuple[str, ...] = (),
-                head_repo: str = "manaflow-ai/cmux") -> dict:
+                head_repo: str = "manaflow-ai/cmux", added_removed: tuple[str, ...] = ()) -> dict:
         from cmux_next_route import outputs, route
 
-        routed = outputs(route(ROOT, event, changed, set(labels)))
+        routed = outputs(route(ROOT, event, changed, set(labels), list(added_removed)))
         context = {f"needs.path_route.outputs.{key}": value for key, value in routed.items()}
         context.update({
             "github.event_name": event,
@@ -2158,6 +2158,44 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # Never the reserved promotion runner on a PR, with macos-placement skipped.
         self.assertEqual(evaluate(self.job()["runs-on"], labeled), "shared-side-route")
         self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], labeled), "shared-side-route")
+
+    def test_a_same_repository_pr_runs_the_mac_release_compile_only_for_what_linux_cannot_check(self):
+        """The PR's Mac Release compile (no build-fleet verdict) runs only for an Xcode-only input or a
+        Swift file added or removed outside Packages/; the Linux Release check covers the rest, and the
+        base push's Mac Release compile still compiles every merge."""
+        source = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+
+        def unjudged(context: dict) -> dict:
+            context["needs.app-compile-fleet.outputs.verdict"] = ""
+            return context
+
+        plain = unjudged(self.context([source]))
+        self.assertEqual(plain["needs.path_route.outputs.native"], "true")
+        self.assertEqual(plain["needs.path_route.outputs.mac_release"], "false")
+        self.assertFalse(self.runs(plain))
+        # A new package file: SwiftPM takes the directory, and the Linux check builds it.
+        self.assertFalse(self.runs(unjudged(self.context([source], added_removed=(source,)))))
+        for changed, added in (
+            (["cmux.xcodeproj/project.pbxproj"], ()),
+            (["App/Info.plist"], ()),
+            (["App/Assets.xcassets/AppIcon.appiconset/Contents.json"], ()),
+            (["Packages/macOS/CmuxNext/Package.swift"], ()),
+            (["App/NewHost.swift"], ("App/NewHost.swift",)),
+        ):
+            with self.subTest(changed=changed):
+                context = unjudged(self.context(changed, added_removed=added))
+                self.assertEqual(context["needs.path_route.outputs.mac_release"], "true")
+                self.assertTrue(self.runs(context))
+                # A build-fleet verdict still answers for it.
+                context["needs.app-compile-fleet.outputs.verdict"] = "pass"
+                self.assertFalse(self.runs(context))
+        # The base push and a fork keep the Mac Release compile whatever they change.
+        self.assertTrue(self.runs(self.context([source], event="push")))
+        self.assertTrue(self.runs(unjudged(self.context([source], head_repo="someone/cmux"))))
+        # Placement cascades the PR's Release compile only when it can run.
+        cascade = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos-placement"]
+        place = next(step for step in cascade["steps"] if step.get("id") == "place")
+        self.assertIn("needs.path_route.outputs.mac_release == 'true' && 'release-compile'", place["env"]["GATEWAY_CASCADE"])
 
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
