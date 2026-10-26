@@ -10,11 +10,13 @@ public import Foundation
 /// `isolated/`), read on the files lane, never on the main thread, and read again on a miss (a home
 /// made since), at most once per `rescanInterval`. Each home's pane host is made once, by one lookup.
 public actor ChiefHomeDirectory {
-    /// A Chief home's own acpmux as a tab's pane host.
+    /// A Chief home's own acpmux as a tab's pane hosts: one that may start its daemon and one that
+    /// only attaches. Which one a handshake uses is read again each time (``router(for:fallback:)``).
     struct OwnAcpmux: Sendable {
+        let home: ChiefHome
         let environment: AcpmuxEnvironment?
-        let host: any AgentPaneHostProviding
-        let acpmuxHome: URL
+        let starting: any AgentPaneHostProviding
+        let attaching: any AgentPaneHostProviding
     }
 
     private let parents: [URL]
@@ -55,12 +57,15 @@ public actor ChiefHomeDirectory {
     }
 
     /// The router of Chief home `host`'s sessions over `fallback` (this Mac's acpmux), nil when no
-    /// Chief home of this Mac has that id.
+    /// Chief home of this Mac has that id. Whether a brain holds the home is read now, not cached:
+    /// that build may open or quit while this app runs.
     func router(for host: String, fallback: any AgentPaneHostProviding) async -> (any AgentPaneHostProviding)? {
         guard let own = await ownAcpmux(of: host) else { return nil }
+        let home = own.home
+        guard let owned = try? await work.run(.userVisible, mayBlock: .files, { home.hostRuns }) else { return nil }
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
-        return AcpmuxChiefSessionRouter(local: fallback, chief: own.host, chiefEnvironment: own.environment,
-                                        sessionsHome: own.acpmuxHome, parentTag: tag)
+        return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
+                                        sessionsHome: home.acpmuxHome, parentTag: tag)
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {
@@ -82,11 +87,14 @@ public actor ChiefHomeDirectory {
         }
         guard let root = roots[host] else { return nil }
         let home = ChiefHome(root: root, isolated: false), environment = environment
-        // Resolving acpmux looks at its binaries on disk; the host lock is a file lock.
-        guard let read = try? await work.run(.userVisible, mayBlock: .files, {
-            (environment: environment(home), owned: home.hostRuns)
-        }) else { return nil }
-        return OwnAcpmux(environment: read.environment, host: ownHost(read.environment, !read.owned), acpmuxHome: home.acpmuxHome)
+        // Resolving acpmux looks at its binaries on disk.
+        let resolved: AcpmuxEnvironment?
+        do {
+            resolved = try await work.run(.userVisible, mayBlock: .files) { environment(home) }
+        } catch {
+            return nil // cut short: asked again later
+        }
+        return OwnAcpmux(home: home, environment: resolved, starting: ownHost(resolved, true), attaching: ownHost(resolved, false))
     }
 
     /// Every directory under `parents` by its `chief:<home id>`. It reads the disk.

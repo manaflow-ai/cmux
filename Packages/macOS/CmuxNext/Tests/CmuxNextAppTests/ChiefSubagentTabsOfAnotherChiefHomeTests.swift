@@ -98,19 +98,25 @@ import CmuxNextWakeups
     }
 
     /// A Chief home whose brain host runs (another build that is open) owns its acpmux: a tab of
-    /// that home only attaches to it, never starts it (cx-ebm.54).
+    /// that home only attaches to it, never starts it (cx-ebm.54). That is read at each handshake:
+    /// a build that opens after the first lookup, or quits, changes it.
     @Test func aLiveBuildsChiefAcpmuxIsOnlyAttached() async throws {
         let (base, _, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
         let lockPath = old.appendingPathComponent("state/host.lock")
         try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let lock = try #require(ChiefMigration.HostLock(path: lockPath))
-        defer { lock.release() }
         let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, starts in
             NamedHost(name: starts ? "starts" : "attaches")
         }
         let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: NamedHost(name: "app"))
+        // No brain holds the home: its daemon may start for the tab.
+        #expect(await reached(pane, session: kept) == "starts")
+        // That build opens: the tab only attaches now.
+        let lock = try #require(ChiefMigration.HostLock(path: lockPath))
         #expect(await reached(pane, session: kept) == "attaches")
+        // It quits again.
+        lock.release()
+        #expect(await reached(pane, session: kept) == "starts")
     }
 
     /// A Chief home no longer on this Mac: its chat is looked for in this Mac's acpmux, never
