@@ -10,26 +10,37 @@ section 3, classes 13 and 14): the app stays up and the page that lost its proce
      a sad tab, if one shows, reloads.
   4. WebKit WebContent: SIGKILL the WebContent process of a WebKit tab (page_status page_pid).
      Same as 2.
+  5. Chromium host app (F2, `browserHost.helperPrototype`; cef-helper-app-DESIGN.md): a page whose
+     Chromium browser process runs in `<App> Chromium Host.app` (`debug.chromium_host`). SIGKILL the
+     host: a new host loads the saved page. Then navigate it to chrome://inducebrowsercrashforrealz
+     (Chromium's own browser-process crash, content/browser/renderer_host/debug_urls.cc): the host
+     ends by its crash and, ending again within the restart window, stays ended with no page shown
+     (ChromiumHostRestartPolicy); opening the page again starts a new host with it. Skips with the
+     reason when the build has no host (Release, or a Debug build without CEF).
 
 After each kill the app's process must still run. Every kill names an exact pid: a child of the
 app's process (`--type=renderer`, `--type=gpu-process`) found by its parent pid, or the pid the app
 reports for the page. The app runs already (a capture slot: `capture-host launch`), with its debug
 socket; the script never launches or quits it.
 
-Usage: child-crash-e2e.py --socket <path> [--app-pid PID] [--only renderer,gpu,webkit,agent]
+Usage: child-crash-e2e.py --socket <path> [--app-pid PID] [--only renderer,gpu,webkit,agent,host]
 """
 import argparse, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--app-pid", type=int, help="the app's pid (default: the process listening on --socket)")
-parser.add_argument("--only", default="renderer,gpu,webkit,agent")
+KINDS = ("renderer", "gpu", "webkit", "agent", "host")
+parser.add_argument("--only", default=",".join(KINDS), help="comma-separated kinds: " + ", ".join(KINDS))
 # Accepted for the capture-slot harness, which passes them to every e2e.
 parser.add_argument("--runs", type=int, default=1)
 parser.add_argument("--out", default="/tmp/child-crash-e2e")
 opts = parser.parse_args()
+if set(opts.only.split(",")) - set(KINDS):
+    parser.error(f"unknown --only kinds {sorted(set(opts.only.split(',')) - set(KINDS))}; kinds: {', '.join(KINDS)}")
 
 failures = []
+skips = []
 
 
 def rpc(method, params=None, timeout=40):
@@ -84,6 +95,11 @@ def check(name, ok, detail=""):
     return ok
 
 
+def skip(name, reason):
+    print(f"SKIP {name}: {reason}", flush=True)
+    skips.append(name)
+
+
 def alive(pid):
     try:
         os.kill(pid, 0)
@@ -117,6 +133,11 @@ def app_pid():
         elif line.startswith("n") and line[1:] == opts.socket:
             return pid
     return None
+
+
+def parent_of(child):
+    out = subprocess.run(["ps", "-o", "ppid=", "-p", str(child)], capture_output=True, text=True).stdout.strip()
+    return int(out) if out.isdigit() else None
 
 
 def serve():
@@ -153,6 +174,87 @@ def sad_tab_reloads(name, tab, pid):
     pressed = status(tab, press="reload").get("pressed") == "1"
     back = pressed and wait(lambda: status(tab).get("gone") == "0" and js(tab, "document.getElementById('alive')?.textContent") == "alive", 30, 0.5)
     check(f"{name}: Reload brings the page back", bool(back), f"pressed={pressed}")
+
+
+HOST_TUNABLE = "browserHost.helperPrototype"
+HOST_CRASH_URL = "chrome://inducebrowsercrashforrealz"
+
+
+def host_state():
+    return rpc("debug.chromium_host") or {}
+
+
+def answers():
+    return "error" not in (rpc("debug.crashes", timeout=5) or {"error": "no reply"})
+
+
+def host_shows(title, previous_pid=None, restarts=None):
+    """The host state once a host other than `previous_pid` shows the page titled `title`."""
+    def ready():
+        state = host_state()
+        fresh = state.get("pid") and state.get("pid") != previous_pid
+        counted = restarts is None or state.get("restarts", 0) >= restarts
+        return state if fresh and counted and state.get("shown_context_id") and state.get("title") == title else None
+    return wait(ready, 90, 0.25)
+
+
+def host_kind(pid, url):
+    """Kind 5: the Chromium host app ends (SIGKILL, then Chromium's own crash URL); cmux stays up."""
+    probe = rpc("debug.chromium_host")
+    if not isinstance(probe, dict) or "error" in probe:
+        return skip("host", f"this build has no debug.chromium_host (Debug builds only): {(probe or {}).get('error')}")
+    tunable = rpc("debug.tunables", {"action": "get", "key": HOST_TUNABLE}) or {}
+    if "error" in tunable or "value" not in tunable:
+        return skip("host", f"this build has no {HOST_TUNABLE} tunable: {tunable.get('error')}")
+    was_on = tunable.get("value") is True
+    if not was_on:
+        rpc("debug.tunables", {"action": "set", "key": HOST_TUNABLE, "value": True})
+    try:
+        opened = rpc("debug.chromium_host", {"op": "open", "url": url}) or {}
+        if "this build has no Chromium host app" in str(opened.get("error")):
+            return skip("host", opened["error"])
+        if not check("host: the host app starts", "error" not in opened, opened):
+            return
+        first = host_shows("crash-e2e")
+        if not check("host: the host page loads the page", bool(first), host_state()):
+            return
+        host = int(first["pid"])
+        check("host: the browser process runs in a host app, not in cmux", host != pid and first.get("app_pid") == pid, first)
+        if not check("host: the host is a child of the app", parent_of(host) == pid, parent_of(host)):
+            return
+
+        os.kill(host, signal.SIGKILL)
+        print(f"killed Chromium host {host}", flush=True)
+        check("host: app still runs after the host is killed", alive(pid))
+        restarted = host_shows("crash-e2e", previous_pid=host, restarts=1)
+        check("host: a new host loads the saved page", bool(restarted), host_state())
+        check("host: the app answers after the kill", answers())
+        if not restarted:
+            return
+
+        second = int(restarted["pid"])
+        known_exits = len(restarted.get("exits") or [])
+        rpc("debug.chromium_host", {"op": "open", "url": HOST_CRASH_URL})
+        print(f"navigated host {second} to {HOST_CRASH_URL}", flush=True)
+        # A second end within ChromiumHostRestartPolicy.quickEnd (60 s) keeps the host ended; if the
+        # restarted host ran longer, it restarts once on the crash URL and that end stops it.
+        ended = wait(lambda: (lambda s: s if str(s.get("phase", "")).startswith("ended") else None)(host_state()), 90, 0.25)
+        state = ended or host_state()
+        crashes = (state.get("exits") or [])[known_exits:]
+        check("host: Chromium's crash URL ends the host", bool(ended) and not alive(second), state)
+        check("host: the host ended by its own crash, not a kill", bool(crashes) and crashes[0] != f"signal {int(signal.SIGKILL)}", crashes)
+        check("host: app still runs after the host crashes", alive(pid))
+        check("host: the crashed host stays ended with no page shown", bool(ended) and not state.get("shown_context_id"), state)
+        check("host: the app answers after the crash", answers())
+
+        last = int(state.get("pid") or second)
+        reopened = rpc("debug.chromium_host", {"op": "open", "url": url}) or {}
+        back = "error" not in reopened and host_shows("crash-e2e", previous_pid=last)
+        check("host: opening the page again starts a new host with it", bool(back), back or reopened or host_state())
+    finally:
+        rpc("debug.chromium_host", {"op": "close"})
+        if not was_on:
+            rpc("debug.tunables", {"action": "set", "key": HOST_TUNABLE, "value": None})
 
 
 def main():
@@ -241,10 +343,17 @@ def main():
             fresh = status(tab).get("page_pid")
             check("webkit: the page runs in a new WebContent process", bool(fresh) and fresh != page, fresh)
 
+    # Last: the host page covers the focused pane until it closes.
+    if "host" in only:
+        host_kind(pid, url)
+
     check("app still runs at the end", alive(pid))
     if failures:
         sys.exit(f"FAIL {len(failures)}: {', '.join(failures)}")
-    print("PASS every child process crash is contained")
+    if skips:
+        print(f"PASS every child process crash that ran is contained; skipped: {', '.join(skips)}")
+    else:
+        print("PASS every child process crash is contained")
 
 
 main()
