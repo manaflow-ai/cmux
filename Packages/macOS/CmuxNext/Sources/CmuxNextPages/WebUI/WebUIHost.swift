@@ -70,6 +70,13 @@ public final class WebUIHost {
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
     public let oracleChanges = PageOracleChangeFeed()
+    /// The engine page closes of this host's pages (`debug.webui` `retire`): a close in ``close(_:)``'s turn
+    /// is the Cmd-W cost the retirer removes.
+    public private(set) var engineCloses = WebUICensus.EngineCloses()
+    /// The system uptime each engine close is stamped with (tests pass their own).
+    var engineCloseUptime: @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime }
+    /// ``close(_:)`` runs now (nested closes count each).
+    private var closing = 0
     #endif
 
     /// - Parameters:
@@ -129,36 +136,35 @@ public final class WebUIHost {
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
+        view.censusState.engineClosed = { [weak self] in self?.noteEngineClose() }
         #endif
         return view
     }
 
-    /// Ends `view`: it leaves the view tree, the host's lists and its own crash budget now, and its
-    /// routes, bridge and engine page end at the ``retirer``'s deadline, never in the close's turn
-    /// (Cmd-W makes no engine close call). Safe to call twice and for a view this host did not open
-    /// (it is only ended).
+    /// Ends `view`. Now: it leaves the view tree, the host's lists and its own crash budget, and its
+    /// routes, subscriptions and bridge end, so nothing serves a page no tab shows. At the
+    /// ``retirer``'s deadline: its engine page ends, never in the close's turn (Cmd-W makes no engine
+    /// close call). Safe to call twice and for a view this host did not open (it is only ended).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        closing += 1
+        defer { closing -= 1 }
+        #endif
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
         crashGroups.forget(ObjectIdentifier(view))
-        retirer.retire(view) { view.close() }
+        view.closeRoutes()
+        retirer.retire(view) { view.closeEngine() }
     }
 
-    /// Takes back `view`, closed (``close(_:)``) and not yet ended: it is listed again and that close
-    /// never ends it. Its lifecycle state comes back with its tab's next show or hide.
-    ///
-    /// - Parameter view: The page shown again.
-    /// - Returns: False when `view` was not waiting to end (it is open, or ended already).
-    @discardableResult
-    public func reclaim(_ view: PageWebView) -> Bool {
-        guard retirer.reclaim(view) else { return false }
-        opened.add(view)
-        registry.add(view)
-        return true
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private func noteEngineClose() {
+        engineCloses.record(at: engineCloseUptime(), inCloseTurn: closing > 0)
     }
+    #endif
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
     /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the

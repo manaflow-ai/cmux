@@ -2,8 +2,8 @@ public import AppKit
 public import CmuxNextWakeups
 
 /// Ends closed pages after the close's turn (p13-webui-064): ``retire(_:close:)`` takes the view out of
-/// the view tree at once, the only part a Cmd-W frame pays for, and runs its teardown (the engine page's
-/// close, the bridge, the subscriptions) at one background deadline after the last close.
+/// the view tree at once and runs its teardown (for a page of ``WebUIHost``, the engine page's close) at
+/// one background deadline after the last close, so a Cmd-W frame never pays for it.
 ///
 /// Chrome takes a closing tab out of the strip at once and ends its `WebContents` on later tasks: a tab
 /// with unload work stays alive, detached and hidden, until `UnloadController::ProcessPendingTabs`
@@ -34,8 +34,8 @@ public final class PageRetirer {
     /// The views retired and not yet closed.
     public var count: Int { retiring.count }
 
-    /// Whether `view` is retired and not yet closed (``reclaim(_:)`` can still take it back).
-    public func isRetiring(_ view: NSView) -> Bool {
+    /// Whether `view` is retired and not yet closed.
+    func isRetiring(_ view: NSView) -> Bool {
         retiring.contains { $0.view === view }
     }
 
@@ -51,17 +51,6 @@ public final class PageRetirer {
         retiring.append(Retiring(view: view, close: close))
         // Strong: the pending deadline holds the retirer, so a retired page ends even when its host goes first.
         deadline.schedule(after: Self.delay) { [self] in closeRetired() }
-    }
-
-    /// Takes back `view` before its teardown ran: its close never runs.
-    ///
-    /// - Returns: False when `view` was not retired or is closed already.
-    @discardableResult
-    public func reclaim(_ view: NSView) -> Bool {
-        guard let index = retiring.firstIndex(where: { $0.view === view }) else { return false }
-        retiring.remove(at: index)
-        if retiring.isEmpty { deadline.cancel() }
-        return true
     }
 
     /// Runs the teardown of every retired view now, oldest first (the deadline's action; tests call it).
