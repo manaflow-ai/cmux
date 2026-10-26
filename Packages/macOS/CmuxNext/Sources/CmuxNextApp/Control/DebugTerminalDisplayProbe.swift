@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 import ObjectiveC
@@ -93,4 +94,17 @@ final class DebugTerminalDisplayProbe {
         result["pass_max_ms"] = .number(sorted.last ?? 0)
         return .object(result)
     }
+}
+
+/// `debug.damage` counts Ghostty's display passes in its window through this probe.
+extension DebugTerminalDisplayProbe: DisplayPassSource {
+    var armedPassCount: Int? { armed ? calls.count : nil }
+
+    func armPasses() -> Bool {
+        calls.removeAll(keepingCapacity: true)
+        armed = install()
+        return armed
+    }
+
+    func disarmPasses() { armed = false }
 }
