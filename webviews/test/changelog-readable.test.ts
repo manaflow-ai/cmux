@@ -87,6 +87,8 @@ const RELEASE_USER_FACING = [
   "fix(webviews): wire validator errors and the checkpoint and continuation labels come from the pane's table",
   "feat: add a searchable changelog page",
   "Redesign changelog page with feature highlights",
+  // What's New has its own release headings; a fix to them is news.
+  "fix(next): release headings show the day they belong to",
 ];
 
 test("release and changelog tooling is internal work; the What's New page's changes are not", () => {
