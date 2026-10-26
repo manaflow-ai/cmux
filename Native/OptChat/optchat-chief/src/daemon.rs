@@ -45,10 +45,11 @@ impl std::fmt::Display for OpError {
     }
 }
 
-/// The conversation operations the brain needs, on a connection bound as `agent_mux`.
-/// Most bytes the owner sends in one `conversation-attachment-read`.
+/// Most bytes the owner sends in one `conversation-attachment-read`, and
+/// takes in one `conversation-attachment-upload` chunk.
 pub const ATTACHMENT_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 
+/// The conversation operations the brain needs, on a connection bound as `agent_mux`.
 pub trait ConversationPort: Send {
     fn snapshot(
         &mut self,
@@ -274,13 +275,17 @@ fn upload_steps(
             "upload begin without an upload id".into(),
         ));
     };
-    send(ConversationAttachmentUploadRequest {
-        upload: Optional::Value(upload.clone()),
-        piece: Optional::Value("original".into()),
-        offset: Optional::Value(0),
-        data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(bytes)),
-        ..step("chunk")
-    })?;
+    // The owner takes at most ATTACHMENT_CHUNK_BYTES a chunk (its
+    // MAX_CHUNK_BYTES): a file sent whole over that is refused.
+    for (index, chunk) in bytes.chunks(ATTACHMENT_CHUNK_BYTES as usize).enumerate() {
+        send(ConversationAttachmentUploadRequest {
+            upload: Optional::Value(upload.clone()),
+            piece: Optional::Value("original".into()),
+            offset: Optional::Value(index as u64 * ATTACHMENT_CHUNK_BYTES),
+            data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(chunk)),
+            ..step("chunk")
+        })?;
+    }
     let commit = send(ConversationAttachmentUploadRequest {
         upload: Optional::Value(upload),
         ..step("commit")
