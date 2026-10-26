@@ -34,13 +34,34 @@ function swiftFiles(dir: string): string[] {
   });
 }
 
-// Swift source without comments and string literals, so a doc example names no host.
+// Swift source without comments (nested block comments too) and string literals, so a doc
+// example names no host.
 function swiftCode(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/"""[\s\S]*?"""/g, '""')
-    .replace(/"(?:\\.|[^"\\\n])*"/g, '""')
-    .replace(/\/\/.*$/gm, "");
+  let out = "";
+  let depth = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith("/*", i)) {
+      depth += 1;
+      i += 2;
+    } else if (depth > 0) {
+      if (text.startsWith("*/", i)) depth -= 1;
+      i += text.startsWith("*/", i) ? 2 : 1;
+    } else if (text.startsWith("//", i)) {
+      const end = text.indexOf("\n", i);
+      i = end === -1 ? text.length : end;
+    } else if (text[i] === '"') {
+      const quote = text.startsWith('"""', i) ? '"""' : '"';
+      i += quote.length;
+      while (i < text.length && !text.startsWith(quote, i)) i += text[i] === "\\" ? 2 : 1;
+      i += quote.length;
+      out += '""';
+    } else {
+      out += text[i];
+      i += 1;
+    }
+  }
+  return out;
 }
 
 function transparentOverlayHosts(): string[] {
@@ -49,6 +70,18 @@ function transparentOverlayHosts(): string[] {
     .map((path) => relative(REPO, path))
     .sort();
 }
+
+test("a host named only in a comment or string is no host", () => {
+  const text = [
+    "/* outer /* inner */ requiresWebKit: .transparentOverlay */",
+    'let doc = "requiresWebKit: .transparentOverlay"',
+    '"""\nrequiresWebKit: .transparentOverlay\n"""',
+    "// requiresWebKit: .transparentOverlay",
+    "let host = Host(requiresWebKit: .opaque)",
+  ].join("\n");
+  expect(swiftCode(text)).not.toContain("transparentOverlay");
+  expect(swiftCode("Host(requiresWebKit: .transparentOverlay)")).toContain("transparentOverlay");
+});
 
 test("every page the app floats as a popup is listed with its document", () => {
   expect(transparentOverlayHosts()).toEqual(Object.keys(POPUP_PAGES).sort());
@@ -82,6 +115,9 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
     put("canvas/styles.css", "html { background: transparent; }\nbody { background-color: Canvas; }\n");
     put("inherits/styles.css", "html, body, #root { height: 100%; }\n");
     put("list/styles.css", "html:is([data-surface], [data-ready]) { background: transparent; }\n");
+    put("none/styles.css", "html { background: none; }\n");
+    put("initial/styles.css", "html { background-color: initial; }\n");
+    put("colornone/styles.css", "html { background-color: none; }\n");
     put(
       "scoped/styles.css",
       "html[data-surface] { background: transparent; }\nhtml[data-surface] #root { display: flow-root; }\n",
@@ -98,6 +134,9 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
         "scoped/styles.css",
         "reduce/styles.css",
         "list/styles.css",
+        "none/styles.css",
+        "initial/styles.css",
+        "colornone/styles.css",
       ],
       dir,
     );
@@ -106,6 +145,7 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
       "solid/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
       "canvas/styles.css:2: body { background-color: Canvas }",
       "inherits/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
+      "colornone/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

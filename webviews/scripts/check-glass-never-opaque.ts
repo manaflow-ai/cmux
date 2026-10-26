@@ -341,6 +341,14 @@ function rootTarget(selector: string): "html" | "root" | null {
   return target;
 }
 
+/** A root background value that leaves no fill: `none` (no image, the color's initial transparent)
+ * on the shorthand, and the CSS-wide keywords that reset to it (background is not inherited). */
+function clearsFill(prop: string, value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  if (lower === "initial" || lower === "unset") return true;
+  return prop === "background" && lower === "none";
+}
+
 /**
  * Every popup page document (`files`, paths under src/) whose root paints an opaque fill, or whose
  * html never paints itself transparent, as `file:line: selector { prop: value }` or `file: …`.
@@ -370,7 +378,7 @@ export function findOpaquePopupPageRoots(files: string[], srcDir: string = SRC):
         const kind = classify(d.value);
         if (kind === "opaque" && !d.allowed)
           found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
-        if (target === "html" && kind === "translucent") clearHtml = true;
+        if (target === "html" && (kind === "translucent" || clearsFill(d.prop, d.value))) clearHtml = true;
       }
     }
     if (!clearHtml)

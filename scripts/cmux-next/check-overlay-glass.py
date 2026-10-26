@@ -339,9 +339,9 @@ def type_builds_glass(path: str, name: str) -> bool:
 
 
 def host_type(lines: list[str], blocks: Blocks, index: int, column: int) -> str:
-    """The popup host's type: the popup class the line declares, else the type the call sits in
+    """The popup host's type: the popup class declared at `column`, else the type the call sits in
     ("" outside every type)."""
-    declared = POPUP_CLASS.search(lines[index])
+    declared = POPUP_CLASS.match(lines[index], column)
     if declared:
         return declared.group("name")
     owner = blocks.owner(index, column)
@@ -357,7 +357,7 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
     host is not the host: its glass does not count.
     """
     line = lines[index]
-    declared = POPUP_CLASS.search(line)
+    declared = POPUP_CLASS.match(line, column)
     if declared:
         return glass_in(lines, blocks, blocks.bodies(declared.group("name")))
     owner = blocks.owner(index, column)
@@ -383,7 +383,7 @@ def scan_popup_hosts(root: str) -> list[str]:
             path = os.path.join(directory, name)
             rel = os.path.relpath(path, root).replace(os.sep, "/")
             lines = code_lines(path)
-            hits = [(index, hit.start()) for index, line in enumerate(lines) if (hit := POPUP_HOST.search(line))]
+            hits = [(index, hit.start()) for index, line in enumerate(lines) for hit in POPUP_HOST.finditer(line)]
             if not hits:
                 continue
             blocks = Blocks(lines)

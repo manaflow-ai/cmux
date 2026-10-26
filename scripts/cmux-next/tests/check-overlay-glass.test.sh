@@ -55,6 +55,8 @@ expect_fail menu-panel-sibling-glass popup-host 'final class BadMenuPanel: NSPan
 final class OtherCard: NSView {
     let other = Glass.makeOverlayPanel(content: otherView)
 }'
+# Every host on a line counts: a glassed panel does not cover a popover after it.
+expect_fail two-hosts-one-line popup-host 'final class DemoMenuPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }; let pop = NSPopover()'
 expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
     func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
