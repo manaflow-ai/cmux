@@ -23,6 +23,7 @@ import CmuxNextWakeups
 ///   just made; 0 when it sent nothing (task 018).
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
+@safe
 // crash-allow: every stored property is a let (C function pointers, a dlsym closure over a dlopen handle never closed; dlsym is thread-safe); nothing mutates after make, as in CEFShimLibrary.
 nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias HelloFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<CChar>?) -> Void
@@ -43,26 +44,32 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// checks the in-process shim, and that it exports the wire entry points and every required
     /// `cmux_shim_*` function: a bad dylib fails here, before it takes the host's descriptors.
     static func make(symbol: @escaping (String) -> UnsafeMutableRawPointer?, expected: String?) throws(CEFShimLibrary.LoadError) -> CEFRemoteShim {
+        // SAFETY (this function): `symbol` is dlsym on the remote dylib, whose handle is never closed; each
+        // cast is the export's C type in remote_shim_runtime.h and cmux_cef_shim.h, and no export is called
+        // before the ABI identity below matches (abiID is the one C type every shim generation shares).
         func resolve<T>(_ name: String) throws(CEFShimLibrary.LoadError) -> T {
-            guard let pointer = symbol(name) else { throw .missingSymbol(name) }
-            return unsafeBitCast(pointer, to: T.self)
+            guard let pointer = unsafe symbol(name) else { throw .missingSymbol(name) }
+            return unsafe unsafeBitCast(pointer, to: T.self)
         }
-        let abiID: @convention(c) () -> UnsafePointer<CChar>? = try resolve("cmux_shim_abi_id")
-        try CEFShimLibrary.checkABI(expected: expected, found: abiID().map { String(cString: $0) })
-        _ = try CEFShimLibrary.resolving(symbol, hostExports: [])
-        return CEFRemoteShim(symbol: symbol, attachFn: try resolve("cmux_remote_shim_attach"),
-                             detachFn: try resolve("cmux_remote_shim_detach"), setReplyFn: try resolve("cmux_remote_shim_set_reply"),
-                             lastReplyTokenFn: try resolve("cmux_remote_shim_last_reply_token"))
+        let abiID: @convention(c) () -> UnsafePointer<CChar>? = try unsafe resolve("cmux_shim_abi_id")
+        try CEFShimLibrary.checkABI(expected: expected, found: unsafe abiID().map(String.init(cString:)))
+        _ = try unsafe CEFShimLibrary.resolving(symbol, hostExports: [])
+        return try unsafe CEFRemoteShim(symbol: symbol, attachFn: resolve("cmux_remote_shim_attach"),
+                                        detachFn: resolve("cmux_remote_shim_detach"), setReplyFn: resolve("cmux_remote_shim_set_reply"),
+                                        lastReplyTokenFn: resolve("cmux_remote_shim_last_reply_token"))
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
     static func open(_ attachment: ChromiumHostAttachment) -> Result<CEFRemoteShim, CEFRuntime.BootError> {
-        guard let handle = dlopen(attachment.remoteShim.path, RTLD_NOW | RTLD_LOCAL) else {
-            return .failure(.shim(.open(String(cString: dlerror()))))
+        // SAFETY: dlopen reads the NUL-terminated copy of the path Swift makes for the call.
+        guard let handle = unsafe dlopen(attachment.remoteShim.path, RTLD_NOW | RTLD_LOCAL) else {
+            // SAFETY: after a failed dlopen, dlerror returns its NUL-terminated message; it is copied at once.
+            return .failure(.shim(.open(unsafe String(cString: dlerror()))))
         }
         do {
             // The handle stays open for the life of the process: a shim is never closed.
-            return .success(try make(symbol: { dlsym(handle, $0) }, expected: CEFShimABI.bundledIdentity()))
+            // SAFETY: so every symbol dlsym finds on it stays mapped; `make` checks the dylib's ABI identity.
+            return .success(try unsafe make(symbol: { unsafe dlsym(handle, $0) }, expected: CEFShimABI.bundledIdentity()))
         } catch {
             return .failure(.shim(error))
         }
@@ -72,7 +79,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// its reply sink.
     func detach() {
         detachFn()
-        setReplyFn(nil, nil)
+        // SAFETY: NULL context and callback clear the reply sink; nothing is read through them.
+        unsafe setReplyFn(nil, nil)
     }
 
     /// The REPLY token of the async shim call this turn just made (0: it sent nothing).
@@ -92,11 +100,18 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     func attach(_ attachment: ChromiumHostAttachment, replies: CEFHostReplies, helloDeadline: Duration,
                 clock: any Clock<Duration>) async -> Result<Set<String>, CEFRuntime.BootError> {
         let hello = CEFRemoteHello()
-        let context = Unmanaged.passRetained(hello).toOpaque()
-        setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFRemoteReplySink.callback)
-        guard attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, CEFRemoteHello.callback) == 1 else {
-            setReplyFn(nil, nil)
-            Unmanaged<CEFRemoteHello>.fromOpaque(context).release()
+        // SAFETY: the +1 retain is the hello's context: CEFRemoteHello.callback takes it back once (the shim runs
+        // hello exactly once per accepted attach), or the release below does when the shim refuses the wire.
+        let context = unsafe Unmanaged.passRetained(hello).toOpaque()
+        // SAFETY: `replies` stays alive until detach clears the sink (this function's contract above); the sink
+        // reads it unretained on the main thread only while it is set.
+        unsafe setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFRemoteReplySink.callback)
+        // SAFETY: the context is the +1 hello above; the callback is a C function of `cmux_remote_shim_hello_fn`.
+        guard unsafe attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, CEFRemoteHello.callback) == 1 else {
+            // SAFETY: as in detach().
+            unsafe setReplyFn(nil, nil)
+            // SAFETY: a refused attach calls nothing, so no hello takes the context; this drops the +1 once.
+            unsafe Unmanaged<CEFRemoteHello>.fromOpaque(context).release()
             attachment.closeDescriptors()
             return .failure(.host("the remote shim refused the host's wire"))
         }
@@ -147,9 +162,10 @@ private final class CEFRemoteHello {
     /// C entry for the host's hello: runs once per accepted attach, on the main thread, and
     /// releases the context the attach retained.
     static let callback: CEFRemoteShim.HelloFn = { context, attached, exports in
-        guard let context else { return }
-        let hello = Unmanaged<CEFRemoteHello>.fromOpaque(context).takeRetainedValue()
-        let names = exports.map { String(cString: $0) } ?? ""
+        // SAFETY: a non-NULL context is the +1 hello `attach` gave, passed back once; this takes the +1 back.
+        guard let hello = unsafe context.map({ unsafe Unmanaged<CEFRemoteHello>.fromOpaque($0).takeRetainedValue() }) else { return }
+        // SAFETY: the exports list is NUL-terminated and valid during this call; String(cString:) copies it.
+        let names = unsafe exports.map(String.init(cString:)) ?? ""
         let outcome: Outcome = attached == 1 ? .attached(Set(names.split(separator: "\n").map(String.init))) : .ended
         MainActor.assumeIsolated { // main-proof: cmux_remote_shim_attach's contract runs hello on the main thread
             _ = hello.finish(outcome)
@@ -162,11 +178,13 @@ private struct CEFRemoteReplySink {
     /// C entry: runs on the main thread (remote_shim_runtime.h `cmux_remote_reply_fn`) with the
     /// table as its context, and only copies the fields, which are valid during the call alone.
     static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
-        guard let context else { return }
         // The raw context is not Sendable; the main-actor table it points at is, so the closure
         // captures the table (as the hello's callback captures its waiter).
-        let replies = Unmanaged<CEFHostReplies>.fromOpaque(context).takeUnretainedValue()
-        let body = fields.map { Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
+        // SAFETY: a non-NULL context is the reply table `attach` set, alive until detach clears the sink; the
+        // unretained read does not change its count.
+        guard let replies = unsafe context.map({ unsafe Unmanaged<CEFHostReplies>.fromOpaque($0).takeUnretainedValue() }) else { return }
+        // SAFETY: `fields` holds `length` bytes during this call alone; Array copies them.
+        let body = unsafe fields.map { unsafe Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
         MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)
             _ = replies.resolve(token, fields: body)
         }

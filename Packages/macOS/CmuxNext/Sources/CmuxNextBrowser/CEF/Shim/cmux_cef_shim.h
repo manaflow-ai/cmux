@@ -70,7 +70,9 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
   // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
   // a = cef_termination_status_t, b = error code (exit code or signal),
-  // s1 = Chromium's error string.
+  // s1 = Chromium's error string. request = 1 for the first browser of the
+  // renderer's end, 2 for each other browser it hosted (Chromium tells them
+  // all in one task), 0 when the shim cannot name the process.
   CMUX_SHIM_RENDER_TERMINATED = 23,
   // The renderer stopped processing input for 15 s (hang monitor). The host
   // answers with cmux_shim_unresponsive_reply; until then Chromium waits.
@@ -360,6 +362,23 @@ typedef enum {
 // for an unknown value or browser, a browser with no page window, or a fork
 // without the call. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility);
+// Fork API 36 (cmux_browser_attach_view; p03-rendering-044, Track B; 33 is
+// p14-energy's, 34 p03-rendering-058's, 35 p03-rendering-056's): browser_id's
+// page shows in parent_view (an NSView* of this process, in any app window)
+// as Chromium's own views: its WebContentsViewCocoa fills parent_view, below
+// its other subviews, and each RenderWidgetHostViewCocoa draws through its
+// own layer tree. Input, IME, cursor, drag, popups and accessibility come
+// from those views, and the page's visibility and active state follow
+// parent_view and its window (and Chromium's active tab). The page window
+// stays headless (never ordered in) while a tab of it is attached, also after
+// the tab moved there from another window; layer hosting, detached hosting
+// and the resize fence refuse the page then. parent_view NULL gives the tab
+// back to its page window, which shows again once none of its tabs is
+// attached (also after an attached tab closed or moved away). Returns 1, or 0
+// for an unknown browser, a browser with no page window, or a fork without
+// the call. In-process only: an NSView* means nothing in another process. UI
+// thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_attach_view(int browser_id, void* parent_view);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.

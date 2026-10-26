@@ -157,7 +157,9 @@ nonisolated struct ServerTrustBox: @unchecked Sendable {
     /// nil when the trust evaluates, else the chain and the failure reason.
     func evaluate() -> (chain: [Data], reason: String?)? {
         var error: CFError?
-        guard !SecTrustEvaluateWithError(trust, &error) else { return nil }
+        // SAFETY: SecTrustEvaluateWithError stores at most one +1 CFError in the local `error`,
+        // live for the call; the Swift import takes ownership of it.
+        guard unsafe !SecTrustEvaluateWithError(trust, &error) else { return nil }
         let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
         return (chain, error.map { CFErrorCopyDescription($0) as String })
     }

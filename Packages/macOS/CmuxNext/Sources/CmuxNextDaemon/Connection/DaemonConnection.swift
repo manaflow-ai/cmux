@@ -14,7 +14,11 @@ import os
 /// Events are decoded on the socket's reader thread (never the main actor)
 /// and stamped with a monotonic `sequence`; `snapshot()` returns the
 /// sequence barrier its tree supersedes, so a store can drop older events
-/// exactly.
+/// exactly. A consumer that takes them with ``consumeEvents(_:)`` gets each
+/// on that thread, with no cooperative-pool job between the socket and it
+/// (``DaemonEventRoute``). `events` has that one consumer; any other one
+/// takes ``subscribe(filter:limit:)``: the events its filter matches, in
+/// order, in a bounded inbox of its own that no other consumer waits for.
 ///
 /// On EOF it emits `.disconnected`, fails pending requests, and reconnects
 /// through `endpointProvider` (which re-runs `server ensure`, restarting a
@@ -38,12 +42,14 @@ public actor DaemonConnection {
         case closed
     }
 
-    public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
+    /// The events for this connection's one consumer (``DaemonEventStream``).
+    public nonisolated let events: DaemonEventStream
     /// Identifies this event source; pair it with an envelope's connection serial.
     public nonisolated let eventSourceID: UUID = UUID()
     /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
     public nonisolated let mutationCauses = MutationCauseLedger()
-    private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
+    /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``; and each subscriber.
+    nonisolated let route: DaemonEventRoute
 
     let configuration: Configuration
     private let endpointProvider: EndpointProvider
@@ -95,8 +101,11 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
-        // concurrency-allow: drained at once by the store pump into the bounded EventInbox
-        (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
+        // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
+        let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
+        let route = DaemonEventRoute(continuation)
+        self.route = route
+        self.events = DaemonEventStream(base: events, route: route)
     }
 
     /// Connects to a fixed socket (tests, dev tools).
@@ -115,7 +124,7 @@ public actor DaemonConnection {
         return try await connectOnce()
     }
 
-    /// Stops reconnecting, closes the socket, and finishes `events`.
+    /// Stops reconnecting, closes the socket, and finishes `events` and every subscription.
     public func close() {
         healthy.cancel()
         heartbeat.stop()
@@ -125,7 +134,7 @@ public actor DaemonConnection {
         phase = .closed
         releaseHandoffHold()
         endReadyWaits()
-        continuation.finish()
+        route.finish()
     }
 
     public var isReady: Bool {
@@ -205,7 +214,23 @@ public actor DaemonConnection {
 
     /// Delivers an event the connection itself produced, after those routed so far.
     func yieldEvent(_ envelope: DaemonEventEnvelope) {
-        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
+        route.emit(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
+    }
+
+    /// Takes this connection's events instead of `events`, in order, until they end: the ones
+    /// `events` already holds, then each later one on the thread that produced it (the reader for
+    /// every daemon event; the actor for `connected` and `disconnected`). The echo of a person's
+    /// action reaches `deliver` with no cooperative-pool job after the socket read (p02-threads-133).
+    /// One consumer per connection; returns when the connection finishes, throwing what ended it.
+    ///
+    /// - Parameter deliver: Takes one event; runs under ``DaemonEventRoute``'s lock, so it must not
+    ///   block or call back into the connection.
+    nonisolated func consumeEvents(_ deliver: @escaping DaemonEventRoute.Sink) async throws {
+        route.attach(deliver)
+        defer { route.detach() }
+        for try await envelope in events {
+            route.deliverQueued(envelope)
+        }
     }
 
     /// The admitted control session, or nil when not connected.
@@ -233,7 +258,7 @@ public actor DaemonConnection {
                                                          stats: endpoint.wireStats, hangs: configuration.hangWatch)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
-            let continuation = continuation
+            let route = route
             let eventSourceID = eventSourceID
             let raw = configuration.role == .pageRelay
             let decoder = transport.decoder
@@ -249,7 +274,7 @@ public actor DaemonConnection {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
                     }
-                    gate.deliver(envelope) { continuation.yield($0) }
+                    gate.deliver(envelope) { route.emit($0) }
                 },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
@@ -274,7 +299,7 @@ public actor DaemonConnection {
             if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
-            gate.open(first: connected) { continuation.yield($0) }
+            gate.open(first: connected) { route.emit($0) }
             // task-owner: one request with the control deadline; a stale serial returns at once
             Task { [weak self] in await self?.openSessionEvents(serial: serial) }
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
@@ -302,8 +327,8 @@ public actor DaemonConnection {
         case .lost(let text): text
         }
         logger.info("cmux-tui connection lost: \(detail, privacy: .public)")
-        continuation.yield(DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: DaemonEventEnvelope.lastIndex),
-                                               event: .disconnected(reason: detail), sourceID: eventSourceID))
+        route.emit(DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: DaemonEventEnvelope.lastIndex),
+                                       event: .disconnected(reason: detail), sourceID: eventSourceID))
         scheduleReconnect()
     }
 
@@ -346,7 +371,7 @@ public actor DaemonConnection {
                     phase = .closed
                     releaseHandoffHold()
                     endReadyWaits()
-                    continuation.finish(throwing: error)
+                    route.finish(throwing: error)
                     return
                 default:
                     logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(error.description, privacy: .public)")

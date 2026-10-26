@@ -17,7 +17,7 @@ extension CEFTab: BrowserBackForwardListing {
     /// Chromium's own back/forward list (fork API 14), nil before it.
     func nativeNavigationList() -> BrowserNavigationList? {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= Self.backForwardListForkAPI,
-              let json = shim.takeString(shim.tabNavigationEntries(browserID)),
+              let json = shim.tabNavigationEntries(browserID),
               let parsed = CEFNavigationEntries(json: json), !parsed.entries.isEmpty else { return nil }
         let entries = parsed.entries.map { entry in
             BrowserNavigationEntry(url: URL(string: entry.url), title: entry.title.isEmpty ? nil : entry.title)

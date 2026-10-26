@@ -1,6 +1,5 @@
 public import CMUXMobileCore
 public import Foundation
-import Security
 
 /// Mac-scoped attach tickets (`mobile.attach_ticket.create`) for the iOS
 /// dogfood launcher: which Mac to dial, as a pairing URL the target app
@@ -100,9 +99,10 @@ public struct MobileAttachTicket {
             .replacingOccurrences(of: "=", with: "")
     }
 
+    /// 32 bytes from the system's cryptographically secure generator (arc4random_buf on Darwin, which never
+    /// fails), base64url-encoded; no pointer is lent to fill them.
     static func randomToken() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return UUID().uuidString }
-        return base64URL(Data(bytes))
+        var generator = SystemRandomNumberGenerator()
+        return base64URL(Data((0..<32).map { _ in generator.next() as UInt8 }))
     }
 }

@@ -73,14 +73,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
         switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
-            let menu = LinkMenu { [weak services] url in
+            let menu = LinkMenu(queries: services.workspaceQueries) { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
             }
             let rows = menu.linkRows(for: link)
             let more = TerminalLinkMenu.items(for: link, target: target, registry: services.registry) + BrowserProfileLinkMenu.items(for: link, target: target, services: services)
             return (rows, menu.items(rows, link: link) + (rows.isEmpty ? [] : [.separator()]) + more)
         case .file(let file, let isDirectory)?:
-            let menu = LinkMenu(), rows = menu.pathRows(for: file, isDirectory: isDirectory)
+            let menu = LinkMenu(queries: services.workspaceQueries), rows = menu.pathRows(for: file, isDirectory: isDirectory)
             return (rows, menu.items(rows, file: file) + [.separator()])
         case nil: return ([], [])
         }

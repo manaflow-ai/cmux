@@ -15,6 +15,7 @@ public final class StashPageHostView: NSView {
         self.draft = draft
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let view = StashPageView(model: model, draft: draft, appearance: appearanceState) { [weak self] in self?.window }
         let hosting = NSHostingView(rootView: view)
         hosting.translatesAutoresizingMaskIntoConstraints = false

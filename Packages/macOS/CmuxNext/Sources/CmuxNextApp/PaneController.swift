@@ -459,6 +459,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        // A browser tab (its page made or not yet) shows its page's picture from the last quit over it (p08-startup-043).
+        switch content {
+        case .browser?, nil: if let key { services.cache.showLaunchPicture(key, in: view, hold: services.launchImageHold, reveal: services.launchReveal) }
+        default: break
+        }
         DebugTabSwitch.contentShown(self, key: key)
         if services.cache.createTabs.isWaiting { services.cache.createTabs.switched(from: previous, to: key, firstFrame: content?.createTabFirstFrame) } // create.tab: one hidden first ends unsampled
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last

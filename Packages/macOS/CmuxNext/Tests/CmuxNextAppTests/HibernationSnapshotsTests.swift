@@ -30,7 +30,7 @@ struct HibernationSnapshotsTests {
         return store
     }
 
-    /// A decoded picture (`HibernationTunables.compressedSnapshots` off): no bytes, its pixels are its cost.
+    /// A decoded picture (feature `compressedSnapshots` off): no bytes, its pixels are its cost.
     private func decoded() throws -> HibernationSnapshots.Picture {
         HibernationSnapshots.Picture(data: nil, image: try picture().image)
     }

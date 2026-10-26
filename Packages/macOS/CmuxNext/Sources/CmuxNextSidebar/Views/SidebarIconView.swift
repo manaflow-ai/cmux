@@ -27,6 +27,7 @@ final class SidebarIconView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         swatch.cornerCurve = .continuous
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
@@ -77,8 +78,8 @@ final class SidebarIconView: NSView {
             imageView.image = nil
             imageView.isHidden = true
         }
-        needsDisplay = true
-        needsLayout = true
+        // invalidate: a new icon or size (the early return above) takes another tint and swatch frame.
+        needsDisplay = true; needsLayout = true
     }
 
     override func updateLayer() {
@@ -123,6 +124,5 @@ final class SidebarIconView: NSView {
             swatch.cornerRadius = side / 2
         }
         CATransaction.commit()
-        needsDisplay = true
     }
 }

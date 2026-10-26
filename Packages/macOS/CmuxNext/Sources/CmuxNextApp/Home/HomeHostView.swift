@@ -249,6 +249,7 @@ final class HomeHostView: NSView {
             work.postFromAnyThread(.visible, owner: "HomeHost.firstPage") { [weak self] in self?.transcript.holdsFirstRun = false }
         }
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         clipsToBounds = true
         message.alignment = .center
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.

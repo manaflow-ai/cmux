@@ -80,8 +80,10 @@ enum DebugCEF {
                     "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
-                    // Host mode: the page's cursor over its page view (CSS name; null in process).
+                    // Host mode: the page's cursor (CSS name) and accessibility element (idle, asking, refused,
+                    // connected) in its page view; null in process.
                     "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
+                    "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
@@ -238,9 +240,12 @@ enum DebugCEF {
     static func footprintMegabytes() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        // SAFETY: `count` is task_vm_info_data_t's size in integer_t words, the capacity the rebound view
+        // covers; task_info writes at most `count` words into `info`, a local live for the call, and
+        // lowers `count` to what it wrote.
+        let result = unsafe withUnsafeMutablePointer(to: &info) { pointer in
+            unsafe pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                unsafe task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }

@@ -78,6 +78,8 @@ enum CloudHandlers {
     /// Runs Cloud work off the action; a thrown error becomes a sheet.
     static func run(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
+        // task-owner: the action's Cloud work, ended by its answer or its failure sheet
+        // main-hop-allow: the person's Cloud action rest (userBlocking, p06 rule 2): `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         Task {
             do { try await work() } catch CloudMachineCreateFlow.Failure.declined {
                 // The person said no in the confirmation: nothing to report.
@@ -94,6 +96,8 @@ enum CloudHandlers {
     static func runTracked(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
         let logger = context.services.cloud.logger
         let interactive = !context.services.registry.isCapturingRefusal
+        // task-owner: the action run; a capturing caller awaits it through the registry
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         let task: ActionWork = Task { @MainActor in
             do {
                 try await work()
@@ -114,30 +118,39 @@ enum CloudHandlers {
     }
 
     @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
-        let select: (PaneController) -> Void = { controller in
+        let services = context.services
+        let select: @MainActor (PaneController) -> Void = { controller in
             // Through the run's view-change gate (ActionRunScope).
             controller.selectWhenReported(surface: surface)
         }
-        if let controller = context.services.paneController(for: pane) {
+        if let controller = services.paneController(for: pane) {
             select(controller)
             show(workspaceID, context)
             return
         }
         show(workspaceID, context)
-        let services = context.services
-        Task { @MainActor in
-            let mounted = await Deadline(.seconds(10)).value("CloudHandlers.reveal") { await waitForPaneController(pane, services) } ?? false
-            if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
+        selectWhenMounted(work: services.mainWork, deadlines: services.mainDeadlines,
+                          find: { services.paneController(for: pane) }, select: select)
+    }
+
+    /// Runs `select` once on the controller `find` gives when it mounts (the window shows the
+    /// workspace), ``revealMountWait`` at most. userBlocking: the reveal is the rest of an action
+    /// someone waits on (p06 rule 2). The select runs in the caller's run scope (a posted flush
+    /// binds none), so it keeps that run's view-change permission.
+    @discardableResult
+    static func selectWhenMounted<Controller>(work: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                                              find: @escaping @MainActor () -> Controller?,
+                                              select: @escaping @MainActor (Controller) -> Void) -> FirstValueWait<Controller> {
+        let scope = ActionRunScope.current
+        return FirstValueWait.start(.userBlocking, owner: "CloudHandlers.reveal", within: revealMountWait,
+                                    work: work, deadlines: deadlines, read: find) { controller in
+            guard let controller else { return }
+            ActionRunScope.carrying(scope) { select(controller) }
         }
     }
 
-    @MainActor
-    private static func waitForPaneController(_ pane: PaneModel, _ services: AppServices) async -> Bool {
-        for await ready in ObservationStream({ services.paneController(for: pane) != nil }) where ready {
-            return true
-        }
-        return false
-    }
+    /// How long a reveal waits for its pane to mount.
+    static let revealMountWait: Duration = .seconds(10)
 
     /// The machine's first workspace, created (with a terminal) when it has none.
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
@@ -169,21 +182,19 @@ enum CloudHandlers {
         return anchor
     }
 
+    /// The workspace's anchor once the store lists the workspace: a keyed store wait (only that
+    /// workspace's insert reads it again), 10 s at most. The tree lists a workspace with its screens
+    /// and panes in one apply.
     @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        let mirrored = await Deadline(.seconds(10)).value("CloudHandlers.mirroredAnchor") { await waitForAnchor(id: id, on: session) } ?? false
-        return mirrored ? anchor(id: id, on: session) : nil
+        guard await session.daemon.store.waitForWorkspace(id: id, timeout: .seconds(10)) != nil else { return nil }
+        return anchor(id: id, on: session)
     }
 
     @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
+        guard let workspace = session.daemon.store.workspace(id: id),
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }
         return (id, key, pane)
-    }
-
-    @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
-        for await ready in ObservationStream({ anchor(id: id, on: session) != nil }) where ready { return true }
-        return false
     }
 
     /// Attaches to `session` (``CloudMachineSession/attach(origin:)``): a
@@ -198,7 +209,7 @@ enum CloudHandlers {
         session.attach(origin: connectOrigin(for: invocation))
         guard session.resuming else { return }
         let daemon = session.daemon
-        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        _ = await CloudMove.holds(within: limit, on: session.mainWork) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }

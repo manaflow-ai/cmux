@@ -6,8 +6,10 @@ public import Foundation
 /// strict: no network, no frames, inline script and style only; a first-party page may add
 /// `connect-src` and `frame-src` sources and the one script keyword `'wasm-unsafe-eval'`. A page that
 /// ships its script as files may also turn inline script off (``inlineScript``), which only narrows
-/// the policy. App pages (``PageDescriptor/appPage(id:resource:namespaces:)``) always get the strict
-/// policy.
+/// the policy. Every page the app ships (a reserved `cmux.` id) also loads script and style from the
+/// shared chunk origin (``sharedChunks``, `cmux-page://cmux.shared`), which serves only bundled `.js` and
+/// `.css` files. App pages (``PageDescriptor/appPage(id:resource:namespaces:)``) always get the strict
+/// policy and no shared chunks.
 public nonisolated struct PageCSP: Sendable, Hashable {
     /// `connect-src` sources (`ws://127.0.0.1:*`, the page's own provider endpoint).
     public var connect: [String]
@@ -21,6 +23,10 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     /// False drops `'unsafe-inline'` from `script-src`: the page runs only same-origin script files,
     /// so markup injected into it (an agent's output) cannot run script.
     public var inlineScript: Bool
+    /// True adds ``PageID/sharedOrigin`` to `script-src` and `style-src`: the page imports the shared,
+    /// content-hashed chunks (React, the design system) by one URL every page uses. Only
+    /// ``PageDescriptor`` sets it, for the pages the app ships (whatever policy the page asks for).
+    public var sharedChunks: Bool
 
     public static let allowedScriptKeywords: Set<String> = ["'wasm-unsafe-eval'"]
     public static let strict = PageCSP()
@@ -34,6 +40,7 @@ public nonisolated struct PageCSP: Sendable, Hashable {
         self.media = media
         self.script = script
         self.inlineScript = inlineScript
+        sharedChunks = false
     }
 
     static let base: [(String, [String])] = [
@@ -48,6 +55,10 @@ public nonisolated struct PageCSP: Sendable, Hashable {
         }
         var directives = Self.base
         if !inlineScript { directives[1].1.removeAll { $0 == "'unsafe-inline'" } }
+        if sharedChunks {
+            directives[1].1.append(PageID.sharedOrigin)
+            directives[2].1.append(PageID.sharedOrigin)
+        }
         let keywords = script.filter(Self.allowedScriptKeywords.contains)
         if !keywords.isEmpty { directives[1].1 += keywords }
         let connect = clean(connect)

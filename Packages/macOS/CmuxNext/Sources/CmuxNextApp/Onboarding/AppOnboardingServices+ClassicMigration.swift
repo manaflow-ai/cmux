@@ -372,10 +372,7 @@ extension AppOnboardingServices {
 
     /// Local folders that are gone open the home folder (`readForImport`), window by window.
     private nonisolated static func openingMissingFolders(_ snapshot: ClassicSessionSnapshot) -> ClassicSessionSnapshot {
-        let exists: (String) -> Bool = { path in
-            var isFolder: ObjCBool = false
-            return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
-        }
+        let exists: (String) -> Bool = { path in FileManager.default.directoryExists(atPath: path) }
         let windows = snapshot.windows.map { window in
             ClassicSessionWindow(id: window.id, frame: window.frame, selectedWorkspace: window.selectedWorkspace,
                                  workspaces: window.workspaces.map { saved in

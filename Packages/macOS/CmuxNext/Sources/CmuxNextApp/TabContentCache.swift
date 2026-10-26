@@ -22,6 +22,7 @@ import Observation
 /// plus an LRU of recently hidden ones (`WarmSetBudget`); older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in an image LRU sized by
 /// ``ImageCacheShares`` from the Mac's memory.
+// memory: fixed an owner, not a cache: its maps hold the live surfaces and pages of open tabs (bounded by the warm set, `ledger`, and hibernation); each picture store is its own memory consumer (`previews`, `internalPagePictures`, `pageThumbnails`: PreviewImageCache; `lastFrames`: TerminalLastFrames)
 final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
@@ -147,6 +148,8 @@ final class TabContentCache {
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
     /// profiles, p08-startup-028); nil: none.
     var enginesAwait: LaunchReadEvent?
+    /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
+    var launchPictures: BrowserLaunchPictures?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -214,7 +217,7 @@ final class TabContentCache {
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
-        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
+        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
         wireNotices()
         _ = ledger.setCapacity(normalWarmCapacity)  // no surface yet: closes nothing
         warmBudgetDidChange(to: normalWarmCapacity)

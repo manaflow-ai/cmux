@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205) and I17-I18 (p15-oracle-188) over one case trace.
+"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206) and I17-I18
+(p15-oracle-188) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
 plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
-I8 (204), I10 (206), I11-I15 (217) and I16 (236) to INVARIANTS and CHECKS.
+I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 
 | Id | Rule                                                                  | Reads                          |
 | I1 | each mutation gives exactly one receipt or one typed error            | step replies                   |
@@ -14,6 +15,7 @@ I8 (204), I10 (206), I11-I15 (217) and I16 (236) to INVARIANTS and CHECKS.
 | I6 | no orphan processes or sockets at teardown                            | teardown record                |
 | I7 | a hidden-workspace change does no view work                           | step layoutCounters + topology |
 | I9 | journal restore_preview == live daemon facet on the restorable sections | restorePreviews + daemon facet |
+| I10| a same-key retry: same result, replayed, same journal head and facets | replies + retry before/settled |
 | I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
 | I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
 
@@ -24,7 +26,20 @@ process of a test as a failure of that test (I6). NoRendererCrashesAssertion fai
 crash that no ScopedAllowRendererCrashes covers (I17, the case's `allow_crashes`), and Blink's leak
 detector compares InstanceCounters after a web test with the counts before it
 (third_party/blink/renderer/core/testing/internals.cc; I18). A failed check names its value, as gtest's
-EXPECT_EQ prints both sides; here every violation names its JSON pointer.
+EXPECT_EQ prints both sides; here every violation names its JSON pointer. I10 is the contract of
+net/http/http_request_info.h `idempotency`: HttpNetworkTransaction::ShouldResendRequest
+(net/http/http_network_transaction.cc) resends a request on a reset connection only when it is idempotent,
+because sending it twice must have the effect of sending it once.
+
+I10 finds a retry by its key: a mutating resource.call whose idempotencyKey, method, params and target equal
+an earlier step's (gen_daemon_ops.py adds one, step `retry`, to each operation's success case but those whose
+success ends the daemon). The same key with another request is idempotency.conflict's case, not a retry. When
+the first call got a receipt, the retry's reply equals the first reply, its MutationResult included except
+`replayed`: that flag is false on the first call (a key the trace never sent) and true on the retry, the
+daemon's own word that it answered from its receipt. The daemon journal head (raw `daemon.journalHead`,
+volatile in the canonical form) is the same at the retry's settled checkpoint as at its before checkpoint (no
+new record); and every model facet of the two checkpoints is equal under I3's projection. A refused first call
+recorded no effect to replay: its retry is not checked.
 
 I17 reads `crashes.counts`, totals since the app launched (holder: since the owner started): an exit is
 a rise of a kind's total from one comparable reading to the next. A rise first seen at a step's turn or
@@ -58,7 +73,11 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
      "steps": [{"id", "op", "readOnly"?, "expect"?, "args"?,
                 "target"?: {kind: public id}      (handles and $step refs already resolved),
                 "action"?: action id              (a key step: the action its keys ran, for I3's lastRefusal),
-                "replies": [{"receipt": KIND} | {"error": CODE}, ...]   (every reply the step got),
+                "replies": [{"receipt": KIND, "result"?: MutationResult} | {"error": CODE}, ...]
+                                                  (every reply the step got; `result` is the reply's result as
+                                                  the daemon sent it, for a mutation the MutationResult
+                                                  {value, generation, revision, replayed} of
+                                                  cmux-tui-core/src/resource_router.rs mutation_result),
                 "checkpoints": {"before"?|"turn"?|"settled"?: snapshot-v1 (raw)},
                 "layoutCounters"?: {"before": {name: n}, "after": {name: n}},  (debug.layout_counters)
                 "restorePreviews"?: {"before"?|"turn"?|"settled"?: oracle-restore-preview reply}}],
@@ -112,6 +131,8 @@ EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.
 TRACE_SCHEMA = "cmux.oracle.trace/v1"
 REPORT_SCHEMA = "cmux.oracle.invariants/v1"
 CHECKPOINT_ORDER = ("before", "turn", "settled")
+# MutationResult's flag (spec generics.MutationResult): false on a call that ran, true on a same-key replay (I10).
+REPLAY_FLAG = "replayed"
 # Typed outcomes, the patterns of case-v1 $defs.expect.error and .receipt.
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 RECEIPT_KIND = re.compile(r"^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$")
@@ -175,6 +196,11 @@ INVARIANTS: Tuple[Invariant, ...] = (
     Invariant("I9", "journal restore_preview == live daemon facet on the restorable sections",
               "snapshot: /daemon/session/<section>/... (the live value the restore misses) or /daemon/journalHead",
               "p15-oracle-205"),
+    Invariant("I10", "a same-key retry gives the first call's result with replayed true, no new journal record and "
+              "no facet change",
+              "step: /replies/0/... of the retry (/replies/0/result/replayed: the flag); snapshot: /daemon/journalHead "
+              "or the first facet value that differs",
+              "p15-oracle-206"),
     Invariant("I17", "0 unexpected child exits unless allow_crashes covers the kind",
               "snapshot: /crashes/exits/<n> (an exit the app saw) or /crashes/counts/<kind>", "p15-oracle-188"),
     Invariant("I18", "live-object counts return to the fixture baseline after teardown",
@@ -425,6 +451,13 @@ class Projector:
             return value
         rounded = round(value, decimals) or 0.0  # -0.0 and 0.0 are one value
         return int(rounded) if rounded.is_integer() and abs(rounded) < MAX_SAFE_INT else rounded
+
+
+def without_replay_flag(reply: Any) -> Any:
+    """A reply with its MutationResult's `replayed` taken out: the one field a replay changes (I10)."""
+    if isinstance(reply, Mapping) and isinstance(reply.get("result"), Mapping) and REPLAY_FLAG in reply["result"]:
+        return {**reply, "result": {k: v for k, v in reply["result"].items() if k != REPLAY_FLAG}}
+    return reply
 
 
 def first_difference(a: Any, b: Any, at: str = "") -> Optional[Tuple[str, Any, Any]]:
@@ -944,6 +977,82 @@ class Checker:
         if not replied:
             self.skip("I9", None, "no checkpoint has an oracle-restore-preview reply")
 
+    # I10 ----------------------------------------------------------------------------------------------
+    @staticmethod
+    def request(step: Step) -> Tuple[Any, ...]:
+        args = step.record.get("args") or {}
+        return args.get("method"), args.get("params") or {}, dict(step.target)
+
+    def retries(self) -> Iterator[Tuple[Step, Step]]:
+        """(first call, retry) for each mutating resource.call that repeats an earlier step's key and request."""
+        first: Dict[str, Step] = {}
+        for step in self.trace.steps:
+            key = (step.record.get("args") or {}).get("idempotencyKey")
+            if step.op != "resource.call" or not step.mutating or not isinstance(key, str):
+                continue
+            original = first.setdefault(key, step)
+            if original is not step and self.request(original) == self.request(step):
+                yield original, step
+
+    def i10(self) -> None:
+        for original, retry in self.retries():
+            replies, again = original.record.get("replies"), retry.record.get("replies")
+            if not (isinstance(replies, list) and replies and isinstance(again, list) and again):
+                self.skip("I10", retry, f"the trace has no reply for {original.id} or its retry (I1 holds that)")
+                continue
+            if not (isinstance(replies[0], Mapping) and "receipt" in replies[0]):
+                self.skip("I10", retry, f"{original.id} was refused ({replies[0]!r:.80}): no effect to replay")
+                continue
+            self.checked("I10")
+            found = first_difference(without_replay_flag(replies[0]), without_replay_flag(again[0]), "/replies/0")
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, None, at, f"retry of {original.id} with its key replied "
+                             f"{json.dumps(now)[:120]}, the first call {json.dumps(was)[:120]}", "step")
+            self.replay_flags(original, retry, replies[0], again[0])
+            before, after = self.before_state(retry), self.after_state(retry)
+            if before is None or after is None:
+                self.skip("I10", retry, "the retry has no settled checkpoint or no checkpoint before it")
+                continue
+            heads = [(facet(state.snapshot, "daemon") or {}).get("journalHead") for state in (before, after)]
+            if not all(isinstance(head, int) for head in heads):
+                self.skip("I10", retry, "no daemon journalHead at both the retry's before and settled checkpoints")
+            elif heads[0] != heads[1]:
+                self.violate("I10", retry, after.checkpoint, pointer("daemon", "journalHead"),
+                             f"journal head {heads[0]} -> {heads[1]}: the retry of {original.id} added "
+                             f"{heads[1] - heads[0]} record(s)")
+            names = sorted(n for n in (after.snapshot.get("facets") or {})
+                           if n not in BOOKKEEPING_FACETS and facet(before.snapshot, n) is not None
+                           and facet(after.snapshot, n) is not None)
+            if not names:
+                self.skip("I10", retry, "the retry's before and settled checkpoints share no model facet")
+                continue
+            found = first_difference(self.projection(before.snapshot, names), self.projection(after.snapshot, names))
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, after.checkpoint, at, f"{json.dumps(was)[:120]} -> {json.dumps(now)[:120]}: "
+                             f"the retry of {original.id} changed the state")
+
+    def replay_flags(self, original: Step, retry: Step, first: Mapping[str, Any], again: Any) -> None:
+        """I10's direct signal: `replayed` false on the first call, true on its same-key retry."""
+        result = first.get("result")
+        if "result" not in first:
+            self.skip("I10", retry, f"the replies of {original.id} carry no result: only the receipt kind is compared")
+            return
+        if not (isinstance(result, Mapping) and REPLAY_FLAG in result):
+            self.skip("I10", retry, f"the result of {original.id} has no `{REPLAY_FLAG}` flag: not a MutationResult")
+            return
+        at = f"/replies/0/result/{REPLAY_FLAG}"
+        if result[REPLAY_FLAG] is not False:
+            self.violate("I10", original, None, at, f"the first call with its key replied {REPLAY_FLAG} "
+                         f"{json.dumps(result[REPLAY_FLAG])}, not false", "step")
+        retried = again.get("result") if isinstance(again, Mapping) else None
+        flag = retried.get(REPLAY_FLAG) if isinstance(retried, Mapping) else None
+        if flag is not True:
+            self.violate("I10", retry, None, at, f"the retry of {original.id} replied {REPLAY_FLAG} "
+                         f"{json.dumps(flag)}, not true: the daemon ran the call again instead of replaying its "
+                         "receipt", "step")
+
     # I17 ----------------------------------------------------------------------------------------------
     def exit_step(self, state: State) -> Optional[Step]:
         """The step during which an exit first seen at `state` happened (None: before the first step)."""
@@ -1069,7 +1178,8 @@ class Checker:
                 self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
     def run(self) -> Report:
-        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i17, self.i18):
+        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i17,
+                      self.i18):
             check()
         return self.report
 
@@ -1209,7 +1319,7 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7, I9 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+    """I1-I7, I9, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
     return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
 
@@ -1238,6 +1348,7 @@ WIN = "win_000000000000000000000000000000a1"
 PANE3 = "pane_000000000000000000000000000000d3"
 TAB3 = "tab_000000000000000000000000000000e3"
 TERM3 = "term_000000000000000000000000000000f3"
+REOPEN_ARGS = {"method": "closed.reopen", "params": {}, "idempotencyKey": "selftest.reopen"}
 
 
 def _add_tab(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str) -> Dict[str, Any]:
@@ -1374,7 +1485,7 @@ class InvariantsSelfTest(unittest.TestCase):
         return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
 
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I17", "I18"])
+        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
@@ -1393,9 +1504,12 @@ class InvariantsSelfTest(unittest.TestCase):
             {"id": "read", "op": "resource.call", "readOnly": True, "replies": [],
              "checkpoints": {"settled": restorable},
              "restorePreviews": {"settled": _restore_reply(raw, restorable["facets"]["daemon"]["journalHead"])}},
-            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1},
-             "replies": [{"receipt": "mutation_result", "result": {"tab": TAB2}}],
+            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
+             "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": False}}],
              "checkpoints": {"settled": _bump_sequences(self.base, 1)}},
+            {"id": "reopen-retry", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
+             "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": True}}],
+             "checkpoints": {"before": _bump_sequences(self.base, 1), "settled": _bump_sequences(self.base, 1)}},
             {"id": "new-hidden", "op": "resource.call", "target": {"session": "session_00000000000000000000000000000002"},
              "replies": [{"receipt": "mutation_result", "result": {"workspace": HIDDEN_WS}}],
              "checkpoints": {"settled": hidden_before}},
@@ -1694,6 +1808,95 @@ class InvariantsSelfTest(unittest.TestCase):
         del step["layoutCounters"]
         report = self.check(_trace(step))
         self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I7", "tab-in-hidden")])
+
+    # I10
+    @staticmethod
+    def created(tab: str, replayed: bool) -> Dict[str, Any]:
+        """The reply of tab.create_terminal as the daemon sends it: a receipt and its MutationResult."""
+        return {"receipt": "mutation_result",
+                "result": {"value": {"tab_id": tab}, "generation": "gen-1", "revision": "7", "replayed": replayed}}
+
+    def retry_trace(self, retry_reply: Dict[str, Any], retry_settled: Dict[str, Any], **change: Any) -> Dict[str, Any]:
+        """tab.create_terminal makes TAB3, then its same-key retry, recorded before and settled."""
+        args = {"method": "tab.create_terminal", "params": {}, "idempotencyKey": "selftest.call"}
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        call = {"id": "call", "op": "resource.call", "target": {"pane": PANE1}, "args": args,
+                "replies": [self.created(TAB3, False)],
+                "checkpoints": {"before": self.base, "settled": created}}
+        retry = {**call, "id": "retry", "replies": [retry_reply],
+                 "checkpoints": {"before": created, "settled": retry_settled}, **change}
+        return _trace(call, retry)
+
+    def i10(self, report: Report) -> Tuple[List[Tuple[str, str]], List[str]]:
+        return ([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I10"],
+                [n.reason for n in report.not_checked if n.invariant == "I10"])
+
+    def test_i10_a_replayed_retry_holds(self) -> None:
+        # The daemon's replay: the same value, generation and revision, and replayed false then true.
+        doc = self.retry_trace(self.created(TAB3, True), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 1)
+
+    def test_i10_a_double_create_breaks_the_result_the_flag_the_journal_and_the_facets(self) -> None:
+        # The double-create mutant: the retry runs the handler again, so a second tab, a new id and a new record,
+        # and the daemon says replayed false twice.
+        tab4, term4 = "tab_000000000000000000000000000000e4", "term_000000000000000000000000000000f4"
+        twice = _bump_sequences(_add_tab(_add_tab(self.base, PANE1, TAB3, TERM3), PANE1, tab4, term4), 2)
+        report = self.check(self.retry_trace(self.created(tab4, False), twice))
+        violations, _ = self.i10(report)
+        self.assertEqual([at for _, at in violations[:3]],
+                         ["/replies/0/result/value/tab_id", "/replies/0/result/replayed", "/daemon/journalHead"])
+        self.assertEqual(len(violations), 4, violations)
+        self.assertTrue(violations[3][1].startswith("/"), violations)
+        self.assertEqual({v.step for v in report.violations if v.invariant == "I10"}, {"retry"})
+        journal = next(v.message for v in report.violations if v.pointer == "/daemon/journalHead")
+        self.assertIn("added 1 record(s)", journal)
+
+    def test_i10_a_retry_that_says_it_ran_again_is_caught_on_the_flag_alone(self) -> None:
+        # Same value and no new record, but the daemon did not answer from its receipt.
+        doc = self.retry_trace(self.created(TAB3, False), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([("I10", "/replies/0/result/replayed")], []))
+        flag = next(v for v in report.violations if v.invariant == "I10")
+        self.assertEqual((flag.step, flag.where), ("retry", "step"))
+        self.assertIn("replied replayed false, not true", flag.message)
+
+    def test_i10_a_first_call_that_says_replayed_is_caught_on_that_call(self) -> None:
+        doc = self.retry_trace(self.created(TAB3, True), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        doc["steps"][0]["replies"] = [self.created(TAB3, True)]
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([("I10", "/replies/0/result/replayed")], []))
+        self.assertEqual(next(v.step for v in report.violations if v.invariant == "I10"), "call")
+
+    def test_i10_skips_a_refused_first_call_and_missing_inputs(self) -> None:
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        doc = self.retry_trace({"error": "validation.invalid"}, created)
+        doc["steps"][0]["replies"] = [{"error": "validation.invalid"}]
+        self.assertEqual(self.i10(self.check(doc))[0], [])
+        self.assertIn("no effect to replay", self.i10(self.check(doc))[1][0])
+        bare = self.retry_trace({"receipt": "mutation_result"}, created)
+        bare["steps"][0]["replies"] = [{"receipt": "mutation_result"}]
+        del bare["steps"][1]["checkpoints"]["settled"]
+        self.assertEqual(self.i10(self.check(bare)),
+                         ([], ["the replies of call carry no result: only the receipt kind is compared",
+                               "the retry has no settled checkpoint or no checkpoint before it"]))
+        flagless = self.retry_trace({"receipt": "mutation_result", "result": {"tab": TAB3}}, created)
+        flagless["steps"][0]["replies"] = [{"receipt": "mutation_result", "result": {"tab": TAB3}}]
+        self.assertEqual(self.i10(self.check(flagless)),
+                         ([], ["the result of call has no `replayed` flag: not a MutationResult"]))
+        headless = self.retry_trace(self.created(TAB3, True), created)
+        for state in (headless["steps"][1]["checkpoints"]["before"], headless["steps"][1]["checkpoints"]["settled"]):
+            state["facets"]["daemon"].pop("journalHead")
+        self.assertEqual(self.i10(self.check(headless)),
+                         ([], ["no daemon journalHead at both the retry's before and settled checkpoints"]))
+
+    def test_i10_another_request_under_the_same_key_is_not_a_retry(self) -> None:
+        twice = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 2)
+        doc = self.retry_trace({"error": "idempotency.conflict"}, twice, target={"pane": PANE2})
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 0)
 
     # I17
     def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,

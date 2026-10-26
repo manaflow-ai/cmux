@@ -29,8 +29,7 @@ enum WorkingURL {
     /// An agent's cwd comes from its page: use it only as an absolute path
     /// to a directory on this Mac (a remote agent's folder is not one).
     static func isDirectory(_ path: String, fileManager: FileManager = .default) -> Bool {
-        var directory: ObjCBool = false
-        return path.hasPrefix("/") && fileManager.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        path.hasPrefix("/") && fileManager.directoryExists(atPath: path)
     }
 }
 

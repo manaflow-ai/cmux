@@ -22,8 +22,35 @@ extension AppServices {
         return folder
     }
 
-    /// Starts the launch preload and the likelihood observers.
+    /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
+    /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
+    /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
+    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``, p08-startup-046); the warm-up, armed in the same post,
+    /// cannot start it sooner.
     func startChromiumWarmup() {
+        guard chromiumRuntime.source.backend == .host, let launchStartup else { return armChromiumWarmup() }
+        let preference = cache.browserTabs.preference
+        let slot = ChromiumHostLaunchSlot(startup: launchStartup, decide: { [weak self] in
+            guard let self else { return nil }
+            return ChromiumHostLaunchStart(showsChromiumPane: showsChromiumPane, defaultIsChromium: preference.defaultEngine == .chromium,
+                                           hasChromiumTab: machines.hasChromiumTab)
+        }, start: { [weak self] start in
+            self?.armChromiumWarmup()
+            self?.chromiumWarmup.startWithoutIdleWait(start.reason)
+        }, noStart: { [weak self] in self?.armChromiumWarmup() })
+        windows.whenRestored { slot.restored() }
+    }
+
+    /// A shown window's pane shows a Chromium tab: a restored Chromium page the person sees.
+    private var showsChromiumPane: Bool {
+        windows.controllers.contains { controller in
+            controller.visibility.isVisible
+                && controller.content?.panes.values.contains { $0.selectedTab?.browserEngine == BrowserEngineTag.cef.rawValue } == true
+        }
+    }
+
+    /// Arms the warm-up: its launch timer, the likelihood observers and the spare windows.
+    private func armChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
@@ -59,7 +86,7 @@ extension AppServices {
         })
         palettes.whenBuilt { [weak self] palette in  // the palette is built after launch (p08-startup-023)
             guard let self else { return }
-            chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, warmup: chromiumWarmup))
+            lifetimeFollowers.append(ChromiumPaletteSignal(palette.model, warmup: chromiumWarmup, on: mainWork))
         }
     }
 }
@@ -79,7 +106,8 @@ extension AppServices {
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
-                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator] stores, deadlines, source in
+                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
+                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -88,11 +116,20 @@ extension AppServices {
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
                                                        chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
-                                          .votingMemoryPressure(of: memoryCoordinator)
+                                          .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.
+    nonisolated static func hostsEveryPage(_ features: FeatureList) -> Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        features.isEnabled(.cefLayerHostingEveryPage)
+        #else
+        false
+        #endif
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine

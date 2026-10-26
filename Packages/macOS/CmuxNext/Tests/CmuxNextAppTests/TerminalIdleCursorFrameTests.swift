@@ -11,6 +11,7 @@ import Testing
 @MainActor @Suite(.serialized) struct TerminalIdleCursorFrameTests {
     @Test func aFocusedTerminalWithAHiddenCursorDrawsNothingAtRest() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let drew = WindowDrawPolicy.drawsWhenOccluded
         WindowDrawPolicy.drawsWhenOccluded = true
         defer { WindowDrawPolicy.drawsWhenOccluded = drew }

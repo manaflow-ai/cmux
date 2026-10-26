@@ -46,6 +46,7 @@ public final class ServerHostView: NSView {
         hosting = NSHostingView(rootView: ServerRoot(model: model, surface: surface, appearance: appearanceState, dismiss: dismissBox))
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         backdrop.cornerRadius = ServerMetrics.cornerRadius
         backdrop.frame = bounds
         backdrop.autoresizingMask = [.width, .height]

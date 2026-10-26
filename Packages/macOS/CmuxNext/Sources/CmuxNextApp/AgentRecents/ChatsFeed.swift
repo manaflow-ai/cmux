@@ -228,7 +228,8 @@ final class ChatsFeed {
         guard directory != watchedDirectory else { return }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let fd = open(directory, O_EVTONLY)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let fd = unsafe open(directory, O_EVTONLY)
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in Task { @MainActor in self?.connect() } }

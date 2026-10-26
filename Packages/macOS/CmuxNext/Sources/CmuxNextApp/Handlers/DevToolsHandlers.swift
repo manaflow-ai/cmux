@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemonService
+import CmuxNextWakeups
 import WebKit
 
 /// The palette's Developer Tools set (`devtools.*`, plans/cmux-next/web-devtools.md)
@@ -81,11 +83,12 @@ enum DevToolsHandlers {
             context.services.cache.pageRequests.browserTab(tab, didRequest: .openURL(source, .foregroundTab))
         default:
             if let panel = command.panel { return tab.performDevTools(.panel(panel)) }
-            if let script = command.pageScript { return evaluate(script, in: tab) }
+            if let script = command.pageScript { return evaluate(script, in: tab, context) }
             var modes = tab.devToolsModes
             guard let calls = modes.calls(for: command, origin: origin(of: tab.state.url)) else { return }
             tab.devToolsModes = modes
-            Task {
+            // task-owner: the protocol calls, in order, off the main actor; nothing applies on main after them
+            context.services.work.task(.userBlocking) {
                 for call in calls { _ = try? await tab.devTools(method: call.method, params: call.params) }
             }
         }
@@ -114,7 +117,7 @@ enum DevToolsHandlers {
             BrowserHandlers.copyScreenshot(context) {
                 if case .browser(let tab) = tab { return try await tab.snapshot() }
                 let image = try await webKit.takeSnapshot(configuration: nil)
-                guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                guard let cgImage = image.bestCGImage else {
                     throw ActionFailure(message: WebDevToolsLimit.browserTabOnly.message)
                 }
                 return cgImage
@@ -124,7 +127,7 @@ enum DevToolsHandlers {
         default:
             if let panel = command.panel { return inspector.show(panel) }
             if let script = command.pageScript {
-                if case .browser(let page) = tab { return evaluate(script, in: page) }
+                if case .browser(let page) = tab { return evaluate(script, in: page, context) }
                 webKit.evaluateJavaScript(script, completionHandler: nil)
             }
         }
@@ -132,8 +135,9 @@ enum DevToolsHandlers {
 
     // MARK: Helpers
 
-    private static func evaluate(_ script: String, in tab: any BrowserTab) {
-        Task { _ = try? await tab.evaluate(script, world: .page, gesture: .agent) }
+    private static func evaluate(_ script: String, in tab: any BrowserTab, _ context: AppActionContext) {
+        // task-owner: one page script off the main actor; its value is dropped
+        context.services.work.task(.userBlocking) { _ = try? await tab.evaluate(script, world: .page, gesture: .agent) }
     }
 
     /// The page's origin (`https://example.com:8443`) for Storage.clearDataForOrigin.
@@ -146,6 +150,8 @@ enum DevToolsHandlers {
     private static func removeSiteData(of webKit: WKWebView, types: Set<String>, then done: @escaping @MainActor () -> Void) {
         guard let host = webKit.url?.host() else { return done() }
         let store = webKit.configuration.websiteDataStore
+        // task-owner: one site-data removal, then the reload
+        // main-hop-allow: the person's DevTools command, userBlocking (p06 rule 2): WKWebsiteDataStore is main-actor and its records are not Sendable, so the filter runs on main between its two awaits
         Task {
             let records = await store.dataRecords(ofTypes: types)
             let site = records.filter { host == $0.displayName || host.hasSuffix(".\($0.displayName)") }

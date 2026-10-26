@@ -2,7 +2,9 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextTerminal
 import Foundation
 
@@ -55,6 +57,22 @@ struct AppEnvironment: Sendable {
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).
     var incognitoLeftovers: LaunchRead<IncognitoWorkspaceLedger.Leftovers>?
+    /// The browser pages' pictures from the last quit (`BrowserLaunchPictures`), read on a launch lane from `main`.
+    /// Only the real app process makes it; without it no picture is read or written (tests that build `AppServices`).
+    var browserLaunchPictures: BrowserLaunchPictures?
+    /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
+    /// app process makes it; without it no window picture is written (tests that build `AppServices`).
+    var windowPictures: WindowPictureStore?
+    /// The Labs page's local feature choices and their file (``FeatureLocalOverrides``), read on a launch lane from
+    /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
+    /// Release and in tests that build `AppServices`.
+    var featureLocalOverridesFile: URL?
+    var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
+    /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
+    /// read on a launch lane from `main` beside ``featureLocalOverrides``: their features' local overrides
+    /// (``FeatureLaunchLocalOverrides``). Only where launch activates the tunable store
+    /// (``DebugSettingsService/launchFile(launch:environment:)``); nil in Release and in tests that build `AppServices`.
+    var featureTunableOverrides: LaunchRead<[String: Bool]>?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?

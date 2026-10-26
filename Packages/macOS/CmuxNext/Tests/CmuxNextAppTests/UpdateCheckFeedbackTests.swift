@@ -54,7 +54,7 @@ import Testing
     /// The registry the menu, palette, CLI (`settings check-for-updates`) and a Ghostty keybind run.
     static func registry(_ updater: UpdaterService) -> ActionRegistry {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: updater)
+        UpdateHandlers.bind(into: registry, updater: updater, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         return registry
     }
 

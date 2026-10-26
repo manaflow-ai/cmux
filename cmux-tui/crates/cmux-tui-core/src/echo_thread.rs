@@ -25,8 +25,10 @@ use std::thread::JoinHandle;
 
 use cmux_threads::ThreadQos;
 
-/// The class every echo path thread declares.
-pub const ECHO_PATH_QOS: ThreadQos = ThreadQos::UserInteractive;
+use crate::thread_qos::ThreadType;
+
+/// The class every echo path thread declares: [`ThreadType::InputCritical`].
+pub const ECHO_PATH_QOS: ThreadQos = ThreadType::InputCritical.qos();
 
 /// Starts echo path thread `name`: registered at [`ECHO_PATH_QOS`], blocking
 /// disallowed before `f` runs.

@@ -122,6 +122,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private(set) var appearanceSignals = DesignSettings.shared.signals
     /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
     private(set) var visibilityNode: VisibilityNode?
+    /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
+    /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
+    var engineVisible = false
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
@@ -201,7 +204,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The visibility node a page waiting for its first show follows (PageWebView+FirstShow.swift).
     var firstShowWatch: PageFirstShowWatch?
     /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
-    let hideState = PageHideState()
+    package let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What `debug.webui` knows of this page (PageWebView+Debug.swift).
     var censusState = PageCensusState()
@@ -333,6 +336,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         observeStatusLook()
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         applyUIScale()
         observeUIScale()

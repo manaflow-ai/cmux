@@ -8,8 +8,10 @@ import GhosttyNextKit
 ///
 /// Embed ``view``. The session consumes `io.events` off the main actor: live
 /// output goes straight to a serial off-main output lane, every other event
-/// is handled on the main actor in stream order. It writes Ghostty's
-/// encoded input back to `io.write` in order. Consumption is demand-driven:
+/// is handled on the main actor in stream order. Ghostty's encoded input,
+/// grid reports and focus go to the IO in order through one
+/// ``TerminalInputLane`` drained on the IO's queue (`io.inputDrain()`), one
+/// thread hop from the key. Consumption is demand-driven:
 /// the next event is taken only once the lane has room, so a slow parser
 /// pushes back on the IO (which bounds its own buffer) instead of queueing
 /// without limit (state-audit.md T1).
@@ -131,7 +133,6 @@ public final class TerminalSession {
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
-    private var writerTask: Task<Void, Never>?
     var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
@@ -185,39 +186,20 @@ public final class TerminalSession {
         self.gpuResidency = gpuResidency
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
-        // concurrency-allow: carries only user input and resizes, produced at human rate
-        let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
-        input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+        // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
+        input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                  typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                           gpuResidency: gpuResidency)
-        surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
+        surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
-
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
-            for await item in outgoing {
-                switch item {
-                case .bytes(let data):
-                    await io.write(data)
-                case .resize(let grid, let width, let height):
-                    await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
-                case .focusGained:
-                    await io.focusGained()
-                case .takeOverSize(let setLatest):
-                    await io.takeOverSize(setLatest: setLatest)
-                case .reconnect:
-                    await io.reconnectRequested()
-                case .resync:
-                    await io.resyncRequested()
-                }
-            }
-        }
 
         eventsTask = Self.consume(io.events, for: self)
         // The first grid report fired inside the surface init, before
@@ -230,7 +212,6 @@ public final class TerminalSession {
     // Sendable cleanup only, so it runs on whatever thread releases the session.
     nonisolated deinit {
         eventsTask?.cancel()
-        writerTask?.cancel()
         input.finish()
     }
 
@@ -245,7 +226,7 @@ public final class TerminalSession {
     /// that names no file is plain text, with no underline and no open. Gets the text and the
     /// folder the shell last reported; runs off the main thread. Nil: every detected link is one.
     public private(set) var linkCheck: TerminalLinkCheck? {
-        didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
+        didSet { surfaceView.bridgeObject.linkFilter.setCheck(linkCheck) }
     }
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
@@ -265,9 +246,9 @@ public final class TerminalSession {
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {
         guard let surface = surfaceView.surface, !text.isEmpty else { return }
-        text.withCString { pointer in
-            ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
-        }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
+        // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
+        unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -432,8 +413,8 @@ public final class TerminalSession {
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
         surfaceView = fresh
-        fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
-        fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
+        fresh.bridgeObject.installLinkFilter(linkCheck)
+        fresh.bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
@@ -455,9 +436,12 @@ public final class TerminalSession {
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
         if let theme {
-            ghostty_surface_update_config(surface, theme.config)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the theme's live
+            // config, which `theme` holds for the call; Ghostty copies what it keeps.
+            unsafe ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {
-            ghostty_surface_update_config(surface, config)
+            // SAFETY: as above, with the runtime's live applied config (GhosttyRuntime.config).
+            unsafe ghostty_surface_update_config(surface, config)
         }
     }
 

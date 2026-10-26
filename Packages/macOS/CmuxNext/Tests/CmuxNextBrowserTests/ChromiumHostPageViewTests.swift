@@ -197,5 +197,39 @@ import Testing
         #expect(window.makeFirstResponder(nil))
         #expect(focus == [1, 0])
     }
+
+    /// A trackpad scroll from the window server (gesture `scrollPhase`, momentum `momentumPhase`, CG values).
+    static func trackpadScroll(scrollPhase: Int64, momentumPhase: Int64, pointDeltaY: Int32) throws -> NSEvent {
+        let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: pointDeltaY,
+                                      wheel2: 0, wheel3: 0))
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: scrollPhase)
+        cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
+        cg.flags = .maskShift
+        return try #require(NSEvent(cgEvent: cg))
+    }
+
+    /// p04-input-063: the page view sends the event's phases, precise flag and
+    /// scrolling deltas. Before, it sent the integer point deltas only.
+    @Test func aWheelCarriesItsPhasesAndPreciseDeltas() throws {
+        let page = makePage(.view)
+        var wheels: [ChromiumHostFrame.Wheel] = []
+        page.sink = { frame in
+            if let wheel = frame.wheelFields { wheels.append(wheel) }
+            return nil
+        }
+        let gesture = try Self.trackpadScroll(scrollPhase: 2, momentumPhase: 0, pointDeltaY: -12)  // kCGScrollPhaseChanged
+        let momentum = try Self.trackpadScroll(scrollPhase: 0, momentumPhase: 1, pointDeltaY: -30)  // kCGMomentumScrollPhaseBegin
+        try #require(gesture.phase == .changed && gesture.momentumPhase.isEmpty)
+        try #require(momentum.phase.isEmpty && momentum.momentumPhase == .began)
+        page.scrollWheel(with: gesture)
+        page.scrollWheel(with: momentum)
+        try #require(wheels.count == 2)
+        #expect(wheels.map(\.phase) == [NSEvent.Phase.changed.rawValue, 0])
+        #expect(wheels.map(\.momentumPhase) == [0, NSEvent.Phase.began.rawValue])
+        #expect(wheels.map(\.precise) == [gesture.hasPreciseScrollingDeltas, momentum.hasPreciseScrollingDeltas])
+        #expect(wheels.map(\.deltaY) == [gesture, momentum].map { (Double($0.scrollingDeltaY) * 100).rounded() / 100 })
+        #expect(wheels.allSatisfy { NSEvent.ModifierFlags(rawValue: UInt($0.modifierFlags)).contains(.shift) })
+    }
     #endif
 }

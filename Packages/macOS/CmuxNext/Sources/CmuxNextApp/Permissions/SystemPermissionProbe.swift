@@ -85,7 +85,8 @@ final class SystemPermissionProbe: PermissionProbe {
     @concurrent nonisolated static func fullDiskAccess() async -> PermissionStatus {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/com.apple.TCC/TCC.db").path
-        let fd = open(path, O_RDONLY)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let fd = unsafe open(path, O_RDONLY)
         if fd >= 0 {
             close(fd)
             return .granted

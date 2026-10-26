@@ -17,9 +17,15 @@ enum OnboardingHandlers {
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
-            Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
-                let counts = try? await sync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
-                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+            let profile = record.id, name = record.name, sink = services.importedBookmarkSink
+            let end = registry.completion(on: services.mainWork)
+            // One removal the person asked for, on the import store's actor; the toast reports it (or that it
+            // failed) as the run's completion.
+            end.start {
+                let counts = try? await sync.removeImported(profile: profile, bookmarks: sink)
+                end.post(owner: "OnboardingHandlers.removeImported", answering: true) {
+                    BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: name))
+                }
             }
         })
         // No path argument: only the person's own pick in the open panel brings passwords in.
@@ -58,40 +64,47 @@ enum OnboardingHandlers {
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.
+        // The preview and the person's answer are awaited off main; the run's result is one task on main.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
-            registry.track(Task { @MainActor in
-                do {
-                    _ = try await importClassic(services, in: window)
-                    return nil
-                } catch {
-                    return ActionWorkFailure("import-classic: \(error)")
-                }
-            })
+            registry.trackWork(owner: "OnboardingHandlers.importClassic", on: services.mainWork) {
+                _ = try await importClassic(services, in: window)
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                return ActionWorkFailure("import-classic: \(error)")
+            }
         })
         registry.bind("palette.makeDefaultTerminal", run: { _ in
-            let apps = services.onboarding.defaultApps
-            registry.track(Task { @MainActor in
-                do {
-                    for claim in DefaultHandlerClaim.terminalClaims where !apps.isClaimed(claim) { try await apps.claim(claim) }
-                    return nil
-                } catch {
-                    return (error as? CocoaError)?.code == .userCancelled ? nil : ActionWorkFailure("make-default-terminal", error)
-                }
-            })
+            registry.trackWork(owner: "OnboardingHandlers.makeDefaultTerminal", on: services.mainWork) {
+                try await claimDefaults(terminal: true, services)
+            } then: { result in
+                defaultFailure(result, label: "make-default-terminal")
+            }
         })
         registry.bind("palette.makeDefaultBrowser", run: { _ in
-            let apps = services.onboarding.defaultApps
-            registry.track(Task { @MainActor in
-                do {
-                    try await apps.claim(.webBrowser)
-                    return nil
-                } catch {
-                    // A refusal in the system prompt is not a failure.
-                    return (error as? CocoaError)?.code == .userCancelled ? nil : ActionWorkFailure("make-default-browser", error)
-                }
-            })
+            registry.trackWork(owner: "OnboardingHandlers.makeDefaultBrowser", on: services.mainWork) {
+                try await claimDefaults(terminal: false, services)
+            } then: { result in
+                defaultFailure(result, label: "make-default-browser")
+            }
         })
+    }
+
+    /// Makes cmux the default terminal (each handler not cmux's yet) or the default browser; macOS asks
+    /// the person to confirm the browser.
+    private static func claimDefaults(terminal: Bool, _ services: AppServices) async throws {
+        let apps = services.onboarding.defaultApps
+        guard terminal else { return try await apps.claim(.webBrowser) }
+        for claim in DefaultHandlerClaim.terminalClaims {
+            let claimed = await apps.isClaimed(claim)
+            if !claimed { try await apps.claim(claim) }
+        }
+    }
+
+    /// A default-app claim's failure; a refusal in the system prompt is not one.
+    private static func defaultFailure(_ result: Result<Void, any Error>, label: String) -> ActionWorkFailure? {
+        guard case .failure(let error) = result, (error as? CocoaError)?.code != .userCancelled else { return nil }
+        return ActionWorkFailure(label, error)
     }
 
     /// What the import cards run through the App: the Import from Browser window's import run

@@ -95,12 +95,13 @@ public final class HangReportCollector: Sendable {
                   addresses: addresses)
     }
 
-    /// One hang still running (watchdog thread, from the watchdog's `onHang`).
-    public func noteHang(durationNanos: UInt64, addresses: [UInt]) {
+    /// One hang still running (watchdog thread, from the watchdog's `onHang`), with the scheduled task it
+    /// caught (``HangSample/MainTask/unattributed`` when none ran; nil when the caller does not know).
+    public func noteHang(durationNanos: UInt64, addresses: [UInt], task: HangSample.MainTask? = nil) {
         guard isEnabled, !addresses.isEmpty else { return }
         let ms = Self.milliseconds(durationNanos)
         guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
-        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
+        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task), addresses: addresses)
     }
 
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic

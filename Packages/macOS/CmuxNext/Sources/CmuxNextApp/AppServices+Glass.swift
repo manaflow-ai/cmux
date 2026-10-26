@@ -7,7 +7,7 @@ extension AppServices {
     /// Runs after the first frame; `seedGlass()` set the launch's mode, so this repaints only for a change since then.
     func observeGlass() {
         appearance.observeDisplayOptions(through: workspaceEvents)
-        let watch = GlassModeWatch(signals: appearance, lowPowerMode: energyMonitor.lowPowerMode) { [themeStore] mode in
+        let watch = GlassModeWatch(signals: appearance, lowPowerMode: energyMonitor.lowPowerMode, mainWork: mainWork) { [themeStore] mode in
             themeStore.setGlassMode(mode)
         }
         themeStore.setGlassMode(watch.mode)

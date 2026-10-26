@@ -577,6 +577,13 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
+| 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
+| 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
+| 270 | Action cases: sidebar, item and group targets | M | 20-36 | 047, 071, 075 | MQ-actions |
+| 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
+| 272 | Facet: the top band's items | S | 20-28 | 036, 075 | |
+| 273 | Pin Chat with no target refuses | S | 20-28 | 075, 270 | |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -950,6 +957,89 @@ root is under /tmp and state/projects.rs refuses every path under /tmp, /var/fol
 success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
+
+**245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
+`mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
+`shutdown-daemon end_terminals` ends every terminal but leaves the holder running until its idle exit (IDLE_EXIT, 30 s):
+the holder model has no frame that ends the holder, so driver_daemon.py's I6 teardown (10 s) reports it left behind on
+every holder-arm case. Change: when the daemon ends its last holder terminal for shutdown, it tells the holder to exit
+(or the holder exits when its owner leaves and it holds no terminal), and the daemon waits for that exit before it
+answers. terminal/_tuning.json then drops its `expectations` entry (the 18 `[ new ] ... [ Failure ]` lines). Test: the
+cmux-holder and holder_runtime tests of the exit; VM, the 18 terminal cases green twice on the holder arm with the stock
+driver.
+
+**246 Facet: a terminal's view scroll offset.** Files: `oracle_state.rs`, `snapshot-v1.schema.json`, `terminal/_tuning.json`.
+terminal.viewport.scroll moves only the compatibility view's anchor (Surface::view_scroll_delta), which no read and no
+facet field returns: terminal.copy and terminal.screen.read read the terminal's own viewport. Change: the daemon facet
+reports each terminal's view scrollbar {offset, total, len} (Surface::view_scrollbar), and the scroll success case
+settles on offset = total - len - 5 after the call; its gap goes away. Test: VM, the scroll success case green twice on
+both holder arms, and red when the handler scrolls 0 rows or the other way (negative control).
+
+**247 Driver: a call that ends the daemon, expect.result references.** Files: `driver_daemon.py`,
+`driver_daemon_test.py`, `case_values.py`, `case_checks.py`, `case-v1.schema.json`, `case-v1-mutations.json`. Found by
+063 (session.shutdown and the graceful restart). (1) case-v1 step `ends: daemon` (a mutating resource.call only):
+after an ok reply the runner waits for the daemon's exit in that step, records it as the step's exit and checks it
+against allow_crashes (I17), and fails the step unless the exit is a normal termination (exit 0;
+`base/process/kill.h` TERMINATION_STATUS_NORMAL_TERMINATION). A later restart finds no running daemon, so it starts
+one and never sends shutdown-daemon to a daemon that is exiting; case_checks.py counts the step as one that ends a
+daemon. (2) `expect.result` resolves its `$step:` references before the comparison (case-v1 stepRef: the runner
+substitutes it), so `"$step:<id>#"` holds a reply equal to an earlier one, compared with JSON types (a bool never
+equals a number). (3) `expect.resultExcept`: JSON pointers, `*` for every item or member, removed from both values
+first (case_values.without_pointers), for what a new daemon generation changes. Implemented with 063's fixer, which
+needs all three: without (1) session-shutdown-ok races the exiting daemon at the restart (a Crash). Test:
+driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
+and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
+VM, the 22 session cases green twice.
+
+The sidebar and workspaceGroup action cases (075, `tests/oracle/corpus/actions/sidebar/_tuning.json`) make a group of
+the shown workspace before each group action, since no case can name a group, section or item. Two follow-ups close
+what the cases cannot check yet.
+
+**270 Action cases: sidebar, item and group targets.** Files: `case-v1.schema.json`, `driver_app.py`,
+`driver_app_test.py`, `gen_actions.py`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. case-v1 `target` has no
+`workspaceGroup`, `sidebarSection` or `sidebarItem` kind, so action.run cannot name `sidebar-section:sec_top`,
+`sidebar-item:itm_home` or a group (ActionTargetKind's CLI prefixes), and gen_actions.py takes no tuned target. Add
+the three kinds (a fixed id, or a `$step:` value such as make-group's created group), map them in
+`driver_app.action_target` to `workspace-group:`, `sidebar-section:` and `sidebar-item:`, and add `target` to the
+generator's tuning keys. The 13 section and 3 item cases that now expect the noSuchSection or noSuchItem
+refusal, and the 5 toggles blocked below, run their success path on `sec_top` and `itm_home`
+(sidebar.chat.togglePin also needs a history chat, 086), and workspaceGroup.collapseOthers folds a second group.
+workspaceGroup.moveToWindow (blocked `live-value`) takes its window from a newWindow setup step's created window as a
+`$step:` value. build_case adds a restore that runs a
+TOGGLES action again, also after an action step that expects an error, so a refused toggle would fail at restore-1.
+Until 270, sidebar.section.toggleTitle, toggleSpaceScope, toggleCollapsed, sidebar.item.toggleLabel and toggleArchive
+are blocked `live-value`: their tuning's `params.target` holds `<fixture sidebar-section:sec_top>` or `<fixture
+sidebar-item:itm_home>`. 270 moves that value to the action step's target, which unblocks them as success cases, and
+gen_actions.py writes no restore after an action step that expects an error (nothing changed to put back). Test:
+gen_actions.py --selftest (an error case has no restore step); driver_app_test.py (the kinds reach action.run's
+target); fleet, those cases green twice.
+
+**271 Facet: a workspace group's color, icon and archived mark.** Files: `SidebarSnapshot.swift`,
+`snapshot-v1.schema.json`, `OracleSidebarFacetTests.swift`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. The
+sidebar facet's group row has no color, icon or archived field, so workspaceGroup.setColor, clearColor, the nine
+color.* actions, setIcon, clearIcon and toggleArchive change nothing a case can wait on. Add `color` (the GroupTint
+wire token or null), `icon` (null, or `set`: an icon is user text) and `archived` to the row from SidebarModel's
+public values, as 036 reads the rest; the 14 cases gain a waitFor on the group row. Test: OracleSidebarFacetTests;
+fleet, the 14 cases green twice.
+
+**272 Facet: the top band's items.** Files: `SidebarSnapshot.swift`, `snapshot-v1.schema.json`,
+`OracleSidebarFacetTests.swift`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. SidebarDocListing.arrange draws
+each section before (and after) the machine lists as a block of items with no `.item` node, so the facet writes one
+row for sec_top and none for Home or an added item: sidebar.home.add, sidebar.home.remove and sidebar.item.add change
+no row, and their cases have no waitFor. Add one `item` row per item of those sections (its ref kind, label from the
+item or its app, as the row draws it), under the section row; the three cases gain a `changed` waitFor on
+`/sidebar/rows`. Test: OracleSidebarFacetTests (Home under sec_top, gone after its remove); fleet, the three cases
+green twice.
+
+**273 Pin Chat with no target refuses.** Files: `SidebarChatHistoryFeed.swift`, `SidebarChatPinBindingTests.swift`,
+`tests/oracle/corpus/actions/sidebar/_tuning.json`. SidebarChatHistoryFeed.bind returns with no sidebar-item target
+(or no history), so `sidebar.chat.togglePin` answers ok for nothing done, which ActionRegistry+Unavailable's "no
+handler is a silent no-op" forbids; the section and item actions refuse with noSuchItem. Throw an ActionFailure with
+the noSuchItem string, as SidebarSectionResolve.item does (Chrome: ExecuteCommandWithDisposition returns false for a
+command it did not run, chrome/browser/ui/browser_command_controller.cc). The case's tuning (divergence
+chat-pin-silent-no-target) turns to `error: control.unavailable`; it is a toggle, so it needs 270's rule of no restore
+after an error step. Test: SidebarChatPinBindingTests (no target: the run is refused, no pin changes); fleet, the
+case green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

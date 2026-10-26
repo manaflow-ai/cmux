@@ -4,6 +4,7 @@ import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -52,8 +53,9 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let glyphs = AppsGlyphResource(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .apps, routes: routes, route: route,
-                                                             dynamicResources: AppsGlyphResource())) else { return nil }
+                                                             dynamicResources: glyphs)) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
@@ -169,6 +171,10 @@ struct PageFactory {
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.setFeature = { [weak services] name, on in  // Experimental > Feature Flags (feature featureFlagsCard)
+            guard let services, services.features.isEnabled(.featureFlagsCard) else { throw PageError.unavailable("no Feature Flags card") }
+            do { try services.featureLocalOverrides.set(name, on) } catch { throw PageError.invalidParams(String(describing: error)) }
+        }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
@@ -199,7 +205,8 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession(memory: AppMemoryConsumers(services: services).appCacheRegistry)
+        let appCaches = AppMemoryConsumers(services: services).appCacheRegistry
+        let museumArt = MuseumArtSession(memory: appCaches)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },
@@ -238,7 +245,7 @@ struct PageFactory {
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
-                                                          })
+                                                          }, memory: appCaches)
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                                                surface: .settings,
                                                dynamicResources: dynamicResources,

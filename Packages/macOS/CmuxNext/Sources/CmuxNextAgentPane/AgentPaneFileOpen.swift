@@ -57,8 +57,4 @@ public nonisolated enum AgentPaneFileOpen {
         return shown.contains { type.conforms(to: $0) }
     }
 
-    /// The app that edits text: the default for source code, else for plain text.
-    @MainActor public static func editorApplication(workspace: NSWorkspace = .shared) -> URL? {
-        workspace.urlForApplication(toOpen: .sourceCode) ?? workspace.urlForApplication(toOpen: .plainText)
-    }
 }

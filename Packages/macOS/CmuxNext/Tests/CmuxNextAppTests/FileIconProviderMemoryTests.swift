@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -90,11 +92,23 @@ import Testing
         #expect(icons.memoryUsage?.entries == 3)
     }
 
-    /// Package icons (one per app bundle) were kept with the type icons, unbounded and uncounted.
+    /// Package icons (one per app bundle) were kept with the type icons, unbounded and uncounted. Each is read on
+    /// the system lane (p02-threads-056), so the test waits for the 300 to land.
     @Test func packageIconsAreCountBoundedCountedAndReleased() {
-        let icons = FileIconProvider(workingSet: 2)
+        let system = OpenWithWorkspace(apps: [], defaultApp: nil)
+        let queries = WorkspaceQueries(work: BackgroundWork(label: "test.file-icons"), mainWork: .still(), system: system,
+                                       capacity: 512)
+        let icons = FileIconProvider(queries: queries, workingSet: 2)
         let packages = (0..<300).map { FileEntry(url: URL(fileURLWithPath: "/apps/\($0).app"), kind: .package) }
         for package in packages { _ = icons.icon(for: package) }
+        let end = Date(timeIntervalSinceNow: 10)
+        while icons.arrivals < packages.count, Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(icons.arrivals == packages.count)
+        #expect(system.mainAsks.withLock { $0 } == 0, "an icon was read on the main thread")
+        // The provider is each package icon's one owner: the query table keeps none, so the provider's release frees them.
+        #expect(queries.iconCount == 0)
         let usage = icons.memoryUsage
         #expect((usage?.entries ?? .max) <= FileIconProvider.defaultPackageIconCount)
         #expect(usage?.footprintBytes == (usage?.entries ?? 0) * FileIconProvider.iconBytes)

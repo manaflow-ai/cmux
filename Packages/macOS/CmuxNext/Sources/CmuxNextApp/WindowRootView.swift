@@ -26,13 +26,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
     let backdropView = WindowMaterialView(frame: .zero)
-    /// Whether Reduce Transparency is on (tests pin it; the host setting
-    /// differs between machines). Internal, not private: the painting itself
-    /// is in `WindowRootView+Surface`.
+    /// Whether Reduce Transparency is on (tests pin it; the host setting differs between machines).
+    /// Internal, not private: the painting itself is in `WindowRootView+Surface`.
     let reduceTransparency: @MainActor () -> Bool
-    /// Sets the window's behind-window blur radius (tests record it).
-    /// Internal for the same reason as `reduceTransparency`.
+    /// Sets the window's behind-window blur radius (tests record it). Internal like `reduceTransparency`.
     let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
+    /// Feature `sidebarSlideHoldsContent`, asked at each slide's start (`WindowRootView+ContentAreaMotion`).
+    let slideHoldsContent: @MainActor () -> Bool
     /// The workspace content: the curved main pane, inset and rounded
     /// (cx-rkgu), or edge to edge.
     let contentHost = MainPaneCardView(frame: .zero)
@@ -105,21 +105,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
 
     /// - Parameter sidebar: The window's sidebar.
-    /// - Parameter reduceTransparency: The user's Reduce Transparency
-    ///   setting, read on every theme and display-options change.
-    /// - Parameter applyWindowBlur: Sets the window's behind-window blur
-    ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
+    /// - Parameter reduceTransparency: The user's Reduce Transparency setting, read on every theme and display-options change.
+    /// - Parameter applyWindowBlur: Sets the window's behind-window blur radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
+    /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-         signals: AppearanceSignals = DesignSettings.shared.signals) {
+         signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true }) {
         self.sidebar = sidebar
         collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
+        self.slideHoldsContent = slideHoldsContent
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
         backdropView.frame = bounds

@@ -8,6 +8,7 @@ import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// `OnboardingServices` over the app for the tool window: the importer
 /// (cookies and passwords into each profile's Chromium store) and the
@@ -25,6 +26,17 @@ final class AppOnboardingServices: OnboardingServices {
     private let folderAccess = BrowserFolderAccess()
 
     func detectBrowsers() async -> [BrowserSource] { await folderAccess.detect() }
+
+    func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage] {
+        // Launch Services and the disk, on the system lane.
+        let icons = try? await services.work.run(.userVisible, mayBlock: .system) {
+            let system = SystemWorkspaceQuerying()
+            return browsers.reduce(into: [ImportBrowser: NSImage]()) { icons, entry in
+                if icons[entry.browser] == nil { icons[entry.browser] = entry.browser.appIcon(installedAt: entry.app, system) }
+            }
+        }
+        return icons ?? [:]
+    }
     func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
     func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
     func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }
@@ -89,7 +101,9 @@ final class AppOnboardingServices: OnboardingServices {
     func authorizePasswordRead(reason: String) async -> Bool {
         let context = LAContext()
         var unavailable: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
+        // SAFETY: the error pointer is a local live for the call; LocalAuthentication stores at most one
+        // autoreleased NSError through it and keeps no reference to the pointer.
+        guard unsafe context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
             return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
         }
         return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false

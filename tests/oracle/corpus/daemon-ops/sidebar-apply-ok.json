@@ -71,6 +71,50 @@
         "settled"
       ],
       "note": "two reducer ops commit as one: a new custom section and an item moved into it"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.apply",
+        "params": {
+          "ops": [
+            {
+              "op": "section.add",
+              "section": {
+                "id": "sec_oracle",
+                "kind": {
+                  "type": "custom"
+                },
+                "title": "Oracle"
+              }
+            },
+            {
+              "op": "move",
+              "items": [
+                "itm_app_store"
+              ],
+              "to": {
+                "section": "sec_oracle"
+              }
+            }
+          ]
+        },
+        "idempotencyKey": "sidebar-apply-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
