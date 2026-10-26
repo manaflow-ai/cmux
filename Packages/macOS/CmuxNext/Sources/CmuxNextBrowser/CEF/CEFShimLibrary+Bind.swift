@@ -229,15 +229,21 @@ nonisolated extension CEFShimLibrary {
             let count = unsafe cRendererClientIDs(browser, &ids, room)
             return Array(ids.prefix(Int(min(max(count, 0), room))))
         }
-        let cRendererFrameCounts: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 =
-            try unsafe r("cmux_shim_renderer_frame_counts")
-        rendererFrameCounts = { browser, capacity in
-            let room = max(Int(capacity), 0)
-            var ids = [Int32](repeating: 0, count: room), frames = [Int32](repeating: 0, count: room)
-            // SAFETY: the shim writes at most `room` entries into each array's buffer during the call.
-            let count = Int(max(unsafe cRendererFrameCounts(browser, &ids, &frames, Int32(room)), 0))
-            guard count <= room else { return nil }
-            return (0 ..< count).map { (clientID: ids[$0], frames: Int(frames[$0])) }
+        let cRendererFrames: @convention(c) (UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 =
+            try unsafe r("cmux_shim_renderer_frames")
+        rendererFrames = {
+            // A second call sized to the first one's count; the browsers cannot change between them on this thread.
+            var room = 64
+            for _ in 0 ..< 2 {
+                var browsers = [Int32](repeating: 0, count: room), ids = browsers, frames = browsers
+                // SAFETY: the shim writes at most `room` entries into each array's buffer during the call.
+                let count = Int(max(unsafe cRendererFrames(&browsers, &ids, &frames, Int32(room)), 0))
+                guard count > room else {
+                    return (0 ..< count).map { CEFRendererFrames.Entry(browser: browsers[$0], clientID: ids[$0], frames: Int(frames[$0])) }
+                }
+                room = count
+            }
+            return nil
         }
         rendererPID = try r("cmux_shim_renderer_pid")
         let cAddDocumentScript: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32)? = unsafe r.optional("cmux_shim_add_document_script")

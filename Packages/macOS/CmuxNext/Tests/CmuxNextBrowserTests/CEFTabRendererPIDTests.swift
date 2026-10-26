@@ -32,28 +32,27 @@ import Testing
         #expect(RendererPIDSpy.asked.isEmpty)
     }
 
-    /// p09-observability-061: each renderer of the tab's own browser with how many of its frames it hosts, from
-    /// `cmux_shim_renderer_frame_counts`; more renderers than one call returns is unknown, not a partial list.
-    @Test func eachRendererComesWithItsFrameCount() throws {
+    /// p09-observability-061: every browser's frames per renderer come from one `cmux_shim_renderer_frames`
+    /// listing, popups and other browsers no tab holds included, so a renderer's total is whole. A short buffer is
+    /// sized again from the count, never truncated; a browser the shim does not hold has no frames.
+    @Test func everyBrowsersFramesComeFromOneListing() throws {
         let rig = try RendererPIDRig(answer: 0)
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        RendererPIDSpy.frames = [(clientID: 11, frames: 2), (clientID: 12, frames: 1)]
-        let frames = try #require(tab.rendererFrames)
-        #expect(frames.map { $0.clientID } == [11, 12] && frames.map { $0.frames } == [2, 1])
-        #expect(RendererPIDSpy.asked == [7], "the shim is asked for the tab's own browser")
+        RendererPIDSpy.frames = [CEFRendererFrames.Entry(browser: 7, clientID: 11, frames: 2),
+                                 CEFRendererFrames.Entry(browser: 7, clientID: 12, frames: 1),
+                                 CEFRendererFrames.Entry(browser: 8, clientID: 11, frames: 1)] // a same-site popup
+        let frames = try #require(rig.runtime.rendererFrames)
+        #expect(frames.totals == [11: 3, 12: 1])
+        let own = frames.frames(ofBrowser: tab.browserID)
+        #expect(own.map { $0.clientID } == [11, 12] && own.map { $0.frames } == [2, 1])
+        #expect(frames.frames(ofBrowser: nil).isEmpty && frames.frames(ofBrowser: 99).isEmpty)
+        #expect(RendererPIDSpy.listings == [64], "one call when the list fits")
 
-        RendererPIDSpy.frames = (1 ... 33).map { (clientID: Int32($0), frames: 1) }
-        #expect(tab.rendererFrames == nil, "a truncated list would hide frames")
-    }
-
-    @Test func aTabWithNoBrowserHasNoFrames() throws {
-        let rig = try RendererPIDRig(answer: 0)
-        defer { rig.close() }
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: rig.runtime)
-        let unborn = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
-        #expect(unborn.rendererFrames?.isEmpty == true, "no browser holds no renderer memory")
-        #expect(RendererPIDSpy.asked.isEmpty)
+        RendererPIDSpy.listings = []
+        RendererPIDSpy.frames = (1 ... 70).map { CEFRendererFrames.Entry(browser: Int32($0), clientID: Int32($0), frames: 1) }
+        #expect(rig.runtime.rendererFrames?.entries.count == 70, "a short buffer is sized again, never truncated")
+        #expect(RendererPIDSpy.listings == [64, 70])
     }
 
     /// The tab publishes its renderers at once and again when a load phase changes or its renderer ends
@@ -121,34 +120,38 @@ import Testing
 private nonisolated enum RendererPIDSpy {
     nonisolated(unsafe) static var answer: Int32 = 0
     nonisolated(unsafe) static var asked: [Int32] = []
-    /// What `cmux_shim_renderer_frame_counts` answers: each renderer client id with its frame count.
-    nonisolated(unsafe) static var frames: [(clientID: Int32, frames: Int32)] = [] // crash-allow: the suite is serialized and the shim is called on the main actor
+    /// What `cmux_shim_renderer_frames` answers: every browser's frames per renderer client id.
+    nonisolated(unsafe) static var frames: [CEFRendererFrames.Entry] = [] // crash-allow: the suite is serialized and the shim is called on the main actor
+    /// The capacity of each `cmux_shim_renderer_frames` call.
+    nonisolated(unsafe) static var listings: [Int32] = [] // crash-allow: the suite is serialized and the shim is called on the main actor
 
     static func reset(answer pid: Int32) {
         answer = pid
         asked = []
         frames = []
+        listings = []
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
         let version: @convention(c) () -> Int32 = { 29 }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
         let rendererPID: @convention(c) (Int32) -> Int32 = { browser in RendererPIDSpy.asked.append(browser); return RendererPIDSpy.answer }
-        let frameCounts: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 = { browser, ids, frames, capacity in
-            RendererPIDSpy.asked.append(browser)
-            let renderers = RendererPIDSpy.frames
-            for (index, renderer) in renderers.prefix(Int(capacity)).enumerated() {
-                ids?[index] = renderer.clientID
-                frames?[index] = renderer.frames
+        let rendererFrames: @convention(c) (UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 = { browsers, ids, frames, capacity in
+            RendererPIDSpy.listings.append(capacity)
+            let entries = RendererPIDSpy.frames
+            for (index, entry) in entries.prefix(Int(capacity)).enumerated() {
+                browsers?[index] = entry.browser
+                ids?[index] = entry.clientID
+                frames?[index] = Int32(entry.frames)
             }
-            return Int32(renderers.count)
+            return Int32(entries.count)
         }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_fork_api_version": unsafeBitCast(version, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_renderer_pid": unsafeBitCast(rendererPID, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_renderer_frame_counts": unsafeBitCast(frameCounts, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_renderer_frames": unsafeBitCast(rendererFrames, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

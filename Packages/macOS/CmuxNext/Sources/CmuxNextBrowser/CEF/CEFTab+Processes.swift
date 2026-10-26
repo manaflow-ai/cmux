@@ -10,17 +10,6 @@ extension CEFTab: BrowserProcessReporting {
         return .chromiumRendererClients(ids)
     }
 
-    /// Each renderer client id that hosts this tab's frames, with how many of its frames it hosts (the main
-    /// frame and every iframe): what memory per hidden workspace splits a shared renderer by
-    /// (p09-observability-061). One shim call, stock CEF API. Nil in host mode (the remote shim answers none)
-    /// and when the tab has more renderers than one call returns; empty while it has no frame (no browser
-    /// yet, no renderer yet, a discarded page), which holds no renderer memory.
-    public var rendererFrames: [(clientID: Int32, frames: Int)]? {
-        guard runtime.hostStart == nil else { return nil }
-        guard let browserID, let shim = runtime.shim else { return [] }
-        return shim.rendererFrameCounts(browserID, 32)
-    }
-
     /// The pid of the renderer that hosts this tab's main frame (the fork's
     /// `cmux_cef_browser_renderer_pid`, p14-energy-124); same-site tabs can share it. Nil before the
     /// browser exists, while it has no renderer, on a fork without the call and in host mode

@@ -12,7 +12,8 @@ import Darwin
 /// `SplitResourceAmongFramesAndWorkers`).
 ///
 /// A workspace records a sample only when its attribution is clear: every frame of its tabs has a renderer with
-/// a known pid, and each of those renderers' footprint was read. Any other workspace is counted as unclear, by
+/// a known pid, each of those renderers' whole frame count (every browser's, popups too) is known, and each of
+/// their footprints was read. Any other workspace is counted as unclear, by
 /// the sample's ``Trigger``, and records nothing, so the histogram is never biased by guesses. Samples are taken
 /// at transitions only (a workspace switch, the app resigning active, a report): no timer.
 ///
@@ -69,14 +70,19 @@ public final class MemorySampler: Sendable {
         }
     }
 
-    /// Every browser tab and the workspaces no window shows.
+    /// Every browser tab, the workspaces no window shows, and each renderer's frames.
     public struct Snapshot: Sendable, Equatable {
         public var tabs: [Tab]
         public var hiddenWorkspaces: Set<String>
+        /// Every frame each renderer hosts, by pid, over every browser of the engine (popups, spares and
+        /// DevTools too, which ``tabs`` does not list): the denominator a shared renderer is split by. A renderer
+        /// left out is one whose frames are unknown.
+        public var rendererFrames: [Int32: Int]
 
-        public init(tabs: [Tab], hiddenWorkspaces: Set<String>) {
+        public init(tabs: [Tab], hiddenWorkspaces: Set<String>, rendererFrames: [Int32: Int]) {
             self.tabs = tabs
             self.hiddenWorkspaces = hiddenWorkspaces
+            self.rendererFrames = rendererFrames
         }
     }
 
@@ -92,6 +98,8 @@ public final class MemorySampler: Sendable {
     public enum Unclear: Sendable, Equatable {
         /// A frame of one of its tabs has no renderer with a known pid.
         case unresolvedFrames
+        /// A renderer of its tabs has no whole frame count (``Snapshot/rendererFrames``), so its share is unknown.
+        case unknownRendererShare
         /// A renderer's footprint could not be read (it ended, or is not ours).
         case unreadableFootprint
     }
@@ -157,13 +165,15 @@ public final class MemorySampler: Sendable {
     }
 
     /// Each hidden workspace with a browser tab, and the memory its renderers hold for it: each renderer's
-    /// footprint (bytes, from `footprint`, read once per renderer) times the share of the renderer's frames,
-    /// over every tab in `snapshot`, that the workspace's tabs have. O(tabs x renderers per tab).
+    /// footprint (bytes, from `footprint`, read once per renderer) times the share of the renderer's whole frame
+    /// count (``Snapshot/rendererFrames``) that the workspace's tabs have. A renderer whose whole count is
+    /// missing, or below the frames ``Snapshot/tabs`` puts in it, makes every hidden workspace in it unclear.
+    /// O(tabs x renderers per tab).
     public static func attribute(_ snapshot: Snapshot, footprint: (Int32) -> UInt64?) -> [String: Attribution] {
-        var totalFrames: [Int32: Int] = [:]
+        var listedFrames: [Int32: Int] = [:]
         var hidden: [String: (frames: [Int32: Int], unresolved: Bool)] = [:]
         for tab in snapshot.tabs {
-            for share in tab.renderers where share.frames > 0 { totalFrames[share.pid, default: 0] += share.frames }
+            for share in tab.renderers where share.frames > 0 { listedFrames[share.pid, default: 0] += share.frames }
             guard let workspace = tab.workspace, snapshot.hiddenWorkspaces.contains(workspace) else { continue }
             var entry = hidden[workspace] ?? (frames: [:], unresolved: false)
             for share in tab.renderers where share.frames > 0 { entry.frames[share.pid, default: 0] += share.frames }
@@ -183,9 +193,14 @@ public final class MemorySampler: Sendable {
                 attributions[workspace] = .unclear(.unresolvedFrames)
                 continue
             }
+            let whole = entry.frames.keys.map { (pid: $0, all: snapshot.rendererFrames[$0] ?? 0) }
+            guard whole.allSatisfy({ $0.all >= listedFrames[$0.pid, default: 0] }) else {
+                attributions[workspace] = .unclear(.unknownRendererShare)
+                continue
+            }
             var total: Int64 = 0, readable = true
-            for (pid, frames) in entry.frames {
-                guard let size = kibibytes(of: pid), let all = totalFrames[pid], all > 0 else {
+            for (pid, all) in whole {
+                guard let size = kibibytes(of: pid), let frames = entry.frames[pid] else {
                     readable = false
                     break
                 }

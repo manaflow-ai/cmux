@@ -17,7 +17,7 @@ struct HiddenWorkspaceMemoryTests {
             Placement(workspace: "b", rendererFrames: [(clientID: 7, frames: 1)]),
             Placement(workspace: "c", rendererFrames: nil),
             Placement(workspace: "d", rendererFrames: []),
-        ], hiddenWorkspaces: ["a", "b", "c", "d"])
+        ], hiddenWorkspaces: ["a", "b", "c", "d"], rendererFrameTotals: [5: 2, 6: 4, 7: 1])
 
         let snapshot = HiddenWorkspaceMemory.snapshot(capture, pids: [5: 500, 6: 600])
 
@@ -29,16 +29,26 @@ struct HiddenWorkspaceMemoryTests {
             MemorySampler.Tab(workspace: "c", renderers: [], hasUnresolvedFrames: true),
             MemorySampler.Tab(workspace: "d", renderers: []),
         ])
+        #expect(snapshot.rendererFrames == [500: 2, 600: 4], "a renderer with no known pid has no whole count")
     }
 
-    @Test("A shared renderer resolved from client ids splits by frames, end to end")
+    @Test("A shared renderer resolved from client ids splits by every browser's frames, end to end")
     func aSharedRendererSplitsByFrames() {
+        // Renderer 9's fourth frame is a same-site popup's, a browser no tab lists.
         let capture = HiddenWorkspaceMemory.Capture(tabs: [
             Placement(workspace: "hidden", rendererFrames: [(clientID: 9, frames: 1)]),
-            Placement(workspace: "shown", rendererFrames: [(clientID: 9, frames: 1)]),
-        ], hiddenWorkspaces: ["hidden"])
+            Placement(workspace: "shown", rendererFrames: [(clientID: 9, frames: 2)]),
+        ], hiddenWorkspaces: ["hidden"], rendererFrameTotals: [9: 4])
         let snapshot = HiddenWorkspaceMemory.snapshot(capture, pids: [9: 900])
-        #expect(MemorySampler.attribute(snapshot) { _ in 4 * 1_024 * 1_024 } == ["hidden": .clear(kibibytes: 2 * 1_024)])
+        #expect(MemorySampler.attribute(snapshot) { _ in 4 * 1_024 * 1_024 } == ["hidden": .clear(kibibytes: 1_024)])
+    }
+
+    @Test("Unknown whole frame counts (host mode) leave a shared renderer's split unclear")
+    func noTotalsIsUnclear() {
+        let capture = HiddenWorkspaceMemory.Capture(tabs: [Placement(workspace: "hidden", rendererFrames: [(clientID: 9, frames: 1)])],
+                                                    hiddenWorkspaces: ["hidden"])
+        let snapshot = HiddenWorkspaceMemory.snapshot(capture, pids: [9: 900])
+        #expect(MemorySampler.attribute(snapshot) { _ in 1_024 } == ["hidden": .unclear(.unknownRendererShare)])
     }
 
     @Test("A report's sample is counted under its trigger before sampleNow returns")
@@ -48,7 +58,7 @@ struct HiddenWorkspaceMemoryTests {
         let memory = HiddenWorkspaceMemory(
             sampler: sampler, work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
             capture: { HiddenWorkspaceMemory.Capture(tabs: [Placement(workspace: "w", rendererFrames: [(clientID: 3, frames: 1)])],
-                                                     hiddenWorkspaces: ["w"]) },
+                                                     hiddenWorkspaces: ["w"], rendererFrameTotals: [3: 1]) },
             rendererPIDs: { [3: 300] })
 
         await memory.sampleNow(.report)

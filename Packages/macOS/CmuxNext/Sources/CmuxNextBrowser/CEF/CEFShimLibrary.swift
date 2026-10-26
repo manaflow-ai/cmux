@@ -234,9 +234,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let certificateProceed: (Int32, String?, Int32, Int32) -> Int32
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: (_ browser: Int32, _ capacity: Int32) -> [Int32]
-    /// Each renderer client id hosting the tab's frames, with how many of them it hosts, for at most `capacity`
-    /// renderers; nil when the tab has more (a partial list would hide frames). Empty in host mode.
-    let rendererFrameCounts: (_ browser: Int32, _ capacity: Int32) -> [(clientID: Int32, frames: Int)]?
+    /// Every browser's frames per renderer client id (``CEFRendererFrames``); nil when the list grew between
+    /// the sizing call and the read (a partial list would hide frames). Empty in host mode.
+    let rendererFrames: () -> [CEFRendererFrames.Entry]?
     /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
     /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
     let rendererPID: @convention(c) (Int32) -> Int32

@@ -7,8 +7,8 @@ public import CmuxNextWakeups
 /// biased toward report times.
 ///
 /// A transition's sample waits for the main thread's idle time (``workspaceDidShow()``, ``appDidResignActive()``): the main thread only reads which
-/// workspace holds each browser tab, which workspaces no window shows and each tab's renderer frames (the
-/// App's ``Capture``, O(browser tabs), one in-process shim call per tab); the renderer pids, their footprints and
+/// workspace holds each browser tab, which workspaces no window shows and every browser's renderer frames (the
+/// App's ``Capture``, O(browser frames), one in-process shim call); the renderer pids, their footprints and
 /// the attribution (``MemorySampler``) run on a background lane. Transitions that come before that idle time
 /// join the first one's sample, under its trigger.
 ///
@@ -20,8 +20,9 @@ public import CmuxNextWakeups
     public struct Placement: Sendable {
         /// The workspace that holds it; nil when unknown.
         public var workspace: String?
-        /// Each renderer client id hosting its frames, with how many of its frames it hosts (`CEFTab.rendererFrames`);
-        /// empty for a tab with no renderer; nil when unknown (a page of another engine, host mode).
+        /// Each renderer client id hosting its frames, with how many of its frames it hosts (`CEFRendererFrames`);
+        /// empty for a tab with no engine page (hibernated, deferred, no browser yet), which holds no renderer
+        /// memory; nil when unknown (a live page of another engine, host mode).
         public var rendererFrames: [(clientID: Int32, frames: Int)]?
 
         public init(workspace: String?, rendererFrames: [(clientID: Int32, frames: Int)]?) {
@@ -30,14 +31,19 @@ public import CmuxNextWakeups
         }
     }
 
-    /// Every browser tab and the workspaces with one that no window shows now.
+    /// Every browser tab, the workspaces with one that no window shows now, and each renderer's frames.
     public struct Capture: Sendable {
         public var tabs: [Placement]
         public var hiddenWorkspaces: Set<String>
+        /// Every frame each renderer hosts, by renderer client id, over every browser of the engine (popups,
+        /// popup windows, spares, DevTools: browsers ``tabs`` does not list). Empty when unknown, which leaves
+        /// every renderer's split unclear.
+        public var rendererFrameTotals: [Int32: Int]
 
-        public init(tabs: [Placement] = [], hiddenWorkspaces: Set<String> = []) {
+        public init(tabs: [Placement] = [], hiddenWorkspaces: Set<String> = [], rendererFrameTotals: [Int32: Int] = [:]) {
             self.tabs = tabs
             self.hiddenWorkspaces = hiddenWorkspaces
+            self.rendererFrameTotals = rendererFrameTotals
         }
     }
 
@@ -109,7 +115,8 @@ public import CmuxNextWakeups
 
     /// `capture` with each renderer client id resolved to its pid through `pids` (client id to pid). A tab whose
     /// frames are unknown, or that has a frame in a renderer `pids` does not list (a helper not exec'd yet, a
-    /// Chromium Host's child), has unresolved frames, which makes its workspace's sample unclear.
+    /// Chromium Host's child), has unresolved frames, which makes its workspace's sample unclear. A renderer
+    /// whose pid is unknown has no whole frame count in the snapshot.
     public nonisolated static func snapshot(_ capture: Capture, pids: [Int32: Int32]) -> MemorySampler.Snapshot {
         let tabs = capture.tabs.map { placement -> MemorySampler.Tab in
             guard let frames = placement.rendererFrames else {
@@ -126,6 +133,10 @@ public import CmuxNextWakeups
             }
             return MemorySampler.Tab(workspace: placement.workspace, renderers: renderers, hasUnresolvedFrames: unresolved)
         }
-        return MemorySampler.Snapshot(tabs: tabs, hiddenWorkspaces: capture.hiddenWorkspaces)
+        var rendererFrames: [Int32: Int] = [:]
+        for (clientID, frames) in capture.rendererFrameTotals {
+            if let pid = pids[clientID] { rendererFrames[pid, default: 0] += frames }
+        }
+        return MemorySampler.Snapshot(tabs: tabs, hiddenWorkspaces: capture.hiddenWorkspaces, rendererFrames: rendererFrames)
     }
 }

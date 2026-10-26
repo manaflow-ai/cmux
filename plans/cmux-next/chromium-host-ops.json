@@ -3735,12 +3735,12 @@
       "reason": "Out buffer of renderer ids (task 018); the hover card can show the previous value until the reply."
     },
     {
-      "name": "cmux_shim_renderer_frame_counts",
+      "name": "cmux_shim_renderer_frames",
       "class": "local",
       "args": [
         {
-          "name": "browser_id",
-          "type": "int"
+          "name": "browser_ids",
+          "type": "int*"
         },
         {
           "name": "client_ids",
@@ -3757,13 +3757,13 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+Processes.swift"
+        "CmuxNextBrowser/CEF/CEFRendererFrames.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A tab's renderers with their frame counts for memory per hidden workspace (p09-observability-061). In-process only, as cmux_shim_renderer_pid: in host mode the renderers are the host's children, whose pids the app does not list, so the remote shim returns 0 and the sample counts as unclear."
+      "reason": "Every browser's frames per renderer for memory per hidden workspace (p09-observability-061). In-process only, as cmux_shim_renderer_pid: in host mode the renderers are the host's children, whose pids the app does not list, so the remote shim returns 0 and the sample counts as unclear."
     },
     {
       "name": "cmux_shim_renderer_pid",

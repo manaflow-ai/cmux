@@ -161,7 +161,7 @@ enum Op : uint16_t {
   kOpCertificateProceed = 151,
   kOpFreeOwned = 152,
   kOpRendererClientIds = 153,
-  kOpRendererFrameCounts = 154,
+  kOpRendererFrames = 154,
   kOpRendererPid = 155,
   kOpSetContextProxy = 156,
   kOpSetContextProxyServer = 157,
@@ -197,9 +197,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
-inline constexpr char kShimAbiID[] = "d2ac77ce7917e7b26832fb6644ed28e85a003e68e1fd9bef14ab30a6830fee30";
+inline constexpr char kShimAbiID[] = "06b3da62eb8b0f31df1ff44058df8ca88480d5ced2ac3906e6235168b4f26fa8";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "99baa16a9fc4c210b3113be41a83f73b2ecac33c279bc8875b81052a4f96cc77";
+inline constexpr char kWireID[] = "dc2f943ea9572f1e9cb7da671916c1ce2bc846f67257da1266cb2a4b7448c6e2";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 

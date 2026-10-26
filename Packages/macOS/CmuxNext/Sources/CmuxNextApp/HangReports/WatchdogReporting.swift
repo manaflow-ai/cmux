@@ -64,18 +64,32 @@ enum WatchdogReporting {
                             userBlockingWaitP99Nanos: services.work.userBlockingQueueWaitP99Nanos)
     }
 
-    /// Every mounted browser tab with its workspace and renderer frames, and the workspaces with one that no
-    /// window shows (task 061). O(browser tabs): each tab's workspace from the stores' tab index, one shim call
-    /// per Chromium tab. A page of another engine has unknown frames, so its hidden workspace's sample is unclear.
+    /// Every mounted browser tab with its workspace and renderer frames, the workspaces with one that no window
+    /// shows, and every Chromium browser's frames per renderer (task 061). O(browser tabs + frames): each tab's
+    /// workspace from the stores' tab index, one shim call for all frames. A live page of another engine has
+    /// unknown frames, so its hidden workspace's sample is unclear.
     static func hiddenWorkspaceCapture(_ services: AppServices) -> HiddenWorkspaceMemory.Capture {
         let shown = Set(services.windows.controllers.flatMap { $0.onScreenContents.map(\.workspace.id) })
+        // An engine not built yet runs no Chromium: no browser, no frame.
+        let frames: CEFRendererFrames? = if let engine = services.cache.chromium.built { engine.rendererFrames } else { CEFRendererFrames([]) }
         var hidden = Set<String>()
         let tabs = services.cache.browsers.map { key, entry in
             let workspace = services.workspaceID(ofTab: key)
             if let workspace, !shown.contains(workspace) { hidden.insert(workspace) }
-            return HiddenWorkspaceMemory.Placement(workspace: workspace, rendererFrames: (entry.tab as? CEFTab)?.rendererFrames)
+            return HiddenWorkspaceMemory.Placement(workspace: workspace, rendererFrames: rendererFrames(of: entry.tab, in: frames))
         }
-        return HiddenWorkspaceMemory.Capture(tabs: tabs, hiddenWorkspaces: hidden)
+        return HiddenWorkspaceMemory.Capture(tabs: tabs, hiddenWorkspaces: hidden, rendererFrameTotals: frames?.totals ?? [:])
+    }
+
+    /// `tab`'s frames per renderer from `frames`: none for a page with no engine page (hibernated, deferred),
+    /// which holds no renderer memory; nil (unknown) for a live page of another engine and when `frames` is
+    /// unknown (host mode).
+    static func rendererFrames(of tab: any BrowserTab, in frames: CEFRendererFrames?) -> [(clientID: Int32, frames: Int)]? {
+        switch tab {
+        case let tab as CEFTab: frames?.frames(ofBrowser: tab.browserID)
+        case is HibernatedBrowserTab, is DeferredBrowserTab: []
+        default: nil
+        }
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {
