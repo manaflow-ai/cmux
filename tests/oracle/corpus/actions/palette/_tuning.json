@@ -165,18 +165,21 @@
       "note": "divergence workspace-name-clear-vs-rename: Clear Workspace Name clears the identity title while Rename Workspace… writes the name, so after a rename the clear changes nothing a person sees"
     },
     "palette.closeOtherWorkspaces": {
+      "error": "control.unavailable",
       "invariants": [
         "in the light session the shown workspace is the only one, so the run is refused with RefusalStrings.noOtherWorkspacesToClose (WorkspaceBulkClose.nothingToClose) and nothing closes"
       ],
       "note": "blocked by the sweep's destructive flag (a destructive action that is not a single close); the tuning keeps the case's checks for when the flag lifts"
     },
     "palette.closeWorkspacesAbove": {
+      "error": "control.unavailable",
       "invariants": [
         "in the light session the shown workspace is the only one, so the run is refused with RefusalStrings.noWorkspacesAboveToClose (WorkspaceBulkClose.nothingToClose) and nothing closes"
       ],
       "note": "blocked by the sweep's destructive flag (a destructive action that is not a single close); the tuning keeps the case's checks for when the flag lifts"
     },
     "palette.closeWorkspacesBelow": {
+      "error": "control.unavailable",
       "invariants": [
         "in the light session the shown workspace is the only one, so the run is refused with RefusalStrings.noWorkspacesBelowToClose (WorkspaceBulkClose.nothingToClose) and nothing closes"
       ],
@@ -562,11 +565,14 @@
         }
       ],
       "waitFor": {
-        "pointer": "/sidebar/rows",
+        "pointer": "/topology/topology/workspaces",
         "predicate": "changed",
         "maxMs": 5000
       },
-      "note": "the light session has one workspace, already at the top: setup-new makes one above it first"
+      "note": "the light session has one workspace, already at the top: setup-new makes one above it first",
+      "untested": [
+        "the sidebar row order: this build registers no sidebar facet provider (makeOracleFacets), so a wait on /sidebar/rows is refused; the waitFor checks the topology's ordered workspaces until p15-oracle-036 (Facet: sidebar) lands"
+      ]
     },
     "palette.newAgentChat": {
       "receipt": "action.done",
@@ -588,14 +594,14 @@
       ]
     },
     "palette.openCmuxSettingsFile": {
-      "receipt": "action.done",
+      "receipt": "action.waiting",
       "invariants": [
         "cmux-next.json in the launch's hermetic HOME is created when missing and opened (SettingsHandlers.openCreatingIfMissing)"
       ],
       "untested": [
         "the editor: the file opens in the host's default app for it, outside the app's facets"
       ],
-      "note": "divergence opens-another-app: the run launches the host's editor for the file; every-action-gaps.json excludes other actions that open another app, and this one is not"
+      "note": "divergence opens-another-app: the run launches and activates the host's editor for the file (openCreatingIfMissing ends in AppActionContext.openWork, NSWorkspace.openInBackground), which can take key status from cmux for later cases; every-action-gaps.json lists it as a gap until the handler has a seam that opens no app under the oracle"
     },
     "palette.openDirectoryDiffViewer": {
       "error": "control.unavailable",
@@ -618,14 +624,14 @@
       }
     },
     "palette.openGhosttySettings": {
-      "receipt": "action.done",
+      "receipt": "action.waiting",
       "invariants": [
         "the Ghostty config in the launch's hermetic HOME is created when missing and opened (SettingsHandlers.openCreatingIfMissing)"
       ],
       "untested": [
         "the editor: the file opens in the host's default app for it, outside the app's facets"
       ],
-      "note": "divergence opens-another-app: the run launches the host's editor for the file; every-action-gaps.json excludes other actions that open another app, and this one is not"
+      "note": "divergence opens-another-app: the run launches and activates the host's editor for the file (openCreatingIfMissing ends in AppActionContext.openWork, NSWorkspace.openInBackground), which can take key status from cmux for later cases; every-action-gaps.json lists it as a gap until the handler has a seam that opens no app under the oracle"
     },
     "palette.openTaskManager": {
       "receipt": "action.done",
@@ -807,16 +813,17 @@
       }
     },
     "palette.terminalOpenDirectory": {
-      "error": "control.unavailable",
+      "error": "control.daemon_error",
       "invariants": [
-        "an `app` that names no installed app is refused with MiscHandlerStrings.appNotFound and nothing opens"
+        "an `app` that names no installed app is refused with MiscHandlerStrings.appNotFound and nothing opens (the .waiting(.externalProcess) work returns a plain ActionWorkFailure, which action.run answers as daemon_error)"
       ],
       "params": {
         "app": "oracle-no-such-app"
       },
       "untested": [
         "the success path: it opens Finder or another app, which no oracle case may do"
-      ]
+      ],
+      "note": "divergence app-not-found-as-daemon-error: TerminalHandlers open(_:with:_:) reports appNotFound as a plain ActionWorkFailure (no refusal), so action.run answers daemon_error instead of a typed unavailable refusal; the handler should return ActionWorkFailure(refusal: .unavailable, reason:)"
     },
     "palette.terminalToggleTextBoxInput": {
       "receipt": "action.done",
@@ -836,7 +843,7 @@
       "untested": [
         "dictation itself: it needs a microphone, which no oracle host grants"
       ],
-      "note": "known failure p15-oracle-073: gen_actions.py adds the toggle's restore step (TOGGLES) even when the tuning expects the action to refuse, and restore-1 expects ok, so restore-1 fails with the same refusal. Once the case is generated, Expectations.d/actions.txt lists `p15-oracle-073 [ mac app ] actions/palette-toggle-dictation/restore-1 [ Failure ]` until the generator skips the restore of a refused toggle"
+      "note": "gen_actions.py (p15-oracle-071) adds the toggle's restore step (TOGGLES) even when the tuning expects the action to refuse, and restore-1 expects ok, so restore-1 would fail with the same refusal; every-action-gaps.json lists it as a gap until the generator skips the restore of a refused toggle"
     },
     "palette.toggleFullWidthTab": {
       "receipt": "action.done",
@@ -899,11 +906,9 @@
       "invariants": [
         "the shown workspace is pinned (PinCommands.setWorkspacesPinned) and its sidebar row moves to the pinned rows; the restore step unpins it"
       ],
-      "waitFor": {
-        "pointer": "/sidebar/rows",
-        "predicate": "changed",
-        "maxMs": 5000
-      }
+      "untested": [
+        "the pin: the topology facet has no pinned field and this build registers no sidebar facet provider (makeOracleFacets), so no facet shows the pinned rows; the waitFor on /sidebar/rows comes back with p15-oracle-036 (Facet: sidebar)"
+      ]
     },
     "palette.workspaceColor": {
       "receipt": "action.done",
