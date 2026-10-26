@@ -79,6 +79,9 @@ export function ProjectChooser({
     if (onNoProject && !query.trim()) listed.push({ key: NO_PROJECT_KEY });
     return listed;
   }, [shown, onNoProject, query]);
+  const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
+  const isCurrent = (key: string) =>
+    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
@@ -118,7 +121,7 @@ export function ProjectChooser({
   const suggestions = rows.map((row) => row.key);
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
-    const project = rows.find((row) => row.key === key)?.project;
+    const project = rowsByKey.get(key)?.project;
     return project
       ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
       : key === NO_PROJECT_KEY
@@ -164,7 +167,7 @@ export function ProjectChooser({
             onQuery={setQuery}
             onSubmit={(key) => {
               const row =
-                rows.find((candidate) => candidate.key === key) ??
+                rowsByKey.get(key) ??
                 (!key && !query.trim()
                   ? (rows.find(
                       (candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY),
@@ -181,12 +184,12 @@ export function ProjectChooser({
             listClassName="m-0 list-none p-0"
             itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
             itemLabel={rowLabel}
-            isItemCurrent={(key) => key === currentKey || (noProject && key === NO_PROJECT_KEY)}
+            isItemCurrent={isCurrent}
             completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
             renderItem={(key) => {
-              const row = rows.find((candidate) => candidate.key === key);
+              const row = rowsByKey.get(key);
               const project = row?.project;
-              const checked = project ? key === currentKey : noProject;
+              const checked = isCurrent(key);
               const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
               return (
                 <>
