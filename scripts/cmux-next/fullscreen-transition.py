@@ -21,7 +21,8 @@ is where it was before; in full screen and back, no strip's first tab sits under
 
 The summary prints the median over rounds (perf_stats.pct). The app launches and stops through
 bench_launch.BenchApp (the bench env, an empty cmux.json, a fresh saved session for the tag, the tag's daemons ended
-at the stop; it may activate, as full screen needs). Every round and the failed rows are also written as
+at the stop). It may activate, as full screen needs, and stays an isolated launch (CMUX_NEXT_ISOLATED_LAUNCH=1: the
+fixed test window frame, no `cmux` shim pointer, no global hot keys, no browser import offer; LaunchIsolation.swift). Every round and the failed rows are also written as
 cmux-perf-result/v1 in --out (story fullscreen-transition: `fullscreen.<trigger>.<enter|exit>.<value>` and
 `fullscreen.failed_rows`; drag_layout_bench_report.py). FULLSCREEN_KEEP=1 leaves the app running.
 
@@ -32,7 +33,7 @@ import argparse, json, os, re, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
 import drag_layout_bench_report as results  # noqa: E402
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, bundle_id  # noqa: E402
 from new_tab_bench_report import record_all  # noqa: E402
 
 
@@ -69,17 +70,16 @@ def run(*args, timeout=30):
 
 def rpc(method, params=None, timeout=30):
     try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(SOCKET)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 20)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(SOCKET)
+            conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(1 << 20)
+                if not chunk:
+                    break
+                buf += chunk
         reply = json.loads(buf)
         return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
     except (OSError, ValueError) as error:
@@ -242,18 +242,28 @@ def spaces_round():
 
 def cleanup():
     """Leaves full screen, then stops the app and the tag's daemons (BenchApp.stop); FULLSCREEN_KEEP=1 keeps it."""
+    global SOCKET
     if os.environ.get("FULLSCREEN_KEEP") or LAUNCHER is None or LAUNCHER.process is None:
         return
-    if LAUNCHER.process.poll() is None and is_full():
-        action("toggleFullScreen")
-        time.sleep(2)  # test harness: leave full screen before quitting
-    LAUNCHER.stop()
+    SOCKET = LAUNCHER.socket  # the path launch() probed last, also when it raised
+    try:
+        if LAUNCHER.process.poll() is None and is_full():
+            action("toggleFullScreen")
+            time.sleep(2)  # test harness: leave full screen before quitting
+    finally:
+        LAUNCHER.stop()
+
+
+def bench_app(app, out, build_config=None):
+    """The app this bench launches: it may activate (no CMUX_NEXT_NO_ACTIVATE) and stays isolated."""
+    return BenchApp(app, out=out, config={}, env={"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"},
+                    window=(80, 80, 1400, 900), screen=None, build_config=build_config)
 
 
 def measure(report):
     """Launches the app, builds the busy window and runs every trigger's rounds into `report`."""
     global SOCKET, CLI
-    LAUNCHER.launch(timeout=120)  # ready once debug.windows lists a window
+    LAUNCHER.launch(timeout=120)  # ready once debug.windows lists a window; it may have moved to another candidate
     SOCKET, CLI = LAUNCHER.socket, LAUNCHER.cli
     print(f"launched pid {LAUNCHER.process.pid}", flush=True)
     time.sleep(5)  # test harness: launch work settles
@@ -308,12 +318,11 @@ def measure(report):
 
 
 def main(argv=None):
-    global opts, LAUNCHER, TAG, SCRATCH
+    global opts, LAUNCHER, TAG, SOCKET, CLI, SCRATCH
     opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
-    LAUNCHER = BenchApp(opts.app, out=opts.out, config={}, env={"CMUX_NEXT_NO_ACTIVATE": None},
-                        window=(80, 80, 1400, 900), screen=None, build_config=opts.build_config)
-    TAG = LAUNCHER.tag
+    LAUNCHER = bench_app(opts.app, opts.out, opts.build_config)
+    TAG, SOCKET, CLI = LAUNCHER.tag, LAUNCHER.socket, LAUNCHER.cli  # cleanup() can reach a launch that failed
     SCRATCH = tempfile.mkdtemp(prefix=f"fullscreen-{TAG}-")
     report = {"tag": TAG, "transitions": [], "geometry": {}}
     try:

@@ -279,6 +279,74 @@ class RecordTests(unittest.TestCase):
                 db.close()
 
 
+class LaunchTests(unittest.TestCase):
+    """The full screen bench may activate and stays isolated; its cleanup always stops the app it started, also after
+    a launch that raised; the layout stress passes LAYOUT_STRESS_APP_ARGS as launch arguments, never as defaults."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="drag-layout-launch-")
+        self.app = Path(self.folder) / "cmux DEV fs-launch.app"
+        (self.app / "Contents/MacOS").mkdir(parents=True)
+        self.fullscreen = load("fullscreen_transition", HERE / "fullscreen-transition.py")
+
+    def tearDown(self):
+        self.fullscreen.LAUNCHER = self.fullscreen.SOCKET = None
+
+    def test_fullscreen_launch_may_activate_and_stays_isolated(self):
+        bench = self.fullscreen.bench_app(str(self.app), self.folder)
+        env = bench.environment()
+        self.assertNotIn("CMUX_NEXT_NO_ACTIVATE", env)
+        self.assertEqual(env.get("CMUX_NEXT_ISOLATED_LAUNCH"), "1")
+        self.assertEqual(env.get("CMUX_NEXT_TEST_WINDOW_FRAME"), "80,80,1400,900")
+
+    def fake_launcher(self, alive=True):
+        stops = []
+
+        class Process:
+            def poll(self):
+                return None if alive else 0
+
+        class Launcher:
+            process = Process()
+            socket = str(Path(self.folder) / "nothing-listens.sock")
+
+            def stop(self):
+                stops.append(True)
+
+        return Launcher(), stops
+
+    def test_cleanup_after_a_launch_that_raised_stops_the_running_app(self):
+        """launch() raised with the app alive and before measure() set SOCKET: cleanup reads the launcher's socket."""
+        self.fullscreen.LAUNCHER, stops = self.fake_launcher()
+        self.fullscreen.SOCKET = None
+        self.fullscreen.cleanup()
+        self.assertEqual(stops, [True])
+        self.assertEqual(self.fullscreen.SOCKET, self.fullscreen.LAUNCHER.socket)
+
+    def test_cleanup_stops_the_app_when_leaving_full_screen_fails(self):
+        self.fullscreen.LAUNCHER, stops = self.fake_launcher()
+        original = self.fullscreen.is_full
+        self.fullscreen.is_full = lambda: (_ for _ in ()).throw(RuntimeError("no answer"))
+        try:
+            with self.assertRaises(RuntimeError):
+                self.fullscreen.cleanup()
+        finally:
+            self.fullscreen.is_full = original
+        self.assertEqual(stops, [True])
+
+    def test_layout_stress_app_args_are_launch_arguments(self):
+        stress = load("layout_loop_stress_live", HERE / "layout-loop-stress-live.py")
+        words = ["-AppleShowScrollBars", "Always"]
+        self.assertEqual(stress.app_args(words), words)
+        self.assertEqual(stress.app_args([]), [])
+        for bad in (["-AppleShowScrollBars"], ["AppleShowScrollBars", "Always"]):
+            with self.assertRaises(SystemExit):
+                stress.app_args(bad)
+        source = (HERE / "layout-loop-stress-live.py").read_text()
+        self.assertIn("args=app_args(", source)
+        self.assertNotIn("defaults", source)
+
+
 class BenchSourceTests(unittest.TestCase):
     """The four benches keep no private statistic, launch only through BenchApp and name p99 (MQ1, MQ2, MQ3)."""
 

@@ -36,7 +36,7 @@ import argparse, json, os, socket, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
 import drag_layout_bench_report as report  # noqa: E402
-from bench_launch import BenchApp, LaunchError, bundle_id, defaults_path  # noqa: E402
+from bench_launch import BenchApp, LaunchError  # noqa: E402
 from new_tab_bench_report import record_all  # noqa: E402
 
 SOCKET = None  # the launched app's control socket (main)
@@ -71,30 +71,12 @@ def parse(argv=None):
     return opts
 
 
-def app_defaults(app, words):
-    """LAYOUT_STRESS_APP_ARGS (`-Key Value` pairs, e.g. "-AppleShowScrollBars Always": legacy scrollers, as with a
-    mouse) written into the tagged bundle's own defaults domain for this run, which AppKit reads as it read the
-    pairs as launch arguments. Returns the restore list: (key, the value before or None)."""
-    if not words:
-        return []
+def app_args(words):
+    """LAYOUT_STRESS_APP_ARGS: `-Key Value` launch arguments for this process only (for example
+    "-AppleShowScrollBars Always": legacy scrollers, as with a mouse), passed through BenchApp(args=...)."""
     if len(words) % 2 or not all(w.startswith("-") for w in words[::2]):
         sys.exit("LAYOUT_STRESS_APP_ARGS is `-Key Value` pairs, got %r" % " ".join(words))
-    ident = bundle_id(app)
-    if not (ident or "").startswith("com.cmuxterm.app.debug."):
-        sys.exit("LAYOUT_STRESS_APP_ARGS needs a tagged DEV bundle (its own defaults domain), got %r" % ident)
-    restore = []
-    for key, value in zip(words[::2], words[1::2]):
-        key = key[1:]
-        before = subprocess.run([defaults_path(), "read", ident, key], capture_output=True, text=True, timeout=30)
-        restore.append((ident, key, before.stdout.strip() if before.returncode == 0 else None))
-        subprocess.run([defaults_path(), "write", ident, key, value], check=True, capture_output=True, timeout=30)
-    return restore
-
-
-def restore_defaults(restore):
-    for ident, key, before in restore:
-        argv = ["write", ident, key, before] if before is not None else ["delete", ident, key]
-        subprocess.run([defaults_path(), *argv], capture_output=True, timeout=30)
+    return words
 
 
 def rpc(method, params=None, timeout=30):
@@ -324,9 +306,9 @@ def main(argv=None):
     opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
     launcher = BenchApp(opts.app, out=opts.out, config={}, window=(40, 40, 1400, 900), screen="last",
-                        build_config=opts.build_config)
+                        build_config=opts.build_config,
+                        args=app_args(os.environ.get("LAYOUT_STRESS_APP_ARGS", "").split()))
     tag = launcher.tag
-    restore = app_defaults(opts.app, os.environ.get("LAYOUT_STRESS_APP_ARGS", "").split())
     results, failures = [], []
     try:
         try:
@@ -340,7 +322,6 @@ def main(argv=None):
             rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "after-stress.png")}, timeout=60)
     finally:
         launcher.stop()  # debug.quit end-sessions, then only this tag's processes and daemons (tag_teardown.py)
-        restore_defaults(restore)
 
     # The browser split must have moved a plane into the overlay panel (the
     # path the deferral and the ancestor-move resync change); a run that never
