@@ -7,6 +7,7 @@ import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
+import CmuxNextUpdater
 import CmuxNextWakeups
 
 /// Entry point called from the Xcode target's `App/main.swift`.
@@ -39,6 +40,9 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
+        // A relaunch into an update nobody clicked comes back behind the user's app; read (and
+        // cleared) before anything can activate the app. An agent launch never activates anyway.
+        if !environment.noActivate { environment.relaunchBehind = UpdateRelaunchFocus.consume(build: UpdateBuildIdentity.main().build) }
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -65,6 +69,7 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+            || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart,
                                    launchReads: (work, launchImages, relaunchWake))
         app.delegate = delegate

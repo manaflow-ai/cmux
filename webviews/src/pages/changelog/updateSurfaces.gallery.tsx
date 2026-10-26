@@ -71,6 +71,43 @@ const spanData: UpdateHighlights = {
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
 };
+// Nightly 4037632091801 (2026-10-26) as published: its card read "Fixed: validate release headings
+// within their day", a change to the release-notes checker (#25533).
+const toolingLine = "Validate release headings within their day";
+const releaseTooling: ReleaseNotes[] = [
+  {
+    build: "4037632091801",
+    shortVersion: "1.0.0-nightly.4037632091801",
+    date: "2026-10-26",
+    highlights: [],
+    changes: [],
+    items: [
+      {
+        title: "cmux NEXT daemon update: restart a stale daemon without agent hosts that keeps its chats on disk",
+        pr: 25527,
+      },
+      {
+        title:
+          "acpmux: a restart reattaches live agents first, then reads the other chats' logs in the background (1/2)",
+        pr: 25531,
+      },
+      { title: "fix(changelog): validate release headings within their day", pr: 25533 },
+    ],
+    summary: [{ group: "fixed", title: toolingLine }],
+  },
+];
+const releaseToolingData: UpdateHighlights = {
+  ...base,
+  version: "1.0.0-nightly.4037632091801",
+  build: "4037632091801",
+  fromVersion: "1.0.0-nightly.4037226096601",
+  fromBuild: "4037226096601",
+  date: "2026-10-26",
+  source: "summary",
+  items: [{ id: "summary-0", title: toolingLine, summary: null, category: "fixed" }],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4037226096601", to: "1.0.0-nightly.4037632091801" },
+};
 // The notes index: two builds published after the base card's.
 const behind: IndexEntry[] = ["3845900000001", "3845500000001", "3845050428001", "3844000000001"].map((build) => ({
   build,
@@ -207,6 +244,14 @@ export default componentEntry<Props>({
     "card-span-wallpaper": {
       note: "The same on a wallpaper.",
       props: { surface: "card", data: spanData, span, wallpaper: true },
+    },
+    "card-release-tooling": {
+      note: 'Nightly 4037632091801 as published (2026-10-26): its card read "Fixed: validate release headings within their day", a release-notes checker change. Release and changelog tooling is internal work.',
+      props: { surface: "card", data: releaseToolingData, span: releaseTooling },
+    },
+    "card-release-tooling-host": {
+      note: "The same update before its notes load: the host's one summary line.",
+      props: { surface: "card", data: releaseToolingData },
     },
     "card-maintenance": {
       note: "An update whose builds hold only internal work (CI, autofixes): Maintenance and fixes, no count.",
