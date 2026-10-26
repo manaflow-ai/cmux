@@ -49,6 +49,18 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(peer["downSince"] == nil && peer["error"] == nil && peer["url"] == nil)
     }
 
+    @Test func explicitUpdateAndLoginMarkersReachThePicker() throws {
+        let peers = try Self.peers(Self.reply(["peers": [
+            ["name": "old", "url": "ssh://old", "connected": true, "outdated": true],
+            ["name": "signed-out", "url": "wss://signed-out", "connected": false, "needsLogin": true],
+        ]]))
+        #expect(peers.map { $0["outdated"] as? Bool } == [true, nil])
+        #expect(peers.map { $0["needsLogin"] as? Bool } == [nil, true])
+        #expect(peers.allSatisfy { value in
+            value["outdated"].map(Self.isBool) ?? true
+        })
+    }
+
     @Test func aLastSeenThatIsNotANumberIsDropped() throws {
         let peers = try Self.peers(Self.reply(["peers": [
             ["name": "one", "lastSeen": true, "attempts": "3"],
