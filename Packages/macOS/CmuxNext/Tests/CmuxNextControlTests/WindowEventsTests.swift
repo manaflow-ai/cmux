@@ -142,13 +142,111 @@ import Testing
         _ = token
     }
 
-    @Test func ofKeepsOneInstancePerWindowAndPerCenter() {
+    @Test func ofKeepsOneInstancePerWindow() {
         let center = NotificationCenter()
         let window = Self.window(), other = Self.window()
         #expect(WindowEvents.of(window, center: center) === WindowEvents.of(window, center: center))
         #expect(WindowEvents.of(window, center: center) !== WindowEvents.of(other, center: center))
-        #expect(AppEvents.of(center) === AppEvents.of(center))
-        #expect(AppEvents.of(center) !== AppEvents.of(NotificationCenter()))
+    }
+
+    @Test func subscribersAreCalledInTheOrderTheySubscribed() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let shown = VisibilityNode(root: "window", own: .visible)
+        let tab = VisibilityNode("tab", own: .hidden, parent: shown)
+        var calls: [String] = []
+        // Enough subscribers that a hash order would differ from the subscription order.
+        let names = (0..<64).map { "s\($0)" }
+        let tokens = names.map { owner in
+            events.subscribe(Self.name, node: tab, delivery: .whenVisible, owner: owner) { call in
+                calls.append("\(owner):\(call == .posted ? "posted" : "missed")")
+            }
+        }
+        // A cancelled one leaves a hole; the rest keep their order through compaction.
+        for index in names.indices where index % 4 != 0 { tokens[index].cancel() }
+        let kept = names.enumerated().filter { $0.offset % 4 == 0 }.map(\.element)
+        center.post(name: Self.name, object: nil)
+        tab.set(.visible)
+        #expect(calls == kept.map { "\($0):missed" })
+        calls.removeAll()
+        center.post(name: Self.name, object: nil)
+        #expect(calls == kept.map { "\($0):posted" })
+        _ = tokens
+    }
+
+    @Test func missedCallsAcrossNamesComeInTheOrderTheyWereMissed() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let node = VisibilityNode(root: "workspace", own: .hidden)
+        var calls: [String] = []
+        let a = events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "a") { _ in calls.append("a") }
+        let b = events.subscribe(Self.other, node: node, delivery: .whenVisible, owner: "b") { _ in calls.append("b") }
+        center.post(name: Self.other, object: nil)
+        center.post(name: Self.name, object: nil)
+        node.set(.visible)
+        #expect(calls == ["b", "a"])
+        _ = (a, b)
+    }
+
+    @Test func postsWhileHiddenAddNoWorkAfterTheFirst() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let node = VisibilityNode(root: "workspace", own: .hidden)
+        var calls = 0
+        let tokens = (0..<100).map { _ in
+            events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "row") { _ in calls += 1 }
+        }
+        center.post(name: Self.name, object: nil)
+        // One deferred call for the node, not one per subscriber.
+        #expect(node.deferredCount == 1)
+        #expect(events.deferredWork == 1)
+        for _ in 0..<5 { center.post(name: Self.name, object: nil) }
+        #expect(node.deferredCount == 1)
+        #expect(events.deferredWork == 1)
+        #expect(calls == 0)
+        node.set(.visible)
+        #expect(calls == 100)
+        #expect(node.deferredCount == 0)
+        // Hidden again: the next post hands the node one new deferred call.
+        node.set(.hidden)
+        center.post(name: Self.name, object: nil)
+        #expect(events.deferredWork == 2)
+        _ = tokens
+    }
+
+    @Test func aMissedHandlerThatHidesTheNodeLeavesTheRestForTheNextShow() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let node = VisibilityNode(root: "workspace", own: .hidden)
+        var calls: [String] = []
+        let a = events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "a") { _ in
+            calls.append("a")
+            node.set(.hidden)
+        }
+        let b = events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "b") { _ in calls.append("b") }
+        center.post(name: Self.name, object: nil)
+        node.set(.visible)
+        #expect(calls == ["a"])
+        #expect(node.deferredCount == 1)
+        node.set(.visible)
+        #expect(calls == ["a", "b"])
+        #expect(node.deferredCount == 0)
+        _ = (a, b)
+    }
+
+    @Test func cancellingOneOfSeveralMissedSubscribersKeepsTheOthersCall() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let node = VisibilityNode(root: "workspace", own: .hidden)
+        var calls: [String] = []
+        let a = events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "a") { _ in calls.append("a") }
+        let b = events.subscribe(Self.name, node: node, delivery: .whenVisible, owner: "b") { _ in calls.append("b") }
+        center.post(name: Self.name, object: nil)
+        a.cancel()
+        #expect(node.deferredCount == 1)
+        node.set(.visible)
+        #expect(calls == ["b"])
+        _ = b
     }
 
     @Test func theFamilyIsTheWindowAndTheWindowsItOwns() {

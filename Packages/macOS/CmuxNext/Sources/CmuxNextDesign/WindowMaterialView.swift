@@ -1,7 +1,7 @@
 public import AppKit
 import CoreImage
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// The one material behind a window's content (``WindowMaterial``) and the
@@ -187,6 +187,13 @@ public final class WindowMaterialView: NSView {
             keyFamily?.add(self)
         }
         updateInactiveTint()
+    }
+
+    /// Makes `window`'s key tracker (the inactive wash of its material views) observe through the
+    /// app's `events`: the composition root calls it before the window gets content. A later call
+    /// for the same window changes nothing.
+    public static func observeKeyFamily(of window: NSWindow, through events: AppEvents) {
+        _ = WindowKeyFamily.of(window, environment: WindowKeyEnvironment(events: events))
     }
 
     /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through

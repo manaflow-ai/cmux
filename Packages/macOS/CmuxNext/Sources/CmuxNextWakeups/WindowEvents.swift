@@ -92,4 +92,8 @@ import ObjectiveC
 
     /// How many posts of `name` the center delivered here: one per post, however many subscribers.
     package func deliveries(_ name: Notification.Name) -> Int { fanOut.deliveries(name) }
+
+    /// How many times it handed a node deferred work: once per node that gained a missed
+    /// subscriber, however many posts and subscribers.
+    package var deferredWork: Int { fanOut.deferredWork }
 }

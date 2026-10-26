@@ -1,19 +1,20 @@
 public import Foundation
-import ObjectiveC
 
 /// App-wide notifications (`NSApplication.didBecomeActiveNotification`, any window's
 /// `NSWindow.didBecomeKeyNotification`, a setting's change notice) for every subscriber in the
 /// app: one NotificationCenter observer per name, made on the first subscription and removed with
 /// the last, fanned out to the subscribers whose node is on screen (architecture-refactor-DESIGN.md
 /// row B, A4; plans/cmux-next/chrome-parity/p06-scheduler.md, 021). It observes every sender;
-/// one window's own notices go through ``WindowEvents``.
+/// one window's own notices go through ``WindowEvents``. The composition root makes the app's one
+/// instance on `NotificationCenter.default` and injects it (`AppServices.appEvents`); tests make
+/// their own on their own center.
 ///
 /// Chromium's app controller observes the NSApp notices once (`chrome/browser/app_controller_mac.mm`)
 /// and fans out to its observers, not once per window or view.
 ///
 /// ```swift
-/// activeWatch = AppEvents.of(.default).subscribe(NSApplication.didBecomeActiveNotification,
-///                                                node: rowNode, delivery: .whenVisible, owner: "SidebarRow") { [weak self] _ in
+/// activeWatch = appEvents.subscribe(NSApplication.didBecomeActiveNotification,
+///                                   node: rowNode, delivery: .whenVisible, owner: "SidebarRow") { [weak self] _ in
 ///     self?.refreshActiveTint()
 /// }
 /// ```
@@ -23,21 +24,10 @@ import ObjectiveC
 @MainActor public final class AppEvents {
     private let fanOut: NotificationFanOut
 
-    private static var associationKey: UInt8 = 0
-
-    /// Observes every sender's notifications on `center`. The app uses ``of(_:)``, which keeps one
-    /// per center; tests make their own.
+    /// Observes every sender's notifications on `center` (held weakly). Make one per center and
+    /// share it: each instance has its own observers.
     public init(center: NotificationCenter) {
         fanOut = NotificationFanOut(object: nil, center: center)
-    }
-
-    /// The app events of `center`, made on first use and kept alive by the center: the app's
-    /// subscribers share `NotificationCenter.default`'s, a test's center has its own.
-    public static func of(_ center: NotificationCenter) -> AppEvents {
-        if let existing = objc_getAssociatedObject(center, &associationKey) as? AppEvents { return existing }
-        let events = AppEvents(center: center)
-        objc_setAssociatedObject(center, &associationKey, events, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return events
     }
 
     /// Calls `handler` for each post of `name`, by `node`'s visibility.
@@ -70,4 +60,8 @@ import ObjectiveC
 
     /// How many posts of `name` the center delivered here: one per post, however many subscribers.
     package func deliveries(_ name: Notification.Name) -> Int { fanOut.deliveries(name) }
+
+    /// How many times it handed a node deferred work: once per node that gained a missed
+    /// subscriber, however many posts and subscribers.
+    package var deferredWork: Int { fanOut.deferredWork }
 }

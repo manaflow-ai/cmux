@@ -7,18 +7,19 @@ import ObjectiveC
 /// Every ``WindowMaterialView`` in a window (the window backdrop and each pane with its own art)
 /// used to observe the six app-wide key and activation notices itself and read the key window on
 /// the next turn: O(material views in the session) work per Cmd-Tab or key change. The window's
-/// tracker subscribes to them once through ``AppEvents`` (one NotificationCenter observer per
-/// notice for all windows' trackers), decides once per main-actor turn (a Cmd-Tab posts 3 to 6
-/// notices), and calls only its views, only when the state flips. It lives as long as its window (an
-/// associated object), so no process-wide instance exists, and it observes only while the window
-/// has a material view: a window kept alive with none (a reused panel, a swapped backdrop) costs
-/// nothing per key change.
+/// tracker subscribes to them once through the app's injected ``AppEvents`` (one NotificationCenter
+/// observer per notice for all windows' trackers), decides once per main-actor turn (a Cmd-Tab
+/// posts 3 to 6 notices), and calls only its views, only when the state flips. It lives as long as
+/// its window (an associated object), and it observes only while the window has a material view:
+/// a window kept alive with none (a reused panel, a swapped backdrop) costs nothing per key change.
 @MainActor
 final class WindowKeyFamily {
     private weak var window: NSWindow?
     private let environment: WindowKeyEnvironment
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
     private var observers: [EventSubscription] = []
+    /// The injected app events, or this window's own when none was injected.
+    private lazy var events = environment.events ?? AppEvents(center: .default)
     /// The keyboard left the window's family after the family held it.
     private(set) var isInactive = false
     /// The window's family has held the keyboard since the tracker started.
@@ -70,7 +71,6 @@ final class WindowKeyFamily {
         let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
-        let events = AppEvents.of(environment.center)
         observers = names.map { name in events.subscribe(name, owner: "WindowKeyFamily") { [weak self] in self?.keyDidMove() } }
         observers.append(events.subscribe(WindowMaterialView.inactiveDimDidChange, owner: "WindowKeyFamily") { [weak self] in
             self?.forEachView { $0.updateInactiveTint() }
