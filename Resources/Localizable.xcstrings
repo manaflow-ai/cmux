@@ -671829,6 +671829,72 @@
               }
             }
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje sesije izostavilo je panele iz ovog radnog prostora: %lld. Čuva se samo prvih 512 panela."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendannelsen af sessionen udelod paneler fra dette arbejdsområde: %lld. Kun de første 512 paneler gemmes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ripristino della sessione ha escluso pannelli da questo spazio di lavoro: %lld. Vengono salvati solo i primi 512 pannelli."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្ដារសម័យបានរំលងផ្ទាំងចំនួន %lld ពី workspace នេះ។ មានតែ 512 ផ្ទាំងដំបូងប៉ុណ្ណោះដែលត្រូវបានរក្សាទុក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprettingen av økten utelot paneler fra dette arbeidsområdet: %lld. Bare de første 512 panelene lagres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie sesji pominęło panele z tego obszaru roboczego: %lld. Zapisywanych jest tylko pierwszych 512 paneli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A restauração da sessão deixou de fora painéis deste espaço de trabalho: %lld. Apenas os primeiros 512 painéis são salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При восстановлении сеанса из этого рабочего пространства пропущено панелей: %lld. Сохраняются только первые 512 панелей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การกู้คืนเซสชันข้ามแผงจากพื้นที่ทำงานนี้ไป %lld แผง ระบบบันทึกเฉพาะ 512 แผงแรกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geri yüklemesi bu çalışma alanından %lld paneli dışarıda bıraktı. Yalnızca ilk 512 panel kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час відновлення сеансу з цього робочого простору пропущено панелей: %lld. Зберігаються лише перші 512 панелей."
+          }
         }
       }
     },
@@ -672008,6 +672074,72 @@
               }
             }
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje sesije izostavilo je panele iz Docka ovog radnog prostora: %lld. Čuva se samo prvih 512 panela."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendannelsen af sessionen udelod paneler fra dette arbejdsområdes Dock: %lld. Kun de første 512 paneler gemmes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ripristino della sessione ha escluso pannelli dal Dock di questo spazio di lavoro: %lld. Vengono salvati solo i primi 512 pannelli."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្ដារសម័យបានរំលងផ្ទាំងចំនួន %lld ពី Dock របស់ workspace នេះ។ មានតែ 512 ផ្ទាំងដំបូងប៉ុណ្ណោះដែលត្រូវបានរក្សាទុក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprettingen av økten utelot paneler fra Dock i dette arbeidsområdet: %lld. Bare de første 512 panelene lagres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie sesji pominęło panele z Docka tego obszaru roboczego: %lld. Zapisywanych jest tylko pierwszych 512 paneli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A restauração da sessão deixou de fora painéis do Dock deste espaço de trabalho: %lld. Apenas os primeiros 512 painéis são salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При восстановлении сеанса из Dock этого рабочего пространства пропущено панелей: %lld. Сохраняются только первые 512 панелей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การกู้คืนเซสชันข้ามแผงจาก Dock ของพื้นที่ทำงานนี้ไป %lld แผง ระบบบันทึกเฉพาะ 512 แผงแรกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geri yüklemesi bu çalışma alanının Dock'undan %lld paneli dışarıda bıraktı. Yalnızca ilk 512 panel kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час відновлення сеансу з Dock цього робочого простору пропущено панелей: %lld. Зберігаються лише перші 512 панелей."
+          }
         }
       }
     },
@@ -672186,6 +672318,72 @@
                 }
               }
             }
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje sesije izostavilo je panele iz Docka ovog prozora: %lld. Čuva se samo prvih 512 panela."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendannelsen af sessionen udelod paneler fra dette vindues Dock: %lld. Kun de første 512 paneler gemmes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ripristino della sessione ha escluso pannelli dal Dock di questa finestra: %lld. Vengono salvati solo i primi 512 pannelli."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការស្ដារសម័យបានរំលងផ្ទាំងចំនួន %lld ពី Dock របស់បង្អួចនេះ។ មានតែ 512 ផ្ទាំងដំបូងប៉ុណ្ណោះដែលត្រូវបានរក្សាទុក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprettingen av økten utelot paneler fra Dock i dette vinduet: %lld. Bare de første 512 panelene lagres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie sesji pominęło panele z Docka tego okna: %lld. Zapisywanych jest tylko pierwszych 512 paneli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A restauração da sessão deixou de fora painéis do Dock desta janela: %lld. Apenas os primeiros 512 painéis são salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При восстановлении сеанса из Dock этого окна пропущено панелей: %lld. Сохраняются только первые 512 панелей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การกู้คืนเซสชันข้ามแผงจาก Dock ของหน้าต่างนี้ไป %lld แผง ระบบบันทึกเฉพาะ 512 แผงแรกเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geri yüklemesi bu pencerenin Dock'undan %lld paneli dışarıda bıraktı. Yalnızca ilk 512 panel kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час відновлення сеансу з Dock цього вікна пропущено панелей: %lld. Зберігаються лише перші 512 панелей."
           }
         }
       }
