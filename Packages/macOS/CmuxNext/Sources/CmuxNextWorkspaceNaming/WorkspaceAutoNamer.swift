@@ -82,7 +82,8 @@ public final class WorkspaceAutoNamer {
     ///   - workspaces: all daemon workspaces shown by the app.
     ///   - selection: the window's tab selection in a workspace's pane.
     ///   - rename: schedules the rename, returning false if it cannot be queued.
-    ///     Its final argument must be checked after scheduling, immediately before sending.
+    ///     It receives a final-send predicate and a completion-failure callback;
+    ///     the predicate must run immediately before the daemon request.
     public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [Target],
                 selection: @escaping @MainActor (WorkspaceModel, PaneModel) -> String?,
                 rename: @escaping @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool,
