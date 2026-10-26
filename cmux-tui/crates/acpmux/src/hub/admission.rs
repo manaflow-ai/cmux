@@ -18,8 +18,9 @@
 //! name, `aliases` or origin `hostnames` match the host name, as `reach`
 //! finds it. With no registry, or no `lanes` entry for this machine, a create
 //! is admitted (a log line says why): acpmux outside the fleet is unchanged.
-//! A registry that cannot be read keeps its last good copy, and with none
-//! refuses; a `FLEET_REGISTRY` that is missing counts as one that cannot be read.
+//! A registry that cannot be read, or whose every copy is gone for a moment,
+//! keeps its last good copy; one that cannot be read with none refuses, and a
+//! `FLEET_REGISTRY` that is missing counts as one that cannot be read.
 //! `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`) admits past both,
 //! and the daemon logs who asked and what it overrode; the person's own new
 //! chat on this host (its app pane, or the person key) is admitted and logged
@@ -203,6 +204,20 @@ fn registry_path() -> Option<(PathBuf, bool)> {
         })
 }
 
+/// The last registry read well, and where: it keeps the cap while the registry
+/// cannot be read, or while no copy is there at all (`read_registry`).
+static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
+
+/// Where the registry is read from: `registry_path`, else, with no copy there
+/// (a refresh that renames or rewrites it), where the last good copy came from,
+/// so that copy keeps the cap. Only a host that never read one has no registry.
+fn registry_source() -> (PathBuf, bool) {
+    registry_path().unwrap_or_else(|| {
+        let last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        (last.as_ref().map(|(p, _)| p.clone()).unwrap_or_default(), false)
+    })
+}
+
 /// The registry at `source`, and whether it is there but unreadable. One that
 /// cannot be read or parsed (a partial write, a permission error) answers with
 /// the last copy read from the same path; with none it is unreadable, which
@@ -210,7 +225,6 @@ fn registry_path() -> Option<(PathBuf, bool)> {
 /// A `set` path (`FLEET_REGISTRY`) that is missing is unreadable too: a rename,
 /// a failed mount or a typo never lifts the cap either.
 fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
-    static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     let read = std::fs::read(source)
         .map_err(|e| e.to_string())
@@ -428,7 +442,7 @@ impl Hub {
     ) -> Result<Option<Admitted<'_>>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
-            let (source, set) = registry_path().unwrap_or_default();
+            let (source, set) = registry_source();
             let (registry, unreadable) = read_registry(&source, set);
             let origin = std::env::var("FLEET_ORIGIN").ok();
             let machine = registry
