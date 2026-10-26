@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -31,6 +32,13 @@ extension CrashReporter {
     }
 }
 
+extension CrashFeatureScope {
+    /// A launch's ``FeatureFieldState`` as Sentry scope tags.
+    init(_ state: FeatureFieldState) {
+        self.init(hash: state.hash, nonDefault: state.nonDefault.map(\.description))
+    }
+}
+
 /// The app process's crash reporting (cx-urd.58): the Sentry reporter and
 /// the helper crash report forwarder. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
@@ -52,8 +60,11 @@ struct AppCrashReporting: Sendable {
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
 
-    /// - Parameter afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
-    init(environment: AppEnvironment, afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
+    /// - Parameters:
+    ///   - features: This launch's features, put on the Sentry scope right after it starts.
+    ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
+    init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
+         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         guard environment.marksRun else {
             forwarder = nil
@@ -64,6 +75,7 @@ struct AppCrashReporting: Sendable {
         DebugTimings.markLaunch("crash.sentry_start")
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")
+        if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)

@@ -20,13 +20,15 @@ extension HangReportService {
     ///   - metricsDirectory: Where this app's metrics store keeps its launch files (the folder its `adoptFile` uses):
     ///     the earlier launches are read there.
     ///   - rings: Where the daemon, the holders and the hosts keep their black boxes.
+    ///   - features: This launch's features (hash and overrides), sent where the wire schema carries them.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
                                   mainThreadHistograms: @escaping @Sendable () -> MainThreadReportLedger.Histograms?,
                                   wireSchema: HangReport.WireSchema = .deployed,
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
-                                  rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil))
+                                  rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil),
+                                  features: HangReport.FeatureState? = nil)
         -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver(), wireSchema: wireSchema)
@@ -60,6 +62,7 @@ extension HangReportService {
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
                                     build: info["CFBundleVersion"] as? String ?? "0", channel: channel),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData))
+                hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData,
+                features: features))
     }
 }

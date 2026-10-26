@@ -31,7 +31,8 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: HangReport.FeatureState(services.features.fieldState))
         let collector = hangReports.collector
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
