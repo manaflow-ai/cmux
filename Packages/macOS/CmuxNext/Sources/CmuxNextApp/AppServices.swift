@@ -161,7 +161,8 @@ final class AppServices {
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
-    let presentation = ContentPresentationScheduler()
+    private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
+    private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
