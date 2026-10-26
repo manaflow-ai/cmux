@@ -1,68 +1,43 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
 
-/// The bottom card slot's height as the list above it lays out: a spring
-/// toward the slot's real height (`SidebarBottomCardSlot.height`), so a card
-/// that comes in or goes out (the update status after Check for Updates)
-/// moves the list's bottom edge smoothly instead of in one jump. The card
-/// itself sits at its final place and plays ``SidebarCardTransition``.
+/// The bottom card slot's room in the sidebar's layout (chrome-parity p03-rendering-033).
 ///
-/// It steps on the window's one ``MotionClock`` and asks for a layout each
-/// frame, so every view lays out at its real size (no implicit frame
-/// animations). It snaps on the first layout, without a window, under
-/// Reduce Motion, with motion off and during a live resize.
+/// The sidebar lays out once at the slot's real height (`SidebarBottomCardSlot.height`), so
+/// every view sits at its rest frame in the change's turn; the card itself plays
+/// ``SidebarCardTransition``. The views the slot's change moved (the card stack above it)
+/// then slide from where they showed on a render-server spring
+/// (``SidebarCardTransition/slide(_:from:opening:gate:in:)``): no ``MotionClock`` frames and no
+/// layout per frame. Chrome commits a layout once and lets the compositor animate the layers
+/// (cc/animation/keyframe_model.h; ui/compositor/layer_animator.h).
+///
+/// The first layout, a window-less or hidden sidebar and a live resize place the views
+/// without a spring; the gate decides the rest (Reduce Motion, motion off).
 @MainActor
-final class SidebarCardSlotMotion: MotionAnimating {
-    private var height: SpringValue?
-    private weak var view: NSView?
-    private let policy: @MainActor () -> MotionPolicy
+final class SidebarCardSlotMotion {
+    /// The slot height the last layout placed, nil before the first.
+    private(set) var laidOutHeight: CGFloat?
+    private let gate: MotionGate
 
-    /// - Parameter policy: The motion settings, read at each change (`Motion.policy`).
-    init(policy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        self.policy = policy
+    /// - Parameter gate: The motion gate the slide obeys (`Motion.overlays`).
+    init(gate: MotionGate = Motion.overlays) {
+        self.gate = gate
     }
 
-    /// Whether the height is still moving toward its target.
-    var isMoving: Bool { height.map { $0.value != $0.target } ?? false }
-
-    /// The height to lay out now in `view` for a slot whose real height is `target`.
-    func height(toward target: CGFloat, in view: NSView) -> CGFloat {
-        self.view = view
-        guard var height else {
-            self.height = SpringValue(target)
-            return target
-        }
-        guard height.target != target else {
-            // A spring no clock steps any more (the window's scheduler went inactive and dropped
-            // it, `MotionClock.run`) would hold the list short of the card for good (2026-10-20:
-            // the Updated card floated over the last rows): it lands on its target.
-            if height.value != target, !MotionClock.forView(view).isRunning(self) {
-                height.snap()
-                self.height = height
-            }
-            return height.value
-        }
-        height.target = target
-        let animates = policy().animatesMovement && view.window != nil && !view.inLiveResize
-            && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)
-        if !animates { height.snap() }
-        self.height = height
-        if animates {
-            MotionClock.forView(view).run(self, trace: "sidebar.cardSlot")
+    /// The layout placed the slot at `height` and `moved` (views above the slot) at their
+    /// rest frames in `view`, the sidebar: they slide from where the last height left them.
+    /// Returns how far the slot grew (negative when it shrank; 0 on the first layout).
+    @discardableResult
+    func slotDidLayOut(height: CGFloat, moved: [NSView], in view: NSView) -> CGFloat {
+        defer { laidOutHeight = height }
+        guard let last = laidOutHeight, last != height else { return 0 }
+        let growth = height - last
+        if view.window == nil || view.inLiveResize || view.isHiddenOrHasHiddenAncestor {
+            SidebarCardTransition.stopSlide(moved)
         } else {
-            MotionClock.forView(view).stop(self)
+            // A taller slot moved the views above it up: they start `growth` lower than their rest.
+            SidebarCardTransition.slide(moved, from: growth, opening: growth > 0, gate: gate, in: view)
         }
-        return height.value
-    }
-
-    func motionStep(_ tick: FrameTick) -> Bool {
-        guard var height, let view else { return false }
-        // Room opens on `appear` and closes on the quicker `disappear`.
-        let token: MotionSpring = height.target >= height.value ? .appear : .disappear
-        let moving = height.advance(tick.elapsed,parameters: policy().spring(token), epsilon: 0.25)
-        self.height = height
-        view.needsLayout = true
-        return moving
+        return growth
     }
 }

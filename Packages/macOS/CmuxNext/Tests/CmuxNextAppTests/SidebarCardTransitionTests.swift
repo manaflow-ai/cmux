@@ -6,8 +6,8 @@ import Testing
 /// The update status card after Check for Updates comes in and goes out with motion (Lawrence
 /// 2026-10-18: "the check for updates thing needs better animations for both coming in and
 /// coming out"): a fade and a short rise in, a quicker fade and drop out, a crossfade between
-/// messages, fade only under Reduce Motion, nothing with motion off, and the list above makes
-/// room on a spring instead of jumping.
+/// messages, fade only under Reduce Motion, nothing with motion off, and the views above the slot
+/// slide on a render-server spring after one layout.
 @MainActor @Suite(.serialized) struct SidebarCardTransitionTests {
     static let moving = MotionPolicy(speed: .fast, reduceMotion: false)
     static let reduced = MotionPolicy(speed: .fast, reduceMotion: true)
@@ -70,37 +70,65 @@ import Testing
         #expect(!SidebarNoticeCardView.changesMessage(from: ticked, to: ticked2), "every download tick would flash the card")
     }
 
-    /// 2026-10-20: the Updated card floated over the last rows. The window's clock dropped the slot's
-    /// spring (its scheduler went inactive, `MotionClock.run`), and every layout after that asked for
-    /// the same height and got the stalled one back, so the list kept less room than the card took.
-    /// A spring no clock steps any more lands on its target at the next layout.
-    @Test func aSpringTheClockDroppedLandsOnItsTarget() {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
-        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    /// A sidebar in a borderless window and a layer-backed view above its card slot.
+    static func slotHost() -> (window: NSWindow, sidebar: NSView, moved: NSView) {
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        sidebar.wantsLayer = true
+        let moved = NSView(frame: NSRect(x: 0, y: 400, width: 240, height: 60))
+        sidebar.addSubview(moved)
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = view
-        let motion = SidebarCardSlotMotion(policy: { Self.moving })
-        _ = motion.height(toward: 0, in: view)
-        let first = motion.height(toward: 120, in: view)
-        // On a host with a display the spring starts at 0; without one it snapped (nothing to drop).
-        #expect(first == 0 || first == 120)
-        MotionClock.forView(view).stop(motion)
-        #expect(motion.height(toward: 120, in: view) == 120, "the list stayed short of the card")
-        #expect(!motion.isMoving)
+        window.contentView = sidebar
+        return (window, sidebar, moved)
     }
 
-    @Test func theSlotSnapsWithoutAWindowOrUnderReduceMotion() {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
-        let moving = SidebarCardSlotMotion(policy: { Self.moving })
-        #expect(moving.height(toward: 0, in: view) == 0)
-        #expect(moving.height(toward: 120, in: view) == 120, "a window-less sidebar waited for a clock that never ticks")
-        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+    static func slides(_ view: NSView) -> [CASpringAnimation] {
+        let layer = view.layer
+        return (layer?.animationKeys() ?? []).compactMap { layer?.animation(forKey: $0) as? CASpringAnimation }
+            .filter { $0.keyPath == SidebarCardTransition.slideKeyPath }
+    }
+
+    /// p03-rendering-033: the slot lays out once at its real height and the views above it slide on an
+    /// additive render-server spring from where they showed: no MotionClock frames, no layout per frame.
+    @Test func theViewsAboveTheSlotSlideOnTheRenderServer() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        try #require(Motion.overlays.animatesMovement, "overlays movement is off in this host's settings")
+        let (window, sidebar, moved) = Self.slotHost()
         defer { window.close() }
-        window.contentView = view
-        let reduced = SidebarCardSlotMotion(policy: { Self.reduced })
-        _ = reduced.height(toward: 0, in: view)
-        #expect(reduced.height(toward: 120, in: view) == 120 && !reduced.isMoving, "the list slid under Reduce Motion")
+        let motion = SidebarCardSlotMotion()
+        #expect(motion.slotDidLayOut(height: 0, moved: [moved], in: sidebar) == 0)
+        #expect(Self.slides(moved).isEmpty, "the first layout slid")
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(motion.slotDidLayOut(height: 120, moved: [moved], in: sidebar) == 120)
+        #expect(!sidebar.needsLayout, "the slot asked for another layout")
+        guard Motion.canAnimate(in: sidebar) else { return } // a host with no awake display shows it at once
+        let slides = Self.slides(moved)
+        #expect(slides.count == 1 && slides.allSatisfy(\.isAdditive), "the room opened without a render-server slide")
+        #expect((slides.first?.fromValue as? NSNumber)?.doubleValue == 120, "the views did not start where they showed")
+        #expect((moved.layer?.value(forKeyPath: SidebarCardTransition.slideKeyPath) as? NSNumber)?.doubleValue == 0, "the model moved off rest")
+        // The room closing mid-slide stacks a spring on the running one.
+        motion.slotDidLayOut(height: 40, moved: [moved], in: sidebar)
+        #expect(Self.slides(moved).count == 2)
+    }
+
+    @Test func theSlotPlacesAtOnceWithoutAWindowOrUnderReduceMotion() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        view.wantsLayer = true
+        let moved = NSView(frame: NSRect(x: 0, y: 400, width: 240, height: 60))
+        view.addSubview(moved)
+        let windowless = SidebarCardSlotMotion()
+        windowless.slotDidLayOut(height: 0, moved: [moved], in: view)
+        #expect(windowless.slotDidLayOut(height: 120, moved: [moved], in: view) == 120)
+        #expect(Self.slides(moved).isEmpty, "a window-less sidebar slid")
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let (window, sidebar, inWindow) = Self.slotHost()
+        defer { window.close() }
+        let reduced = SidebarCardSlotMotion()
+        reduced.slotDidLayOut(height: 0, moved: [inWindow], in: sidebar)
+        reduced.slotDidLayOut(height: 120, moved: [inWindow], in: sidebar)
+        #expect(Self.slides(inWindow).isEmpty, "the views slid under Reduce Motion")
+        #expect(reduced.laidOutHeight == 120)
     }
 }

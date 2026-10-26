@@ -76,7 +76,7 @@ public final class SidebarView: NSView {
     /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
     var editBar: SidebarEditBar?
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
-    /// The card slot's height as the list lays out: springs when a card comes or goes.
+    /// The card slot's room: laid out once at its real height; the views above it slide when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
@@ -322,18 +322,18 @@ public final class SidebarView: NSView {
             updateBands()
         }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
+        // One layout at the slot's real height; the card sits at its place (SidebarCardSlotMotion).
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
-        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let priorityHeight = layoutPriority(top: y + spacesHeight, width: b.width)
-        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + slotHeight + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
-        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - slotHeight - cardsHeight, width: b.width, height: cardsHeight)
+        cardSlotMotion.slotDidLayOut(height: slotHeight, moved: footerCards.map { [$0] } ?? [], in: self)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
