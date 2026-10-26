@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
@@ -35,14 +36,16 @@ extension WindowManager {
     }
 
     /// Makes controllers match the registry, all in this main-actor turn so
-    /// no frame shows a window without its workspace: opens missing windows,
+    /// no frame shows a window without its workspace: opens missing windows
+    /// (not a restored one waiting for its launch build, `launchWindows`),
     /// repairs each window's selection, closes windows the registry removed
     /// or closed (at once), and when the key window closed, makes the window
     /// that received its workspaces key (else the next one in z-order).
     /// Windows whose membership did not change keep their state untouched.
     func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = []) {
         let value = registry.value
-        for window in value.openWindows where controller(for: window.id) == nil {
+        launchWindows?.keep(Set(value.openWindows.map(\.id)))
+        for window in value.openWindows where builtController(for: window.id) == nil && launchWindows?.isWaiting(window.id) != true {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred)
@@ -88,7 +91,7 @@ extension WindowManager {
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
             // "The next row" is the sidebar's next drawn row, not the next member to have joined.
             let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
+                (builtController(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }

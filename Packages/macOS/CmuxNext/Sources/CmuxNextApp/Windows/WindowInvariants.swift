@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextLaunch
 import CmuxNextSettings
 import os
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -30,7 +31,7 @@ enum WindowInvariants {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
-        for window in value.openWindows where manager.controller(for: window.id) == nil {
+        for window in value.openWindows where manager.builtController(for: window.id) == nil && manager.launchWindows?.isWaiting(window.id) != true {
             problems.append("open window \(window.id) has no controller")
         }
         return problems
@@ -42,13 +43,14 @@ enum WindowInvariants {
         let problems = problems(manager)
         return .object([
             "windows": .array(value.windows.map { window in
-                let controller = manager.controller(for: window.id)
+                let controller = manager.builtController(for: window.id)
                 return .object(pageFields(state: manager.states[window.id], controller: controller).merging([
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),
                     "workspaces": .array(window.workspaceIDs.map(JSONValue.string)),
                     "selected": manager.states[window.id]?.workspaceID.map(JSONValue.string) ?? .null,
                     "has_controller": .bool(controller != nil),
+                    "launch_build_waits": .bool(manager.launchWindows?.isWaiting(window.id) == true),
                     "visible": .bool(controller?.window?.isVisible ?? false),
                     "awaiting_content": .bool(manager.awaitingContent[window.id] != nil),
                 ]) { _, new in new })

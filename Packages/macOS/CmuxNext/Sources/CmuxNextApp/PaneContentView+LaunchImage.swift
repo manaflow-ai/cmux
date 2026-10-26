@@ -77,13 +77,15 @@ extension VisiblePaneRefs {
     }
 
     /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.
+    /// A restored window that shows and waits for its launch build (p08-startup-062) is one loading window.
     func windows(of manager: WindowManager) -> [Window] {
         _ = (manager.services.paneMounts.generation, manager.services.cache.pageInstalls.revision)
-        return manager.controllers.compactMap { controller -> Window? in
+        let built = manager.controllers.compactMap { controller -> Window? in
             let id = controller.state.id
             guard manager.awaitingContent[id] != nil || Window.isOnScreen(controller.window) else { return nil }
             return Window(id: id, content: content(of: controller))
         }
+        return built + (manager.launchWindows?.waitingVisible ?? []).map { Window(id: $0, content: .loading) }
     }
 
     /// The window's top page, else its shown workspace's panes on screen; nothing installed yet (the

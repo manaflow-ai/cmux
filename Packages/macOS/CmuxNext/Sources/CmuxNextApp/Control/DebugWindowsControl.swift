@@ -60,7 +60,7 @@ enum DebugWindowsControl {
     /// UUID of the screen the window is on, null with no screen) and
     /// `saved_display` (the registry's, written at each geometry save).
     static func restoreFields(_ windows: WindowManager, id: String) -> [String: JSONValue] {
-        let controller = windows.controller(for: id), state = windows.states[id]
+        let controller = windows.builtController(for: id), state = windows.states[id]
         let width = controller.map { Double($0.sidebar.model.width) } ?? state?.sidebarWidth
         let hidden = controller.map { $0.sidebar.model.presentation == .hidden } ?? state?.sidebarHidden ?? false
         return [
