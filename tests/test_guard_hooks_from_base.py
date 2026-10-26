@@ -214,20 +214,53 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assert_refused(out, "installed landing gate")
 
-    def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
-        """A merge the hook can't judge goes ahead with a warning the agent and the person both see, never with only a
-        stderr line (2026-10-21: timed-out reads held #23660 and #23371 for hours with every gate met)."""
-        self.install_gate()
+    def unreadable_launcher(self) -> None:
+        """origin/feat-cmux-next has no launcher and can't be fetched again."""
         old = self.old_base()
         git(self.lane, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
         git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", old)
+
+    def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
+        """A merge the hook can't judge goes ahead with a warning the agent and the person both see, never with only a
+        stderr line (2026-10-21: timed-out reads held #23660 and #23371 for hours with every gate met). Claude Code
+        runs a registered gate itself."""
+        self.install_gate(registered_in=self.home / ".claude")
+        self.unreadable_launcher()
         code, out, err = self.hook(MERGE)
         self.assertEqual(code, 0, err)
         self.assert_let_through(out, "merge guards did not run")
         # The update-branch warning only warns: unreadable, it does not block.
-        code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        code, out, err = self.hook(UPDATE)
         self.assertIsNone(out)
         self.assertNotEqual(code, 2)
+
+    def test_an_unregistered_gate_still_judges_a_merge_whose_launcher_cannot_be_read(self):
+        """Codex review of #23858: with no launcher to run it, the installed gate's refusal was lost."""
+        self.install_gate()
+        self.unreadable_launcher()
+        code, out, err = self.hook(MERGE)
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
+        self.install_gate(text=GATE_HOLD)  # a gate that lets it through leaves the warning
+        code, out, err = self.hook(MERGE)
+        self.assertEqual(code, 0, err)
+        self.assert_let_through(out, "merge guards did not run")
+
+    def test_a_stale_origin_is_fetched_with_gtimeout_where_timeout_is_missing(self):
+        """Codex review of #23858: stock macOS has no `timeout`, so the merge's fetch never ran there; GNU coreutils
+        from Homebrew installs it as `gtimeout`."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        for tool in ("bash", "git", "python3", "mktemp", "cat", "rm", "grep", "tar", "sleep"):
+            found = shutil.which(tool)
+            if found:
+                (bin_dir / tool).symlink_to(found)
+        (bin_dir / "gtimeout").symlink_to(shutil.which("timeout"))
+        self.install_gate()
+        git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", self.old_base())
+        code, out, err = self.hook(MERGE, env={"PATH": str(bin_dir)})
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
 
     def land_on_base(self, path: str, text: str) -> None:
         (self.seed / path).write_text(text)
