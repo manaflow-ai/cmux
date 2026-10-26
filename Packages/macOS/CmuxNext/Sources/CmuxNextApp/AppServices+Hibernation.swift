@@ -54,8 +54,10 @@ extension AppServices {
     /// public/user_tuning/user_performance_tuning_manager.h): the managed caches' shares under pressure and, through the
     /// coordinator, the proactive timeouts of every planner that follows the mode (page tabs,
     /// conversations, top pages, parked workspaces). Browser tabs keep `browser.hibernation`.
-    /// `background`: nothing on screen changes in the flush's frame.
+    /// `background`: nothing on screen changes in the flush's frame. Behind `memorySaverSetting`: off,
+    /// the mode stays Balanced, what cmux did before the setting.
     func followMemorySaver(_ settings: SettingsController) {
+        guard features.isEnabled(.memorySaverSetting) else { return }
         lifetimeFollowers.append(ServiceObservation(.background, owner: "AppServices.memorySaver", on: mainWork) {
             settings.snapshot.memorySaver
         } apply: { [weak self] mode in self?.memoryCoordinator.mode = mode })

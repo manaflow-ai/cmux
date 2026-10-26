@@ -27,6 +27,10 @@ import CmuxNextWakeups
 /// kind `topPage`), so input the record does not keep holds a page at any pressure (the lead rule's
 /// form input). Events only: content swaps, a page leaving the window, and one deadline per window
 /// for its next page to come due.
+///
+/// The memory coordinator hands each window's host the Memory Saver mode, which scales a page's
+/// timeout (off: no timed release), and the pressure level: at critical a hidden page goes whatever
+/// the mode (``dueAfter(_:)``).
 @MainActor
 final class TopPageHost {
     private(set) var views: [TopPageRoute: NSView] = [:]
@@ -62,6 +66,8 @@ final class TopPageHost {
     private(set) var releasedCount = 0
     /// The `memory.saver` mode that scales each page's timeout (the memory coordinator hands it over).
     private(set) var saverMode: MemorySaverMode = .medium
+    /// The coordinator's pressure level: at critical, hidden pages go whatever the mode (``dueAfter(_:)``).
+    private(set) var pressure: MemoryPressureLevel = .normal
     private var memoryRegistration: MemoryConsumerRegistration?
     /// A page hidden less than this never goes for the budget: the person just left it, and a
     /// switch back to it must find it live, not rebuild it in the switch's turn (as
@@ -207,15 +213,16 @@ final class TopPageHost {
         guard discards else { return }
         let budgetWait = Self.releaseOverLimit(hosts(), limit: hiddenLimit)
         let at = now()
+        let reason: DiscardReason = pressure == .critical ? .urgent : .proactive
         var next = budgetWait
         for (route, since) in hiddenSince {
             guard let view = views[route], case .afterHidden(let pageTimeout) = policy(route, view),
-                  let timeout = saverMode.proactiveTimeout(pageTimeout) else { continue }
+                  let timeout = dueAfter(pageTimeout) else { continue }
             let remaining = timeout - (at - since)
             let wait: Duration
             if remaining > .zero {
                 wait = remaining
-            } else if view.window != nil || release(route, for: .proactive) {
+            } else if view.window != nil || release(route, for: reason) {
                 // Released, or still on screen (a paint hold keeps it): it leaving is the event
                 // that plans again (``contentDidLeaveWindow()``).
                 continue
@@ -287,6 +294,15 @@ final class TopPageHost {
         restoring.removeAll()
     }
 
+    /// How long a page whose policy says `timeout` waits hidden now. At critical pressure, whatever
+    /// the mode: the sooner of `timeout` and ``budgetMinimumHidden``, as Chrome's urgent discarding
+    /// takes hidden tabs before their proactive time (urgent_page_discarding_policy.cc). Else
+    /// `timeout` in the Memory Saver mode; nil when the mode discards nothing proactively (off).
+    private func dueAfter(_ timeout: Duration) -> Duration? {
+        if pressure == .critical { return min(timeout, Self.budgetMinimumHidden) }
+        return saverMode.proactiveTimeout(timeout)
+    }
+
     /// The owner's policy; a page with no owner never goes.
     private func policy(_ route: TopPageRoute, _ view: NSView) -> PageDiscardPolicy {
         discardable(route, view)?.pageDiscardPolicy ?? .never
@@ -302,9 +318,11 @@ final class TopPageHost {
     }
 }
 
-// The Memory Saver mode scales each page's timeout (Chrome's memory_saver_mode_policy.cc): a change
-// plans again after this turn. Lossy and holding no cap of its own, like the content discard schedulers.
-extension TopPageHost: MemorySaverModeConsumer {
+// The Memory Saver mode scales each page's timeout (Chrome's memory_saver_mode_policy.cc) and the
+// level picks the proactive or the urgent pass: a change of either plans again after this turn, and
+// the critical limit's release slice runs one pass. Lossy and holding no cap of its own, like the
+// content discard schedulers.
+extension TopPageHost: MemoryLevelConsumer, MemorySaverModeConsumer {
     func memorySaverModeDidChange(_ mode: MemorySaverMode) {
         guard mode != saverMode else { return }
         saverMode = mode
@@ -312,8 +330,20 @@ extension TopPageHost: MemorySaverModeConsumer {
         deadline.arm(after: .zero) { [weak self] in self?.plan() }
     }
 
+    func memoryLevelDidChange(_ level: MemoryPressureLevel) {
+        guard level != pressure else { return }
+        pressure = level
+        guard discards else { return }
+        deadline.arm(after: .zero) { [weak self] in self?.plan() }
+    }
+
     func updateMemoryLimit(_ limit: MemoryLimit) {}
-    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress { .done }
+
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        if slice.limit.isCritical { plan() }
+        return .done
+    }
+
     /// Unknown: a page's views are not sampled on their own.
     var memoryUsage: MemoryUsage? { nil }
 }

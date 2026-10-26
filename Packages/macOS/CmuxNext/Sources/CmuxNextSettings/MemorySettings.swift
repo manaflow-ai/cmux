@@ -18,7 +18,8 @@ public import CmuxNextDesign
 /// `memory_saver_memory_coordinator_policy.h`. Medium, the default, is what cmux did before the
 /// setting. `browser.hibernation` stays the browser's own setting: browser tabs follow it, not this.
 ///
-/// Read from the snapshot's document, not stored: a missing or unknown value is the default.
+/// Read from the snapshot's document, not stored: a missing or unknown value is the default. Behind the
+/// default-off `memorySaverSetting` feature: off, the App neither follows the key nor runs its actions.
 public nonisolated struct MemorySaverSetting: Sendable {
     /// The cmux-next.json key path.
     public static let path = ["memory", "saver"]
@@ -45,23 +46,42 @@ extension CmuxConfigSnapshot {
 }
 
 extension MemorySaverSetting {
+    /// The `memorySaverSetting` feature is off: the actions refuse with this, and the mode stays Balanced.
+    public static var featureOffReason: String {
+        String(localized: "settings.memory.saver.unavailable.featureOff",
+               defaultValue: "Memory Saver is a Labs feature that is turned off.", bundle: .module)
+    }
+
+    /// Starts the validated cmux-next.json write of one value: reads who writes in the action's turn
+    /// and returns the write, which the registry runs after the turn (nil on success, else why not).
+    public typealias Write = @MainActor (_ path: [String], _ value: JSONValue?) -> @MainActor () async -> ActionWorkFailure?
+
     /// Memory Saver's palette actions (`memory.saver.off|conservative|medium|aggressive`, catalog
-    /// `MemorySaverActionCatalog`), each bound with `bindEffect`: `save` refuses a managed key before
-    /// anything changes, else starts the cmux-next.json write (the default removes the key), then
-    /// `apply` hands the mode to the memory coordinator in the action's own turn. Each returns
-    /// `.done`: the mode is set, and every planner that follows it looks again on its own deadline.
+    /// `MemorySaverActionCatalog`), each bound with `bindEffect`. While `unavailable` gives a reason
+    /// (the `memorySaverSetting` feature is off), no action runs. Else `refusal` refuses before anything
+    /// changes (a managed key, settings not loaded); then `apply` hands the mode to the memory
+    /// coordinator in the action's own turn and the effect is `.applied`: the registry runs the
+    /// cmux-next.json write after the turn (the default removes the key), and a failed write puts the
+    /// previous mode back, so the coordinator never keeps a mode the file does not have.
     ///
     /// - Parameters:
     ///   - registry: The app's action registry.
-    ///   - save: The validated settings write; a refusal when the key is managed.
-    ///   - apply: Sets the live mode (the App's `memoryCoordinator.mode`).
-    @MainActor public static func bindActions(into registry: ActionRegistry, save: @escaping SettingChoiceActions.Save,
+    ///   - unavailable: Why no mode action can run now, or nil.
+    ///   - refusal: Why a write to `path` is refused now, or nil.
+    ///   - write: The validated settings write.
+    ///   - current: The live mode (the App's `memoryCoordinator.mode`).
+    ///   - apply: Sets the live mode.
+    @MainActor public static func bindActions(into registry: ActionRegistry, unavailable: @escaping @MainActor () -> String?,
+                                              refusal: @escaping @MainActor (_ path: [String]) -> String?, write: @escaping Write,
+                                              current: @escaping @MainActor () -> MemorySaverMode,
                                               apply: @escaping @MainActor (MemorySaverMode) -> Void) {
         for mode in MemorySaverMode.allCases {
-            registry.bindEffect(mode.actionID, effect: { _ in
-                if let refusal = save(Self.path, Self.fileValue(mode)) { return .refused(refusal) }
+            registry.bindEffect(mode.actionID, unavailable: unavailable, effect: { _ in
+                if let reason = refusal(Self.path) { return .refused(reason) }
+                let send = write(Self.path, Self.fileValue(mode))
+                let previous = current()
                 apply(mode)
-                return .done
+                return .applied(ActionConfirmation(send: send, rollback: { _ in apply(previous) }))
             })
         }
     }
@@ -113,8 +133,14 @@ public nonisolated struct MemoryDiscardToggles: Sendable {
         help: "Overrides terminalGPURelease: a terminal hidden outside the keep-alive band lets its GPU memory go while paused. Needs a GhosttyNextKit with ghostty_surface_set_gpu_resident. Applies at the next launch.",
         default: false, code: "MemoryDiscardToggles.terminalGPURelease")
 
+    public static let sidebarSections = Tunable<Bool>.toggle(
+        "memory.discard.sidebarSections", section, "Release hidden sidebar sections",
+        help: "Overrides memoryDiscardSidebarSections: a right sidebar section or Home dock mode hidden past its timeout, or at critical memory pressure, lets its view go and comes back with its scroll, expanded rows and query. Applies at the next launch.",
+        default: false, code: "MemoryDiscardToggles.sidebarSections")
+
     /// Every toggle, in the Debug Settings order.
-    public static let toggles = [internalPages, topPages, conversations, parkedWorkspaces, pageTabs, remoteTabs, terminalGPURelease]
+    public static let toggles = [internalPages, topPages, conversations, parkedWorkspaces, sidebarSections, pageTabs, remoteTabs,
+                                 terminalGPURelease]
 
     /// The descriptors Debug Settings lists.
     public static var all: [TunableDescriptor] { toggles.map(\.descriptor) }
