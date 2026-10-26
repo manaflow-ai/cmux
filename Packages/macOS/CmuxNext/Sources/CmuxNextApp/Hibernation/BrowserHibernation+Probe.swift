@@ -45,12 +45,20 @@ extension BrowserHibernation {
         return host
     }
 
+    /// An agent called hidden page `key` within `agentGrace` or holds its lease (its next call
+    /// would wait on a thaw); what the page shows then is the agent's doing.
+    func isAgentDriven(_ key: String) -> Bool {
+        if let used = agentUsedAt[key], ContinuousClock.now - used < .seconds(Self.agentGrace) { return true }
+        return leased.contains(key)
+    }
+
     /// Watches hidden page `key`'s title and icon (`PageActivityWatch`, when on): the first change
-    /// keeps it from the timeout until it shows (`DiscardRule.backgroundActivity`).
+    /// of the page's own keeps it from the timeout and from freezing until it shows
+    /// (`DiscardRule.backgroundActivity`); an agent's changes do not count.
     func watchActivity(_ key: String, _ tab: any BrowserTab) {
         activity.hide(key, look: { [weak tab] in
-            tab.map { PageBackgroundActivity.Look(url: $0.state.url, title: $0.state.title, icon: $0.state.faviconURL) }
-        }, onActive: { [weak self] in self?.replan() })
+            tab.map { PageBackgroundActivity.Look(document: $0.state.documentGeneration, title: $0.state.title, icon: $0.state.faviconURL) }
+        }, isAgentDriven: { [weak self] in self?.isAgentDriven(key) ?? false }, onActive: { [weak self] in self?.replan() })
     }
 
     /// The planner's facts of hidden page `key`, before any probe (`PageProbe.fill(_:)` adds its answer).

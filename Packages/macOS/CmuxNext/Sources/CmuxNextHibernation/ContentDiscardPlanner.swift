@@ -49,7 +49,7 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// A terminal's command still runs.
         package var runsCommand = false
         /// It changed its title or icon while hidden (`PageBackgroundActivity`): the timeout keeps
-        /// it, memory pressure does not.
+        /// it and it does not freeze (`HibernationPlanner.freezePlan`), memory pressure does not.
         package var hasBackgroundActivity = false
 
         /// The tab sits beside a pane's shown tab or was just hovered (browser pages).

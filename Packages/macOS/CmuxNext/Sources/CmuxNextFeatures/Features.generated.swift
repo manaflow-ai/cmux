@@ -2,12 +2,12 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
-    /// A hidden page that changes its title or icon is kept from the Memory Saver timeout until it shows; memory pressure still discards it.
+    /// A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.
     public static let memorySaverBackgroundActivity = Feature(
         index: 0,
         name: "memorySaverBackgroundActivity",
         owner: "PL-memory",
-        description: "A hidden page that changes its title or icon is kept from the Memory Saver timeout until it shows; memory pressure still discards it.",
+        description: "A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

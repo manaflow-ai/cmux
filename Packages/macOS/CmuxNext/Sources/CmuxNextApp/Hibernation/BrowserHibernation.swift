@@ -50,7 +50,7 @@ final class BrowserHibernation {
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
     /// When an agent last called each page (`noteAgentUse`).
-    private var agentUsedAt: [String: ContinuousClock.Instant] = [:]
+    private(set) var agentUsedAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds after an agent's call during which its hidden page stays awake
     /// whatever the memory pressure, so a page does not close under a script
     /// or between two calls of one task.
@@ -506,13 +506,10 @@ final class BrowserHibernation {
         }
     }
 
-    /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
-    /// neighbor or hovered tab.
+    /// No agent drives the hidden page (`isAgentDriven`), it showed no background activity (its
+    /// updates stay live), and it is no neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
-        // An agent holds its lease: its next call would wait on a thaw.
-        if leased.contains(key) { return false }
-        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {

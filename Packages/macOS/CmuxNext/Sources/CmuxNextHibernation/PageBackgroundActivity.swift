@@ -9,24 +9,27 @@ package import Foundation
 /// favicon update of a page that is not visible, cleared when it becomes visible. As in
 /// `PerformanceManagerTabHelper::TitleWasSet` and `DidUpdateFaviconURL`
 /// (components/performance_manager/performance_manager_tab_helper.cc), the first title and the
-/// first icon of each document do not count: a page that loads hidden is not active.
+/// first icon of each document do not count: a page that loads hidden is not active. A document
+/// starts at each commit, a reload of the same address too, and never at a same-document
+/// navigation (pushState, a fragment), as Chrome resets those flags in `PrimaryPageChanged`.
 ///
 /// ```swift
 /// var activity = PageBackgroundActivity()
-/// activity.hide("tab", look: .init(url: inbox, title: "Inbox", icon: icon))
-/// activity.note("tab", look: .init(url: inbox, title: "Inbox (1)", icon: icon)) // true
-/// activity.contains("tab")                                                     // true
+/// activity.hide("tab", look: .init(document: 1, title: "Inbox", icon: icon))
+/// activity.note("tab", look: .init(document: 1, title: "Inbox (1)", icon: icon)) // true
+/// activity.contains("tab")                                                      // true
 /// ```
 package nonisolated struct PageBackgroundActivity: Sendable {
     /// What a page shows in its tab: the facts whose change is background activity.
     package nonisolated struct Look: Hashable, Sendable {
-        /// The document's address; a new one is a new document (its first title and icon do not count).
-        package var url: URL?
+        /// The committed document (`BrowserTabState.documentGeneration`); a new one starts over
+        /// (its first title and icon do not count). An address change alone keeps it.
+        package var document: UInt64
         package var title: String?
         package var icon: URL?
 
-        package init(url: URL? = nil, title: String? = nil, icon: URL? = nil) {
-            self.url = url
+        package init(document: UInt64 = 0, title: String? = nil, icon: URL? = nil) {
+            self.document = document
             self.title = title
             self.icon = icon
         }
@@ -68,12 +71,14 @@ package nonisolated struct PageBackgroundActivity: Sendable {
     /// - Parameters:
     ///   - key: The page.
     ///   - look: What it shows now.
+    ///   - counts: False while an agent drives the page: its change becomes what the page shows,
+    ///     and only a later change of the page's own can make it active.
     /// - Returns: True when this change made the page active.
     @discardableResult
-    package mutating func note(_ key: String, look: Look) -> Bool {
+    package mutating func note(_ key: String, look: Look, counts: Bool = true) -> Bool {
         guard var page = seen[key] else { return false }
         defer { seen[key] = page }
-        guard look.url == page.look.url else {
+        guard look.document == page.look.document else {
             page = Seen(look, after: page.look)
             return false
         }
@@ -87,7 +92,8 @@ package nonisolated struct PageBackgroundActivity: Sendable {
             page.iconSet = true
         }
         page.look = look
-        return changed && active.insert(key).inserted
+        guard changed, counts else { return false }
+        return active.insert(key).inserted
     }
 
     /// Whether hidden page `key` changed its title or icon since it hid.

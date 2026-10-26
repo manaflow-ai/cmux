@@ -10,7 +10,7 @@ import CmuxNextCompat
 /// ```swift
 /// let watch = PageActivityWatch()
 /// watch.isEnabled = true
-/// watch.hide("tab", look: { [weak page] in page.map(look(of:)) }, onActive: replan)
+/// watch.hide("tab", look: { [weak page] in page.map(look(of:)) }, isAgentDriven: { false }, onActive: replan)
 /// watch.contains("tab")   // after its title changes: true
 /// watch.forget("tab")     // shown: false again
 /// ```
@@ -29,8 +29,11 @@ package final class PageActivityWatch {
     /// - Parameters:
     ///   - key: The page.
     ///   - look: What the page shows now, read with observation tracking; nil once it is gone.
+    ///   - isAgentDriven: Whether an agent drives the page now: its changes are the agent's, not
+    ///     the page's (automation never competes with the person), and do not count.
     ///   - onActive: Runs on the change that made the page active (once per hidden period).
     package func hide(_ key: String, look: @escaping @MainActor @Sendable () -> PageBackgroundActivity.Look?,
+                      isAgentDriven: @escaping @MainActor @Sendable () -> Bool = { false },
                       onActive: @escaping @MainActor @Sendable () -> Void) {
         forget(key)
         guard isEnabled, let shown = look() else { return }
@@ -41,7 +44,7 @@ package final class PageActivityWatch {
         observations[key] = Task { [weak self] in
             for await current in looks {
                 guard let self, let current else { return }
-                if self.activity.note(key, look: current) { onActive() }
+                if self.activity.note(key, look: current, counts: !isAgentDriven()) { onActive() }
             }
         }
     }
