@@ -39,14 +39,15 @@ struct EnergyReportTests {
                      energyNanojoules: energy, physFootprint: 0, uptimeNanos: 0)
     }
 
-    @Test func topLevelKeysAreExactlyTheSeven() async throws {
+    @Test func topLevelKeysAreExactlyTheEight() async throws {
         let report = await Self.report()
         let object = try #require(report.objectValue)
-        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef", "idle"])
+        #expect(Set(object.keys) == ["policy", "inputs", "wake_queue", "ledger_top", "processes", "cef", "idle", "tabs"])
         #expect(object["policy"]?["reason"]?.stringValue == "battery")
         #expect(object["policy"]?["wakeAlignmentMs"]?.doubleValue == 32)
         #expect(object["policy"]?["webFrameRate"]?.intValue == 30)
         #expect(object["policy"]?["pollStretch"]?.intValue == 4)
+        #expect(object["policy"]?["pageSaver"]?.boolValue == true)
         #expect(object["inputs"]?["featureEnabled"]?.boolValue == true)
         #expect(object["inputs"]?["hasBattery"]?.boolValue == true)
         #expect(object["inputs"]?["batteryPercent"]?.intValue == 15)
@@ -191,6 +192,48 @@ struct EnergyReportTests {
         let rendered = await Self.report(ledger: ledger)["ledger_top"]?.arrayValue?.first
         #expect(rendered?["count"]?.intValue == 30)
         #expect(rendered?["perSecond"]?.doubleValue != nil)
+    }
+
+    /// `tabs` (p14-energy-124): the sampled tab renderers, per tab. Two tabs on one renderer both show its
+    /// whole usage and it names both. Only tab renderers count: an extension renderer (no client id) that a
+    /// stale tab pid names is not one.
+    @Test func tabsShowTheirRenderersUsageAndASharedRendererNamesEveryTab() throws {
+        let renderer = { (pid: pid_t, client: Int32?, energy: UInt64) in
+            EnergyReport.ProcessSample(kind: "cef-renderer", usage: Self.usage(pid: pid, interrupt: energy / 10, packageIdle: 1, energy: energy),
+                                       rendererClientID: client)
+        }
+        let processes = [
+            EnergyReport.ProcessSample(kind: "app", usage: Self.usage(pid: 1, interrupt: 1, packageIdle: 1, energy: 1)),
+            renderer(501, 3, 9_000), renderer(502, 4, 300), renderer(503, nil, 70),
+        ]
+        let tabs = [
+            ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: 501, rendererClients: [3]),
+            ProcessUsage.TabRenderers(tab: "b", title: "Docs 2", pid: 501, rendererClients: [3]),
+            ProcessUsage.TabRenderers(tab: "c", title: "Older fork", pid: nil, rendererClients: [4]),
+            ProcessUsage.TabRenderers(tab: "d", title: "Stale", pid: 503, rendererClients: []),
+        ]
+        let grouped = EnergyReport.tabUsage(tabs, processes: processes)
+
+        let rows = try #require(EnergyReport.render(state: Self.state, ledger: [], processes: processes, tabs: grouped)["tabs"]?.arrayValue)
+        try #require(rows.count == 4)
+        for row in rows.prefix(2) {
+            #expect(row["energyNj"]?.intValue == 9_000)
+            #expect(row["interruptWakeups"]?.intValue == 900)
+            let shared = try #require(row["renderers"]?.arrayValue?.first)
+            #expect(shared["pid"]?.intValue == 501)
+            #expect(shared["clientId"]?.intValue == 3)
+            #expect(shared["tabs"]?.arrayValue?.compactMap(\.stringValue) == ["a", "b"])
+        }
+        #expect(rows[0]["title"]?.stringValue == "Docs")
+        #expect(rows[2]["renderers"]?.arrayValue?.first?["pid"]?.intValue == 502, "a client id alone attributes the renderer")
+        #expect(rows[3]["renderers"]?.arrayValue?.isEmpty == true, "a process that is not a tab renderer is no tab's")
+        #expect(rows[3]["energyNj"]?.intValue == 0)
+    }
+
+    @Test func noTabsGroupNothing() {
+        let processes = [EnergyReport.ProcessSample(kind: "cef-renderer", usage: Self.usage(pid: 501, interrupt: 1, packageIdle: 1, energy: 1),
+                                                    rendererClientID: 3)]
+        #expect(EnergyReport.tabUsage([], processes: processes).isEmpty)
     }
 
     @Test func thermalStatesHaveStableNames() {

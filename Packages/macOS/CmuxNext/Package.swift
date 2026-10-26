@@ -30,16 +30,18 @@ import PackageDescription
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
-//     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
+//     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
+//     trace clock through the launch's one LaunchClock pairing)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
-//   CmuxNextFeatures -> Compat, swift-atomics (base::FeatureList: the feature registry and the immutable
-//     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
+//   CmuxNextFeatures -> Compat, Wakeups, swift-atomics (base::FeatureList: the feature registry and the immutable
+//     resolved snapshot the App builds once, and the signed remote document's store, whose file I/O runs on
+//     BackgroundWork's files lane; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
 //   CmuxNextMemory -> Compat only (the memory coordinator, budgets from RAM and the memory report; the consumer
 //     protocol and traits live in Compat so any module registers a consumer with no new edge; p07-memory.md)
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
@@ -1363,7 +1365,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // depends on CmuxNextApp.
         .target(
             name: "CmuxNextLaunch",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
+            // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
+                           "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1502,6 +1506,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFeatures",
             dependencies: [
                 "CmuxNextCompat",
+                // BackgroundWork: the remote flags store's file reads and writes (FeatureRemoteStore).
+                "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1511,6 +1517,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextFeatures",
+                "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1956,7 +1963,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            // Signposts: BurstTraceRingTests reads the burst.event catalog name and the burst category bit.
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):

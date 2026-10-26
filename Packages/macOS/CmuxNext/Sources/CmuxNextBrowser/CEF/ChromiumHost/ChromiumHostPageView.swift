@@ -80,21 +80,26 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's page update request
-    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``). The
-    /// window's layout owner (`WindowOverlayLayer`) posts it once per change
-    /// after panes, dividers or the sidebar moved and after the window moved,
+    /// window's page update request (`BrowserPageUpdates`). The window's
+    /// layout owner (`WindowOverlayLayer`) sends it once per change after
+    /// panes, dividers or the sidebar moved and after the window moved,
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
     private var pageUpdates: MainActorObservation?
+    /// Where the window's page update requests arrive.
+    private let pageUpdateCenter: NotificationCenter
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
     ///   - makeLayerHost: the layer that shows a context id; a `CALayerHost` by
     ///     default (tests pass one that fails, or a plain layer).
+    ///   - pageUpdateCenter: where the window's page update requests arrive;
+    ///     `.default` in the app, a private center in tests.
     init(frame: NSRect, inputTarget: InputTarget,
-         makeLayerHost: @escaping (UInt32) -> CALayer? = { ChromiumHostPageView.layerHost(contextID: $0) }) {
+         makeLayerHost: @escaping (UInt32) -> CALayer? = { ChromiumHostPageView.layerHost(contextID: $0) },
+         pageUpdateCenter: NotificationCenter = .default) {
         self.inputTarget = inputTarget
+        self.pageUpdateCenter = pageUpdateCenter
         surface = Surface(frame: NSRect(origin: .zero, size: frame.size), makeLayerHost: makeLayerHost)
         super.init(frame: frame)
         wantsLayer = true
@@ -214,7 +219,7 @@ public final class ChromiumHostPageView: NSView {
             pageUpdates = nil
             return
         }
-        pageUpdates = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: window) { [weak self] in
+        pageUpdates = BrowserPageUpdates.observe(of: window, center: pageUpdateCenter) { [weak self] _ in
             self?.presentedRectDidChange()
         }
     }

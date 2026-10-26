@@ -34,6 +34,7 @@ nonisolated extension SignpostName {
         case .ghosttyRender: .ghostty
         case .resizeFrame: .resize
         case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
+        case .burstEvent: .burst
         }
     }
 
