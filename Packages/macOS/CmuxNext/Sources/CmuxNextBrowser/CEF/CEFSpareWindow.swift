@@ -26,6 +26,14 @@ import Foundation
 /// cmux tab. A tab Chromium puts into the spare's window anyway (an
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes the spare.
+///
+/// In-process backend only. With the Chromium Host the window is built on the
+/// host's main thread, never cmux's, so `ChromiumWarmup` makes no spare there and
+/// a first tab relies on content's spare RenderProcessHost, a live renderer with
+/// no document, as Chrome does
+/// (content/browser/renderer_host/spare_render_process_host_manager.h). A spare
+/// browser comes back in host mode only when cef-tab-bench.py shows the spare
+/// renderer misses the warm-host target (first tab visible < 100 ms).
 final class CEFSpareWindow {
     static let shared = CEFSpareWindow()
     static let panePrefix = "spare-"
@@ -144,6 +152,34 @@ final class CEFSpareWindow {
 
     private static func spareKey() -> CEFPaneKey {
         CEFPaneKey(pane: BrowserPaneID(rawValue: panePrefix + BrowserTabID.random().rawValue), profile: .default)
+    }
+}
+
+/// Content's spare RenderProcessHost: a live, unlocked renderer with no document that the next
+/// navigation takes, so a first Chromium tab does not wait for a renderer to launch. Chrome keeps
+/// one at all times with site-per-process and `SpareRendererForSitePerProcess` on, and makes none
+/// in single-process mode or at the renderer process limit
+/// (content/browser/renderer_host/spare_render_process_host_manager_impl.cc,
+/// `RenderProcessHostImpl::IsSpareProcessKeptAtAllTimes`). The Chromium Host relies on it instead
+/// of a spare Chromium window (`CEFSpareWindow`).
+nonisolated struct CEFSpareRenderer {
+    static let feature = "SpareRendererForSitePerProcess"
+
+    /// The entries of `switches` (Chromium switch names, no leading dashes) that turn the spare
+    /// renderer off; empty when content keeps it.
+    static func blockers(in switches: [String]) -> [String] {
+        switches.filter { entry in
+            let name = entry.split(separator: "=", maxSplits: 1).first.map(String.init) ?? entry
+            switch name {
+            case "single-process", "disable-site-isolation-trials", "renderer-process-limit":
+                return true
+            case "disable-features":
+                return entry.dropFirst(name.count + 1).split(separator: ",")
+                    .contains { $0.trimmingCharacters(in: .whitespaces) == feature }
+            default:
+                return false
+            }
+        }
     }
 }
 

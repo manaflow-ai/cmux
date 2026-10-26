@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextBrowser
+import CmuxNextBrowser
 import CmuxNextWakeups
 public import Foundation
 
@@ -30,6 +30,22 @@ public import Foundation
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
+///
+/// With the Chromium Host (`Backend.host`), `CefInitialize` and every Chromium
+/// window run on the host's main thread, and cmux only spawns and attaches
+/// (ChromiumHostSupervisor, off the main thread), so nothing waits for an idle
+/// moment and the app never maps the framework:
+/// - while Chromium is the default engine, the host starts right after the
+///   first frame (this runs from `startLaterTabWarmups`) or when the default
+///   switches to Chromium;
+/// - otherwise the first Chromium tab starts it: a restored one (`.restoredTab`)
+///   here, a new one through `CEFEngine.makeTab`. The "+" menu and the palette
+///   predict a tab but are no tab, and start nothing.
+/// No spare Chromium window is made (`CEFSpareWindow` is the in-process
+/// backend's): the window it hid is built in the host, and the remaining cost of
+/// a first tab, a renderer process, is content's spare RenderProcessHost, as in
+/// Chrome (content/browser/renderer_host/spare_render_process_host_manager.h;
+/// kept at all times with site-per-process, `IsSpareProcessKeptAtAllTimes`).
 @MainActor
 public final class ChromiumWarmup {
     public enum Reason: String, Sendable {
@@ -41,6 +57,23 @@ public final class ChromiumWarmup {
         /// New browser tabs default to Chromium: start it after launch,
         /// before any tab asks.
         case launch
+
+        /// With the Chromium Host, whether this signal starts it: Chromium is
+        /// the default engine, or a Chromium tab exists.
+        var startsHost: Bool {
+            switch self {
+            case .launch, .defaultEngine, .restoredTab: true
+            case .newTabMenu, .palette: false
+            }
+        }
+    }
+
+    /// Where Chromium's browser process runs (plans/cmux-next/chrome-parity/p01-process.md 3.4).
+    public enum Backend: Sendable {
+        /// In cmux: `CefInitialize` and the first window hold cmux's main thread.
+        case inProcess
+        /// In the Chromium Host app: cmux spawns and attaches off its main thread.
+        case host
     }
 
     public struct Policy: Sendable {
@@ -55,13 +88,15 @@ public final class ChromiumWarmup {
         public init() {}
     }
 
-    private let engine: CEFEngine
+    private let engine: any ChromiumWarmupEngine
+    private let backend: Backend
     private let policy: Policy
     private let now: @MainActor () -> TimeInterval
     private let isTrackingMenu: @MainActor () -> Bool
     private let launchTimer: DemandTimer
     private let idleTimer: DemandTimer
     private let giveUpTimer: DemandTimer
+    private var started = false
     private var waiting = false
     private var menuObserver: (any NSObjectProtocol)?
     private var inputMonitor: Any?
@@ -78,15 +113,19 @@ public final class ChromiumWarmup {
     /// settle (`pagesSettled`), not at a later idle check.
     private var spareWaitsForPages = false
     private var stopped = false
+    /// The Chromium Host's start (`Backend.host`), once asked for.
+    private(set) var hostStart: Task<Void, Never>?
 
     public init(
-        engine: CEFEngine,
+        engine: any ChromiumWarmupEngine,
+        backend: Backend = .inProcess,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking }
     ) {
         self.engine = engine
+        self.backend = backend
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
         idleTimer = DemandTimer(owner: "ChromiumWarmup.idle", clock: clock)
@@ -101,11 +140,17 @@ public final class ChromiumWarmup {
     /// tab within `Policy.recentUse`: maps the framework, and while new tabs
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
-    /// signal (`chromiumLikely`).
+    /// signal (`chromiumLikely`). With the Chromium Host, the host starts now
+    /// while Chromium is the default engine, and nothing else happens at launch.
     public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
-        guard !launchTimer.isScheduled, isAvailable else { return }
+        guard !started, isAvailable else { return }
+        started = true
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
+        if backend == .host {
+            if defaultIsChromium() { chromiumLikely(.launch) }
+            return
+        }
         // Whenever no spare window is ready (taken, or a tab started Chromium itself), the next
         // idle moment makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
         engine.onSpareWindowNeeded = { [weak self] in self?.spareNeeded() }
@@ -133,6 +178,7 @@ public final class ChromiumWarmup {
     /// `CefInitialize` at the next idle moment. Once per process.
     public func chromiumLikely(_ reason: Reason) {
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
+        if backend == .host { return startHost(reason) }
         self.reason = reason
         engine.preload()
         // The idle wait starts once the framework is mapped, so CefInitialize
@@ -149,6 +195,15 @@ public final class ChromiumWarmup {
                 }
             }
         }
+    }
+
+    /// Asks for the Chromium Host when `reason` starts it (`Reason.startsHost`): `warmStart`
+    /// spawns and attaches it off the main thread, so no idle moment is needed.
+    private func startHost(_ reason: Reason) {
+        guard reason.startsHost, !stopped else { return }
+        self.reason = reason
+        // task-owner: one host start per process; ChromiumHostSupervisor owns the host's lifetime
+        hostStart = Task { [engine] in await engine.warmStart(reason: reason.rawValue) }
     }
 
     /// Chromium runs: build the spare window (CEFSpareWindow) at the next
