@@ -120,6 +120,33 @@ const groupedControls: Play = async (ctx) => {
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
+// Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
+// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
+// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
+// as on by its ink alone, against Browser at rest.
+const plainIcons: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight"] });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="terminal"][aria-pressed="true"]'));
+  await ctx.hover({ role: "button", name: "Terminal" });
+  await openMenu(ctx);
+  const view = ctx.document.defaultView!;
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  for (const tool of tools) {
+    const style = view.getComputedStyle(tool);
+    const name = tool.getAttribute("aria-label");
+    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
+      throw new Error(`header tool ${name} draws a border`);
+    if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
+  }
+  const on = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
+  const off = ctx.find({ selector: '[data-quick-action="browser"]' });
+  if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
+    throw new Error("the open panel's toggle has the same ink as a tool at rest");
+};
+
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -346,6 +373,11 @@ export default componentEntry<HeaderToolsProps>({
     "panel-icon-session": {
       note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
       props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
+    "plain-icons": {
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      props: { ...base, summary: panelToggle(true) },
+      play: plainIcons,
     },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",

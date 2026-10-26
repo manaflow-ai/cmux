@@ -124,6 +124,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var intentLog = IntentLog()
     /// The open script-batch stage, if any (DaemonStore+Stage.swift).
     @ObservationIgnored var stage: StoreStage?
+    /// Read-your-writes waits by sequence, counted (``beginAppliedWait(_:)``): a stage holds no event
+    /// one of them needs.
+    @ObservationIgnored var sequenceWaits: [UInt64: Int] = [:]
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
@@ -273,7 +276,7 @@ public final class DaemonStore: StateResourceQueries {
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
         // A snapshot holds everything the daemon did: a staged batch shows first (every joined batch's
         // part), then the snapshot.
-        stage?.commit(all: true)
+        stage?.commitAll()
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
                 applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))

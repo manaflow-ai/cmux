@@ -28,6 +28,17 @@ pub enum Command {
     /// Give a session here a task, end one with its result in one call, list a chat's tasks.
     #[command(subcommand)]
     Task(crate::cli::task::TaskCmd),
+    /// Find the session an agent link (a PR footer's cmux.com/deeplink/agent?... or
+    /// cmux://agent/...), session id, harness session id or name names, here or on a peer, and
+    /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
+    #[command(alias = "find")]
+    Resolve {
+        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
+        query: String,
+    },
+    /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
+    #[command(subcommand)]
+    Bead(crate::cli::beads::BeadCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -192,6 +203,11 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// Send this file with the message (repeatable): an image reaches the agent and its
+        /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
+        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        #[arg(long, value_name = "FILE")]
+        attach: Vec<PathBuf>,
     },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local

@@ -38,6 +38,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
+    // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
+    method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -132,6 +134,15 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // So do a message's attachments, under their caps (`attach.rs`).
+        if m == method::SESSION_PROMPT
+            && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
+        {
+            crate::attach::check_wire(params)?;
+            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+                return Err(crate::attach::peer_unsupported(&peer));
+            }
+        }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
             if !peer.supports_file_put() {
@@ -157,6 +168,12 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
+        // A peer's handles are this connection's own here (`media_forward.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
+            return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
+                .await
+                .map(Some);
+        }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
             name_sender(hub, conn, &mut p);
@@ -182,7 +199,21 @@ async fn forward_inner(
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                let _ = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                // Its own task, so the attach the marker stands for always goes out, whoever else
+                // relies on it; only this client's wait for it ends when the client leaves.
+                let attach = tokio::spawn({
+                    let (peer, id) = (peer.clone(), id.clone());
+                    async move {
+                        let _ =
+                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                    }
+                });
+                tokio::select! {
+                    _ = attach => {}
+                    () = conn.closed() => {
+                        return Err(RpcError::internal("the client closed the connection"));
+                    }
+                }
             }
         }
         // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
@@ -204,7 +235,18 @@ async fn forward_inner(
                 }),
             )
         });
-        let result = peer.request(m, p).await;
+        // A client that left takes its prompt or wait along: those wait on the peer's turn with no
+        // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
+        // request keeps its deadline and always goes out: an attach the marker above stands for
+        // must reach the peer even when its client is gone.
+        let result = if crate::peer::waits_on_turn(m) {
+            tokio::select! {
+                result = peer.request(m, p) => result,
+                () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+            }
+        } else {
+            peer.request(m, p).await
+        };
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }

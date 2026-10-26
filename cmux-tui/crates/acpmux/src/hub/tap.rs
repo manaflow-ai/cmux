@@ -11,6 +11,9 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// A raw Claude `control_response` line.
+const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -59,6 +62,16 @@ fn from_the_model(msg: &Message) -> bool {
     }
 }
 
+/// Whether a logged record shows the model at work, as `from_the_model` judged it when it came
+/// in (`stalled_turn.rs` reads an adopted turn's last one): the update and line kinds above, or a
+/// request the agent made. A history replay (`*.replay`) is not.
+pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
+    e.dir == "in"
+        && (MODEL_UPDATES.contains(&e.kind.as_str())
+            || MODEL_LINES.contains(&e.kind.as_str())
+            || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -70,10 +83,19 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The sign of work is published before a tool call's end can bring the stalled
+            // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
+            }
+            if matches!(dir, Direction::In)
+                && let Message::Notification { method, params: Some(p) } = msg
+                && method == crate::rpc::method::SESSION_UPDATE
+            {
+                tap_hub.note_tool_update(&tap_session, &p["update"]);
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -114,7 +136,11 @@ impl Hub {
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
-                    if method == RAW_STREAM_EVENT && !timing {
+                    // Claude Code's whole /context answer (its grid, every MCP tool) is not
+                    // logged either: the breakdown translated from it follows.
+                    let context = method == RAW_CONTROL_RESPONSE
+                        && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
+                    if (method == RAW_STREAM_EVENT && !timing) || context {
                         // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return true;

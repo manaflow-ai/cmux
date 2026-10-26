@@ -1867,6 +1867,8 @@ class Prefiltered:
     def __init__(self, pattern: re.Pattern, keys: tuple[str, ...]) -> None:
         self.pattern = pattern
         self.keys = re.compile("|".join(re.escape(key) for key in keys))
+        # blocking_match's answer per code text: three rules ask about the same changed lines.
+        self.answers: dict[str, bool] = {}
 
     def search(self, text: str):
         return self.pattern.search(text) if self.keys.search(text) else None
@@ -1884,6 +1886,13 @@ THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DEC
 def blocking_match(scan: Prefiltered, code: str) -> bool:
     """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
     async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    answer = scan.answers.get(code)
+    if answer is None:
+        answer = scan.answers[code] = _blocking_match(scan, code)
+    return answer
+
+
+def _blocking_match(scan: Prefiltered, code: str) -> bool:
     match = scan.search(code)
     while match is not None:
         if match.groupdict().get("wait") is None:
@@ -1938,6 +1947,13 @@ def runs_on_main(version: Version, index: int) -> bool:
     uiSwiftSettings target's default or `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached
     scopes, as check-main-actor-work.py reads them) directly in a function body. Inside any other closure it is
     not judged: such a body may run later or elsewhere."""
+    answers = version.memo.setdefault("runs_on_main", {})
+    if index not in answers:
+        answers[index] = _runs_on_main(version, index)
+    return answers[index]
+
+
+def _runs_on_main(version: Version, index: int) -> bool:
     if "main_lines" not in version.memo:
         module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
         version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, module in ui_targets())
@@ -2011,7 +2027,16 @@ def changed_debt(changes: list[FileChange], judge: Callable[[Version, int, str],
             if judge(version, index, code_of(line.text)):
                 out.append(line)
         return out
-    return resolve([(debt(c.head, c.added), debt(c.base, c.removed)) for c in changes])
+    return resolve([(debt(*blocking_sides(c)[0]), debt(*blocking_sides(c)[1])) for c in changes])
+
+
+def blocking_sides(change: FileChange) -> tuple[tuple[Version, list[Added]], tuple[Version, list[Added]]]:
+    """CHANGE's head and base Versions, made once per push for the blocking rules: `FileChange.head` makes a new
+    Version per read, and the three rules would each redo the file's main-actor scope walk and each line's
+    walk out of its blocks (memoized on the Version)."""
+    if "blocking_sides" not in change.memo:
+        change.memo["blocking_sides"] = ((change.head, change.added), (change.base, change.removed))
+    return change.memo["blocking_sides"]
 
 
 def outside_seams(changes: list[FileChange]) -> list[FileChange]:

@@ -43,6 +43,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/announce": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: unknown; result: unknown };
+  "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
   "_acpmux/workflows": { params: unknown; result: unknown };
@@ -103,6 +104,7 @@ export interface AcpmuxRequests {
   "_acpmux/report": { params: unknown; result: unknown };
   "_acpmux/task_new": { params: unknown; result: unknown };
   "_acpmux/tasks": { params: unknown; result: unknown };
+  "_acpmux/resolve": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -275,6 +277,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
@@ -336,6 +339,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/task_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/resolve", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },

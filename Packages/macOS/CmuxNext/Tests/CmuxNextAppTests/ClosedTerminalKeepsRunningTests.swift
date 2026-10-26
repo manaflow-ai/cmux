@@ -20,7 +20,10 @@ struct ClosedTerminalKeepsRunningTests {
             let store = services.daemon.store
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             // `new-tab` runs the shell (SHELL=/bin/sh here) with these arguments; it takes no argv.
-            let loop = "i=0; while :; do i=$((i+1)); echo tick-$i; sleep 0.1; done"
+            // Each tick also goes to a file, so the test sees the program run while its tab is closed.
+            let ticks = FileManager.default.temporaryDirectory.appendingPathComponent("ctkr-\(UUID().uuidString.prefix(8))")
+            defer { try? FileManager.default.removeItem(at: ticks) }
+            let loop = "i=0; while :; do i=$((i+1)); echo tick-$i; echo $i > '\(ticks.path)'; sleep 0.1; done"
             var spawn = SpawnOptions()
             spawn.shellArgs = ["-c", loop]
             let created = try await connection.newTab(in: model.handle, options: spawn)
@@ -33,10 +36,16 @@ struct ClosedTerminalKeepsRunningTests {
             let close = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), origin: .cli)
             #expect(services.registry.perform("closeTab", invocation: close))
             try await PinnedPageTests.until({ store.tab(surface: created.surface) == nil }, report: { "the tab did not close" })
+            @MainActor func fileTick() -> Int {
+                (try? String(contentsOf: ticks, encoding: .utf8)).flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+            }
+            let atClose = fileTick()
             for _ in 0..<20 {
                 #expect(kill(pid_t(pid), 0) == 0, "the closed terminal's process \(pid) ended before the reap grace")
                 try await Task.sleep(for: .milliseconds(100))
             }
+            // The counter went on while the tab was closed (how far depends on the host's load).
+            try await PinnedPageTests.until({ fileTick() > atClose + 1 }, report: { "the counter stopped while closed: \(atClose) then \(fileTick())" })
 
             #expect(services.registry.perform("reopenClosedBrowserPanel", invocation: ActionInvocation(origin: .user)))
             @MainActor func reopened() -> TabModel? {
@@ -47,7 +56,7 @@ struct ClosedTerminalKeepsRunningTests {
             let reopenedPID = try await connection.request(TerminalProcessInfoRequest(surface: surface)).pid
             #expect(reopenedPID == pid, "the reopened tab runs pid \(String(describing: reopenedPID)), not the closed one's \(pid)")
             let first = try await Self.lastTick(connection, surface)
-            #expect(first > before + 15, "the counter stopped while closed: \(before) then \(first)")
+            #expect(first > before, "the reopened screen shows no tick past \(before): \(first)")
             try await Task.sleep(for: .milliseconds(500))
             let next = try await Self.lastTick(connection, surface)
             #expect(next > first, "the counter does not go on in the reopened tab: \(first) then \(next)")

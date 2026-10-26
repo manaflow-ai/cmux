@@ -172,6 +172,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
         untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
         untyped(method::MUX_WORKFLOWS, Request),
@@ -234,6 +235,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_REPORT, Request),
         untyped(method::MUX_TASK_NEW, Request),
         untyped(method::MUX_TASKS, Request),
+        untyped(method::MUX_RESOLVE, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.

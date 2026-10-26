@@ -4,6 +4,7 @@
 //! `orchestrate` holds the commands other agents and scripts call; `handoff`
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
+pub mod beads;
 pub mod chats;
 pub mod cli_agent;
 pub mod command;
@@ -29,6 +30,7 @@ pub mod pairing;
 pub mod peer_status;
 pub mod place;
 pub mod process;
+pub mod resolve;
 pub mod run;
 pub mod sender;
 pub mod session_folder;

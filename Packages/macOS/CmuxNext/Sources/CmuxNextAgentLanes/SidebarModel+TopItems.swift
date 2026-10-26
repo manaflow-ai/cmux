@@ -28,6 +28,6 @@ extension SidebarModel {
     /// machines' groups after the top items, above the workspaces.
     public static func topItems(chief: ChiefSidebar = .shared, remote: RemoteMachinesSidebar = .shared) -> [SidebarTransientItem] {
         [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
-            + chief.rows() + remote.rows()
+            + chief.rows() + remote.mergedRows()
     }
 }

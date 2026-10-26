@@ -666,6 +666,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
@@ -1038,6 +1042,10 @@ path = "tests/test_dev_release_product_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
@@ -1247,6 +1255,10 @@ lane = "linux-guard"
 path = "tests/test_run_checks_concurrently.py"
 lane = "linux-guard"
 serial = true
+
+[[test]]
+path = "tests/test_cmux_next_dev_release_host_root.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
@@ -1581,6 +1593,10 @@ path = "tests/test_cmux_next_dev_daily_dispatch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_kick.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_swiftpm_build_metrics.py"
 lane = "linux-guard"
 
@@ -1626,6 +1642,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_notes_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_notes_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_clips.py"
 lane = "linux-guard"
 
 [[test]]

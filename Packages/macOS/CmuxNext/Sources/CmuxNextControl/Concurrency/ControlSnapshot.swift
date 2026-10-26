@@ -111,11 +111,16 @@ public final class ControlSnapshotStore: Sendable {
     /// Applies `update` to a copy of the current snapshot and publishes the
     /// result. Build expensive values before calling: the lock is held for
     /// the closure's duration.
+    ///
+    /// - Parameter rebuilt: The update holds a topology built from main-actor state now (the App's
+    ///   publisher): it ends the stale mark (``markStale()``). A publish of one field (the context mask,
+    ///   the catalog, settings, the daemon sequences) leaves the mark, so the next ``fresh()`` still
+    ///   builds the topology: a focus change followed by a context-mask publish kept the old focus.
     @discardableResult
-    public func publish(_ update: (inout ControlSnapshot) -> Void) -> UInt64 {
+    public func publish(rebuilt: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
         let (generation, snapshot, ready) = state.withLock { state -> (UInt64, ControlSnapshot, [Waiter]) in
             update(&state.snapshot)
-            stale.store(false, ordering: .releasing)
+            if rebuilt { stale.store(false, ordering: .releasing) }
             state.snapshot.generation &+= 1
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }

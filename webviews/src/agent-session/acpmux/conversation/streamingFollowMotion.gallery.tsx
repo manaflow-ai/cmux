@@ -74,6 +74,22 @@ const streamFollow: Play = async (ctx) => {
     throw new Error(report?.problems.join("; ") ?? "streaming follow was not sampled");
 };
 
+/// The reader is deliberately away from the latest message while the same
+/// deterministic stream grows. A layout-only scroll adjustment must not move
+/// the thumb or pull the reader back to the bottom.
+const streamWhileScrolledUp: Play = async (ctx) => {
+  await ctx.click({ testId: "stream-follow-start" });
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  await ctx.waitFor(() => scroller.scrollHeight > scroller.clientHeight, { capMs: 3_000 });
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 180);
+  const held = scroller.scrollTop;
+  await ctx.waitFor(() => ctx.find({ testId: "stream-follow-done" }).textContent === "Stream settled", {
+    capMs: 4_000,
+  });
+  const moved = Math.abs(scroller.scrollTop - held);
+  if (moved > 1) throw new Error(`Scrolled-up transcript moved ${moved.toFixed(2)}px while streaming`);
+};
+
 export default componentEntry<Record<string, never>>({
   id: "agent-pane.streaming-follow-motion",
   title: "Streaming follow motion",
@@ -93,5 +109,8 @@ export default componentEntry<Record<string, never>>({
       import("../conversation/conversation.css"),
       import("../composerControls.css"),
     ]),
-  variants: { stream: { props: {}, play: streamFollow } },
+  variants: {
+    stream: { props: {}, play: streamFollow },
+    "stream-scrolled-up": { props: {}, play: streamWhileScrolledUp },
+  },
 });

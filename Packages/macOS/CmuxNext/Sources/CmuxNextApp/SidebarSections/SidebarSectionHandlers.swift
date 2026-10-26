@@ -43,6 +43,10 @@ enum SidebarSectionHandlers {
                 guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
                 return try? await AcpmuxPeerList(socketPath: socket).peers()
             },
+            older: { peer, cursor in
+                guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
+                return try? await AcpmuxSessionPage(socketPath: socket).closed(peer: peer, cursor: cursor, limit: RemoteMachinesSidebar.pageSize)
+            },
             displayName: { [weak machines = services.machines] in machines?.machineName(peer: $0) },
             // The tab that shows the chat, else the other machine's tree's tab, else a new tab in the focused pane.
             open: { [weak services] lane in

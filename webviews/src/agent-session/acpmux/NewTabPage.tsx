@@ -1,3 +1,5 @@
+import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
@@ -47,6 +49,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
+import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
 
@@ -411,13 +414,26 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, attachError, drop, dropLanded } = useAttachmentIntake({
-    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
-  });
+  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
+    useAttachmentIntake({
+      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+      pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
+      dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+    });
   attachmentRef.current = attachments;
-  const holdForAttachments = useSendWhenAttached(pending.length);
+  const holdForAttachments = useSendWhenAttached(unsettled);
+  // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
+  // query (the location comes back with the page), staged attachments, and a kind or folder picked
+  // (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    text !== (location ?? "")
+      ? "newtab.draft"
+      : attachments.length || pending.length
+        ? "newtab.attachments"
+        : kind !== initialKind || picked !== undefined
+          ? "newtab.choice"
+          : null,
+  );
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useEffect(() => {
     const element = field.current;
@@ -623,6 +639,7 @@ export function NewTabPage({
             <input
               ref={field}
               className="acpmux-newtab-field"
+              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
               aria-label={placeholder}
               placeholder={placeholder}
               value={text}
@@ -682,6 +699,12 @@ export function NewTabPage({
               setAttachments((current) => current.filter((item) => item.id !== id));
               field.current?.focus();
             }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
