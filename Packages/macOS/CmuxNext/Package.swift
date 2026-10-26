@@ -29,7 +29,7 @@ import PackageDescription
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design (launch-only types: the launch image hold, and the
+//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
@@ -1329,7 +1329,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // depends on CmuxNextApp.
         .target(
             name: "CmuxNextLaunch",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextSignposts", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
