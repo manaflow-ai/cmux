@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 689,
-    "mcp": 607
+    "verbs": 697,
+    "mcp": 615
   },
   "nouns": [
     {
@@ -989,6 +989,12 @@
           "mcp": true
         },
         {
+          "command": "cmux cloud machine-link",
+          "title": "Get Machine Link…",
+          "id": "cloudMachineLink",
+          "mcp": true
+        },
+        {
           "command": "cmux cloud machine-ports",
           "title": "Cloud Machine Ports",
           "id": "palette.cloud.ports",
@@ -1031,6 +1037,12 @@
           "mcp": true
         },
         {
+          "command": "cmux cloud open-browser",
+          "title": "Open Machine Port in Browser…",
+          "id": "cloudOpenBrowser",
+          "mcp": true
+        },
+        {
           "command": "cmux cloud open-mobile-pairing",
           "title": "Open Mobile Pairing",
           "id": "palette.mobileConnect",
@@ -1040,6 +1052,24 @@
           "command": "cmux cloud pause-machine",
           "title": "Pause Machine",
           "id": "cloudPauseMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-close",
+          "title": "Close Forwarded Machine Port…",
+          "id": "cloudPortClose",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-forward",
+          "title": "Forward Machine Port…",
+          "id": "cloudPortForward",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-list",
+          "title": "List Forwarded Machine Ports",
+          "id": "cloudPortList",
           "mcp": true
         },
         {
@@ -3753,6 +3783,12 @@
           "mcp": true
         },
         {
+          "command": "cmux workspace archive-idle",
+          "title": "Archive Idle Workspaces",
+          "id": "workspace.archiveIdle",
+          "mcp": true
+        },
+        {
           "command": "cmux workspace archive-unarchive",
           "title": "Archive/Unarchive Workspace",
           "id": "workspace.toggleArchive",
@@ -4047,6 +4083,12 @@
           "mcp": true
         },
         {
+          "command": "cmux workspace restore-archived",
+          "title": "Restore Archived Workspace…",
+          "id": "workspace.restoreArchived",
+          "mcp": true
+        },
+        {
           "command": "cmux workspace restore-previous-app-launch",
           "title": "Restore Previous App Launch",
           "id": "reopenPreviousSession",
@@ -4301,6 +4343,12 @@
           "command": "cmux workspace-group rename",
           "title": "Rename Group…",
           "id": "workspaceGroup.rename",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group set-auto-archive",
+          "title": "Auto-Archive Group Workspaces",
+          "id": "workspaceGroup.setAutoArchive",
           "mcp": true
         },
         {

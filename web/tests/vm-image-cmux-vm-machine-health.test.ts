@@ -23,7 +23,7 @@ const healthy = (over: Record<string, string> = {}) =>
     .join("\n");
 
 describe("cmux-machine-health in the cmux VM image", () => {
-  test("the script's unit tests pass (fake host: DNS, disk, RAM, install)", async () => {
+  test("the script's unit tests pass (fake host: DNS, disk, RAM, acpmux, peers, install)", async () => {
     const result = await runChild("python3", ["-m", "unittest", "-v", "test_cmux_machine_health"], { cwd: path.dirname(MACHINE_HEALTH_SCRIPT), env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" }, timeout: 60_000 });
     expect({ status: result.status, tail: result.stderr.trim().split("\n").at(-1) }).toEqual({ status: 0, tail: "OK" });
   }, 70_000);

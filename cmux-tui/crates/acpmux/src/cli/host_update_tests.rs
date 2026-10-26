@@ -160,16 +160,19 @@ esac
 /// the build in `$HOME/old-build`), `$HOME/fails-<unit>` does not start,
 /// and a stop without `KillMode=process` (the unit's, or the migration's
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
-/// no manager answers. `show` (not logged: every update script reads it)
-/// prints `acpmux.service`'s `Environment=` settings, its drop-ins'
-/// included, or `$HOME/unit-environment` as it is (what systemd prints for
-/// values it quotes). Like the daemon
+/// no manager answers. A timer only needs its unit file; `show -p LoadState`
+/// and `-p FragmentPath` find a unit in `~/.config/systemd/user` only. `show` (not
+/// logged: every update script reads it) prints `acpmux.service`'s
+/// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
+/// as it is (what systemd prints for values it quotes). Like the daemon
 /// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
 /// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
 /// sets `ACPMUX_HOME`.
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
+if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo loaded; else echo not-found; fi; exit 0; fi
+if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
 if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
 if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"
@@ -186,6 +189,7 @@ cat) test -f "$d/$3";;
 is-active) test -f "$HOME/active-$4";;
 restart) rm -f "$HOME/daemon"; under "$3"; starts "$3";;
 enable)
+  case "$4" in *.timer) test -f "$d/$4"; exit;; esac
   test -f "$d/$4" && test ! -f "$HOME/fails-$4" || exit 1
   touch "$HOME/active-$4"; under "$4"
   if [ "$4" = acpmux.service ]; then starts acpmux.service; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
@@ -791,8 +795,8 @@ fn a_moved_daemon_is_reached_through_the_settings_its_move_carried() {
     // One rule for the daemon's home and socket: the move to acpmux.service
     // carries them into its drop-in (#24079), and every update script reads
     // them back from the unit (SERVICE_ENV), so the next update, from a
-    // shell that has neither, checks the daemon where it listens instead of
-    // rolling a healthy one back.
+    // shell or the timer that has neither, checks the daemon where it
+    // listens instead of rolling a healthy one back.
     let peer = FakePeer::new("carried-socket");
     peer.under_foreign_unit(false);
     peer.offer(NEW, Some(NEW));
@@ -1158,3 +1162,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
 #[cfg(unix)]
 #[path = "host_lock_tests.rs"]
 mod lock;
+
+#[cfg(unix)]
+#[path = "host_self_update_tests.rs"]
+mod self_update;
