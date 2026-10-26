@@ -61,6 +61,23 @@ fn home(name: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Profiles pinning full access whose every start leaves its pid in `<name>-started`, and
+    // that hang while `hang` exists: an ACP one (the fake agent), and a Claude one, which only a
+    // live model list starts here (it lists nothing).
+    let marked = |name: &str, then: String| {
+        let path = dir.join("bin").join(name);
+        let (started, hang) = (dir.join(format!("{name}-started")), dir.join("hang"));
+        let script = format!(
+            "#!/bin/sh\necho $$ >> '{}'\n[ -e '{}' ] && exec sleep 60\n{then}\n",
+            started.display(),
+            hang.display()
+        );
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let marked_acp = marked("pinned-marked", format!("exec python3 '{FAKE_AGENT}' \"$@\""));
+    let marked_claude = marked("claude-pinned", "exit 1".to_owned());
     let config = json!({
         "harnesses": {
             "codex": {"argv": [codex, "app-server"]},
@@ -76,6 +93,9 @@ fn home(name: &str) -> PathBuf {
             // reports one anyway), one through a config option other than its mode.
             "self-moder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1"}},
             "self-optioner": {"argv": ["python3", FAKE_AGENT]},
+            "pinned-marked": {"argv": [marked_acp, "--yolo"]},
+            "claude-pinned": {"kind": "claude-stdio",
+                              "argv": [marked_claude, "--dangerously-skip-permissions"]},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -348,6 +368,19 @@ const BOUND: &[Case] = &[
             assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
         })
     }),
+    ("round 9: a profile pinning full access is not probed under the off", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let marker = dir.join("pinned-marked-started");
+            // A probe that started before the push has left its line by the time a refresh
+            // answers; only what starts after it counts.
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            let _ = std::fs::remove_file(&marker);
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            assert!(!marker.exists(), "a model probe started pinned-marked under the off");
+        })
+    }),
     ("round 9: a switch into full access that the push overtakes is refused", |name| {
         Box::pin(async move {
             let (dir, _daemon, mut app) = daemon(name, true).await;
@@ -380,6 +413,65 @@ const BOUND: &[Case] = &[
     }),
 ];
 
+/// The pid in `marker` once a start wrote it.
+async fn started_pid(marker: &Path) -> u32 {
+    for _ in 0..200 {
+        let text = std::fs::read_to_string(marker).unwrap_or_default();
+        if let Some(pid) = text.lines().last().and_then(|l| l.trim().parse().ok()) {
+            return pid;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{} never started", marker.display());
+}
+
+/// Whether `pid` ends within 5 s: gone, or a zombie (ended, not reaped yet).
+async fn ends(pid: u32) -> bool {
+    for _ in 0..100 {
+        let ps = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&ps.stdout);
+        if stat.trim().is_empty() || stat.trim().starts_with('Z') {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// Review 25 of #23322: model probes, which start agents outside any session.
+const PROBES: &[Case] = &[
+    ("review 25: a Claude profile pinning full access is not started to list its models", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let marker = dir.join("claude-pinned-started");
+            // As round 9: only what starts after the push counts.
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            let _ = std::fs::remove_file(&marker);
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            assert!(!marker.exists(), "a live model list started claude-pinned under the off");
+        })
+    }),
+    ("review 25: a probe running when the off lands ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            std::fs::write(dir.join("hang"), "").unwrap();
+            let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+            let acp = started_pid(&dir.join("pinned-marked-started")).await;
+            let claude = started_pid(&dir.join("claude-pinned-started")).await;
+            app.push(off()).await;
+            // The probes wait 50 s (ACP) and 15 s (a live list) for an answer that never comes.
+            let answered = tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+            assert!(answered.is_ok(), "the refresh waited on probes running under the off");
+            assert!(ends(acp).await, "the ACP probe of pinned-marked runs on under the off");
+            assert!(ends(claude).await, "the live list of claude-pinned runs on under the off");
+        })
+    }),
+];
+
 /// Runs `cases` one at a time and names every one that fails.
 async fn run(cases: &[Case]) {
     use futures_util::FutureExt;
@@ -395,5 +487,6 @@ async fn run(cases: &[Case]) {
 
 #[tokio::test]
 async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothing() {
-    run(BOUND).await;
+    // One test: every case sets CMUX_NEXT_CONFIG_FILE for its daemon.
+    run(&[BOUND, PROBES].concat()).await;
 }
