@@ -1807,8 +1807,14 @@ RULES = (
 # The block owns its lines from here to `RULES += INPUT_RULES`.
 INPUT_TAP_MODULE = SOURCES + "CmuxNextInput/"  # the tap itself; its `globalObserve` wraps the global monitor
 INPUT_MONITOR = re.compile(r"\badd(Local|Global)MonitorForEvents\b")
-# A stored or computed closure member typed on NSEvent: `var x: ((NSEvent) -> Void)?`, `let y: [(NSEvent) -> Bool]`.
-EVENT_CLOSURE = re.compile(r"\b(var|let)\s+\w+\s*:\s*[\[(]*\s*(@\w+\s+)*\(\s*NSEvent\b")
+# A `var`/`let` whose declaration holds a closure type with an NSEvent parameter, anywhere after the name:
+# `var x: ((NSEvent) -> Void)?`, `((_ event: NSEvent) -> Void)?`, `[UUID: (NSEvent) -> Void]`,
+# `= [(NSEvent) -> Void]()`, `Optional<(NSEvent, () -> Void) -> Void>`. The `->` after the parameter list is what
+# makes it a closure: a tuple such as `(NSEvent, Date)?` has none. One level of nested parentheses is read.
+EVENT_PARAMETERS = r"(?:[^()]|\([^()]*\))*"
+EVENT_CLOSURE = re.compile(r"\b(?:var|let)\s+\w+\b.*?\((?:" + EVENT_PARAMETERS + r",)?\s*(?:\w+\s+)?(?:\w+\s*:\s*)?"
+                           r"(?:@\w+\s+)*(?:inout\s+)?NSEvent\b" + EVENT_PARAMETERS + r"\)\s*(?:async\s+)?"
+                           r"(?:(?:re)?throws(?:\([^()]*\))?\s+)?->")
 INPUT_MONITOR_LINE = re.compile(INPUT_MONITOR.pattern + "|" + EVENT_CLOSURE.pattern)
 INPUT_MONITOR_ALLOW = re.compile(r"//\s*input-monitor-allow:\s*\S")
 CMUX_APPLICATION_FILE = re.compile(r"(^|/)CmuxNextApp/CmuxApplication(\+\w+)?\.swift$")
@@ -2932,6 +2938,17 @@ SELF_TEST_CASES = (
                      "{ _ in }\n        handler(event)\n    }\n}\n"), False),
     ("an event closure property on another type", {SELF_TEST_KIT + "New.swift":
                                                    "final class Other {\n    var onKey: ((NSEvent) -> Void)?\n}\n"}, False),
+    ("a labelled event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var labelled: ((_ event: NSEvent) -> Void)?\n}\n"), True),
+    ("a dictionary of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks: [UUID: (NSEvent) -> Void] = [:]\n}\n"), True),
+    ("an inferred array of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks = [(NSEvent) -> Void]()\n}\n"), True),
+    ("an Optional<> event closure on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var scope: Optional<(NSEvent, () -> Void) -> Void>\n}\n"), True),
+    ("an event tuple property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var lastKey: (NSEvent, Date)?\n    var pending: (NSEvent, NSWindow?)?\n}\n"),
+     False),
     ("an escaped event closure property on CmuxApplication",
      _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    // input-monitor-allow: runModal's own loop, the tap never sees it\n"
                      "    var modalKey: ((NSEvent) -> Bool)?\n}\n"), False),
