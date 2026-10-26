@@ -42,8 +42,6 @@ import PackageDescription
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
 //     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
-//   CmuxNextInput -> InputCore (the one input tap: typed subscriptions by class, phase and window; globalObserve;
-//     p04-input.md section 3 (A))
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -74,8 +72,9 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextInput -> InputCore, Signposts, Wakeups (the input pipeline's AppKit side: InputLatencyTracker, Chrome's
-//     EventLatency over CommitBoundary and PresentationClock; plans/cmux-next/chrome-parity/p04-input.md section 3)
+//   CmuxNextInput -> InputCore, Signposts, Wakeups (the input pipeline's AppKit side: the one input tap, typed
+//     subscriptions by class, phase and window, globalObserve; InputLatencyTracker, Chrome's EventLatency over
+//     CommitBoundary and PresentationClock, and its sendEvent wiring; plans/cmux-next/chrome-parity/p04-input.md section 3)
 //   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
@@ -665,8 +664,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The input pipeline's AppKit side (p04-input section 3): InputLatencyTracker opens an input latency slot
-        // per tracked event and closes it at the turn's commit with a presented estimate (PresentationClock).
+        // The input pipeline's AppKit side (p04-input section 3): the app's one input tap (typed subscriptions by
+        // event class, phase and window that replace AppKit event monitors and the application object's closures;
+        // core and service packages take its InputObserving face from CmuxNextInputCore), and InputLatencyTracker,
+        // which opens an input latency slot per tracked event and closes it at the turn's commit with a presented
+        // estimate (PresentationClock).
         .target(
             name: "CmuxNextInput",
             dependencies: [
@@ -679,6 +681,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextInputTests",
             dependencies: [
+                "CmuxNextCompat",
                 "CmuxNextInput",
                 "CmuxNextInputCore",
                 "CmuxNextSignposts",
@@ -1469,20 +1472,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextInputCoreTests",
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
-        ),
-        // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
-        // phase and window that replace AppKit event monitors and the application object's closures.
-        // The only target besides the App that sees NSEvent for input routing; core and service
-        // packages take its InputObserving face from CmuxNextInputCore.
-        .target(
-            name: "CmuxNextInput",
-            dependencies: ["CmuxNextInputCore"],
-            swiftSettings: uiSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextInputTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore"],
-            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextDesign",
