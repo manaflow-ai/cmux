@@ -89,6 +89,9 @@ export type AcpmuxSessionEntry = {
   trustPending?: string;
   /** acpmux's retry of its failed turn while one waits (session/list `retry`, subagents/retryState.ts). */
   retry?: RetryState;
+  /** acpmux is settling whether its failed turn is retried, or that retry starts or runs
+   *  (session/list `retryDeciding`): no Retry is offered meanwhile. */
+  retryDeciding?: true;
   /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
    *  a retry acpmux refused before its turn started leaves it failed with this. */
   laneError?: string;
@@ -249,6 +252,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,
+    ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
   };
 }

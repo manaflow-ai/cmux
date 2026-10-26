@@ -4,6 +4,7 @@ import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
+import { finishedTrayItems, trayItems } from "./runningTray";
 import {
   askPrompt,
   isRetryContinuation,
@@ -87,7 +88,13 @@ describe("the adapter reads acpmux's retry", () => {
     expect(subsessionInfo(sessionEntry(failed))).toMatchObject({ state: "failed", error: "folder is gone" });
     const waiting = { ...failed, retry: FIXTURE.sessionRetry };
     expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
+    // A retry acpmux settles or runs offers none; a stale one on a row that runs says nothing.
+    expect(subsessionInfo(sessionEntry({ ...failed, retryDeciding: true })).retryDeciding).toBe(true);
+    const working = { ...waiting, lane: { state: "working" }, retryDeciding: true };
+    expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retry");
+    expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retryDeciding");
   });
+
 });
 
 describe("the fold keeps a subagent's retry", () => {
@@ -128,10 +135,28 @@ describe("the fold keeps a subagent's retry", () => {
     agent = fold.all()[0]!;
     expect(agent.retry).toBeUndefined();
     expect(agent.retriedOut).toBeUndefined();
+    // Its attempt runs: the line still retries, with no Retry or Restart, until the turn ends.
+    expect(retrying(agent)).toEqual({ attempt: 2, of: 2, reason: "capacity" });
+    expect(retryActionOf(agent)).toBeUndefined();
+    fold.endRetryTurn();
+    expect(fold.all()[0]!.firing).toBeUndefined();
+    expect(retryActionOf(fold.all()[0]!)).toBe("daemon");
     fold.reduceRetryStep({ subagentId: "a", outcome: "exhausted", attempt: 2, of: 2, reason: "capacity" });
     expect(fold.all()[0]!.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
     fold.reduceRetryStep({ subagentId: "a", outcome: "scheduled", attempt: 1, of: 2, reason: "capacity" });
     expect(fold.all()[0]!.retriedOut).toBeUndefined();
+  });
+
+  test("the running tray shows what acpmux retries, never among the finished", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Overview" }] });
+    change(fold, { state: "failed", retry: FIXTURE.subagentRetry });
+    const agents = fold.all();
+    expect(trayItems(agents, [], [], false).map((item) => item.id)).toEqual(["a"]);
+    expect(finishedTrayItems(agents, [])).toEqual([]);
+    const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
+    expect(trayItems([], [], [chat], false).map((item) => item.id)).toEqual(["s"]);
+    expect(finishedTrayItems([], [chat])).toEqual([]);
   });
 
   test("a last try that succeeds is no give-up", () => {
@@ -245,6 +270,21 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(await runRetry(failed, CHAT, d, translate)).toBe("retry.nothingFailed");
     expect(d.calls).toHaveLength(1);
     expect(await runRetry(failed, CHAT, deps({ code: "native.timed_out" }), translate)).toBe("retry.failed");
+  });
+
+  test("an ask holds its row until a turn the chat started after it has ended", async () => {
+    const turns = { started: 3, ended: 2 };
+    const d = { ...deps(), turns: () => ({ ...turns }) };
+    const asked = { ...failed, id: "asked", retryable: false };
+    await runRetry(asked, "hold", d, translate);
+    // The turn that was open when it asked ends: the ask's own has not run yet.
+    turns.ended = 3;
+    await runRetry(asked, "hold", d, translate);
+    expect(d.calls).toHaveLength(1);
+    turns.started = 4;
+    turns.ended = 4;
+    await runRetry(asked, "hold", d, translate);
+    expect(d.calls).toHaveLength(2);
   });
 
   test("a second Retry of the same target before acpmux answers does nothing; a refusal frees it", async () => {

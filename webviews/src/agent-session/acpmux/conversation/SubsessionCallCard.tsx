@@ -102,7 +102,7 @@ function SessionCard({
       queued={live?.queued}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
-      {state === "failed" && retryAgent && target && (
+      {state === "failed" && !live?.retryDeciding && retryAgent && target && (
         <div className="cv-subsession__retry">
           <button type="button" className="cv-subagent-retry" disabled={shown?.busy} onClick={run}>
             <Retry size={12} />

@@ -47,7 +47,7 @@ import { Icon } from "../icons/Icon";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
-import { retrying } from "./retryState";
+import { retrying, retryLabel } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
@@ -292,8 +292,13 @@ export const SubagentTray = memo(function SubagentTray({
         kind={t("tray.kind.subagent")}
         chevron
         icon="agent.chat"
-        status={SESSION_STATUS[item.session.state]}
-        state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        status={item.session.retry ? "running" : SESSION_STATUS[item.session.state]}
+        state={
+          item.session.retry
+            ? retryLabel(t, item.session.retry)
+            : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
+        }
+        working={item.session.retry !== undefined}
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
     );

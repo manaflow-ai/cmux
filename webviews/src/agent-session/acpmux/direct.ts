@@ -2256,6 +2256,11 @@ export class AcpmuxDirectClient {
   /// from one that names none.
   capabilities: ReadonlySet<string> | undefined;
 
+  /// How many of the selected chat's turns started and ended (retryState.ts ``RetryDeps.turns``).
+  retryTurns(): { started: number; ended: number } {
+    return { started: this.subagents.turnsStarted, ended: this.subagents.turnsEnded };
+  }
+
   /// Reads the selected session's durable composer draft from acpmux.
   readDraft(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/draft_get", { sessionId });
@@ -3445,6 +3450,11 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        // Once per turn (its `turn_end` and `turn_result` both come): counted as it closes.
+        if (this.turnOpen) {
+          this.subagents.endRetryTurn();
+          this.takeSubagentRows();
+        }
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;

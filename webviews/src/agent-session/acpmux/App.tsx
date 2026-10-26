@@ -5469,7 +5469,8 @@ function AcpmuxPane() {
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
               ? callNative("chat.send", { text })
               : Promise.resolve();
-          return runRetry(agent, owner, { request, send, capabilities: client.capabilities }, translate);
+          const turns = () => client.retryTurns();
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, turns }, translate);
         })(restartChat),
       }),
       ...(connected &&
@@ -5800,7 +5801,9 @@ function AcpmuxPane() {
         agent.action ?? "",
         agent.endedAt ?? "",
         agent.agentId ?? "",
-        agent.retry ? `${agent.retry.attempt}/${agent.retry.of}` : "",
+        ...[agent.retry, agent.firing, agent.retriedOut].map((r) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "")),
+        agent.retryable ?? "",
+        agent.error ?? "",
       ].join("\u0000"),
     )
     .join("\u0001");

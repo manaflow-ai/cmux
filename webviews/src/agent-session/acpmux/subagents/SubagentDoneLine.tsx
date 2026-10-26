@@ -48,10 +48,20 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
 }
 
 function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
-  return <DoneLine row={row} childRetry={useSubsessionInfo(child)?.retry} />;
+  const info = useSubsessionInfo(child);
+  return <DoneLine row={row} childRetry={info?.retry} childSettling={info?.retryDeciding} />;
 }
 
-function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState }) {
+function DoneLine({
+  row,
+  childRetry,
+  childSettling,
+}: {
+  row: AcpmuxRow;
+  childRetry?: RetryState;
+  /// acpmux settles, starts or runs the sub-session's retry: neither Retry nor Restart meanwhile.
+  childSettling?: boolean;
+}) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
@@ -65,12 +75,12 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
   if (!agent) return null;
   const live: Subagent = childRetry && !agent.retry ? { ...agent, retry: childRetry } : agent;
   const waiting = retrying(live);
-  const action = retryAgent ? retryActionOf(live, retryCapabilities) : undefined;
+  const action = retryAgent && !childSettling ? retryActionOf(live, retryCapabilities) : undefined;
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   // While acpmux waits to retry it, Restart would run it a second time.
-  const restart = restartSubagent && canRestart(agent) && !waiting ? restartSubagent : undefined;
+  const restart = restartSubagent && canRestart(agent) && !waiting && !childSettling ? restartSubagent : undefined;
   const parts = waiting
     ? [agent.name, retryLabel(t, waiting)]
     : [

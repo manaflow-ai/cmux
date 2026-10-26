@@ -34,6 +34,8 @@ export type SubsessionInfo = {
   model?: string;
   /// acpmux's retry of its failed turn, while one waits (retryState.ts).
   retry?: RetryState;
+  /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
+  retryDeciding?: true;
   /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
   error?: string;
 };
@@ -86,7 +88,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
-    ...(entry.retry ? { retry: entry.retry } : {}),
+    // A retry is only ever of a failed turn: on any other row it is stale.
+    ...(state === "failed" && entry.retry ? { retry: entry.retry } : {}),
+    ...(state === "failed" && entry.retryDeciding ? { retryDeciding: true as const } : {}),
     ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }
