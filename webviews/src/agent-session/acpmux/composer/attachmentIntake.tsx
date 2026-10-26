@@ -129,6 +129,22 @@ export type PendingAttachment = {
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
+/// Whether chip `chip` (an image whose original may still upload) was taken out of its chat's
+/// strip, by its x or a send, so its original goes nowhere. Not when it went to another chat
+/// (`stagedHere` false), the strip has not drawn it yet (`everDrawn` false), or the strip is
+/// another chat's (`showing` is not the chat it was pasted in): there it is only out of view.
+export function chipRemoved(state: {
+  chip: string;
+  stagedHere: boolean;
+  everDrawn: boolean;
+  pastedIn: string | undefined;
+  showing: string | undefined;
+  strip: readonly ComposerAttachment[];
+}): boolean {
+  if (!state.stagedHere || !state.everDrawn || state.pastedIn !== state.showing) return false;
+  return !state.strip.some((attachment) => attachment.id === state.chip);
+}
+
 /// `file`: a promise while its bytes are still being made (MadeFile).
 type PendingSource = { file: File | Promise<File>; uploads: boolean };
 
@@ -272,11 +288,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           cancelled: (index) => {
             const chip = made[index];
             if (!chip) return !sources.current.has(shown[index]!.id);
-            return (
-              staged.has(chip) &&
-              everStaged.current.has(chip) &&
-              !stagedNow.current.some((attachment) => attachment.id === chip)
-            );
+            return chipRemoved({
+              chip,
+              stagedHere: staged.has(chip),
+              everDrawn: everStaged.current.has(chip),
+              pastedIn: batch.scope,
+              showing: live.current.options.scope,
+              strip: stagedNow.current,
+            });
           },
         },
         {

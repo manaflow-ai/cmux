@@ -124,3 +124,15 @@ test("an image whose chip is gone stops its original's upload", async () => {
   expect(chunks.length).toBe(2);
   expect(originals).toEqual([]);
 });
+
+// Review (Codex): the strip shows the chat on screen. A chip pasted in chat A is out of view, not
+// removed, while B is shown, so A's image keeps uploading its original.
+test("an image's chip counts as removed only from the strip of the chat it was pasted in", async () => {
+  const { chipRemoved } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const base = { chip: "img", stagedHere: true, everDrawn: true, pastedIn: "A", showing: "A", strip: [] };
+  expect(chipRemoved(base)).toBe(true);
+  expect(chipRemoved({ ...base, showing: "B" })).toBe(false);
+  expect(chipRemoved({ ...base, everDrawn: false })).toBe(false);
+  expect(chipRemoved({ ...base, stagedHere: false })).toBe(false);
+  expect(chipRemoved({ ...base, strip: [{ id: "img" } as never] })).toBe(false);
+});
