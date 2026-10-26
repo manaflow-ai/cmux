@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextRemoteView
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Turns AppKit events into rb/1 input events (remote-tab-protocol.md
 /// section 6, JSON form), the opaque bytes of an rd service input event.
 public nonisolated struct RemoteBrowserInputEncoder {

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// One frame of the wire between cmux and the Chromium host app (prototype
 /// behind `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).

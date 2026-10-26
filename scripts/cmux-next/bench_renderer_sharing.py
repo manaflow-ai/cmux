@@ -12,7 +12,7 @@ build does: renderers, tabs per renderer, footprint (renderers, app, total) and 
 
 The sites are siteN.test on one local server. Chromium never shares a renderer for localhost or
 an IP address (MainFrameProcessReuseAllowIPAndLocalhost is off), so the .test names are mapped
-to 127.0.0.1 with --host-resolver-rules (CMUX_NEXT_CEF_EXTRA_SWITCHES: DEBUG builds of
+to 127.0.0.1 with --host-resolver-rules (CMUX_NEXT_BENCH_CEF_SWITCHES: Debug and bench builds of
 development bundles only). Each page holds --heap-mb of touched memory, standing in for a site's
 heap. Hibernation and freezing are off for the run, so every tab stays loaded.
 
@@ -24,7 +24,7 @@ Phases (each prints PERF-RENDERERS lines):
            spare renderer and extension renderers hold none), tabs per renderer, footprint
 
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
-mapping is not active: not a DEBUG dev build), and exits 1 when any tab was not timed.
+mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
 
 Usage (a fleet GUI mini, never a laptop; a tagged DEV build):
   bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--out FILE.json]
@@ -132,7 +132,7 @@ def main():
     parser.add_argument("--heap-mb", type=int, default=20)
     parser.add_argument("--settle", type=float, default=30)
     parser.add_argument("--load-timeout", type=float, default=30, help="seconds a new tab may take to show its title")
-    parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated")
+    parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated (Debug builds only)")
     parser.add_argument("--out")
     args = parser.parse_args()
     if sys.platform != "darwin":
@@ -152,11 +152,16 @@ def main():
     port = serve()
     # No colon inside a switch: CMUX_NEXT_CEF_EXTRA_SWITCHES is colon-separated, so the rule maps
     # the host only and each URL keeps its port.
-    switches = ["host-resolver-rules=MAP *.test 127.0.0.1"] + [s for s in args.cef_switches.split(":") if s]
+    rules = "host-resolver-rules=MAP *.test 127.0.0.1"
+    switches = [rules] + [s for s in args.cef_switches.split(":") if s]
     config = {"browser": {"hibernation": "off", "freezeHiddenTabs": "off", "keepNeighborTabsAwake": 0}}
     bundle = os.path.realpath(args.app)
     bp.wipe_state(bundle)
-    extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": ":".join(switches)}
+    # The mapping goes through the bench list, which a bench build reads too; any other switch is
+    # for diagnosis and only a Debug build takes it.
+    extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": rules}
+    if switches[1:]:
+        extra["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(switches[1:])
     # The fleet worker finds every process of the step by this marker, also those the app starts.
     if os.environ.get("CI_JOB_DIR"):
         extra["CI_JOB_DIR"] = os.environ["CI_JOB_DIR"]
@@ -190,7 +195,7 @@ def main():
                 missed = missed + 1 if elapsed is None else 0
             if (index == 0 and missed) or missed >= 3:
                 raise SystemExit(f"bench-renderer-sharing: tab {index} did not open or show its title within {args.load_timeout} s "
-                                 "(is this a DEBUG dev build, so the .test mapping applies?)")
+                                 "(is this a Debug or bench dev build, so the .test mapping applies?)")
             if index % 10 == 9:
                 print(f"PERF-RENDERERS-OPEN tabs={index + 1} last_new_tab_ms={report['new_tab_ms'][-1] if report['new_tab_ms'] else None}", flush=True)
         time.sleep(args.settle)  # test script: let the pages and their renderers settle

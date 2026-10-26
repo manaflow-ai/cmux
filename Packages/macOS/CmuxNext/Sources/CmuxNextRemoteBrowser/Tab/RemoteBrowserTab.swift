@@ -3,7 +3,7 @@ public import CmuxNextBrowser
 public import Foundation
 public import Observation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A browser tab whose page runtime runs on another machine (RT1): the same
 /// `BrowserTab` the chrome, the App and automation use, with the page
 /// streamed by `RemoteBrowserPane`. Keys follow a local CEF tab: Command and
