@@ -23,11 +23,13 @@ each in two phases:
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
-frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
+frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it. With --hops-out FILE, each session
+reads `debug.input` action `hops` since launch before its app quits and FILE holds {"sessions": {SESSION: reply}}
+(scripts/cmux-next/input-turn-hops.py turns it into the MQ-input-turn-hops queue).
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--engine chromium|webkit]
-      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8] [--hops-out FILE]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -59,6 +61,7 @@ parser.add_argument("--sessions", help="comma list of light,stress: one app laun
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--hops-out", help="write each session's `debug.input hops` reply (since launch) here before its app quits")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -554,8 +557,23 @@ def run_session(session):
                         SURFACES[surface](phase, app.pid)
                     except Exception as error:  # one surface failing must not hide the others
                         note(f"{session} {surface}.{phase}: failed: {error!r}")
+        if opts.hops_out:
+            save_hops(session, rpc("debug.input", {"action": "hops", "since_launch": True}, timeout=60))
     finally:
         bench.stop()
+
+
+def save_hops(session, reply):
+    """Adds one session's `debug.input hops` reply to --hops-out."""
+    try:
+        with open(opts.hops_out) as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        document = {"sessions": {}}
+    document["sessions"][session] = reply
+    with open(opts.hops_out, "w") as handle:
+        json.dump(document, handle, indent=1)
+    note(f"{session}: debug.input hops: {len((reply or {}).get('rows') or [])} sites, error {(reply or {}).get('error')}")
 
 
 def main():

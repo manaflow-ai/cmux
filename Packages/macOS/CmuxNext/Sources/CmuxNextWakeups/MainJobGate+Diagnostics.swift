@@ -8,18 +8,19 @@ import Foundation
 ///
 /// Two producers write it:
 /// - the MainJobGate hook (task 021) calls ``recordEnqueue(turn:origin:priority:)`` for each
-///   main-actor job enqueued while input is pending or dispatching: the recorder keeps the job's 8
-///   innermost return addresses, its origin (the main thread or another) and priority;
+///   main-actor job enqueued while input is pending or dispatching: the recorder keeps the job's
+///   stack (``HopRecord/depth`` return addresses, through the awaiting task's async frames), its
+///   origin (the main thread or another) and priority;
 /// - ``InputTurnCalloutTimer`` times each non-Swift callout of the main run loop (a timer, a GCD main
-///   block or a mach-port source after a wake, and the run loop's source and block pass) that starts
-///   during an input turn.
+///   block or a mach-port source after a wake, and the run loop's source and block pass) with
+///   input pending at its start or its end, and ``CalloutStackSampler`` names a long one's site.
 ///
 /// Recording is lock-free and allocation-free: a fixed ring of ``pendingLimit`` records
 /// (``HopRing``); a full ring counts the record in ``Snapshot/dropped``. The fold runs off the main
 /// thread: the callout timer wakes it once per main run-loop turn that left records, and a snapshot
 /// folds what is left. It resolves each stack to image + offset frames (`dladdr`), picks the first
 /// frame after the runtime frames the enqueue went through, and counts the hop under that site, at
-/// most ``siteLimit`` sites. Chrome answers the same question with its task annotator: every task
+/// most ``siteLimit`` sites; a sampled callout counts under its site, another under its stretch. Chrome answers the same question with its task annotator: every task
 /// carries its `posted_from` location (`base/task/common/task_annotator.cc`), and the input
 /// scheduler's queueing time is attributed to the tasks that ran ahead of the input
 /// (`third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc`).
@@ -29,7 +30,8 @@ import Foundation
 ///
 /// ```swift
 /// let hops = MainJobGateDiagnostics()
-/// let timer = InputTurnCalloutTimer(diagnostics: hops) { inputPendingState.turn }
+/// let sampler = CalloutStackSampler { mainStack.sample() }
+/// let timer = InputTurnCalloutTimer(diagnostics: hops, sampler: sampler) { inputPendingState.turn }
 /// // The MainJobGate hook, while input is pending or dispatching:
 /// hops.recordEnqueue(turn: turn, origin: pthread_main_np() != 0 ? .main : .offMain, priority: priority)
 /// let rows = hops.snapshot(sinceLaunch: true).rows
@@ -92,18 +94,26 @@ public final class MainJobGateDiagnostics: Sendable {
         }
     }
 
-    /// What a non-Swift callout was. After a wake the run loop handles one of a timer, the main
-    /// dispatch queue or a mach-port source; a timer due at the wake names it a timer.
+    /// The run-loop stretch a non-Swift callout ran in. After a wake the run loop handles one of a
+    /// timer, the main dispatch queue or a mach-port source; a timer due at the wake names it a
+    /// timer. The source pass runs the version-0 sources and the blocks, and when CFRunLoop's poll
+    /// then finds the main dispatch queue's port ready it drains that queue in the same stretch
+    /// (CFRunLoop.c `__CFRunLoopRun`: `goto handle_msg` skips the wait and its observers). The main
+    /// queue runs the Swift main-actor jobs: a stretch that can drain it is ``Row/includesSwiftJobs``.
     public enum CalloutKind: UInt8, Sendable, CaseIterable {
         case timer, mainQueueOrPort, sources
 
-        var site: String {
+        /// A row's ``Row/callouts`` name.
+        var name: String {
             switch self {
-            case .timer: "runloop.timer"
-            case .mainQueueOrPort: "runloop.main_queue_or_port"
-            case .sources: "runloop.sources"
+            case .timer: "timer"
+            case .mainQueueOrPort: "main_queue_or_port"
+            case .sources: "sources_or_polled_main_queue"
             }
         }
+
+        /// The row of the stretches that were not sampled.
+        var site: String { "runloop." + name }
     }
 
     /// The main run loop's mode during a callout: a non-Swift row's origin.
@@ -126,10 +136,19 @@ public final class MainJobGateDiagnostics: Sendable {
     private let foldQueued = Atomic<Bool>(false)
     private let foldQueue: DispatchQueue?
     // concurrency-allow: the fold's site tables (lock carve-out: the main thread never takes it; it is held to fold at most `pendingLimit` records or to copy a snapshot, no I/O under it).
-    private let folded = Mutex(HopSites())
+    private let folded: Mutex<HopSites>
 
     /// - Parameter folding: Where the fold runs (default: in the background).
-    public init(folding: Folding = .background) {
+    public convenience init(folding: Folding = .background) {
+        self.init(folding: folding, entry: HopFrameResolver.concurrencyRuntime)
+    }
+
+    /// - Parameters:
+    ///   - folding: Where the fold runs.
+    ///   - entry: The image that calls ``recordEnqueue(turn:origin:priority:)``'s caller (the hook's
+    ///     caller, libswift_Concurrency; tests: libdispatch, through `DispatchQueue.sync`).
+    init(folding: Folding, entry: String) {
+        folded = Mutex(HopSites(entry: entry))
         switch folding {
         case .background: foldQueue = DispatchQueue.global(qos: .utility)
         case let .queue(queue): foldQueue = queue
@@ -144,11 +163,11 @@ public final class MainJobGateDiagnostics: Sendable {
     @inline(never)
     public func recordEnqueue(turn: InputTurn, origin: Origin, priority: UInt8) {
         var record = HopRecord(lane: .swift, origin: origin.rawValue, priority: priority, turn: turn)
-        record.captureStack(skipping: 1)
+        record.captureStack()
         push(record)
     }
 
-    /// A non-Swift callout of the main run loop that started during an input turn took `nanos`.
+    /// A non-Swift callout of the main run loop with input pending at its start or end took `nanos`.
     func recordCallout(_ callout: CalloutKind, mode: RunLoopModeName, turn: InputTurn, nanos: UInt64) {
         push(HopRecord(lane: .nonswift, origin: mode.rawValue, turn: turn, callout: callout, nanos: nanos))
     }
@@ -157,7 +176,7 @@ public final class MainJobGateDiagnostics: Sendable {
         if !ring.push(record) { droppedCount.add(1, ordering: .relaxed) }
     }
 
-    /// Queues a fold when records wait (the callout timer, once per main run-loop turn).
+    /// Queues a fold when records wait (the callout timer, at the stages that end a stretch).
     func wakeFold() {
         guard let foldQueue, ring.count > 0, !foldQueued.exchange(true, ordering: .acquiringAndReleasing) else { return }
         foldQueue.async { [weak self] in
@@ -178,10 +197,10 @@ public final class MainJobGateDiagnostics: Sendable {
 
     /// The sites since launch, or since the last ``reset()``, most hops first (folds first).
     public func snapshot(sinceLaunch: Bool) -> Snapshot {
-        let dropped = droppedCount.load(ordering: .relaxed)
-        return folded.withLock { sites in
+        folded.withLock { sites in
             while let record = ring.pop() { sites.add(record) }
-            return sites.snapshot(sinceLaunch: sinceLaunch, dropped: dropped, pending: ring.count)
+            // Read under the lock, as a reset reads it: the since-reset count never goes below zero.
+            return sites.snapshot(sinceLaunch: sinceLaunch, dropped: droppedCount.load(ordering: .relaxed), pending: ring.count)
         }
     }
 
@@ -194,10 +213,9 @@ public final class MainJobGateDiagnostics: Sendable {
 
     /// Starts the since-reset window over (`debug.input` action `reset`); the since-launch sites stay.
     public func reset() {
-        let dropped = droppedCount.load(ordering: .relaxed)
         folded.withLock { sites in
             while let record = ring.pop() { sites.add(record) }
-            sites.reset(dropped: dropped)
+            sites.reset(dropped: droppedCount.load(ordering: .relaxed))
         }
     }
 }
@@ -223,9 +241,12 @@ extension MainJobGateDiagnostics {
         }
     }
 
-    /// One site: a Swift job's first frame past the runtime, or a kind of non-Swift callout.
+    /// One site: a Swift job's first frame past the runtime, a sampled non-Swift callout's site, or
+    /// the run-loop stretch of unsampled callouts.
     public struct Row: Sendable, Encodable, Equatable {
-        /// `image+0xoffset` (Swift), `0xaddress` (unresolved), or `runloop.<kind>` (non-Swift).
+        /// `image+0xoffset` (a resolved Swift or sampled callout site), `0xaddress` (unresolved),
+        /// `truncated` (a Swift stack with no site: no entry frame, or none past the runtime) or `runloop.<stretch>`
+        /// (unsampled non-Swift callouts).
         public var site: String
         public var lane: Lane
         public var count: Int
@@ -236,16 +257,24 @@ extension MainJobGateDiagnostics {
         public var origin: [String: Int]
         /// The jobs' raw `TaskPriority` values (Swift).
         public var priorities: [Int]
+        /// The run-loop stretches the callouts ran in (``CalloutKind`` names; non-Swift).
+        public var callouts: [String]?
+        /// Whether the callouts' time can include Swift main-actor jobs, which the swift lane counts
+        /// by their enqueue (non-Swift): a sampled callout that ran one, or an unsampled stretch
+        /// that can drain the main queue.
+        public var includesSwiftJobs: Bool?
         /// Time in the callouts (non-Swift).
         public var totalMilliseconds: Double?
         public var maxMilliseconds: Double?
-        /// The site's frame (Swift, resolved).
+        /// The site's frame (resolved).
         public var frame: Frame?
-        /// The first hop's stack, innermost first (Swift).
+        /// The first hop's stack, innermost first (Swift: from the capture; a sampled callout: the
+        /// innermost frames up to its site, which is the last).
         public var stack: [Frame]
 
         enum CodingKeys: String, CodingKey {
-            case site, lane, count, kinds, origin, priorities, totalMilliseconds = "total_ms", maxMilliseconds = "max_ms", frame, stack
+            case site, lane, count, kinds, origin, priorities, callouts, includesSwiftJobs = "includes_swift_jobs"
+            case totalMilliseconds = "total_ms", maxMilliseconds = "max_ms", frame, stack
         }
     }
 

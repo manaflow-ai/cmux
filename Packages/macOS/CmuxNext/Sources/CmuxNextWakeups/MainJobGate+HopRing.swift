@@ -6,8 +6,13 @@ import Darwin
 /// or a timed non-Swift callout of the main run loop. A fixed-size value: no reference, no
 /// allocation on the recording thread.
 struct HopRecord {
-    /// The most return addresses kept.
-    static let depth = 8
+    /// The most return addresses kept. The capture keeps the recorder's and the hook's own frames
+    /// and the runtime frames of the enqueue before the site (``HopFrameResolver/siteIndex(_:)``
+    /// skips them), so the stack has room for all of them and a few frames past the site.
+    static let depth = 16
+    typealias Addresses = (UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt)
+    /// Computed, not a stored static: the recording thread never runs a lazy global initializer.
+    static var noAddresses: Addresses { (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) }
 
     var lane: MainJobGateDiagnostics.Lane
     /// ``MainJobGateDiagnostics/Origin`` (Swift) or ``MainJobGateDiagnostics/RunLoopModeName`` (non-Swift).
@@ -16,36 +21,39 @@ struct HopRecord {
     var turn: MainJobGateDiagnostics.InputTurn
     var callout: MainJobGateDiagnostics.CalloutKind = .sources
     var nanos: UInt64 = 0
+    /// A sampled non-Swift callout: the return address of its site (``CalloutStackSampler``); 0 when
+    /// the callout was not sampled or its site was not found.
+    var site: UInt = 0
+    /// A sampled non-Swift callout that ran a Swift job (the swift lane names that job's enqueue too).
+    var swiftJob = false
     // Each address in its own field: a fixed-size value, no array allocation on the recording thread.
-    var addresses: (UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt) = (0, 0, 0, 0, 0, 0, 0, 0)
+    var addresses: Addresses = HopRecord.noAddresses
     var addressCount = 0
 
-    /// Keeps the calling thread's stack, innermost first, without this function's frame and
-    /// `skipping` frames of its callers (the recorder's own entry point).
+    /// Keeps the calling thread's stack, innermost first, from this function's own frame: the
+    /// recorder's, the hook's and the runtime's frames come first and the fold skips them by image
+    /// (``HopFrameResolver/siteIndex(_:)``), so no frame count depends on what the optimizer
+    /// inlined. `backtrace_async` follows a running task's async frames past the synchronous ones:
+    /// a hop enqueued by an `await` (`swift_task_switch`, reached by a tail call that leaves no
+    /// frame of the awaiting function) resumes in the awaiting function, which is its site.
     @inline(never)
-    mutating func captureStack(skipping: Int) {
-        var taken = addresses
+    mutating func captureStack() {
+        var taken = Self.noAddresses
         var count = 0
-        let skipped = 1 + skipping
-        withUnsafeTemporaryAllocation(of: UnsafeMutableRawPointer?.self, capacity: Self.depth + skipped) { buffer in
-            guard let base = buffer.baseAddress else { return }
-            let found = Int(backtrace(base, Int32(buffer.count)))
-            guard found > skipped else { return }
-            withUnsafeMutableBytes(of: &taken) { raw in
-                let slots = raw.bindMemory(to: UInt.self)
-                for index in skipped..<found {
-                    slots[index - skipped] = UInt(bitPattern: buffer[index])
-                    count = index - skipped + 1
-                }
-            }
+        withUnsafeMutableBytes(of: &taken) { raw in
+            let slots = raw.bindMemory(to: UnsafeMutableRawPointer?.self)
+            guard let base = slots.baseAddress else { return }
+            var task: UInt32 = 0
+            count = min(Self.depth, backtrace_async(base, slots.count, &task))
         }
         addresses = taken
         addressCount = count
     }
 
-    /// Sets the stack from `stack` (tests, and the ring's read), innermost first; past ``depth`` is cut.
+    /// Sets the stack from `stack` (tests, the ring's read and the sampler), innermost first; past
+    /// ``depth`` is cut.
     mutating func setStack(_ stack: some Collection<UInt>) {
-        var taken: (UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt) = (0, 0, 0, 0, 0, 0, 0, 0)
+        var taken = Self.noAddresses
         var count = 0
         withUnsafeMutableBytes(of: &taken) { raw in
             let slots = raw.bindMemory(to: UInt.self)
@@ -63,10 +71,10 @@ struct HopRecord {
         withUnsafeBytes(of: addresses) { Array($0.bindMemory(to: UInt.self).prefix(addressCount)) }
     }
 
-    /// The fields other than the stack and the time, in one word.
+    /// The fields other than the stack, the site and the time, in one word.
     var meta: UInt64 {
         UInt64(lane.rawValue) | UInt64(origin) << 8 | UInt64(priority) << 16 | UInt64(turn.rawValue) << 24
-            | UInt64(callout.rawValue) << 32 | UInt64(addressCount) << 40
+            | UInt64(callout.rawValue) << 32 | UInt64(addressCount) << 40 | (swiftJob ? UInt64(1) << 48 : 0)
     }
 
     init(lane: MainJobGateDiagnostics.Lane, origin: UInt8, priority: UInt8 = 0, turn: MainJobGateDiagnostics.InputTurn,
@@ -79,14 +87,22 @@ struct HopRecord {
         self.nanos = nanos
     }
 
-    init(meta: UInt64, nanos: UInt64, stack: [UInt]) {
+    init(meta: UInt64, nanos: UInt64, site: UInt, stack: [UInt]) {
         self.init(lane: MainJobGateDiagnostics.Lane(rawValue: UInt8(truncatingIfNeeded: meta)) ?? .nonswift,
                   origin: UInt8(truncatingIfNeeded: meta >> 8), priority: UInt8(truncatingIfNeeded: meta >> 16),
                   turn: MainJobGateDiagnostics.InputTurn(rawValue: UInt8(truncatingIfNeeded: meta >> 24)),
                   callout: MainJobGateDiagnostics.CalloutKind(rawValue: UInt8(truncatingIfNeeded: meta >> 32)) ?? .sources,
                   nanos: nanos)
+        self.site = site
+        swiftJob = meta & (1 << 48) != 0
         setStack(stack.prefix(Int(UInt8(truncatingIfNeeded: meta >> 40))))
     }
+}
+
+/// One atomic word of a fixed table (an `Atomic` cannot be an array element): a ring slot's
+/// return address, a callout sample's.
+final class HopWord: Sendable {
+    let value = Atomic<UInt>(0)
 }
 
 /// A fixed multi-producer, single-consumer ring of ``HopRecord``s: any thread that enqueues a
@@ -106,16 +122,12 @@ final class HopRing: Sendable {
         let sequence: Atomic<UInt64>
         let meta = Atomic<UInt64>(0)
         let nanos = Atomic<UInt64>(0)
-        let addresses: [Word] = (0..<HopRecord.depth).map { _ in Word() }
+        let site = Atomic<UInt>(0)
+        let addresses: [HopWord] = (0..<HopRecord.depth).map { _ in HopWord() }
 
         init(_ index: Int) {
             sequence = Atomic(UInt64(index))
         }
-    }
-
-    /// One return address of a slot (an `Atomic` cannot be an array element).
-    private final class Word: Sendable {
-        let value = Atomic<UInt>(0)
     }
 
     /// - Parameter capacity: Slots (at least 2, rounded up to a power of two).
@@ -145,6 +157,7 @@ final class HopRing: Sendable {
                 }
                 slot.meta.store(record.meta, ordering: .relaxed)
                 slot.nanos.store(record.nanos, ordering: .relaxed)
+                slot.site.store(record.site, ordering: .relaxed)
                 withUnsafeBytes(of: record.addresses) { raw in
                     let addresses = raw.bindMemory(to: UInt.self)
                     for index in 0..<record.addressCount {
@@ -169,11 +182,12 @@ final class HopRing: Sendable {
         guard slot.sequence.load(ordering: .acquiring) == position + 1 else { return nil }
         let meta = slot.meta.load(ordering: .relaxed)
         let nanos = slot.nanos.load(ordering: .relaxed)
+        let site = slot.site.load(ordering: .relaxed)
         let depth = min(HopRecord.depth, Int(UInt8(truncatingIfNeeded: meta >> 40)))
         let stack = (0..<depth).map { slot.addresses[$0].value.load(ordering: .relaxed) }
         slot.sequence.store(position + UInt64(capacity), ordering: .releasing)
         dequeueCursor.store(position + 1, ordering: .releasing)
-        return HopRecord(meta: meta, nanos: nanos, stack: stack)
+        return HopRecord(meta: meta, nanos: nanos, site: site, stack: stack)
     }
 }
 #endif

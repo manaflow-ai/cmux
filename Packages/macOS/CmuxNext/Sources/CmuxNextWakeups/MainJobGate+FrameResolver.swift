@@ -1,74 +1,72 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import Darwin
-import Foundation
-import MachO
+import CmuxNextCompat
 
-/// Turns a hop's return addresses into image + offset frames, caching each image's name and UUID,
-/// and picks the frame that names the hop's site. Runs in the fold only, never on the main thread
-/// (`dladdr` takes dyld's lock), as BlockingFrameResolver does for the blocking detector.
+/// Picks the frame that names a hop's site from its resolved stack (``ImageOffsetResolver`` frames,
+/// innermost first). Runs where the frames were resolved: the recorder's fold and the callout
+/// sampler's queue, never the main thread.
 struct HopFrameResolver {
-    /// One loaded image.
-    struct Image: Sendable, Equatable {
-        var name: String
-        var uuid: String?
-        /// The Swift concurrency runtime, the Swift core library, libdispatch or its Swift overlay:
-        /// the frames a job's enqueue passes through on its way to the main executor, never its site.
-        var isRuntime: Bool
+    /// What one frame of a Swift hop's stack is to its site.
+    enum FrameKind: Equatable {
+        /// A frame of the image that calls the recorder's producer (the hook's caller,
+        /// libswift_Concurrency): the frames before the first one are the hook's and the recorder's.
+        case entry
+        /// A frame the enqueue passes through, never a site (``runtimeImages``,
+        /// ``runtimeSymbolPrefixes``).
+        case runtime
+        /// Any other frame, an unresolved one included: a site.
+        case other
     }
 
-    /// One resolved return address.
-    struct Resolved: Sendable, Equatable {
-        var base: UInt
-        var image: Image
-        /// The return address minus the image's load address.
-        var offset: UInt
-        /// `dladdr`'s nearest exported symbol before the call (mangled), when there is one.
-        var nearestSymbol: String?
+    /// The image that calls the MainJobGate hook: `swift_task_enqueueMainExecutor`.
+    static let concurrencyRuntime = "libswift_Concurrency.dylib"
+
+    /// The frames a main-actor job's enqueue passes through between the hook and the code that
+    /// enqueued it, never its site: the Swift concurrency runtime, the Swift core library,
+    /// libdispatch and its Swift overlay, and the thread start below a worker's stack.
+    static let runtimeImages: Set<String> = [concurrencyRuntime, "libswiftCore.dylib", "libdispatch.dylib",
+                                             "libswiftDispatch.dylib", "libsystem_pthread.dylib"]
+
+    /// The mangled prefixes of the `Task` and `MainActor` members the compiler emits into the
+    /// caller's image (`Task.init`, `MainActor.run`): not inlined in a DEBUG build, they would name
+    /// every `Task { }` of a module as one site.
+    static let runtimeSymbolPrefixes = ["$sScT", "$sScM"]
+
+    /// The frames a run-loop callout passes through between CFRunLoop's callout trampoline and the
+    /// code it calls: the runtime images, Core Foundation, Foundation (`__NSFireTimer`) and the
+    /// Objective-C runtime.
+    static let calloutPassThroughImages: Set<String> = runtimeImages.union(["CoreFoundation", "Foundation", "libobjc.A.dylib"])
+
+    /// What `frame` is to a Swift hop's site, when `entry` is the image that calls the producer.
+    static func kind(_ frame: ImageOffsetResolver.Resolved?, entry: String) -> FrameKind {
+        guard let frame else { return .other }
+        if frame.image.name == entry { return .entry }
+        if runtimeImages.contains(frame.image.name) { return .runtime }
+        if let symbol = frame.nearestSymbol, runtimeSymbolPrefixes.contains(where: { symbol.hasPrefix($0) }) { return .runtime }
+        return .other
     }
 
-    static let runtimeImages: Set<String> = ["libswift_Concurrency.dylib", "libswiftCore.dylib", "libdispatch.dylib", "libswiftDispatch.dylib"]
-
-    private var images: [UInt: Image] = [:]
-
-    /// The frame of `address`; nil outside every loaded image (a test's made-up address).
-    mutating func resolve(_ address: UInt) -> Resolved? {
-        var info = Dl_info()
-        // A return address can sit just past its function (a call that does not return): look up the call.
-        guard address > 0, let pointer = UnsafeRawPointer(bitPattern: address - 1), dladdr(pointer, &info) != 0,
-              let header = info.dli_fbase else { return nil }
-        let base = UInt(bitPattern: header)
-        let image = images[base] ?? Self.image(header: header, path: info.dli_fname)
-        images[base] = image
-        let symbol = info.dli_sname.map { String(cString: $0) }
-        return Resolved(base: base, image: image, offset: address - base, nearestSymbol: symbol)
+    /// The index of the frame that names a Swift hop's site: from the first ``FrameKind/entry``
+    /// frame (the hook's and the recorder's own frames come before it, however many the optimizer
+    /// left), the first ``FrameKind/other`` frame. Nil when no frame came from the entry image or
+    /// none follows the runtime frames (the stack was cut there): the hop has no site.
+    static func siteIndex(_ kinds: [FrameKind]) -> Int? {
+        guard let entry = kinds.firstIndex(of: .entry) else { return nil }
+        return kinds[entry...].firstIndex(of: .other)
     }
 
-    /// The index of the frame that names the site: the first frame after the runtime frames the
-    /// enqueue went through (the hook and the recorder come before them), else the first frame
-    /// (a direct call with no runtime frame: tests). `isRuntime` per frame, innermost first; nil
-    /// for an unresolved frame. Nil when the stack is empty.
-    static func siteIndex(_ isRuntime: [Bool?]) -> Int? {
-        guard !isRuntime.isEmpty else { return nil }
-        guard let firstRuntime = isRuntime.firstIndex(where: { $0 == true }) else { return 0 }
-        return isRuntime[firstRuntime...].firstIndex(where: { $0 != true }) ?? isRuntime.count - 1
-    }
-
-    private static func image(header: UnsafeMutableRawPointer, path: UnsafePointer<CChar>?) -> Image {
-        let name = path.map { String(cString: $0) }.flatMap { $0.split(separator: "/").last.map(String.init) } ?? "?"
-        return Image(name: name, uuid: uuid(header.assumingMemoryBound(to: mach_header_64.self))?.uuidString,
-                     isRuntime: runtimeImages.contains(name))
-    }
-
-    /// The `LC_UUID` of a loaded 64-bit image.
-    private static func uuid(_ header: UnsafePointer<mach_header_64>) -> UUID? {
-        guard header.pointee.magic == UInt32(MH_MAGIC_64) else { return nil }
-        var command = UnsafeRawPointer(header) + MemoryLayout<mach_header_64>.size
-        for _ in 0..<header.pointee.ncmds {
-            let load = command.assumingMemoryBound(to: load_command.self).pointee
-            if load.cmd == UInt32(LC_UUID) {
-                return UUID(uuid: command.assumingMemoryBound(to: uuid_command.self).pointee.uuid)
-            }
-            command += Int(load.cmdsize)
+    /// The callout's site in a main-thread sample taken during a run-loop callout: from the
+    /// innermost callout trampoline (`__CFRUNLOOP_IS_CALLING_OUT_TO_…`, `__CFRUNLOOP_IS_SERVICING_…`)
+    /// inward, the first frame outside ``calloutPassThroughImages``. `swiftJob`: the callout ran a
+    /// Swift job (a libswift_Concurrency frame between the two), whose enqueue the swift lane also
+    /// names. Nil when the sample shows no trampoline or nothing inside it.
+    static func calloutSite(_ frames: [ImageOffsetResolver.Resolved?]) -> (index: Int, swiftJob: Bool)? {
+        guard let trampoline = frames.firstIndex(where: { $0?.nearestSymbol?.hasPrefix("__CFRUNLOOP_IS_") == true }),
+              trampoline > 0 else { return nil }
+        var swiftJob = false
+        for index in stride(from: trampoline - 1, through: 0, by: -1) {
+            guard let frame = frames[index] else { return (index, swiftJob) }
+            if frame.image.name == concurrencyRuntime { swiftJob = true }
+            if !calloutPassThroughImages.contains(frame.image.name) { return (index, swiftJob) }
         }
         return nil
     }

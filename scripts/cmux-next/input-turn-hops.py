@@ -2,40 +2,38 @@
 """MQ-input-turn-hops: the main-thread hops that run beside a person's input, as a queue of fix tasks
 (plans/cmux-next/chrome-parity/p04-input.md, task 022).
 
-Launches a DEBUG or bench build of cmux NEXT (scripts/cmux-next/bench_launch.py), types into a zsh terminal the
-way typing-frame-bench.py's terminal surface does (idle, then with --busy printing terminals), reads
-`debug.input` action `hops` since launch, symbolicates each Swift site (image + offset) to file:line with the
-image's dSYM (atos), and writes one row per unique site:
+Runs typing-frame-bench.py on its terminal surface (idle, then with --busy printing terminals) with --hops-out, so
+the queue explains the same workload the typing bench measures; the bench reads `debug.input` action `hops` since
+launch before its app quits. This script symbolicates each site (image + offset) to file:line with the image's dSYM
+(atos) and writes one row per unique site:
 
   site, lane (swift | nonswift), count, kinds, origin, symbol, file, line, allowed
 
 A Swift row is a main-actor job enqueued while input was pending or dispatching (the MainJobGate hook, task 021),
-named by its first frame past the Swift runtime and libdispatch. A nonswift row is a kind of main run-loop
-callout (timer, main queue or port, sources) timed during input turns. Each row is one task: remove the hop, or
-justify it with `// input-hop-allow: <why>` on the site's line or the line above it (the row is then
-`allowed`). typing-frame-bench.py quits its app when it ends, so this script launches its own.
+named by its first frame past the Swift runtime and libdispatch. A nonswift row is a main run-loop callout that ran
+while input was pending, named by its own frame when it ran long enough to be sampled, else by its run-loop stretch
+(`runloop.timer`, `runloop.main_queue_or_port`, `runloop.sources_or_polled_main_queue`); `includes_swift_jobs` marks
+the time that also holds Swift jobs. Each row is one task: remove the hop, or justify it with
+`// input-hop-allow: <why>` on the site's line or the line above it (the row is then `allowed`).
 
-  input-turn-hops.py --app APP --out DIR [--json artifacts/input-turn-hops.json] [--input real|debug]
-      [--keys 200] [--busy 4] [--dsym PATH ...]
-  input-turn-hops.py --from-reply REPLY.json --app APP [--json FILE]   (symbolicate a saved hops reply)
+The Swift lane needs the MainJobGate hook (p04-input-021). The typing bench types with `debug.key`, which the window
+server never sees as pending: its keys count once 021 adds the dispatching turns, or with real HID keys once
+p04-input-070 gives the bench `--input real` (pass it with --bench-arg).
+
+  input-turn-hops.py --app APP --out DIR [--tag TAG] [--json artifacts/input-turn-hops.json] [--keys 200] [--busy 4]
+      [--bench-arg=--stress ...] [--dsym PATH ...]
+  input-turn-hops.py --from-reply REPLY.json --app APP [--json FILE]   (a saved hops reply, or a --hops-out file)
   input-turn-hops.py --self-test
 
-Runs on a host with a GUI session (an owned mini with a console): --input real posts CGEvents, which needs the
-Accessibility grant for the process that runs it.
+Runs on a host with a GUI session (an owned mini with a console), as typing-frame-bench.py does.
 """
-import argparse, glob, json, os, re, socket, subprocess, sys, tempfile, time
+import argparse, glob, json, os, re, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 SOURCES = os.path.join(REPO, "Packages/macOS/CmuxNext/Sources")
 ALLOW = "input-hop-allow:"
 ATOS_LINE = re.compile(r"^(?P<symbol>.*?) \(in (?P<image>[^)]+)\)(?: \((?P<file>[^():]+):(?P<line>\d+)\))?\s*$")
-# ANSI virtual key codes (Carbon kVK_ANSI_*) of the typed keys (sidebar-churn-typing.py's table).
-KEYCODES = {"a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
-            "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45,
-            "m": 46}
-BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
-
 
 def note(text):
     print(text, flush=True)
@@ -109,11 +107,11 @@ def atos(path, offsets):
 
 
 def symbolicate(rows, files):
-    """Adds symbol, file and line to each Swift row with a frame (one atos run per image)."""
+    """Adds symbol, file and line to each row with a frame (one atos run per image)."""
     uuid_cache, by_file = {}, {}
     for row in rows:
         frame = row.get("frame")
-        if row.get("lane") != "swift" or not frame:
+        if not frame:
             continue
         path = pick_file(frame, files, uuid_cache)
         if path:
@@ -152,17 +150,48 @@ def is_allowed(file, line, index, read=None):
     return any(ALLOW in text for text in window)
 
 
+def merge_replies(replies):
+    """One hops reply from several (the bench's sessions): rows of one site and lane add up."""
+    merged, by_site = {"since_launch": True, "recorded": 0, "dropped": 0, "sites_overflow": 0, "rows": []}, {}
+    for reply in replies:
+        for key in ("recorded", "dropped", "sites_overflow"):
+            merged[key] += reply.get(key) or 0
+        for row in reply.get("rows") or []:
+            known = by_site.get((row.get("site"), row.get("lane")))
+            if known is None:
+                by_site[(row.get("site"), row.get("lane"))] = known = dict(row, kinds=list(row.get("kinds") or []),
+                                                                          origin=dict(row.get("origin") or {}))
+                merged["rows"].append(known)
+                continue
+            known["count"] = (known.get("count") or 0) + (row.get("count") or 0)
+            known["kinds"] += [k for k in row.get("kinds") or [] if k not in known["kinds"]]
+            for name, count in (row.get("origin") or {}).items():
+                known["origin"][name] = known["origin"].get(name, 0) + count
+            for key in ("priorities", "callouts"):
+                if row.get(key) is not None:
+                    known[key] = sorted(set(known.get(key) or []) | set(row[key]))
+            if row.get("includes_swift_jobs"):
+                known["includes_swift_jobs"] = True
+            if row.get("total_ms") is not None:
+                known["total_ms"] = (known.get("total_ms") or 0) + row["total_ms"]
+                known["max_ms"] = max(known.get("max_ms") or 0, row.get("max_ms") or 0)
+    merged["rows"].sort(key=lambda r: (-(r.get("count") or 0), r.get("site") or ""))
+    return merged
+
+
 def queue(reply, index, read=None):
     """The MQ-input-turn-hops document from a symbolicated `debug.input hops` reply."""
     rows = []
     for row in reply.get("rows") or []:
         entry = {key: row.get(key) for key in ("site", "lane", "count", "kinds", "origin")}
+        entry.update(symbol=row.get("symbol"), file=row.get("file"), line=row.get("line"), frame=row.get("frame"))
         if row.get("lane") == "swift":
-            entry.update(symbol=row.get("symbol"), file=row.get("file"), line=row.get("line"),
-                         priorities=row.get("priorities") or [], frame=row.get("frame"))
-            entry["allowed"] = is_allowed(row.get("file"), row.get("line"), index, read)
+            entry["priorities"] = row.get("priorities") or []
         else:
-            entry.update(total_ms=row.get("total_ms"), max_ms=row.get("max_ms"), allowed=False)
+            entry.update(callouts=row.get("callouts"), includes_swift_jobs=row.get("includes_swift_jobs"),
+                         total_ms=row.get("total_ms"), max_ms=row.get("max_ms"))
+        # A stretch with no site of its own is a task until it is sampled; a site is judged by its source line.
+        entry["allowed"] = is_allowed(row.get("file"), row.get("line"), index, read) if row.get("frame") else False
         rows.append(entry)
     rows.sort(key=lambda r: (r.get("allowed") is True, -(r.get("count") or 0), r.get("site") or ""))
     return {"queue": "MQ-input-turn-hops", "since_launch": reply.get("since_launch"),
@@ -174,97 +203,37 @@ def queue(reply, index, read=None):
 # MARK: the run
 
 
-def rpc(path, method, params=None, timeout=30):
-    try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(path)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 22)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
-        reply = json.loads(buf)
-    except (OSError, ValueError) as error:
-        return {"error": str(error)}
-    return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+def bench_command(opts, app, hops_out):
+    """typing-frame-bench.py on its terminal surface, idle then under --busy printing terminals, one round."""
+    return [sys.executable, os.path.join(HERE, "typing-frame-bench.py"), "--app", app, "--tag", opts.tag,
+            "--out", opts.out, "--surfaces", "terminal", "--phases", "idle,load", "--rounds", "1",
+            "--samples", str(opts.keys), "--busy", str(opts.busy), "--chats", "0", "--hops-out", hops_out,
+            *(opts.bench_arg or [])]
 
 
-def post_real_key(cg, key):
-    """One real key press at the HID event tap (the window server queues it for the frontmost app)."""
-    for down in (True, False):
-        event = cg.CGEventCreateKeyboardEvent(None, KEYCODES[key], down)
-        cg.CGEventPost(0, event)  # kCGHIDEventTap
-        cg.CFRelease(event)
+def replies_of(document):
+    """The hops replies of a --hops-out file ({"sessions": {...}}) or of one saved reply."""
+    if isinstance(document, dict) and isinstance(document.get("sessions"), dict):
+        return list(document["sessions"].values())
+    return [document]
 
 
-def core_graphics():
-    import ctypes, ctypes.util
-    cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
-    cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
-    cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
-    cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-    cg.CFRelease.argtypes = [ctypes.c_void_p]
-    return cg
-
-
-def run_app(opts):
-    """Launches the app, types --keys keys idle and --keys under load, returns the hops reply since launch."""
-    sys.path.insert(0, HERE)
-    from bench_launch import BenchApp, LaunchError
+def run_bench(opts):
+    """Runs the typing bench with --hops-out and returns its sessions' hops replies, merged, and the app."""
     app = os.path.realpath(opts.app.rstrip("/"))
-    bench = BenchApp(app, out=opts.out, config={}, window=(40, 40, 1400, 900), log_name="app-input-turn-hops.log")
+    hops_out = os.path.join(opts.out, "hops-reply.json")
+    if os.path.exists(hops_out):
+        os.remove(hops_out)
+    subprocess.run(bench_command(opts, app, hops_out), check=False)
     try:
-        try:
-            bench.launch(timeout=180, settle=5.0)
-        except LaunchError as error:
-            raise SystemExit(f"input-turn-hops: the app did not come up: {error.reason}")
-        sock, config = bench.socket, os.path.join(bench.scratch, "cmux.json")
-        cli = os.path.join(app, "Contents/Resources/bin/cmux")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
-        env["CMUX_NEXT_CONFIG_FILE"] = config
-
-        def run_cli(*args):
-            return subprocess.run([cli, "--app-socket", sock, *args], env=env, capture_output=True, text=True,
-                                  timeout=60, stdin=subprocess.DEVNULL)
-
-        run_cli("workspace", "create", "--name", "hops", "--focus", "--shell", "exec /bin/zsh -f")
-        time.sleep(2)  # test harness: the prompt draws
-        if rpc(sock, "debug.input", {"action": "hops"}).get("error"):
-            raise SystemExit(f"input-turn-hops: debug.input hops is not in this build: "
-                             f"{rpc(sock, 'debug.input', {'action': 'hops'})}")
-        cg = core_graphics() if opts.input == "real" else None
-        if cg:
-            subprocess.run(["osascript", "-e", f'tell application "System Events" to set frontmost of (first process '
-                            f'whose unix id is {bench.process.pid}) to true'], capture_output=True, timeout=30)
-
-        def type_keys(count):
-            keys = "asdfghjkl"
-            for index in range(count):
-                key = keys[index % len(keys)]
-                if cg:
-                    post_real_key(cg, key)
-                else:
-                    rpc(sock, "debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
-                time.sleep(opts.interval)  # test harness: one key in flight at a time
-            rpc(sock, "action.run", {"action": "terminal.sendText", "args": {"text": "\x15"}, "focus": True, "origin": "script"})
-
-        type_keys(opts.keys)
-        for index in range(opts.busy):
-            run_cli("workspace", "create", "--name", f"busy-{index}", "--shell", BUSY)
-        time.sleep(1)  # test harness: the busy terminals start printing
-        type_keys(opts.keys)
-        reply = rpc(sock, "debug.input", {"action": "hops", "since_launch": True}, timeout=60)
-        if reply.get("error"):
-            raise SystemExit(f"input-turn-hops: debug.input hops failed: {reply['error']}")
-        with open(os.path.join(opts.out, "hops-reply.json"), "w") as handle:
-            json.dump(reply, handle, indent=1)
-        return reply, app
-    finally:
-        bench.stop()
+        with open(hops_out) as handle:
+            replies = replies_of(json.load(handle))
+    except (OSError, ValueError):
+        raise SystemExit(f"input-turn-hops: typing-frame-bench.py wrote no hops reply ({hops_out})")
+    failed = [r.get("error") for r in replies if not isinstance(r, dict) or r.get("error")]
+    if failed:
+        raise SystemExit(f"input-turn-hops: debug.input hops failed: {failed}")
+    return merge_replies(replies), app
 
 
 # MARK: self-test
@@ -277,7 +246,11 @@ def self_test():
         {"site": "cmux DEV+0x20", "lane": "swift", "count": 2, "kinds": ["key", "dispatching"],
          "origin": {"off_main": 2}, "priorities": [21], "frame": {"image": "cmux DEV", "image_uuid": "U", "offset": 32}},
         {"site": "runloop.timer", "lane": "nonswift", "count": 2, "kinds": ["key"], "origin": {"default": 2},
-         "priorities": [], "total_ms": 3.5, "max_ms": 2.0, "stack": []},
+         "priorities": [], "callouts": ["timer"], "includes_swift_jobs": False, "total_ms": 3.5, "max_ms": 2.0,
+         "stack": []},
+        {"site": "cmux DEV+0x30", "lane": "nonswift", "count": 1, "kinds": ["key"], "origin": {"default": 1},
+         "priorities": [], "callouts": ["main_queue_or_port"], "includes_swift_jobs": True, "total_ms": 4.0,
+         "max_ms": 4.0, "frame": {"image": "cmux DEV", "image_uuid": "U", "offset": 48}},
     ]}
     failures = []
 
@@ -290,6 +263,7 @@ def self_test():
     check("atos without debug info", parse_atos("Foo.bar() (in cmux DEV) + 12")[1:] == (None, None))
     fixture["rows"][0].update(file="Foo.swift", line=3)
     fixture["rows"][1].update(file="Bar.swift", line=2)
+    fixture["rows"][3].update(file="Foo.swift", line=3)
     sources = {"/s/Foo.swift": "a\n// input-hop-allow: the menu needs this order\nTask { @MainActor in }\n",
                "/s/Bar.swift": "a\nTask { @MainActor in }\n"}
     index = {"Foo.swift": ["/s/Foo.swift"], "Bar.swift": ["/s/Bar.swift"], "Twice.swift": ["/a/Twice.swift", "/b/Twice.swift"]}
@@ -297,9 +271,34 @@ def self_test():
     rows = {r["site"]: r for r in document["rows"]}
     check("allow comment on the line above", rows["cmux DEV+0x10"]["allowed"] is True)
     check("no allow comment", rows["cmux DEV+0x20"]["allowed"] is False)
-    check("nonswift rows are tasks", rows["runloop.timer"]["allowed"] is False and rows["runloop.timer"]["total_ms"] == 3.5)
+    check("a stretch with no site is a task", rows["runloop.timer"]["allowed"] is False and rows["runloop.timer"]["total_ms"] == 3.5)
+    check("a sampled callout is judged by its line", rows["cmux DEV+0x30"]["allowed"] is True)
+    check("a sampled callout keeps its fields", rows["cmux DEV+0x30"]["includes_swift_jobs"] is True
+          and rows["cmux DEV+0x30"]["callouts"] == ["main_queue_or_port"])
     check("unallowed count", document["unallowed"] == 2)
-    check("allowed rows sort last", document["rows"][-1]["site"] == "cmux DEV+0x10")
+    check("allowed rows sort last", {r["site"] for r in document["rows"][-2:]} == {"cmux DEV+0x10", "cmux DEV+0x30"})
+    light = {"recorded": 3, "dropped": 0, "sites_overflow": 0, "rows": [
+        {"site": "s", "lane": "nonswift", "count": 2, "kinds": ["key"], "origin": {"default": 2}, "callouts": ["timer"],
+         "total_ms": 3.0, "max_ms": 2.0}]}
+    stress = {"recorded": 2, "dropped": 1, "sites_overflow": 0, "rows": [
+        {"site": "s", "lane": "nonswift", "count": 1, "kinds": ["click"], "origin": {"event_tracking": 1},
+         "callouts": ["sources_or_polled_main_queue"], "includes_swift_jobs": True, "total_ms": 5.0, "max_ms": 5.0},
+        {"site": "s", "lane": "swift", "count": 1, "kinds": ["key"], "origin": {"main": 1}, "priorities": [25]}]}
+    merged = merge_replies(replies_of({"sessions": {"light": light, "stress": stress}}))
+    first = merged["rows"][0]
+    check("merge adds a site's sessions", (merged["recorded"], merged["dropped"], len(merged["rows"])) == (5, 1, 2))
+    check("merge adds counts and times", (first["count"], first["total_ms"], first["max_ms"]) == (3, 8.0, 5.0))
+    check("merge unions kinds and origins", first["kinds"] == ["key", "click"]
+          and first["origin"] == {"default": 2, "event_tracking": 1})
+    check("merge keeps the swift-jobs mark", first["includes_swift_jobs"] is True
+          and first["callouts"] == ["sources_or_polled_main_queue", "timer"])
+    check("merge leaves its inputs", light["rows"][0]["count"] == 2 and light["rows"][0]["kinds"] == ["key"])
+    check("one saved reply is one reply", replies_of(light) == [light])
+    opts = argparse.Namespace(tag="hops", out="/o", keys=50, busy=2, bench_arg=["--stress"])
+    command = bench_command(opts, "/A.app", "/o/h.json")
+    check("the bench runs its terminal surface with --hops-out", command[1].endswith("typing-frame-bench.py")
+          and command[command.index("--surfaces") + 1] == "terminal" and command[command.index("--hops-out") + 1] == "/o/h.json"
+          and command[command.index("--samples") + 1] == "50" and command[-1] == "--stress")
     check("row keys", all({"site", "lane", "count", "kinds", "origin", "allowed"} <= set(r) for r in document["rows"]))
     check("two files of one name are not judged", is_allowed("Twice.swift", 1, index, read=lambda p: ALLOW) is None)
     check("no line is not judged", is_allowed("Foo.swift", None, index, read=lambda path: sources[path]) is None)
@@ -320,32 +319,32 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app")
     parser.add_argument("--out")
+    parser.add_argument("--tag", default="hops", help="the typing bench's tag")
     parser.add_argument("--json", help="the queue document (default artifacts/input-turn-hops.json in the repo)")
-    parser.add_argument("--input", choices=("real", "debug"), default="real",
-                        help="real: CGEvent key presses through the window server (input is pending until dispatch); "
-                             "debug: debug.key (only the dispatching turns count)")
     parser.add_argument("--keys", type=int, default=200, help="keys per phase (idle, then load)")
-    parser.add_argument("--interval", type=float, default=0.05, help="seconds between keys")
     parser.add_argument("--busy", type=int, default=4, help="printing terminals in the load phase")
+    parser.add_argument("--bench-arg", action="append", help="one more typing-frame-bench.py argument (repeatable)")
     parser.add_argument("--dsym", action="append", help="a dSYM bundle to symbolicate with (repeatable)")
-    parser.add_argument("--from-reply", help="a saved `debug.input hops` reply instead of a run")
+    parser.add_argument("--from-reply", help="a saved `debug.input hops` reply or --hops-out file instead of a run")
     parser.add_argument("--self-test", action="store_true")
     opts = parser.parse_args(argv)
     if opts.self_test:
         return self_test()
     if opts.from_reply:
         with open(opts.from_reply) as handle:
-            reply, app = json.load(handle), os.path.realpath(opts.app.rstrip("/")) if opts.app else None
+            reply = merge_replies(replies_of(json.load(handle)))
+        app = os.path.realpath(opts.app.rstrip("/")) if opts.app else None
     else:
         if not opts.app or not opts.out:
             parser.error("--app and --out are required for a run")
+        opts.out = os.path.abspath(opts.out)
         os.makedirs(opts.out, exist_ok=True)
-        reply, app = run_app(opts)
+        reply, app = run_bench(opts)
     rows = reply.get("rows") or []
     symbolicate(rows, image_files(app, opts.dsym))
     document = queue(reply, source_index())
     document["app"] = app
-    document["input"] = None if opts.from_reply else opts.input
+    document["bench_args"] = None if opts.from_reply else opts.bench_arg or []
     path = opts.json or os.path.join(REPO, "artifacts", "input-turn-hops.json")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w") as handle:
@@ -353,7 +352,6 @@ def main(argv=None):
     note(f"input-turn-hops: {len(document['rows'])} sites, {document['unallowed']} unallowed, "
          f"{document.get('dropped')} dropped -> {path}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
