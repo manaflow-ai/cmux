@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -58,7 +59,7 @@ enum ChiefMemoryImportHandlers {
     /// `Contents/Resources/bin/optchat-chief`, or nil when this build does not carry it (as ``BundledAgentMemoryIndex``).
     nonisolated static func bundledTool(bundle: Bundle = .main) -> URL? {
         guard let url = bundle.resourceURL?.appendingPathComponent("bin/optchat-chief"),
-              FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
+              FileManager.checked.isExecutableFile(atPath: url.path) else { return nil }
         return url
     }
 
@@ -223,7 +224,7 @@ enum ChiefMemoryImportHandlers {
     /// Deletes the Cloud token's folder, off the main thread.
     nonisolated static func discard(_ folder: URL) {
         // task-owner: one small delete; ends with it
-        Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: folder) }
+        Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: folder) }
     }
 
     struct Output: Sendable {
