@@ -13,7 +13,11 @@
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
-// event; then every other op. The channel's end (cmux quit or crashed), or
+// event; then every other op. Control messages and input frames meet in one
+// ordered stream (cmux_host::control::OrderedStream, task 092): an input frame
+// waits for the control message it names, an ordered control message (focus,
+// activation, geometry, IME, edit) for the input frame it follows, as Chrome's
+// one RenderWidgetHostNSViewHost pipe orders them. The channel's end (cmux quit or crashed), or
 // a shutdown op, closes every browser and ends the loop; a host that has
 // not ended kQuitLimitSeconds after that _exits, so a hung UI thread or a
 // hung CefInitialize never leaves an orphaned host behind.
@@ -257,10 +261,20 @@ int main(int argc, char* argv[]) {
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
       host_main, page_views, &ResolveShimSymbol);
+  // Main thread only, like `host`. The input ring (task 041) attaches its
+  // dispatch here (AttachInput) and hands each frame to AddInput; until then
+  // no frame comes and cmux stamps no ordered op with an input seq.
+  cmux_host::control::OrderedStream ordered(
+      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
+  auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
+    if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
+  };
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
-      [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); },
+      [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
+        check(ordered.AddControl(std::move(messages)));
+      },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
   host.Attach();
 
@@ -296,7 +310,10 @@ int main(int argc, char* argv[]) {
       return cmux_host::kExitInitialize;
     }
     host_main.set_running();
-    PostToMain([&host] { host.Resume(); });
+    PostToMain([&host, &ordered, &check] {
+      host.Resume();
+      check(ordered.OpenInput());  // the messages that waited for initialize ran first
+    });
     CefRunMessageLoop();
     channel->Close();
     cmux_shim_shutdown();
