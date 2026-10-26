@@ -673,8 +673,9 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
   detail): 15, 30, 60 or 120 minutes, or 0 for Off. A create may set it too (`POST /api/vm`
-  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`); the
-  create's answer carries the stored value, and the default when the write failed. A machine that never chose one gets
+  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
+  stored by the row's insert, before any provider call, so a same-key retry keeps the first
+  create's value; the answer carries it. A machine that never chose one gets
   `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
 - `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
   null. Opening a paused machine resumes it, as above.

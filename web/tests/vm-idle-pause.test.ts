@@ -822,6 +822,11 @@ describe("idle pause SQL", () => {
     expect(retry.inserted).toBe(false);
     expect(retry.vm.id).toBe(first.vm.id);
     expect(retry.vm.providerMetadata?.cmuxIdlePauseMinutes).toBe(0);
+    const thirty = await run(repo.beginCreate({
+      userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
+      maxActiveVms: null, idempotencyKey: `idle-thirty-${rowId}`, idlePauseMinutes: 30,
+    }));
+    expect(thirty.vm.providerMetadata?.cmuxIdlePauseMinutes).toBe(30);
     const plain = await run(repo.beginCreate({
       userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
       maxActiveVms: null, idempotencyKey: `idle-plain-${rowId}`,
