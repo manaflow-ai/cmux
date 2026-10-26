@@ -105,7 +105,8 @@ public final class SessionLinkGate {
     /// The question, with Open (Return) and Cancel (Escape); with no window to ask in, or a
     /// dialog closed without a press, it answers Cancel.
     public static func ask(_ subject: SessionLinkSubject, in window: NSWindow?) async -> Bool {
-        guard let window else { return false }
+        // A window that closed while the session was looked up asks nothing.
+        guard let window, window.isVisible else { return false }
         let spec = CmuxDialogSpec(
             title: SessionLinkStrings.title, lines: [SessionLinkStrings.message(subject.name), SessionLinkStrings.warning],
             fields: [.preview(details(subject).joined(separator: "\n"))],

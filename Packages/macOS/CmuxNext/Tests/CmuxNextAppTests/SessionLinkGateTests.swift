@@ -97,4 +97,9 @@ import Testing
         #expect(titled == ["Agent: claude", "Machine: huge-blue", "Session: ses-9"])
         #expect(SessionLinkGate.details(SessionLinkSubject(id: "ses-9", title: nil, harness: nil, host: "This Mac")) == ["Machine: This Mac", "Session: ses-9"])
     }
+
+    @Test func aWindowThatClosedBeforeTheQuestionOpensNothing() async {
+        let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        #expect(await SessionLinkGate.ask(known, in: closed) == false)
+    }
 }
