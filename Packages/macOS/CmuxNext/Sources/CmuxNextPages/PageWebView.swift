@@ -160,6 +160,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// What `debug.webui` knows of this page (PageWebView+Debug.swift).
+    var censusState = PageCensusState()
+    #endif
 
     public var pageID: String { descriptor.id }
 
@@ -324,6 +328,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(false) // in no window yet (`debug.webui`)
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
         // users keep WebKit's occlusion throttling.
@@ -547,7 +552,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setEngineVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -560,12 +565,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setEngineVisible(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        setEngineVisible(window != nil)
     }
 
     public override func viewDidChangeEffectiveAppearance() {

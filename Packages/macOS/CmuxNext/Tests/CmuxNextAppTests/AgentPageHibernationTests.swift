@@ -33,7 +33,7 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
