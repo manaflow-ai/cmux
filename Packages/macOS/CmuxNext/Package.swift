@@ -1287,7 +1287,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSignpostsTests",
-            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         // Launch-only types (plans/cmux-next/chrome-parity/p08-startup.md, task 073): CmuxNextApp's size
