@@ -18,7 +18,7 @@ extension AgentTabStore {
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional) else { return }
             AgentPaneHeaderState.push(state, to: view)
-        })
+        }, on: mainWork)
         // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
         // and its new watch must push without waiting for another read.
         watch.read()
