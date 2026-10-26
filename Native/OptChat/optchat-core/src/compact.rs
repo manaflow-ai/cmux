@@ -486,16 +486,19 @@ const REFUSAL_STARTS: [&str; 23] = [
     "can you",
 ];
 
-/// Whether `reply` refuses, asks or explains instead of being a line.
+/// Whether `reply` refuses, asks or explains instead of being a line: one of
+/// its lines starts as a refusal (a model may write a lead-in line first).
 pub fn is_refusal(reply: &str) -> bool {
-    let head: String = reply
-        .trim_start()
-        .chars()
-        .take(40)
-        .collect::<String>()
-        .replace(['\u{2019}', '\u{2018}'], "'")
-        .to_lowercase();
-    REFUSAL_STARTS.iter().any(|s| head.starts_with(s))
+    reply.lines().any(|line| {
+        let head: String = line
+            .trim_start()
+            .chars()
+            .take(40)
+            .collect::<String>()
+            .replace(['\u{2019}', '\u{2018}'], "'")
+            .to_lowercase();
+        REFUSAL_STARTS.iter().any(|s| head.starts_with(s))
+    })
 }
 
 /// The input as one line within `limit` bytes: what a node keeps when every
