@@ -136,7 +136,7 @@ class PowerWindow:
     its total, and none runs inside the caller's bracket."""
 
     def __init__(self, main_pid: int, pids, classify, reader: Reader | None = None):
-        self.main_pid, self.pids, self.classify = main_pid, pids, classify  # pids(): {pid: command} now
+        self.main_pid, self.pids, self.classify = main_pid, pids, classify  # pids(): {pid: command} now; classify(cmd, pid): a kind
         self.reader = reader or Reader()
 
     def prepare(self):
@@ -421,7 +421,7 @@ def attribute(raw: dict, floor: float = FLOOR_MW) -> dict:
         power = process_power(first["usage"].get(pid), end, elapsed)
         threads = thread_split(power["own_mw"], power["cpu_ns"], first["threads"].get(pid) or {},
                                last["threads"].get(pid) or {}, elapsed)
-        processes.append({"pid": pid, "kind": raw["classify"](cmd), "power": power, "threads": threads})
+        processes.append({"pid": pid, "kind": raw["classify"](cmd, pid), "power": power, "threads": threads})
     outside = sum(process_power(first["usage"].get(pid), last["usage"][pid], elapsed)["mw"]
                   for pid in raw["outside"] if last["usage"].get(pid) is not None)
     foreign = sum(p["power"]["mw"] for p in processes if p["pid"] in raw["foreign"])
