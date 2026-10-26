@@ -146,27 +146,19 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
         BPF_W, SECCOMP_RET_ALLOW, SECCOMP_RET_ERRNO, SECCOMP_RET_KILL_PROCESS,
     };
 
-    let clone_body;
-    let socket_body;
-    let socket_v6;
-    let netlink_domain;
-    let netlink_body;
-    let socketpair_body;
-    let socketpair_after;
-    let socketpair_type;
     let mut asm = Assembler::new();
     // Reserve stable labels first so the code below can refer to them without
     // embedding instruction indexes. Every branch is forward and bounded.
     let allow = asm.label();
     let deny = asm.label();
-    clone_body = asm.label();
-    socket_body = asm.label();
-    socket_v6 = asm.label();
-    netlink_domain = asm.label();
-    netlink_body = asm.label();
-    socketpair_body = asm.label();
-    socketpair_after = asm.label();
-    socketpair_type = asm.label();
+    let clone_body = asm.label();
+    let socket_body = asm.label();
+    let socket_v6 = asm.label();
+    let netlink_domain = asm.label();
+    let netlink_body = asm.label();
+    let socketpair_body = asm.label();
+    let socketpair_after = asm.label();
+    let socketpair_type = asm.label();
 
     asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARCH);
     // A mismatched architecture reaches the kill return; a match skips it.
