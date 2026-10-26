@@ -22,8 +22,9 @@
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
 #   fetch and resolve-commit take the v2 publication, else the v1 publication
 #   of the same commit (`key --version v1`), and the workflow publishes both.
-#   The `cmux-tui artifacts` workflow runs on every push to feat-cmux-next,
-#   feat-cmux-next-acpmux and cmux-tui-pin-* that touches cmux-tui, ghostty or ghostty-next.
+#   The `cmux-tui artifacts` workflow runs on every trusted push to
+#   feat-cmux-next and feat-cmux-next-acpmux that touches cmux-tui, ghostty or
+#   ghostty-next. Untrusted synthetic merge refs are refused.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
 #   it publishes https://files.cmux.com/cmux-tui/tree/<key>/ with
 #   cmux-tui-aarch64-apple-darwin, cmux-tui-aarch64-apple-darwin.sha256 and
@@ -40,11 +41,9 @@
 #   (the cmux recipe's cmux_tui_client phase sets CMUX_TUI_CLIENT_LOCAL)
 #   is used instead when its build commit has the same key: `fetch` then
 #   downloads nothing, and the bundle phase records source=tree-local-build.
-#   To publish the tree of an unmerged branch:
-#     git push origin HEAD:refs/heads/cmux-tui-pin-<short-sha>
-#     gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short-sha>
-#   (dispatch only when the push started no run: a push starts one only when
-#   commits new to the repository change cmux-tui, ghostty or the workflow).
+#   An unmerged or synthetic merge tree is not published by an untrusted pin
+#   branch. Re-run after a trusted feat-cmux-next publication, or bundle a
+#   local build with CMUX_NEXT_TUI_BIN=<path>.
 #   Uncommitted changes under cmux-tui/ (or a ghostty checkout that differs
 #   from the gitlink) are not in the published binary, so `fetch` refuses
 #   them unless CMUX_NEXT_TUI_ALLOW_DIRTY=1. CMUX_NEXT_TUI_BIN=<path> bundles a
@@ -56,8 +55,7 @@
 #   that verified it (verified_run=) and the binary's sha256. No build needs
 #   a pin bump; refresh it only to move the readers listed above:
 #     1. ./scripts/verify-cmux-tui-hosted.sh --filter cmux_next_ on the commit.
-#     2. Publish that commit's binaries: git push origin <sha>:refs/heads/cmux-tui-pin-<short>
-#        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
+#     2. Wait for a trusted feat-cmux-next publication of that commit's binaries.
 #     3. ./scripts/cmux-next/pin-cmux-tui.sh pin --commit <sha> --verified-run <run-id>
 #     4. Commit scripts/cmux-next/cmux-tui.pin; delete the helper branch.
 #     5. GPLv3 source availability: tag the pinned commit (and every commit a
@@ -119,8 +117,8 @@
 #        | fallback-key (fleet suites: when HEAD has the tree of its base,
 #          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
 #          published tree's key, as CI's CMUX_TUI_TREE_BASE_FALLBACK; else exit 1)
-#        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
-#        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
+#        With CMUX_TUI_TREE_DISPATCH=1, a missing tree is reported for trusted
+#        publication or a local build; no helper ref is created.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
 #          ready|deferred|superseded|failed|skipped, tree_key=, tree_fetch_key= and
 #          tree_reason= to GITHUB_OUTPUT)
@@ -282,9 +280,7 @@ require_target_in_tree() {
         echo "error: no Windows daemon published for tree $key ($(tree_asset)). A tree is published before its"
         echo "  Windows daemon: the same cmux-tui artifacts run adds it (publish-tree-windows) once its"
         echo "  Windows build ends, so retry a newly published tree in a few minutes. Otherwise republish"
-        echo "  with a cmux-tui-pin-* push or dispatch:"
-        echo "  git push origin <commit with this tree>:refs/heads/cmux-tui-pin-<short sha>"
-        echo "  gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short sha>"
+        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication. A fleet app build can bundle its own daemon without publishing it."
         echo "  or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
       } >&2
       exit 1
@@ -424,27 +420,15 @@ for run in runs:
 ' <<<"$body")
 }
 
-# ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1, starts at
-# most one cmux-tui artifacts run for <sha> when tree <key> is not published and
-# no active run will publish it. cmux-tui-artifacts.yml publishes every
-# feat-cmux-next push (cx-73f2), but a commit of another branch, or one whose
-# run failed for good, has no publisher otherwise. It points
-# refs/heads/cmux-tui-pin-<sha12> at <sha> (a publishing ref) and dispatches the
-# workflow there; a workflow_dispatch run has concurrency group sha-<sha>,
-# which the per-branch push group never cancels. Never fails the caller: a
-# missing token or an API error prints a warning and the bounded wait goes on.
-# When the API refuses a ref at <sha> (a pull request's merge commit) and
-# [fallback] (the PR head) has tree <key> too, the fallback is pinned instead.
-# Sets tree_publisher_sha to the commit whose runs will publish the key.
+# ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1,
+# report a missing tree for a trusted feat-cmux-next publication. Synthetic
+# merge refs and helper branches are never created by this script.
 ensure_tree_publisher() {
-  local key="$1" sha="$2" fallback="${3:-}" token pin state ref_body current
+  local key="$1" sha="$2" current state
   tree_publisher_sha=""
   tree_publisher_action=none
   [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]] || return 0
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "warning: no commit to publish tree $key; not dispatching" >&2; return 0; }
-  token="$(github_token)" || token=""
-  [[ -n "$token" ]] || { echo "warning: CMUX_TUI_TREE_DISPATCH=1 needs GH_TOKEN or an authenticated gh; not dispatching tree $key" >&2; return 0; }
-  GH_TOKEN="$token"
   state="$(artifacts_runs_state "$sha")"
   if [[ "$state" == active ]]; then
     echo "cmux-tui tree $key: an artifacts run for $sha is active; not dispatching" >&2
@@ -455,39 +439,14 @@ ensure_tree_publisher() {
     echo "cmux-tui tree $key: active artifacts run for $current has the same tree; not dispatching" >&2
     tree_publisher_sha="$current"; tree_publisher_action=active; return 0
   fi
-  if ! pin="$(pin_tree_ref "$sha")"; then
-    if [[ "$fallback" =~ ^[0-9a-f]{40}$ && "$fallback" != "$sha" ]] \
-        && git -C "$repo_root" cat-file -e "$fallback^{commit}" 2>/dev/null \
-        && [[ "$(tree_key "$fallback" 2>/dev/null)" == "$key" ]] && pin="$(pin_tree_ref "$fallback")"; then
-      echo "cmux-tui tree $key: the API refused a ref at $sha; pinned $fallback, which has the same tree" >&2
-      sha="$fallback"
-    else
-      echo "warning: could not point refs/heads/cmux-tui-pin-${sha:0:12} at $sha (push $sha first; the token needs contents: write); not dispatching tree $key" >&2
-      await_outside_publisher "$key" "$sha"
-      return 0
-    fi
-  fi
-  # A ref created with a personal token starts a push run on the pin branch.
-  sleep "${CMUX_TUI_TREE_DISPATCH_SETTLE_SECONDS:-15}"
-  if [[ "$(artifacts_runs_state "$sha")" == active ]]; then
-    echo "cmux-tui tree $key: the $pin push started an artifacts run; not dispatching" >&2
-    tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
-  fi
-  if github_api POST actions/workflows/cmux-tui-artifacts.yml/dispatches "{\"ref\":\"$pin\"}" >/dev/null 2>&1; then
-    echo "cmux-tui tree $key: dispatched cmux-tui-artifacts.yml on $pin for $sha" >&2
-    tree_publisher_sha="$sha"; tree_publisher_action=dispatched
-  else
-    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); waiting for another publisher of tree $key" >&2
-    await_outside_publisher "$key" "$sha"
-  fi
+  echo "warning: tree $key has no active trusted publisher; re-run after feat-cmux-next publishes it or use a local build (CMUX_NEXT_TUI_BIN=<path>)" >&2
+  await_outside_publisher "$key" "$sha"
   return 0
 }
 
-# await_outside_publisher <key> <sha>: a pull request's token may write nothing
-# (403), and main's cmux-next-pr-merge-tree.yml (pull_request_target, started by
-# the same push) then pins the merge commit and dispatches its publish. Waits up
-# to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS (default 90; path routing has 5 minutes) for an artifacts run for
-# <sha>, or one with the same tree, and sets tree_publisher_sha to defer to it.
+# await_outside_publisher <key> <sha>: waits briefly for a trusted publication
+# already in flight. No PR context creates a helper ref or dispatches a
+# credentialed artifacts workflow.
 await_outside_publisher() {
   local key="$1" sha="$2" current
   local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started
@@ -502,7 +461,7 @@ await_outside_publisher() {
   esac
   [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
   [[ "${GITHUB_EVENT_NAME:-}" != pull_request ]] \
-    || echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+    || echo "cmux-tui tree $key: waiting up to ${wait}s for an active trusted publisher" >&2
   # `date +%s`, not $SECONDS: the tests run this wait on a virtual clock (tests/lib/fake-clock.sh).
   started="$(date +%s)"
   while :; do
@@ -521,17 +480,6 @@ await_outside_publisher() {
   echo "warning: no artifacts run for tree $key started within ${wait}s; tree $key has no publisher" >&2
 }
 
-# pin_tree_ref <sha>: points refs/heads/cmux-tui-pin-<sha12> at <sha> and prints
-# the branch name; a ref that exists already must point at <sha> (422).
-pin_tree_ref() {
-  local sha="$1" pin="cmux-tui-pin-${1:0:12}" ref_body
-  if ! github_api POST git/refs "{\"ref\":\"refs/heads/$pin\",\"sha\":\"$sha\"}" >/dev/null 2>&1; then
-    ref_body="$(github_api GET "git/ref/heads/$pin" 2>/dev/null)" || ref_body=""
-    [[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' <<<"$ref_body" 2>/dev/null)" == "$sha" ]] || return 1
-  fi
-  echo "$pin"
-}
-
 # Exits 1 with the reason when no cmux-tui artifacts run will publish tree <key>.
 fail_unpublishable_tree() {
   local key="$1" sha="$2" state="$3" elapsed="$4"
@@ -547,8 +495,8 @@ fail_unpublishable_tree() {
         echo "  The runs for $sha ended without publishing it: ${state#ended }." ;;
     esac
     echo "  A superseded commit needs no tree; the newest push publishes its own."
-    echo "  To publish this commit's tree anyway: gh workflow run cmux-tui-artifacts.yml --ref <its branch>,"
-    echo "  or for an unmerged commit push it to cmux-tui-pin-${sha:0:12} (see pin-cmux-tui.sh --help)."
+    echo "  For a missing PR tree, land the reviewed change, then re-run after a trusted feat-cmux-next publication."
+    echo "  Or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
   exit 1
 }
@@ -687,12 +635,12 @@ wait_for_tree() {
       {
         echo "error: cmux-tui for this checkout's tree $key is not published after $((elapsed / 60)) min ($sha_url)."
         echo "  The cmux-tui artifacts workflow publishes a tree after its build and cmux_next_ daemon tests pass"
-        echo "  on a pushed commit of feat-cmux-next, feat-cmux-next-acpmux or cmux-tui-pin-*."
+        echo "  on a trusted pushed commit of feat-cmux-next or feat-cmux-next-acpmux."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
-        echo "  For an unmerged branch: git push origin HEAD:refs/heads/cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD),"
-        echo "  then gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD) only if the push started no run"
-        echo "  (a pull request checks its merge with the base: merge the base into the branch first)."
-        echo "  When the last run for this tree failed, rerun it: gh workflow run cmux-tui-artifacts.yml --ref <that branch>."
+        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
+        echo "  A fleet app build can bundle its own daemon without publishing the PR tree."
+        echo "  A pull request checks its merge with the base; do not publish a synthetic merge commit from the PR context."
+        echo "  When the last trusted run for this tree failed, rerun it from feat-cmux-next."
         echo "  Or bundle a local build: CMUX_NEXT_TUI_BIN=<path>. No older binary is used instead."
       } >&2
       exit 1
@@ -739,8 +687,8 @@ refuse_unpushed_source() {
   on_origin_branch "$last" && return 0
   {
     echo "error: commit $last, the last change to cmux-tui or ghostty-next here, is on no remote branch,"
-    echo "  so no workflow will publish its cmux-tui. Push it (to feat-cmux-next, feat-cmux-next-acpmux or"
-    echo "  cmux-tui-pin-<short-sha>), or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
+    echo "  so no workflow will publish its cmux-tui. Land the reviewed change for trusted publication,"
+    echo "  or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
   exit 1
 }
@@ -1049,16 +997,13 @@ tree_published() {
 # push's runs. One with its own merge tree has no publisher (GitHub runs
 # pull_request_target only from the default branch). Without
 # CMUX_TUI_TREE_DISPATCH (cmux-next path routing, which is read-only) the probe
-# waits up to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS for the artifacts run that
-# main's cmux-next-pr-merge-tree.yml starts for the merge commit, and defers to
-# it (await_outside_publisher). A scheduled DEV run (workflow_dispatch with no
+# waits up to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS for a trusted publication.
+# A scheduled DEV run (workflow_dispatch with no
 # publisher SHA) looks once, read-only, for its push's run or a same-tree run
 # and defers to it the same way. With
-# CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs) the probe starts one
-# cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit, or
-# at the PR head (CMUX_TUI_TREE_HEAD_SHA) when the API refuses the merge commit
-# and the head has the same tree, and defers to it (ensure_tree_publisher).
-# A later look finds that run active and dispatches nothing. A missing or
+# CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs) only waits for a trusted
+# publisher; it never creates a helper ref or dispatches a credentialed run.
+# A missing or
 # unreadable run list is re-checked once
 # after CMUX_TUI_TREE_RECHECK_SECONDS (default 20): a push's runs can appear a
 # moment after the push. Exit 0 for every state.
@@ -1071,13 +1016,12 @@ probe_checkout_tree() {
   [[ "$legacy" == "$key" ]] && legacy=""
   [[ "$recheck" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_RECHECK_SECONDS must be whole seconds" >&2; exit 2; }
   refuse_dirty_source
-  # The exact commands that publish this checkout's tree: push its commit (for
-  # a pull request, the merge commit GitHub checked out, fetchable by SHA) to a
-  # cmux-tui-pin-* branch, whose cmux-tui artifacts run publishes it.
+  # A pull request's synthetic merge tree is not published by an untrusted
+  # pin branch; trusted feat-cmux-next publication is the safe path.
   pin_push_hint() {
     local sha
     sha="$(git -C "$repo_root" rev-parse HEAD)"
-    printf 'Publish it with: git fetch origin %s && git push origin %s:refs/heads/cmux-tui-pin-%s (pin-cmux-tui.sh --help); the publish then starts the tree jobs' "$sha" "$sha" "${sha:0:12}"
+    printf 'This tree has no artifact yet; re-run after feat-cmux-next publishes it (or use a local build with CMUX_NEXT_TUI_BIN=<path>)'
   }
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
@@ -1103,10 +1047,8 @@ probe_checkout_tree() {
     if [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]]; then
       ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
     else
-      # Read-only (cmux-next path routing since e93faa5f1fb0): starts nothing,
-      # but defers to the run main's cmux-next-pr-merge-tree.yml starts on
-      # cmux-tui-pin-<sha12> for this merge commit, or one with the same tree.
-      # A scheduled DEV run (workflow_dispatch, no publisher SHA) defers the
+      # Read-only path routing starts nothing and waits for a trusted
+      # publication. A scheduled DEV run (workflow_dispatch, no publisher SHA) defers the
       # same way to its push's artifacts run, or to the same-key run that push
       # run handed the build to (one look; dev-daily-tree-wait then waits).
       await_outside_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)"

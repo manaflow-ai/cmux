@@ -262,6 +262,22 @@ pub trait AgentPort: Send + Sync {
     fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
         self.start_steer(session, blocks, prompt_id)?()
     }
+    /// `start_steer` read now (`_meta.acpmux.steerNow`): acpmux stops the agent's current step
+    /// so it reads the message at once, as the pane's Send now does; the turn runs on. A running
+    /// subagent or background shell is never stopped for it. The Chief's tell (Lawrence,
+    /// 2026-10-26: "interrupt by default"). An acpmux without it takes a plain steer.
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.start_steer(session, blocks, prompt_id)
+    }
+    /// `start_steer_now`, then its wait.
+    fn steer_now(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer_now(session, blocks, prompt_id)?()
+    }
     /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
     /// app's pane never asks about a folder the host made itself.
     fn trust_folder(&self, _cwd: &std::path::Path) -> Result<(), String> {
@@ -511,6 +527,34 @@ impl Acpmux {
             .clone()
             .filter(|c| !c.is_closed())
             .ok_or_else(|| "acpmux is not connected".to_owned())
+    }
+
+    /// A steer into `session`'s running turn (`steerOnly`: refused, never queued, when it
+    /// cannot steer now); `now` asks acpmux to stop the agent's step for it (`steerNow`).
+    fn send_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<SteerWait, String> {
+        let mut mux = json!({"promptId": prompt_id, "steer": true, "steerOnly": true});
+        if now {
+            mux["steerNow"] = json!(true);
+        }
+        // Written now, on the caller's thread: steers keep their order.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": mux}}),
+        );
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }))
     }
 
     /// Runs the connection loop on its own thread: start the daemon if needed,
@@ -1138,19 +1182,16 @@ impl AgentPort for Acpmux {
         blocks: Vec<Value>,
         prompt_id: &str,
     ) -> Result<SteerWait, String> {
-        // Written now, on the caller's thread: steers keep their order.
-        let answer = self.client()?.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
-        );
-        // No timeout: acpmux answers when the harness took the message,
-        // however long the running tool (or the codex turn) takes.
-        Ok(Box::new(move || match answer.recv() {
-            // Claude Code: `steered` at its echo; codex-acp: its own answer.
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(format!("steer: {e}")),
-            Err(_) => Err("steer: the acpmux connection closed".into()),
-        }))
+        self.send_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        self.send_steer(session, blocks, prompt_id, true)
     }
 
     fn prewarm(

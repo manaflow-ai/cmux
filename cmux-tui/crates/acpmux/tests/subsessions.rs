@@ -123,6 +123,9 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
+    // A registry that lists no machine: this host is uncapped. A set
+    // FLEET_REGISTRY that is missing would log a warning on every create (`hub/admission.rs`).
+    std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let hub = hub();
     let mut app = Client::new(&hub);
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
@@ -221,7 +224,7 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a})).await;
     assert_eq!(e["data"]["reason"], "retry.nothing_failed", "{e}");
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a, "subagentId": "x"})).await;
-    assert_eq!(e["data"]["reason"], "retry.subagent_unsupported", "{e}");
+    assert_eq!(e["data"]["reason"], "retry.unknown_subagent", "{e}");
     // Nor its own parent: a session retries only its own sub-sessions.
     let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": parent})).await;
     assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
@@ -288,11 +291,6 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         message.contains(&format!("{here}: no builds here (lanes.build is false)")),
         "{message}"
     );
-    // No lane left under its max_lanes (or over its budget, on a busy test machine).
-    registry(0);
-    let e = pq.refused(START, json!({"prompt": "echo full", "host": "auto"})).await;
-    assert_eq!(e["data"]["reason"], "subsessions.no_room", "{e}");
-    assert!(e["message"].as_str().unwrap().contains(&format!("{here}: ")), "{e}");
     // Another machine: a family lives on one daemon.
     let e = pq.refused(START, json!({"prompt": "echo far", "host": "elsewhere"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.host_unsupported", "{e}");
@@ -302,16 +300,15 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         0,
         "a refused start made a child: {list}"
     );
-    // With room it starts here and says why (a busy test machine may refuse it).
+    // No lane left under its max_lanes: it starts here all the same and says it is past
+    // its room (load and lane caps only warn). With room, the line ends "room for N"
+    // (`server/place.rs` and `placement.rs` tests).
+    registry(0);
+    let placed = pq.ok(START, json!({"prompt": "echo full", "host": "auto"})).await;
+    let placed = placed["placed"].as_str().unwrap_or_default().to_owned();
+    assert!(placed.starts_with(&format!("placed on {here}: ")), "{placed}");
+    assert!(placed.contains("only warn"), "{placed}");
     registry(1000);
-    let r = pq.call(START, json!({"prompt": "echo placed", "host": "auto"})).await;
-    if r.get("error").is_some() {
-        assert_eq!(r["error"]["data"]["reason"], "subsessions.no_room", "{r}");
-    } else {
-        let placed = r["result"]["placed"].as_str().unwrap_or_default();
-        assert!(placed.starts_with(&format!("placed on {here}: ")), "{r}");
-        assert!(placed.contains("room for"), "{r}");
-    }
     // This machine's own name is no placement.
     let own = pq.ok(START, json!({"prompt": "echo own", "host": here.clone()})).await;
     assert!(own.get("placed").is_none(), "{own}");
