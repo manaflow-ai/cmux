@@ -1,7 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextBrowser
 public import CmuxNextOracle
-import CryptoKit
 import Foundation
 
 /// The oracle's `tabs` facet values (p15-oracle-037) read through the engine-neutral ``BrowserTab`` protocol:
@@ -35,14 +34,14 @@ extension OracleTabsFacet.Tab {
         guard let page else {
             tab.engine = record.engine
             tab.url = record.url
-            tab.titleHash = record.title.map { Self.hash($0) }
+            tab.titleHash = record.title.map { OracleValue.sha256($0) }
             tab.zoom = record.zoom ?? 1
             return tab
         }
         let state = page.state
         tab.engine = page.engineKind.rawValue
         tab.url = state.url?.absoluteString ?? record.url
-        tab.titleHash = (state.title ?? record.title).map { Self.hash($0) }
+        tab.titleHash = (state.title ?? record.title).map { OracleValue.sha256($0) }
         tab.zoom = state.zoom
         tab.muted = state.isAudioMuted
         // No page now: `unloaded`, as Chrome gives a discarded tab TabNetworkState::kNone
@@ -67,13 +66,8 @@ extension OracleTabsFacet.Tab {
     /// One of cmux's own pages (`page` is its `InternalPageID`), titled as its strip names it.
     public static func page(id: String, page: String, title: String?) -> OracleTabsFacet.Tab {
         var tab = OracleTabsFacet.Tab(id: id, kind: .page, page: page)
-        tab.titleHash = title.map { Self.hash($0) }
+        tab.titleHash = title.map { OracleValue.sha256($0) }
         return tab
-    }
-
-    /// `sha256:<hex>` of `text`'s UTF-8 bytes (the schema's `derive: sha256`): private text never goes in.
-    public static func hash(_ text: String) -> String {
-        "sha256:" + SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

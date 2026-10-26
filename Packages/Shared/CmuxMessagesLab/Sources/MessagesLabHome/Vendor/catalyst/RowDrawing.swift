@@ -1029,6 +1029,22 @@ final class RowBitmaps {
     }
     var count: Int { cache.count }
 
+    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the bitmaps of `specs` at `scale`
+    /// go, in every colour space, except those `kept` rows draw too (rows another live view lays out). Freed off main.
+    func evict(_ specs: [RowSpec], keeping kept: [RowSpec], scale: CGFloat) {
+        let keep = Set(kept.map { RowBitmaps.key($0, scale: scale).spec })
+        let gone = Set(specs.map { RowBitmaps.key($0, scale: scale).spec }).subtracting(keep)
+        guard !gone.isEmpty else { return }
+        var imgs: [CGImage] = []
+        order.removeAll { k in
+            guard k.scale == scale, gone.contains(k.spec) else { return false }
+            if let img = cache.removeValue(forKey: k) { imgs.append(img) }
+            return true
+        }
+        bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+        Reclaimer.release(imgs)
+    }
+
     /// Palette change: every cached bitmap is stale (freed off main).
     func removeAll() {
         Reclaimer.release(Array(cache.values))

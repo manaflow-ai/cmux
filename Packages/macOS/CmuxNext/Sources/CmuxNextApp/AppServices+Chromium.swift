@@ -57,14 +57,16 @@ extension AppServices {
 extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
-        ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                           make: { [signInCallbacks, contextMenus, inputTap] stores, deadlines, source in
-                               CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
-                                         contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap)
-                           },
-                           engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
-                                                                           routes: { [weak self] in self?.routeChromiumRequests($0) }),
-                           stop: { await $0.shutdown() })
+        let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
+        return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys] stores, deadlines, source in
+                                      CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
+                                                contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
+                                                pumpInput: pumpInput)
+                                  },
+                                  engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
+                                                                                  routes: { [weak self] in self?.routeChromiumRequests($0) }),
+                                  stop: { await $0.shutdown() })
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine

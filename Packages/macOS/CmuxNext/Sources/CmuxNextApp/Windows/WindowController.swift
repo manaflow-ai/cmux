@@ -36,6 +36,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// What each workspace this window unmounted showed (`releaseParked`), until it mounts again.
+    var unmountedViews: [String: WorkspaceViewRecord] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -111,6 +113,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
+        focus.crashKeys = services.crashKeys
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -199,6 +202,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             discardParkedWorkspace(id)
         }
+        if unmountedViews.keys.contains(where: { !listed.contains($0) }) { unmountedViews = unmountedViews.filter { listed.contains($0.key) } }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
@@ -246,12 +250,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let current = content { park(current) }
         DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = unpark(workspace.id)
+        let unmounted = unmountedViews.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
             controller.unpark()
         } else {
+            let record = kept?.viewRecord() ?? unmounted
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, restoring: record)
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new

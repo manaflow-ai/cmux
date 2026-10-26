@@ -958,6 +958,11 @@ Params:
 | --- | --- | --- | --- |
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
+| `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+
+Step 2 sends `install_id` and `proof` (both required strings). Other members
+are ignored. spec/sdk-schema.json types both steps as one command whose
+members are optional; the step rules above say which are required.
 
 Result: `object{connection_id:string, user_origin_allowed:bool, nonce?:string}`.
 `connection_id` is the daemon's id for this connection (the
@@ -9315,6 +9320,12 @@ or restrict ports: `server.loopback_forward` in cmux-tui.json is `true`,
 `false`, or `{"enabled":bool,"allow_ports":[3000,"5000-5999"],"deny_ports":[..]}`
 (deny wins; an invalid value turns forwarding off). These commands bypass the
 ordered surface queue so forwarded bytes never use its budget.
+spec/sdk-schema.json types the commands and the `loopback-*` events (family
+`loopback`). Data and half close of a stream share bulk, so the half close
+follows the bytes; open and close (an abort that frees the stream's slot) are
+control. The data and EOF events share bulk. `loopback-closed` is control: with
+an error it aborts the stream and may arrive before data the daemon had queued,
+while a clean close follows the stream's last data and EOF.
 
 ### loopback-open
 
@@ -9701,6 +9712,8 @@ gets `machine_catalog.taken`. Disconnect removes the entire publication under
 the client-registry lock. Unverified, agent-bound, WebSocket and remote relay
 clients cannot publish (`machine_catalog.not_trusted`); a wrong daemon is
 `machine_catalog.owner_mismatch` and malformed data is `machine_catalog.bad_request`.
+spec/sdk-schema.json types the request (`MachineCatalogEntry` records) and the
+`{sequence, replayed}` result.
 
 The native local record always remains first and authoritative. Remote metadata
 is read-only: it never opens a connection, creates a session, supplies routing
@@ -9982,6 +9995,10 @@ at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
 report an acpmux that did not answer or refused.
 
+spec/sdk-schema.json types the params and results of both commands
+(`AgentUpdateHarness`, `AgentUpdateOutcome`); `expected_machine_id` may be
+absent but never null.
+
 ## Agent chat transfer
 
 `agent-transfer-v1` lets a trusted local (Unix) client move an agent chat
@@ -10010,7 +10027,8 @@ receives and 16 moves remembered for 24 h), `agent_transfer.timeout`,
 machine kind rule of `agent-session-start`, below), and
 `agent_transfer.refused` (acpmux refused; the error text carries acpmux's
 message, such as `transfer.exists` or `transfer.incomplete`). Pages carry at
-most 4 MiB of data (base64).
+most 4 MiB of data (base64). spec/sdk-schema.json types the params and
+results of all nine commands.
 
 ### agent-transfer-receive
 
@@ -10169,7 +10187,10 @@ both sides is `cmux link access` (`request` on the machine, `triage` and
 Who: trusted local (Unix) connections that are not remote clients. Others
 get `access_request.not_trusted`; the remote relay (`cmux link`) answers
 `remote_denied`. A command-bearing or unknown param is
-`access_request.bad_request`. 64 requests are kept, pending or answered;
+`access_request.bad_request`, and so is any frame that does not decode (a
+missing param, a non-string value): the frame is checked before its
+`request_id` is looked up, so only a well-formed frame gets
+`access_request.unknown_request`. 64 requests are kept, pending or answered;
 each is forgotten 15 minutes after it was made or answered
 (`access_request.limit` when full; the machine's own agents can fill it, which only stalls that machine's requests). Other codes:
 `access_request.unknown_request` and `access_request.answered`.
@@ -10200,6 +10221,9 @@ Mac shares one only for one request the person answered
 byte, no newline removed). An agent's `request --secret` that stops waiting
 withdraws its request (denies it), so a later answer is
 `access_request.answered`.
+
+spec/sdk-schema.json types the four commands; a status answer is the
+`AccessRequestStatus` union tagged by `state`.
 
 ## File system (fs-v1)
 
@@ -10263,6 +10287,10 @@ answers `{"ready":true}` after the path, mode and free space are checked,
 then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
+
+spec/sdk-schema.json types the seven line ops (`FsEntry`, `FsPage`,
+`FsStatResult`, and `FsReadResult` tagged by `encoding`); the byte streams
+are not in it.
 
 ## Guest browser opening
 

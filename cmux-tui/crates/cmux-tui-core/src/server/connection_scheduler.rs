@@ -1,9 +1,14 @@
 //! The per-connection surface scheduler: pending surface requests, the
 //! connection's cancellation token, clear-history barriers, and the
 //! dispatcher thread that runs queued surface operations in order.
+//!
+//! Request threads (this dispatcher, its clear-history workers, the WebSocket
+//! connection thread) start through [`spawn_request_thread`]: UserInitiated,
+//! blocking disallowed (p02-threads task 211).
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -24,6 +29,7 @@ use crate::event_cause::EventCause;
 use crate::event_cause::EventCauseScope;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
+use cmux_threads::ThreadQos;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -34,6 +40,29 @@ use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
+
+/// The QoS of the threads that run a connection's requests and write its
+/// replies and events: the person waits on them (Chromium's kDefault,
+/// base/threading/platform_thread_apple.mm). Task 224 moves automation
+/// connections to Utility once they name their client.
+pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadQos::UserInitiated;
+
+/// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
+/// disallowed for its life, as Chrome's `DisallowBlocking` on its UI and IO
+/// threads (base/threading/thread_restrictions.h). A checked blocking call
+/// under it is a `server.blocking` site (recorded by default; panics under
+/// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
+/// `cmux_threads::work`.
+pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+        cmux_threads::disallow_blocking();
+        f()
+    })
+}
 
 pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
@@ -232,9 +261,9 @@ impl ConnectionSurfaceScheduler {
         writer: MessageWriter,
     ) -> std::io::Result<()> {
         let scheduler = self.clone();
-        let handle = std::thread::Builder::new()
-            .name("mux-control-dispatch".into())
-            .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
+        let handle = spawn_request_thread("mux-control-dispatch", move || {
+            run_connection_surface_dispatcher(scheduler, mux, client, writer);
+        })?;
         *self.dispatcher.lock().recover_poison() = Some(handle);
         Ok(())
     }
@@ -352,7 +381,7 @@ impl ConnectionSurfaceScheduler {
             && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
-            let _ = dispatcher.join();
+            let _ = waits::join(dispatcher);
         }
         drained
     }
@@ -446,27 +475,26 @@ fn run_connection_surface_dispatcher(
             let worker_scheduler = scheduler.clone();
             let worker_mux = mux.clone();
             let worker_writer = writer.clone();
-            let spawn =
-                std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
-                    let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
-                    // Drop the mux-wide permit before `_active` wakes the next
-                    // request queued behind this surface barrier.
-                    let _worker_permit = worker_permit;
-                    // The request is handed over exactly once: here, or to
-                    // the spawn-failure path below.
-                    let Some(pending) = worker_pending.lock().recover_poison().take() else {
-                        return;
-                    };
-                    if !run_pending_request(
-                        &worker_scheduler,
-                        &worker_mux,
-                        client,
-                        pending,
-                        &worker_writer,
-                    ) {
-                        worker_scheduler.close();
-                    }
-                });
+            let spawn = spawn_request_thread("mux-surface-control", move || {
+                let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
+                // Drop the mux-wide permit before `_active` wakes the next
+                // request queued behind this surface barrier.
+                let _worker_permit = worker_permit;
+                // The request is handed over exactly once: here, or to
+                // the spawn-failure path below.
+                let Some(pending) = worker_pending.lock().recover_poison().take() else {
+                    return;
+                };
+                if !run_pending_request(
+                    &worker_scheduler,
+                    &worker_mux,
+                    client,
+                    pending,
+                    &worker_writer,
+                ) {
+                    worker_scheduler.close();
+                }
+            });
             if let Err(error) = spawn {
                 let Some(pending) = shared_pending.lock().recover_poison().take() else {
                     scheduler.finish_clear(surface);
@@ -497,3 +525,7 @@ fn run_connection_surface_dispatcher(
     }
     scheduler.close();
 }
+
+#[cfg(test)]
+#[path = "request_threads_tests.rs"]
+mod request_threads_tests;

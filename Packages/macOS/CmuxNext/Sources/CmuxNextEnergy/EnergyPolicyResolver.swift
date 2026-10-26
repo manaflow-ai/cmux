@@ -29,6 +29,7 @@ public nonisolated struct EnergyPolicyResolver: Sendable, Equatable {
     /// "Turn Off for Now" holds: the saver stays off until the battery -> AC edge or a setting change.
     public private(set) var isOffForSession = false
     private var lastSetting: EnergySaverMode?
+    /// The Mac's own power source at the last update (``EnergyInputs/macOnBattery``).
     private var lastOnBattery = false
 
     /// A resolver that has seen no inputs yet, with "Turn Off for Now" not held.
@@ -56,14 +57,15 @@ public nonisolated struct EnergyPolicyResolver: Sendable, Equatable {
 
     /// Takes the setting and inputs now and returns ``reason(setting:inputs:)`` for them. The
     /// battery -> AC edge and any change of the setting end "Turn Off for Now", as
-    /// `battery_saver_mode_manager.cc` does.
+    /// `battery_saver_mode_manager.cc` does. The edge is the Mac's own (``EnergyInputs/macOnBattery``):
+    /// a `debug.energy.simulate` power source never ends it.
     public mutating func update(setting: EnergySaverMode, inputs: EnergyInputs) -> EnergyPolicy.Reason? {
         let settingChanged = lastSetting.map { $0 != setting } ?? false
-        if settingChanged || (lastOnBattery && !inputs.onBattery) {
+        if settingChanged || (lastOnBattery && !inputs.macOnBattery) {
             isOffForSession = false
         }
         lastSetting = setting
-        lastOnBattery = inputs.onBattery
+        lastOnBattery = inputs.macOnBattery
         return reason(setting: setting, inputs: inputs)
     }
 

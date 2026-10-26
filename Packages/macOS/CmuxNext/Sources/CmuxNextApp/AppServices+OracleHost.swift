@@ -1,7 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -35,6 +38,7 @@ extension AppServices: OracleHost {
                     OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
                 }
             },
+            OracleIntentsFacet(store: daemon.store, turns: oracleTurns),
             OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
             // The settings the controller applied (no file read) and the motion arm as the gates compute it from
             // the design settings the controller applied them to.
@@ -49,12 +53,28 @@ extension AppServices: OracleHost {
             OracleOverlaysFacet(hash: Self.oracleSHA256, changes: { [overlayChanges] in overlayChanges.subscribe() }) { [weak self] in
                 self?.oracleOverlays()
             },
+            // The windows front to back, key and main, and each window's state and frame as screen fractions.
+            windows.oracleWindowsFacet(events: appEvents),
+            // What Recently Closed lists, from the daemons' mirrored closed history. Each title is hashed after the
+            // request's `paths` (the case root and home, as normalize.py gets them) are rewritten.
+            OracleHistoryFacet { [weak self] () throws(OracleFacetError) -> [ClosedItem] in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                let closed = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: self)
+                return TabSearchFactsBuilder.listed(closed) { ($0.item, $0.daemon.machineID) }.map(\.item)
+            },
+            // The Dock badge and each workspace's unread count, from this Mac's daemon store, and its Needs you:
+            // the agent chats in it whose acpmux lane waits on the person, as the sidebar row and Priority view read it.
+            OracleNotificationsFacet { [weak self] () throws(OracleFacetError) -> OracleNotificationsFacet.Reading? in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try OracleNotificationsFacet.Reading(store: daemon.store, homeUnread: home.unreadConversations.map(\.rawValue)) {
+                    AgentLaneStore.shared.needsYou(in: $0, turns: .shared)
+                }
+            },
         ])
     }
 
-    /// Every `debug.oracle.*` method over the app's one facet list, the router's topology (`snapshots`) and
-    /// the app's one turn recorder, ``oracleTurns``, the registry's perform-turn observer. `AppControl`
-    /// registers these.
+    /// Every `debug.oracle.*` method over the app's one facet list, the router's topology (`snapshots`) and the
+    /// app's one turn recorder, ``oracleTurns`` (the registry's perform-turn observer); `AppControl` registers them.
     @MainActor
     func oracleControlMethods(snapshots: ControlSnapshotStore) -> [ControlMethod] {
         OracleControl.methods(host: self, snapshots: snapshots, turns: oracleTurns)

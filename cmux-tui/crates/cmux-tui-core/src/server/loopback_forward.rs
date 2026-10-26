@@ -708,7 +708,7 @@ struct LoopbackRequest {
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
-enum LoopbackCommand {
+pub(super) enum LoopbackCommand {
     #[serde(rename = "loopback-open")]
     Open {
         stream: u64,

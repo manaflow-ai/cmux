@@ -439,7 +439,7 @@ Each hit or row is one task item; the orchestrator chunks at 25 hits by call-gra
 - **MQ-11 runtime probe (test phase).** blocking-probe.sh bench STRESS; each first-cmux-frame with total wait >= 1 ms is one task; app_chromium rows go to the CEF program.
 - **MQ-12 Rust thread spawns.** Fleet: `cd cmux-tui && cargo clippy -p <crate> -- -W clippy::disallowed_methods 2>&1 | rg 'disallowed method'`. Diff reviewer: `rg -n -g '*.rs' -g '!*tests*.rs' -g '!**/tests/**' -e 'thread::Builder::new\(\)|thread::spawn\(|thread::scope\(' cmux-tui/crates/<crate>`. Tasks 210-218, 229.
 - **MQ-13 runtime daemon (test phase).** Daemon Debug record mode running the test suites plus perf-10x-lifecycle; `server.blocking` JSON; each (location, kind, thread) is one task.
-- **MQ-14 static daemon request-path primitives.** `rg -n -g '*.rs' -g '!*tests*' -e 'std::fs::|fs::(write|read|read_to_string|create_dir_all|remove_file|rename|metadata|read_dir)\(|File::(open|create)\(|OpenOptions::new|sync_all|sync_data|Command::new\(|thread::sleep|\.recv\(\)|\.recv_timeout\(|\.join\(\)|rusqlite|\.flock|flock\(|\.block_on\(' <paths>`. Paths: server/, mux/ (tasks 220-221) and workspace_registry/, state/, terminal_host_runtime/, git_ops/, apps/, journal_*, chief_*, conversation_*, output_store/, resource_router/, fs_ops/, holder_runtime/ (task 231).
+- **MQ-14 static daemon request-path primitives.** `rg -n -B1 --no-heading -g '*.rs' -g '!*tests*' -e 'std::fs::|fs::(write|read|read_to_string|create_dir_all|remove_file|rename|metadata|read_dir)\(|File::(open|create)\(|OpenOptions::new|\.sync_all\(|\.sync_data\(|Command::new\(|thread::sleep|\.recv\(\)|\.recv_timeout\(|\.join\(\)|rusqlite|\.flock|flock\(|\.block_on\(' <paths> | awk '/mq14-allow: /{allow=1; next} /^[^:]+:[0-9]+:/{if(!allow)print} {allow=0}'`. `sync_*` matches std's method form only: the checked form `files::sync_all(&file)` (cmux_threads::checked::fs) does not. A hit on a thread that is not a request path (a writer, watcher or start thread waiting for its own queue or spawning its own child) carries `// mq14-allow: <the thread and why>` on the line directly above, as the repo's other `<rule>-allow:` escapes; review checks the reason. Paths: server/, mux/ (tasks 220-221) and workspace_registry/, state/, terminal_host_runtime/, git_ops/, apps/, journal_*, chief_*, conversation_*, output_store/, resource_router/, fs_ops/, holder_runtime/ (task 231).
 - **MQ-15 runtime QoS audit.** debug.threads / server.threads rows with declared=false or mismatch. Task 302.
 - **MQ-16 raw-blocking-ext.** `--rule raw-blocking-ext --group module --max-hits 25` (task 126; about 700). Tasks 141-144.
 - **MQ-17 linked Shared/iOS packages.** `--rule raw-blocking --rule raw-blocking-ext --rule pool-blocking --rule task-priority --paths <linked package list> --group module`. Task 146.
@@ -1337,6 +1337,24 @@ terminal-host-client-input, surface-{id}-reader, surface frames and host_frames 
 cmux_threads::spawn(UserInteractive) + disallow_blocking(); their own descriptor I/O through own_fd_read /
 own_fd_write. Acceptance: server.threads rows user-interactive; record-mode suite lists other sites (MQ-13);
 no other behavior change; crate deny attributes added when the crate queue is empty. Test: T1r; T3
+bench-typing.
+As landed: terminal-host-client (the host's output writer) is also an echo thread; its handshake may
+block, its output loop writes through own_fd_write with blocking disallowed. mux-conn and
+mux-remote-conn are registered at Default with blocking disallowed, not raised: they run request
+handlers inline that spawn children (223 not landed) and serve automation clients (224 raises the UI
+connection). Own-descriptor I/O covers the terminal-host sockets only (client-input, client output,
+host_frames).
+
+**210b Echo-thread PTY and control-socket I/O through the own-descriptor path.** Files:
+R/cmux-tui-platform/src/platform/transport.rs (an `as_fd` on `Stream`),
+R/cmux-tui-core/src/server/{line_connection, bounded_outbound}.rs, R/cmux-tui/src/pty_input.rs,
+R/cmux-tui-core/src/terminal_host_runtime/shared/{host_start, host_serve}.rs, R/cmux-tui-core/src/surface/spawn.rs.
+Change: each echo thread registers the descriptor it owns before disallow_blocking and does its reads or
+writes through own_fd_read / own_fd_write_all: mux-conn's socket read_line, mux-line-out's socket writes,
+terminal-host-pty's and surface-{id}-reader's PTY reads (and their readiness polls), mux-pty-input's PTY
+writes. A shared, locked PTY writer (client-input's `command_host.writer`) is not an own descriptor: it
+moves to the owning thread or stays a recorded site. Acceptance: with fd reads and writes checked, the
+record-mode suite shows no site on an echo thread's own descriptor. Depends 210. Test: T1r; T3
 bench-typing.
 
 **211 Request dispatch threads.** As in the design (dispatch, ws and events writers UserInitiated, accept

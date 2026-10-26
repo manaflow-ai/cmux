@@ -6,6 +6,8 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::ipc_reply;
+use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -547,7 +549,7 @@ pub(super) fn routed_trust(
     client: u64,
     operation: &str,
     params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
+) -> Result<agent_session_trust::RoutedJob, crate::resource::ResourceError> {
     agent_session_trust::routed(mux, client, operation, params)
 }
 
@@ -942,7 +944,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(Refusal::of(error));
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = ipc_reply(|| waits::recv_timeout(&receiver, CALL_TIMEOUT));
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

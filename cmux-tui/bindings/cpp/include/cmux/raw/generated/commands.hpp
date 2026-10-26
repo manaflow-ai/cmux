@@ -41,6 +41,10 @@ public:
     void close() noexcept { core_.close(); }
     [[nodiscard]] bool closed() const noexcept { return core_.closed(); }
 
+    [[nodiscard]] Result<AccessRequestResult> access_request(const AccessRequestRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AccessRequestAnswerResult> access_request_answer(const AccessRequestAnswerRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AccessRequestListResult> access_request_list(const AccessRequestListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<AccessRequestStatus> access_request_status(const AccessRequestStatusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
@@ -61,6 +65,17 @@ public:
     [[nodiscard]] Result<AgentSessionPromptResult> agent_session_prompt(const AgentSessionPromptRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentSessionStartResult> agent_session_start(const AgentSessionStartRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentSessionAcpmuxReply> agent_session_trust(const AgentSessionTrustRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferAbortResult> agent_transfer_abort(const AgentTransferAbortRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferBeginResult> agent_transfer_begin(const AgentTransferBeginRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferCommitResult> agent_transfer_commit(const AgentTransferCommitRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferFinishResult> agent_transfer_finish(const AgentTransferFinishRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferReadResult> agent_transfer_read(const AgentTransferReadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferReceiveResult> agent_transfer_receive(const AgentTransferReceiveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferReceiveAbortResult> agent_transfer_receive_abort(const AgentTransferReceiveAbortRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferSourceResult> agent_transfer_source(const AgentTransferSourceRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentTransferWriteResult> agent_transfer_write(const AgentTransferWriteRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentUpdateApplyResult> agent_update_apply(const AgentUpdateApplyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentUpdatePlanResult> agent_update_plan(const AgentUpdatePlanRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> apps_agent_inventory_changed(const AppsAgentInventoryChangedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> apps_dispatch(const AppsDispatchRequest& request, RequestOptions options = {});
@@ -89,6 +104,9 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_mouse_guarded(const BrowserMouseGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_navigate(const BrowserNavigateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStartResult> browser_runtime_start(const BrowserRuntimeStartRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStatusResult> browser_runtime_status(const BrowserRuntimeStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStopResult> browser_runtime_stop(const BrowserRuntimeStopRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> cancel_request(const CancelRequestRequest& request, RequestOptions options = {});
@@ -96,6 +114,7 @@ public:
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ClientHelloResult> client_hello(const ClientHelloRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
@@ -186,6 +205,13 @@ public:
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsDeleteResult> fs_delete(const FsDeleteRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsPage> fs_list(const FsListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<FsEntryResult> fs_mkdir(const FsMkdirRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsReadResult> fs_read(const FsReadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsEntryResult> fs_rename(const FsRenameRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsStatResult> fs_stat(const FsStatRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FsEntryResult> fs_write(const FsWriteRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> get_blob(const GetBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> get_browser_provider(const GetBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
@@ -212,6 +238,13 @@ public:
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_workspace_groups(const ListWorkspaceGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_close(const LoopbackCloseRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_credit(const LoopbackCreditRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_data(const LoopbackDataRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<LoopbackOpenResult> loopback_open(const LoopbackOpenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_shutdown(const LoopbackShutdownRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<LoopbackStatusResult> loopback_status(const LoopbackStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MachineCatalogPublishResult> machine_catalog_publish(const MachineCatalogPublishRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
@@ -286,6 +319,10 @@ public:
     [[nodiscard]] Result<RunResult> run(const RunRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> save_screen_group(const SaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SaveTabGroupResult> save_tab_group(const SaveTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ScriptReplCloseResult> script_repl_close(const ScriptReplCloseRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ScriptReplEvalResult> script_repl_eval(const ScriptReplEvalRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ScriptReplOpenResult> script_repl_open(const ScriptReplOpenRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ScriptRunResult> script_run(const ScriptRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> scroll_surface(const ScrollSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_screen(const SelectScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_tab(const SelectTabRequest& request = {}, RequestOptions options = {});
