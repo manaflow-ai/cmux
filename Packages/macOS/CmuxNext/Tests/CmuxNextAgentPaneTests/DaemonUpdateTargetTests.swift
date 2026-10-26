@@ -86,4 +86,23 @@ import Testing
         #expect(DaemonUpdateBoard.line(.failed(reason: "new daemon reported 0123456ff", rolledBack: true)).contains("0123456ff"))
         #expect(!DaemonUpdateBoard.line(.updating).isEmpty && !DaemonUpdateBoard.line(.retrying).isEmpty)
     }
+
+    /// A recorded failure or rollback the policy asks a notice for shows one toast naming the
+    /// machine; the same state without the ask, or any other state, shows none.
+    @Test @MainActor func aFailureTheBoardIsAskedToNoticeShowsOneToast() {
+        let board = DaemonUpdateBoard()
+        var shown: [String] = []
+        board.showNotice = { shown.append($0) }
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating, notify: true))
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
+                                      state: .failed(reason: "disk full", rolledBack: false)))
+        #expect(shown.isEmpty)
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
+                                      state: .failed(reason: "disk full", rolledBack: false), notify: true))
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:huge-blue", displayName: "huge-blue", sshHost: "huge-blue",
+                                      state: .failed(reason: "new daemon reported 0123456ff", rolledBack: true), notify: true))
+        #expect(shown.count == 2)
+        #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
+        #expect(shown.last?.contains("huge-blue") == true && shown.last?.contains("0123456ff") == true)
+    }
 }

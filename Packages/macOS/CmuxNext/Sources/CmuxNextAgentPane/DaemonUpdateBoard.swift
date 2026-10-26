@@ -1,9 +1,12 @@
+import AppKit
+import CmuxNextDesign
 import Foundation
 public import Observation
 
 /// The latest update state of each ``DaemonUpdateTarget``, as ``DaemonUpdatePolicy`` reports it:
 /// an ssh machine's sidebar tooltip shows its line (``detail(sshHost:)``), another surface looks a
-/// target up by id (``detail(id:)``).
+/// target up by id (``detail(id:)``); a failed or rolled-back update shows a toast that stays until
+/// closed (``notice(_:)``).
 @MainActor @Observable
 public final class DaemonUpdateBoard {
     // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
@@ -11,6 +14,13 @@ public final class DaemonUpdateBoard {
 
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
+
+    /// Shows a notice's text; the front window's toast unless replaced (tests).
+    @ObservationIgnored var showNotice: @MainActor (String) -> Void = { message in
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        _ = CmuxToastCenter.shared.show(CmuxToast(id: "daemon-update.\(message.hashValue)", message: message,
+                                                  duration: CmuxToast.untilClosed), in: window)
+    }
 
     public init() {}
 
@@ -20,6 +30,7 @@ public final class DaemonUpdateBoard {
             return
         }
         targets[event.id] = event
+        if event.notify, let message = Self.notice(event) { showNotice(message) }
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.
@@ -54,6 +65,19 @@ public final class DaemonUpdateBoard {
         case .cleared:
             // Never on the board: `apply` drops the target.
             ""
+        }
+    }
+
+    /// The toast of a failed or rolled-back update; nil for any other state.
+    nonisolated static func notice(_ event: DaemonUpdateEvent) -> String? {
+        switch event.state {
+        case .failed(let reason, false):
+            String(format: String(localized: "agentPane.daemonUpdate.notice.failed", defaultValue: "Couldn't update %1$@: %2$@",
+                                  bundle: .module), event.displayName, reason)
+        case .failed(let reason, true):
+            String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBack",
+                                  defaultValue: "%1$@ kept its previous build: %2$@", bundle: .module), event.displayName, reason)
+        default: nil
         }
     }
 }
