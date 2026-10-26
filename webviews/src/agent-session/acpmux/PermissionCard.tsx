@@ -197,31 +197,47 @@ export function PermissionCard({
     backToOpener.current = true;
     setDraft(undefined);
   };
-  // The ask a key already answered: held keys repeat, and a second key can land before the
-  // snapshot clears the ask, so the keyboard answers each ask once. A click always answers (an
-  // answer acpmux never heard can be given again).
+  // The ask an answer is out for or was taken for: held keys repeat, and a key and a click can
+  // both land before the snapshot clears the ask, so each ask is answered once. A refusal from
+  // acpmux (the promise `onAnswer` returns rejects) frees it again: that answer was never heard.
   const answered = useRef<string | undefined>(undefined);
+  /// Counts answers sent from this card: only the newest one's outcome may change the card, so a
+  /// late reply to an answer before (another ask's, or a superseded one) never does.
+  const attempt = useRef(0);
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
+  /// Starts one answer for the ask shown now; undefined when one is already out or taken for it.
+  const begin = () => {
+    const permissionId = permission.permissionId;
+    if (answered.current === permissionId) return undefined;
+    answered.current = permissionId;
+    setRefused(undefined);
+    return { permissionId, attempt: ++attempt.current };
+  };
+  /// Whether `sent` is still the newest answer, the one whose outcome the card shows.
+  const current = (sent: { attempt: number }) => attempt.current === sent.attempt;
+  /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
+  const refuse = (sent: { permissionId: string; attempt: number }) => {
+    if (!current(sent)) return;
+    if (answered.current === sent.permissionId) answered.current = undefined;
+    setRefused(sent.permissionId);
+  };
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
   const answer = (option: PermissionOption) => {
-    const permissionId = permission.permissionId;
-    setRefused(undefined);
-    const sent = onAnswer(option.id);
+    const sent = begin();
+    if (!sent) return;
+    let reply: unknown;
+    try {
+      reply = onAnswer(option.id);
+    } catch (error) {
+      reply = Promise.reject(error);
+    }
     focusComposer?.();
-    // A refusal is never silent, and never leaves the keys spent on an ask still waiting.
-    if (sent instanceof Promise)
-      sent.catch(() => {
-        if (answered.current === permissionId) answered.current = undefined;
-        setRefused(permissionId);
-      });
+    // A refusal is never silent, and never leaves the ask unanswerable while it still waits.
+    Promise.resolve(reply).then(undefined, () => refuse(sent));
   };
-  const answerByKey = (option: PermissionOption) => {
-    if (answered.current === permission.permissionId) return;
-    answered.current = permission.permissionId;
-    answer(option);
-  };
+  const answerByKey = answer;
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
   const deny = (byKey = false) => {
     if (!denyOption) return;
@@ -284,19 +300,23 @@ export function PermissionCard({
     return () => handlers.forEach(([event, handler]) => window.removeEventListener(event, handler));
   }, [active]);
   const sendFeedback = async (text: string) => {
-    if (!denyOption || !onDenyWithFeedback || writing?.sending || answered.current === permission.permissionId) return;
-    const permissionId = permission.permissionId;
-    answered.current = permissionId;
+    if (!denyOption || !onDenyWithFeedback || writing?.sending) return;
+    const sent = begin();
+    if (!sent) return;
+    const { permissionId } = sent;
     setDraft({ permissionId, text, sending: true });
-    if (await onDenyWithFeedback(denyOption.id, text.trim())) {
-      setDraft(undefined);
+    const denied = await onDenyWithFeedback(denyOption.id, text.trim()).catch(() => false);
+    // Only this ask's draft changes: another ask may be on the card by now.
+    if (denied) {
+      setDraft((draft) => (draft?.permissionId === permissionId ? undefined : draft));
       // The keyboard goes back to the composer, as a plain deny's does.
-      focusComposer?.();
+      if (current(sent)) focusComposer?.();
       return;
     }
     // Refused (answered elsewhere, or the connection dropped): the field stays with its text.
-    answered.current = undefined;
-    setDraft({ permissionId, text });
+    setDraft((draft) => (draft?.permissionId === permissionId ? { permissionId, text } : draft));
+    if (!current(sent)) return;
+    refuse(sent);
     field.current?.focus();
   };
 
