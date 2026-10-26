@@ -55,7 +55,7 @@ nonisolated struct InputSourceSwitchKeys: Equatable, Sendable {
                 keys.insert(fallback)
                 continue
             }
-            guard Self.number(entry["enabled"]) != 0 else { continue }
+            if let enabled = entry["enabled"], Self.number(enabled) == 0 { continue }
             let parameters = (entry["value"] as? [String: Any])?["parameters"] as? [Any] ?? []
             guard parameters.count >= 3 else {
                 keys.insert(fallback)

@@ -130,6 +130,16 @@ import Testing
         #expect(keys.matches(keyCode: Self.space, flags: [.command, .capsLock]))
     }
 
+    @Test func anEntryWithNoEnabledKeyCountsAsOn() {
+        let control = NSNumber(value: NSEvent.ModifierFlags.control.rawValue)
+        let parameters: [Any] = [NSNumber(value: 32), NSNumber(value: kVK_Space), control]
+        let valueOnly: [String: Any] = ["value": ["parameters": parameters] as [String: Any]]
+        let keys = InputSourceSwitchKeys(symbolicHotKeys: ["60": valueOnly, "61": [String: Any]()], fnUsageType: 0)
+        #expect(keys.matches(keyCode: Self.space, flags: .control))
+        // An entry with neither key takes the system default.
+        #expect(keys.matches(keyCode: Self.space, flags: [.control, .option]))
+    }
+
     @Test func aHotKeyWithNoPhysicalKeyNeverMatches() {
         let parameters: [Any] = [NSNumber(value: 65535), NSNumber(value: 65535), NSNumber(value: 0)]
         let value: [String: Any] = ["parameters": parameters]
