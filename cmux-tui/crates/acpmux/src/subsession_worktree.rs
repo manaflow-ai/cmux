@@ -567,6 +567,20 @@ thread_local! {
 }
 
 #[cfg(test)]
+thread_local! {
+    /// Runs once on the next [`verify_made`], right after it checks the folder at `made.root`.
+    static AFTER_ROOT_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn after_root_check(root: &Path) {
+    if let Some(f) = AFTER_ROOT_CHECK.with(|h| h.borrow_mut().take()) {
+        f(root);
+    }
+}
+
+#[cfg(test)]
 fn after_add(root: &Path) {
     if let Some(f) = AFTER_ADD.with(|h| h.borrow_mut().take()) {
         f(root);
@@ -589,6 +603,8 @@ pub fn verify_made(source: Dir<'_>, made: &Worktree, at: Dir<'_>) -> Result<(), 
     {
         return moved("another folder is at its path");
     }
+    #[cfg(test)]
+    after_root_check(&made.root);
     let top = git(at, &["rev-parse", "--path-format=absolute", "--show-toplevel"])?;
     if canonical(&top) != std::fs::canonicalize(&made.root).ok() {
         return moved("the start folder is not inside it");
@@ -906,6 +922,36 @@ mod tests {
         let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
         let held = std::fs::File::open(&made.cwd).unwrap();
         let at = Dir::held(&made.cwd, Some(&held));
+        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
+        assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// A held impostor is not the worktree made even while the made folder is put back at its
+    /// path for the identity check and swapped out again before git looks: the held start
+    /// folder itself must be in the folder made.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_impostor_is_refused_though_the_made_folder_is_back_at_its_path_for_a_moment() {
+        let (scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
+        std::fs::create_dir_all(&impostor).unwrap();
+        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
+        std::fs::rename(&made.root, &aside).unwrap();
+        std::fs::rename(&impostor, &made.root).unwrap();
+        let held = std::fs::File::open(&made.root).unwrap();
+        // The made folder back at its path for the identity check...
+        std::fs::rename(&made.root, &impostor).unwrap();
+        std::fs::rename(&aside, &made.root).unwrap();
+        let (moved_aside, moved_impostor) = (aside.clone(), impostor.clone());
+        AFTER_ROOT_CHECK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                // ...and the impostor back before git looks.
+                std::fs::rename(root, &moved_aside).unwrap();
+                std::fs::rename(&moved_impostor, root).unwrap();
+            }))
+        });
+        let at = Dir::held(&made.root, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
     }
