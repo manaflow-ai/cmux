@@ -4,6 +4,8 @@
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
      "optional": "agent backend unavailable on this runner"},
+    {"title": "Close the machine picker", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 0.5, "shot": false,
+     "optional": "no picker open"},
     {"title": "Open the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1.5, "shot": false},
     {"title": "Type b", "rpc": {"method": "debug.key", "params": {"key": "b", "target": "palette"}}, "wait": 0.2, "shot": false},
     {"title": "Type e", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.2, "shot": false},
