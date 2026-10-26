@@ -192,6 +192,8 @@ struct SettingsSearchIndexTests {
         ("switch claude account", "setting:automation:claude-account-auto-switch"),
         ("usage limit", "setting:automation:claude-account-auto-switch"),
         ("automation.claudeAccountAutoSwitch", "setting:automation:claude-account-auto-switch"),
+        ("session priority", "setting:automation:session-priority"),
+        ("effort", "setting:automation:session-priority"),
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),

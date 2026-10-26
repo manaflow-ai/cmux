@@ -292,6 +292,27 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testSessionPriorityCommandDefaultsOffAndTogglesOn() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.sessionPriority"
+                )
+            )
+
+            XCTAssertEqual(descriptor.settingsKey, "automation.sessionPriority.enabled")
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AutomationCatalogSection().sessionPriority.userDefaultsKey) as? Bool,
+                true
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
