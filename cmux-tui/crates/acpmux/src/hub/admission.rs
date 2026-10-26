@@ -310,13 +310,15 @@ fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usiz
 const NAME_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 impl Admitting {
-    /// Waits while `still` holds of the open creates, up to `limit`. True when it
-    /// still held as the wait ended.
+    /// Waits while `still` holds of the open creates, up to `limit` in all: every
+    /// create's end wakes every waiter, so the limit is one deadline, never
+    /// restarted by a wake. True when it still held as the wait ended.
     async fn wait_while(
         &self,
         limit: std::time::Duration,
         still: impl Fn(&[Arc<Making>]) -> bool,
     ) -> bool {
+        let deadline = tokio::time::Instant::now() + limit;
         loop {
             // Listening before the check: a create that ends between the two
             // still wakes this wait.
@@ -326,7 +328,7 @@ impl Admitting {
             if !still(&self.0.lock().unwrap_or_else(|e| e.into_inner())) {
                 return false;
             }
-            if tokio::time::timeout(limit, wake).await.is_err() {
+            if tokio::time::timeout_at(deadline, wake).await.is_err() {
                 return true;
             }
         }
@@ -447,7 +449,7 @@ impl Hub {
         };
         // Counted and reserved under one lock, in a scope of its own so no
         // await below holds it: no file I/O while it is held.
-        let (refusal, live, mut held, mut adopted) = {
+        let (refusal, live, held, adopted) = {
             let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
             let live = self.live_sessions(&admitting, &hosted);
             let (refusal, uncapped) = check(&Inputs {
