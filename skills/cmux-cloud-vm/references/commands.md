@@ -78,13 +78,11 @@ cmux cloud list-machines --json
 cmux cloud list-machines                                    # the app's Cloud machines
 cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
-cmux cloud open-machine --target machine:vm-…
 cmux cloud new-terminal-on-machine --target machine:vm-…
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
-cmux cloud machine-tools --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…
 cmux cloud fork-machine --target machine:vm-…
 cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
@@ -97,6 +95,13 @@ cmux cloud set-idle-pause --target machine:vm-… --minutes off|15|30|60|120   #
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
+
+`open-machine` (Open Machine) and `machine-tools` (Cloud Machine Tools) are GUI-only: the
+sidebar and palette run them, the CLI has no verb for them. From the CLI, open a terminal with
+`cmux cloud new-terminal-on-machine --target machine:vm-…` (`--focus` shows it) or
+`cmux cloud ssh --target machine:vm-…`, inspect the machine with
+`cmux cloud machine-status --target machine:vm-…`, and check its tools with
+`cmux cloud exec --target machine:vm-… --command '…'`.
 
 cmux Cloud pauses a machine after 30 idle minutes by default (no attached terminal, ssh or app,
 no running agent turn, no command still running in a terminal, no forwarded port). The
@@ -179,7 +184,7 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm push\|upload` | `cmux cloud file-write --path <file> --contents …`, or `cmux cloud prepare-scp` then scp |
 | `vm pull\|download` | `cmux cloud file-read --target machine:vm-… --path <file>` |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
-| `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
+| `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud new-terminal-on-machine`, `cmux cloud ssh` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`; copy the link from the machine's menu (Copy Machine Link) |
 | `vm ssh`, `vm scp` | `cmux cloud ssh`, `cmux cloud prepare-scp` |
 | `vm pause`, `vm resume` | `cmux cloud pause-machine`, `cmux cloud resume-machine` |
