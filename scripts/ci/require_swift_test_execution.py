@@ -21,20 +21,24 @@ XCTEST_COMPLETION = re.compile(
     r"^\s*Test Suite ['\"](?:All tests|Selected tests)['\"] (passed|failed) at .+$"
 )
 # Swift Testing names each test it skips (a disabled trait, or its suite's), and the suite whose own trait
-# skipped it ("➜ Suite SidebarMultiViewHomeTests skipped: "the drag tests need a display""). Its run summary
-# still counts skipped tests ("Test run with 2 tests in 1 suite passed"), so a run of skips reads as a pass.
-SWIFT_SKIPPED_TEST = re.compile(r"^\s*\S+ Test (?P<name>.+?) skipped(?:: (?P<reason>.*))?\s*$")
-SWIFT_SKIPPED_SUITE = re.compile(r"^\s*\S+ Suite (?P<name>\S+) skipped(?:: (?P<reason>.*))?\s*$")
+# skipped it ("➜ Suite SidebarMultiViewHomeTests skipped: "the drag tests need a display""; with no comment,
+# "skipped."). Its run summary still counts skipped tests ("Test run with 2 tests in 1 suite passed"), so a run
+# of skips reads as a pass. The line starts with its skip symbol: ➜ or ↷ in a terminal, an SF Symbol (Private
+# Use plane) where those draw.
+SKIP_SYMBOL = "[➜↷\U00100000-\U0010FFFD]"
+SWIFT_SKIPPED_TEST = re.compile(r"^\s*" + SKIP_SYMBOL + r" Test (?P<name>.+?) skipped(?:: (?P<reason>.+?))?\.?\s*$")
+SWIFT_SKIPPED_SUITE = re.compile(r"^\s*" + SKIP_SYMBOL + r" Suite (?P<name>\S+) skipped(?:: (?P<reason>.+?))?\.?\s*$")
 
 
 def skip_report(output: str) -> tuple[int, int, list[str]]:
-    """(tests that ran, tests skipped, the skipped suites and the skipped tests by reason) of a run that
-    execution_count accepts. A Swift Testing test counts once whether its own trait or its suite's skipped it."""
-    ran = execution_count(output)
-    swift_skipped = xctest_skipped = 0
+    """(tests that ran, tests skipped, the skipped suites and the skipped tests by reason). A failed run raises,
+    as in execution_count; a completed run with no test run and none skipped too. One whose every test skipped
+    (Swift Testing or XCTest) is ran 0. A Swift Testing test counts once whether its own trait or its suite's
+    skipped it."""
+    swift_count, xctest_ran, xctest_skipped = run_counts(output)
+    swift_skipped = 0
     reasons: list[str] = []
     test_reasons: dict[str, int] = {}
-    xctest_completed = False
     for line in ANSI.sub("", output).splitlines():
         suite = SWIFT_SKIPPED_SUITE.fullmatch(line)
         if suite:
@@ -45,22 +49,29 @@ def skip_report(output: str) -> tuple[int, int, list[str]]:
             swift_skipped += 1
             test_reasons[test["reason"] or "no reason given"] = test_reasons.get(test["reason"] or "no reason given", 0) + 1
             continue
-        if XCTEST_COMPLETION.fullmatch(line):
-            xctest_completed = True
-            continue
-        xctest = XCTEST_SUMMARY.fullmatch(line)
-        if xctest and xctest_completed:
-            xctest_skipped = max(xctest_skipped, int(xctest["skipped"] or 0))
-        xctest_completed = False if line.strip() else xctest_completed
     reasons += [f"{count} test{'s' if count != 1 else ''}: {reason}" for reason, count in test_reasons.items()]
     if xctest_skipped:
         reasons.append(f"{xctest_skipped} XCTest test{'s' if xctest_skipped != 1 else ''}")
-    # execution_count counted Swift Testing's skipped tests as run (its summary does)
-    return max(0, ran - swift_skipped), swift_skipped + xctest_skipped, reasons
+    # Swift Testing's summary counted its skipped tests as run
+    ran = max(0, swift_count - swift_skipped) + xctest_ran
+    skipped = swift_skipped + xctest_skipped
+    if not ran and not skipped:
+        raise ValueError("no completed nonzero Swift test execution was recorded")
+    return ran, skipped, reasons
 
 
 def execution_count(output: str) -> int:
-    swift_count = xctest_count = 0
+    swift_count, xctest_count, _ = run_counts(output)
+    count = swift_count + xctest_count
+    if not count:
+        raise ValueError("no completed nonzero Swift test execution was recorded")
+    return count
+
+
+def run_counts(output: str) -> tuple[int, int, int]:
+    """(Swift Testing's summary count, XCTest tests run, XCTest tests skipped) of a log; raises on a failed run.
+    XCTest counts only the summary following the overall completion."""
+    swift_count = xctest_count = xctest_skipped = 0
     xctest_completed = False
     for line in ANSI.sub("", output).splitlines():
         swift = SWIFT_SUMMARY.fullmatch(line)
@@ -82,14 +93,12 @@ def execution_count(output: str) -> int:
             # Count only the summary following the overall completion.
             if xctest_completed:
                 executed = int(xctest["tests"]) - int(xctest["skipped"] or 0)
-                xctest_count = max(xctest_count, executed)
+                if executed > xctest_count or (executed == xctest_count and not xctest_count):
+                    xctest_count, xctest_skipped = executed, max(xctest_skipped, int(xctest["skipped"] or 0))
             xctest_completed = False
         elif line.strip():
             xctest_completed = False
-    count = swift_count + xctest_count
-    if not count:
-        raise ValueError("no completed nonzero Swift test execution was recorded")
-    return count
+    return swift_count, xctest_count, xctest_skipped
 
 
 def discovery_filters(output: str) -> list[str]:
@@ -124,10 +133,13 @@ def main() -> int:
     try:
         if args.log:
             output = args.log.read_text(encoding="utf-8", errors="replace")
-            print(execution_count(output))
             if args.skip_report:
+                # a run whose every test skipped passes here; the caller reads ran 0 and calls it skipped
                 ran, skipped, reasons = skip_report(output)
                 args.skip_report.write_text("\n".join([f"{ran} {skipped}", *reasons]) + "\n", encoding="utf-8")
+                print(ran)
+            else:
+                print(execution_count(output))
         else:
             print("\n".join(discovery_filters(args.list_filters.read_text(encoding="utf-8"))))
     except (OSError, ValueError) as error:

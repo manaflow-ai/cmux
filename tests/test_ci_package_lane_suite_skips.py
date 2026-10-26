@@ -65,7 +65,7 @@ RAN_SUITE = """\
 PARTLY_SKIPPED_SUITE = """\
 ◇ Test run started.
 ✔ Test aGalleryIndependentCheck() passed after 0.010 seconds.
-➜ Test theGalleryWritesItsCrops() skipped
+↷ Test theGalleryWritesItsCrops() skipped.
 ✔ Test run with 2 tests in 1 suite passed after 0.011 seconds.
 """
 
@@ -87,10 +87,36 @@ class SkipReportTest(unittest.TestCase):
         self.assertEqual((ran, skipped), (1, 0))
 
     def test_the_skips_of_an_xctest_run_are_counted(self):
-        ran, skipped, _ = guard.skip_report(
-            "Test Suite 'All tests' passed at 2026-09-23 00:00:00.000.\n"
-            "Executed 3 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.0 (0.0) seconds\n")
-        self.assertEqual((ran, skipped), (2, 1))
+        for skipped_count, ran_count in ((1, 2), (3, 0)):
+            with self.subTest(skipped=skipped_count):
+                ran, skipped, _ = guard.skip_report(
+                    "Test Suite 'All tests' passed at 2026-09-23 00:00:00.000.\n"
+                    f"Executed 3 tests, with {skipped_count} tests skipped and 0 failures (0 unexpected) in 0.0 (0.0) seconds\n")
+                self.assertEqual((ran, skipped), (ran_count, skipped_count))
+
+    def test_the_skip_line_forms_swift_testing_prints(self):
+        for line, reason in (
+            ('➜ Test a() skipped: "no display"', '"no display"'),
+            ("↷ Test a() skipped.", "no reason given"),
+            ("\U0010058d Test a(points:) skipped.", "no reason given"),
+            ('\x1b[90m➜\x1b[0m Test a() skipped: "no display"', '"no display"'),
+        ):
+            with self.subTest(line=line):
+                ran, skipped, reasons = guard.skip_report(line + "\n✔ Test run with 1 test passed after 0.1 seconds.\n")
+                self.assertEqual((ran, skipped), (0, 1))
+                self.assertEqual(reasons, [f"1 test: {reason}"])
+
+    def test_a_log_line_that_only_says_skipped_is_no_skip(self):
+        for line in ("INFO Test diagnostic skipped", "Test cache skipped", "- Test a() skipped"):
+            with self.subTest(line=line):
+                self.assertEqual(guard.skip_report(line + "\n✔ Test run with 1 test passed after 0.1 seconds.\n"),
+                                 (1, 0, []))
+
+    def test_a_failed_or_empty_run_is_still_the_guards_failure(self):
+        for output in ("✘ Test run with 2 tests in 1 suite failed after 1.0 seconds with 1 issue.\n", "",
+                       "Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds\n"):
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                guard.skip_report(output)
 
 
 class SuiteSkipTest(unittest.TestCase):
@@ -110,8 +136,11 @@ class SuiteSkipTest(unittest.TestCase):
             (bin_dir / name).chmod(0o755)
         self.outputs = self.tmp / "outputs"
         self.outputs.mkdir()
+        xctest_skipped = ("Test Suite 'Selected tests' passed at 2026-10-26 01:30:15.888.\n"
+                          "\t Executed 2 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.0 (0.0) seconds\n")
         for name, output in (("SidebarMultiViewHomeTests", SKIPPED_SUITE), ("SidebarMultiViewPressTests", RAN_SUITE),
-                             ("AAGalleryTests", PARTLY_SKIPPED_SUITE)):
+                             ("AAGalleryTests", PARTLY_SKIPPED_SUITE), ("XCSkippedTests", xctest_skipped),
+                             ("EmptyTests", "Build complete!\n")):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
         (self.tmp / "sdk").mkdir()
         self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY")},
@@ -139,6 +168,14 @@ class SuiteSkipTest(unittest.TestCase):
         self.assertIn('SidebarMultiViewHomeTests: skipped suite SidebarMultiViewHomeTests: "the drag tests need a display"',
                       done.stdout)
         self.assertIn("::warning title=Swift suite skipped::SidebarMultiViewHomeTests", done.stdout)
+
+    def test_an_xctest_suite_of_skips_reads_skipped_and_an_empty_run_fails(self):
+        done = self.suite("XCSkippedTests")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "XCSkippedTests"), "skipped")
+        done = self.suite("EmptyTests")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "EmptyTests"), "failed (exit 1)")
 
     def test_every_suite_ran_reads_all_passed(self):
         done = self.suite("SidebarMultiViewPressTests")
