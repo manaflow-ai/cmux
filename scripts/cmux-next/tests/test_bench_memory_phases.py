@@ -46,7 +46,11 @@ class FakeApp:
         if method == "debug.memory":
             return self.memory() if callable(self.memory) else (self.memory or {"error": "unknown method"})
         if method == "debug.hibernation.pressure":
-            return {"pressure": params["level"]} if self.override else {"error": "unknown method"}
+            if not self.override:
+                return {"error": "unknown method"}
+            # DebugHibernationControl.applyOverride: the coordinator's level and the override (null for none).
+            level = params["level"]
+            return {"level": "normal" if level == "none" else level, "override": None if level == "none" else level}
         return {"error": "unexpected"}
 
     def run(self, action, target=None, **args):
@@ -62,8 +66,10 @@ def sample(label, kinds: dict[str, tuple[int, int]]) -> dict:
                       for kind, (count, footprint) in kinds.items()}}
 
 
-def report(consumers, workspaces=()):
-    return {"pressure": {"level": "normal"}, "consumers": consumers, "workspaces": list(workspaces)}
+def report(consumers, workspaces=(), terminal=None):
+    """A debug.memory answer with the keys of MemoryDiagnosticsReport (p07-memory-010)."""
+    return {"pressure": {"level": "normal", "kernel_level": "normal", "override": None}, "consumers": consumers,
+            "workspaces": list(workspaces), "terminal": terminal or {}}
 
 
 class PhaseTests(unittest.TestCase):
@@ -101,7 +107,7 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(phase["released_pct_of_managed"], 83.3)
         self.assertEqual(phase["kinds_delta_mb"]["app"], -100.0)
         overrides = [params["level"] for method, params in app.calls if method == "debug.hibernation.pressure"]
-        self.assertEqual(overrides, ["critical", "normal"])
+        self.assertEqual(overrides, ["critical", "none"])
         self.assertIn("released_mb 100.0", out.getvalue())
 
     def test_pressure_without_debug_memory_is_footprint_only(self):
@@ -129,8 +135,13 @@ class PhaseTests(unittest.TestCase):
             sample("settled", {"app": (1, 140 * MB), "tui-daemon": (1, 40 * MB), "terminal-host": (4, 8 * MB)}),
             sample("grace", {"app": (1, 102 * MB), "tui-daemon": (1, 24 * MB)}),
         ])
-        memory = report([], workspaces=[{"state": "unmounted", "attributedBytes": 1024}] * 4
-                        + [{"state": "mounted", "attributedBytes": 5 * MB}])
+        memory = report([], workspaces=[{"id": "ws_a", "mounted": False, "parked": False, "terminal_surfaces": 1,
+                                         "gpu_resident_surfaces": 0, "app_bytes": 1024}] * 3
+                        + [{"id": "ws_b", "mounted": True, "parked": True, "terminal_surfaces": 1,
+                            "gpu_resident_surfaces": 1, "app_bytes": 2 * MB}]
+                        + [{"id": "ws_c", "mounted": True, "parked": False, "terminal_surfaces": 2,
+                            "gpu_resident_surfaces": 2, "app_bytes": 5 * MB}],
+                        terminal={"hidden_nonvolatile_iosurface_bytes": 3 * MB})
         app, opened = FakeApp(memory=memory), []
         with redirect_stdout(io.StringIO()) as out:
             phase = bm.hidden_workspaces_phase(app, 4, 960, ["terminal"], "about:blank", opened, None,
@@ -143,7 +154,13 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(phase["after_grace"]["app"]["mb_each"], 0.5)
         self.assertEqual(phase["after_grace"]["tui-daemon"]["mb_each"], 1.0)
         self.assertEqual(phase["after_grace"]["total"], {"processes_added": 0, "mb_each": 1.5})
-        self.assertEqual(phase["debug_memory_after_grace"]["unmounted"], {"count": 4, "attributed_mb": 0.0})
+        states = phase["debug_memory_after_grace"]
+        self.assertEqual(states["unmounted"], {"count": 3, "attributed_mb": 0.0, "terminal_surfaces": 3,
+                                               "gpu_resident_surfaces": 0})
+        self.assertEqual(states["parked"]["count"], 1)
+        self.assertEqual(states["mounted"]["attributed_mb"], 5.0)
+        self.assertEqual(phase["hidden_iosurface_mb_after_grace"], 3.0)
+        self.assertIn("hidden terminal IOSurface (non-volatile): 3.00 MB", out.getvalue())
         self.assertIn("terminal host model", out.getvalue())
 
     def test_hidden_workspaces_without_debug_memory_is_footprint_only(self):

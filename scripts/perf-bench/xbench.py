@@ -20,6 +20,9 @@ Safari, on one Mac, the same way for every browser:
   memory-1/10/20       MB, physical footprint over every process of the instance
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
+  <power row>-billed   mW, the same window's billed energy (CPU + billed to the process - serviced for others)
+  <power row>-gpu      ms/s, the same window's GPU time (IORegistry accumulatedGPUTime)
+  <wakeups row>-pkg-idle  /s, the same window's package-idle wakeups (a subset of the interrupt wakeups)
   budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
@@ -34,8 +37,12 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
     cmux NEXT is driven over its control socket (app actions);
     Safari through `open` (no switch/close rows: they need Automation);
   - counters are proc_pid_rusage V6 over the whole instance (procs.py):
-    ri_energy_nj (CPU energy, no root; GPU and display are not in it),
-    CPU time, idle + interrupt wakeups, phys_footprint;
+    ri_energy_nj (CPU energy, no root; GPU and display are not in it), ri_billed_energy and
+    ri_serviced_energy (the -billed rows), CPU time, interrupt wakeups (the wakeups rows: Chrome's
+    GetIdleWakeupsPerSecond, Activity Monitor) and package-idle wakeups apart (the -pkg-idle rows;
+    rows before 2026-10-25 summed the two), phys_footprint; GPU time from the IORegistry; each window
+    sample also keeps the app's resource coalition (`coalition`: energy, billed energy, GPU time,
+    wakeups of everything the app started; null when unreadable);
   - browsers interleave and rotate each round; every row is the median of
     all its runs with min, max and n; each item waits for a quiet machine
     (1-min load under --max-load) and the run holds `caffeinate -dimsu`.
@@ -43,6 +50,8 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
 Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py run --out DIR --app NAME=BUNDLE ... [--browsers a,b] [--rounds 3]
       [--launches 2] [--idle 60] [--active 30] [--settle 30] [--max-load 4]
+      [--chrome-extension DIR]   (D6: the uBlock Origin cmux bundles, scripts/cmux-next/fetch-ublock.sh; MV2, so
+                                  --app chrome= must be a Chromium that runs MV2, such as ungoogled-chromium)
   xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
@@ -101,6 +110,14 @@ ROWS = [
     ("idle-cpu-home", "CPU, cmux idle on Home", "%", False),
     ("idle-wakeups-home", "Wakeups, cmux idle on Home", "/s", False),
 ]
+# Each window row has companions from the same window (procs.Instance.window keys).
+COMPANIONS = {"mW": (("-billed", "energy_mw_billed", "billed energy", "mW"), ("-gpu", "gpu_ms_per_s", "GPU time", "ms/s")),
+              "/s": (("-pkg-idle", "pkg_idle_wakeups_per_s", "package-idle", "/s"),)}
+WINDOW_KEYS = {"mw": "mW", "wakeups_per_s": "/s"}
+ROWS += [(row + suffix, f"{label}, {what}", companion_unit, False)
+         for row, label, unit, _main in list(ROWS)
+         if unit == "mW" or row.startswith("idle-wakeups-")
+         for suffix, _key, what, companion_unit in COMPANIONS[unit]]
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
 ROW_INFO.update(budget.ROW_INFO)
 
@@ -243,11 +260,24 @@ class Browser:
         raise RuntimeError(f"{self.name}: no app process within {timeout} s")
 
     def hide(self) -> bool:
-        """True once NSRunningApplication accepted the hide."""
-        return self.helper.run("hide", str(self.instance.pid)).returncode == 0
+        """True once the app is hidden (NSRunningApplication.isHidden), not only asked to hide."""
+        self.helper.run("hide", str(self.instance.pid))
+        return self.wait_hidden(True)
 
     def unhide(self):
         self.helper.run("unhide", str(self.instance.pid))
+
+    def is_hidden(self) -> bool:
+        return self.helper.run("ishidden", str(self.instance.pid)).returncode == 0
+
+    def wait_hidden(self, hidden: bool, timeout: float = 3) -> bool:
+        """True once the app's hidden state is `hidden` (hide and unhide land asynchronously)."""
+        deadline = time.monotonic() + timeout
+        while self.is_hidden() != hidden:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.1)  # bench: waiting for the app to apply the hide or unhide
+        return True
 
     def quit(self):
         if self.instance:
@@ -264,13 +294,28 @@ class ChromiumBrowser(Browser):
     can_link = True
     flags = ["--no-first-run", "--no-default-browser-check", "--password-store=basic", "--use-mock-keychain",
              "--mute-audio", "--window-size=1280,800", "--window-position=40,80", "--remote-allow-origins=*",
-             "--hide-crash-restore-bubble", "--disable-features=ChromeWhatsNewUI"]
+             "--hide-crash-restore-bubble"]
+    disabled_features = ["ChromeWhatsNewUI"]
+    # --load-extension: branded Google Chrome ignores it from 137 with no switch back from 142 (Chromium
+    # 04f6233ce5be), and Chromium runs no Manifest V2 extension from 139 (full uBlock Origin is MV2). Load
+    # extensions into a Chromium that runs them (ungoogled-chromium for MV2); extension_targets() reports
+    # what actually started.
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, extensions: list[str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.port = 0
+        self.extensions = [os.path.abspath(path) for path in extensions or []]  # unpacked extension folders
         if self.name == "ardia":
             self.can_link = False  # Ardia ignores URLs in argv (its own method says so)
+
+    def info(self) -> dict:
+        return {**super().info(), **({"extensions": self.extensions} if self.extensions else {})}
+
+    def switches(self) -> list[str]:
+        """The launch switches: the shared flags, the unpacked extensions, and one --disable-features
+        (Chromium reads only the last one on a command line)."""
+        loads = [f"--load-extension={','.join(self.extensions)}"] if self.extensions else []
+        return [*self.flags, *loads, f"--disable-features={','.join(self.disabled_features)}"]
 
     def launch(self, profile: str, url: str | None):
         self.port = free_port()
@@ -281,7 +326,7 @@ class ChromiumBrowser(Browser):
             env.update({"ARDIA_REMOTE_DEBUGGING_PORT": str(self.port), "ARDIA_DATA_DIR": os.path.join(profile, "data")})
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
         argv += ["-a", self.bundle, "--args", f"--user-data-dir={os.path.join(profile, 'data')}",
-                 f"--remote-debugging-port={self.port}", *self.flags]
+                 f"--remote-debugging-port={self.port}", *self.switches()]
         if url and self.can_link:
             argv.append(url)
         subprocess.run(argv, check=True, timeout=60)
@@ -310,6 +355,11 @@ class ChromiumBrowser(Browser):
 
     def pages(self) -> list[dict]:
         return [t for t in self.cdp("/json/list") if t.get("type") == "page"]
+
+    def extension_targets(self) -> list[dict]:
+        """The extension background pages and service workers DevTools lists: the extensions that run."""
+        return [t for t in self.cdp("/json/list") if t.get("type") in ("background_page", "service_worker")
+                and t.get("url", "").startswith("chrome-extension://")]
 
     def adopt_first(self, tab_id: str):
         """The launch URL's tab becomes tabs[0]; every other page closes."""
@@ -420,6 +470,27 @@ class CmuxBrowser(Browser):
             time.sleep(0.5)  # bench: waiting for the app's control socket
         raise RuntimeError("cmux: no control socket within 90 s")
 
+    def hide(self) -> bool:
+        """NSRunningApplication.hide, else the app's own NSApp.hide.
+
+        hide() is refused for an app `open -g` started on some fleet hosts (budget.py rows
+        'the app did not hide' on cmux20 and mac26). showHideAllWindows with `hidden` hides
+        whether or not cmux is active and never shows or focuses a window (a build older than
+        the argument ignores it and toggles, which shows the window). The caller checks the
+        result: a visible app is never reported hidden."""
+        if super().hide():
+            return True
+        if self.app.action("showHideAllWindows", hidden=True).get("error"):
+            return False
+        return self.wait_hidden(True)
+
+    def unhide(self):
+        super().unhide()
+        if not self.wait_hidden(False):
+            # Unhides without activating cmux or raising a window, so the next phase starts as before.
+            self.app.action("showHideAllWindows", hidden=False)
+            self.wait_hidden(False)
+
     def act(self, action: str, **args) -> dict:
         # focus: a user's Cmd-T / Cmd-1..9 shows the tab (Chrome's /json/new opens a foreground tab);
         # a background cmux tab does not load at all, so no paint or visibility row would exist.
@@ -497,12 +568,22 @@ class SafariBrowser(Browser):
         return
 
 
-def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconServer) -> Browser:
+def window_rows(rows: dict) -> dict:
+    """{row: Instance.window key} of the asked rows and their companions from the same window."""
+    out = dict(rows)
+    for row, key in rows.items():
+        for suffix, companion, _what, _unit in COMPANIONS.get(WINDOW_KEYS.get(key), ()):
+            out[row + suffix] = companion
+    return out
+
+
+def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconServer,
+                 extensions: list[str] | None = None) -> Browser:
     if name in CMUX:
         return CmuxBrowser(name, bundle, helper, server)
     if name == "safari":
         return SafariBrowser(name, bundle, helper, server)
-    return ChromiumBrowser(name, bundle, helper, server)
+    return ChromiumBrowser(name, bundle, helper, server, extensions=extensions)
 
 
 def can_launch_apps() -> bool:
@@ -601,8 +682,9 @@ class Run:
     def window(self, browser: Browser, round_no: int, rows: dict, seconds: float, during=None, **extra):
         load = round(procs.load_average(), 2)
         got = browser.instance.window(seconds, during)
-        for row, key in rows.items():
-            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"], **extra)
+        for row, key in window_rows(rows).items():
+            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"],
+                        coalition=got["coalition"], **extra)
         return got
 
     def memory(self, browser: Browser, round_no: int, row: str):
@@ -625,6 +707,10 @@ class Run:
             browser.launch(profile, self.server.url("idle", first) if browser.can_link or browser.name == "safari" else None)
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
+            if isinstance(browser, ChromiumBrowser) and browser.extensions:
+                sleep(2)  # bench: the extensions' background pages start after the DevTools port
+                running = [t["url"] for t in browser.extension_targets()]
+                log(f"{browser.name}: extensions asked {browser.extensions}, running {running}")
             if browser.name == "cmux-terminal":
                 sleep(a.settle)
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
@@ -705,10 +791,12 @@ class Run:
                     if browser.can_close:
                         browser.close(handle)
                     sleep(2)
-            browser.hide()
-            sleep(10)
-            self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
-            browser.unhide()
+            if browser.hide():
+                sleep(10)
+                self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
+                browser.unhide()
+            else:  # a visible app's idle is not the hidden app's (as budget.py)
+                self.record(browser.name, round_no, "power-idle-hidden", None, note="the app did not hide")
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
@@ -743,7 +831,8 @@ class Run:
             if not bundle or not os.path.isdir(bundle):
                 log(f"{name}: no bundle (--app {'cmux' if name in CMUX else name}=PATH), skipped")
                 continue
-            browsers.append(make_browser(name, bundle, self.helper, self.server))
+            browsers.append(make_browser(name, bundle, self.helper, self.server,
+                                         a.chrome_extension if name == "chrome" else None))
         meta_path = os.path.join(self.out, "meta.json")
         meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         meta.update({"machine": self.machine(), "cmux_ref": a.cmux_ref, "args": vars(a),
@@ -808,6 +897,8 @@ def fmt(value, unit: str) -> str:
         return f"{value:.2f}%"
     if unit == "/s":
         return f"{value:.1f}/s"
+    if unit == "ms/s":
+        return f"{value:.1f} ms/s"
     return f"{value:,.0f} mW" if value >= 100 else f"{value:.1f} mW"
 
 
@@ -946,6 +1037,9 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
                 fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
         lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
                   "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
+                  "The -billed rows add the energy other processes (WindowServer, the render server) spent for it and "
+                  "take off what it spent for them. Wakeups are interrupt wakeups (Chrome's GetIdleWakeupsPerSecond); "
+                  "package-idle wakeups, a subset, are the -pkg-idle rows. "
                   "The 10x goal: every cmux cell at a tenth of the best other.", ""]
     lines += budget_lines
     lines += switch_lines
@@ -969,7 +1063,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
 
 # ---------------------------------------------------------------- gate
 
-FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0}
+FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0, "ms/s": 1.0}
 
 
 def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
@@ -1060,6 +1154,10 @@ def main():
     run.add_argument("--template-settle", type=float, default=45)
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
+    run.add_argument("--chrome-extension", action="append", default=[], metavar="DIR",
+                     help="an unpacked extension Chrome loads (D6: the uBlock Origin cmux bundles, "
+                     "scripts/cmux-next/fetch-ublock.sh; branded Chrome 137+ ignores it, so --app chrome= a "
+                     "Chromium that runs MV2)")
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
