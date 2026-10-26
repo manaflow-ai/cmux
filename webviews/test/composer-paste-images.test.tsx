@@ -95,7 +95,16 @@ const PNG = Uint8Array.from([
   0x48,
   0x44,
   0x52,
-  ...Array(512).fill(7),
+  // Its size, 640x480 (the composer reads it before it decodes the picture), then filler.
+  0,
+  0,
+  2,
+  0x80,
+  0,
+  0,
+  1,
+  0xe0,
+  ...Array(504).fill(7),
 ]);
 const pngBase64 = btoa(String.fromCharCode(...PNG));
 const dataUri = `data:image/png;base64,${pngBase64}`;

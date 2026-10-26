@@ -67,7 +67,7 @@ const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
 
 /// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
 /// type or name alone: what its chip looks like before its bytes are read.
-export function isImageFile(file: File): boolean {
+export function isImageFile(file: Pick<File, "name" | "type">): boolean {
   return (
     IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
   );
