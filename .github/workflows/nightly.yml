@@ -6948,13 +6948,14 @@ jobs:
       SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
       SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
+      TESTED: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
       ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
       PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}
     steps:
       - name: The old feed published, or had nothing to publish
         run: |
           set -euo pipefail
-          echo "decided=${DECIDED:-} action=${ACTION:-} build=${BUILD:-} next=${NEXT_BUILD:-} sign skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-} ok=${SIGN_OK:-} already=${ALREADY:-} published=${PUBLISHED:-}"
+          echo "decided=${DECIDED:-} action=${ACTION:-} build=${BUILD:-} next=${NEXT_BUILD:-} sign skip=${SIGN_SKIP:-} pending=${SIGN_PENDING:-} ok=${SIGN_OK:-} tested=${TESTED:-} already=${ALREADY:-} published=${PUBLISHED:-}"
           if [ "${DECIDED:-}" != true ]; then
             echo "::error title=cmux NIGHTLY feed not published::legacy-identity-target did not finish; the old feed keeps its previous build"; exit 1
           fi
@@ -6972,9 +6973,10 @@ jobs:
           if [ "${PUBLISHED:-}" = true ]; then
             echo "build $BUILD published to the old feed"; exit 0
           fi
-          if [ "${ACTION:-}" = continue ] && [ "$BUILD" != "${NEXT_BUILD:-}" ]; then
-            # The publisher runs only for this run's build; the continued older
-            # one is published by a later run (the feed watch alarms on the lag).
+          if [ "${ACTION:-}" = continue ] && [ "$BUILD" != "${NEXT_BUILD:-}" ] && [ "${SIGN_OK:-}" = true ] && [ -n "${TESTED:-}" ]; then
+            # Signed and verified, but the publisher runs only for this run's
+            # build; a later run publishes the continued older one (the feed
+            # watch alarms on the lag). A failed sign or verify is red below.
             echo "::notice::continued build $BUILD is not this run's ($NEXT_BUILD); a later run publishes it"; exit 0
           fi
           echo "::error title=cmux NIGHTLY feed not published::build $BUILD (action ${ACTION:-}) was neither published nor pending"; exit 1

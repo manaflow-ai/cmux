@@ -317,7 +317,7 @@ class LegacyPublishedTests(unittest.TestCase):
         script = body[body.index("        run: |\n") + len("        run: |\n"):]
         script = "\n".join(line[10:] for line in script.splitlines())
         base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
-                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "ALREADY": "false",
+                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "TESTED": "abc123", "ALREADY": "false",
                 "PUBLISHED": "true"}
         return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
                               capture_output=True, text=True)
@@ -334,7 +334,10 @@ class LegacyPublishedTests(unittest.TestCase):
                     {"PUBLISHED": ""}, {"PUBLISHED": "false"},
                     {"ACTION": "continue", "PUBLISHED": "false"},
                     # Pending, but the sign job failed after Apple took it (no stored bundle).
-                    {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""}):
+                    {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""},
+                    # A continued older build whose sign or verify failed.
+                    {"ACTION": "continue", "BUILD": "4023540480101", "SIGN_OK": "false", "PUBLISHED": ""},
+                    {"ACTION": "continue", "BUILD": "4023540480101", "TESTED": "", "PUBLISHED": ""}):
             result = self.gate(**env)
             self.assertEqual(result.returncode, 1, env)
             self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
