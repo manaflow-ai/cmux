@@ -2,12 +2,12 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
-    /// A browser page shown in a minimized, other-Space or covered window counts as hidden, so Memory Saver may discard it; it comes back when the window shows.
+    /// A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.
     public static let occludedWindowDiscard = Feature(
         index: 0,
         name: "occludedWindowDiscard",
         owner: "PL-memory",
-        description: "A browser page shown in a minimized, other-Space or covered window counts as hidden, so Memory Saver may discard it; it comes back when the window shows.",
+        description: "A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

@@ -10,9 +10,11 @@ import Foundation
 import Testing
 
 /// Minimized, other-Space or covered windows count as hidden (p07-memory-021, Chrome's
-/// `Visibility::OCCLUDED`): a page such a window shows gets a hidden clock and is discarded after the
-/// timeout as any hidden page; back on screen is a show. The rule is Chrome's
-/// `WebContentsOcclusionCheckerMac` (web_contents_occlusion_checker_mac.mm). The windows' facts come
+/// `Visibility::OCCLUDED`). The rule is Chrome's `WebContentsOcclusionCheckerMac`
+/// (web_contents_occlusion_checker_mac.mm). The page a pane shows in an off-screen window gets a hidden
+/// clock but stays shown, and the discarder keeps it as its window's active tab (`kActiveTab`,
+/// discard_eligibility_policy.cc); the tabs beside it lose their neighbor protection and are
+/// discarded after the timeout. Back on screen, they are neighbors again. The windows' facts come
 /// from a fake draw policy (`Rig.facts`), so nothing here needs a screen.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct OccludedWindowDiscardTests {
     // MARK: The rule
@@ -39,6 +41,21 @@ import Testing
         #expect(!WindowOcclusionRule(moving: front.id).isOccluded(back, frontToBack: [front, back]))
     }
 
+    /// A Chromium page window is a child of its cmux window, ordered above it and key while the page
+    /// has focus; with the parent's frame (HTML5 fullscreen) it still does not cover its parent.
+    @Test func aChildWindowNeverCoversItsParent() {
+        let parent = Self.window(1, x: 0, width: 1000)
+        var page = Self.window(2, x: 0, width: 1000, active: true)
+        page.ancestors = [parent.id]
+        #expect(!WindowOcclusionRule().isOccluded(parent, frontToBack: [page, parent]))
+        var grandchild = Self.window(3, x: 0, width: 1000, active: true)
+        grandchild.ancestors = [page.id, parent.id]
+        #expect(!WindowOcclusionRule().isOccluded(parent, frontToBack: [grandchild, page, parent]))
+        // Another window's child still covers.
+        let other = Self.window(4, x: 100, width: 400)
+        #expect(WindowOcclusionRule().isOccluded(other, frontToBack: [page, parent, other]))
+    }
+
     /// `orderedWindows` lags behind a window that just became active (Cmd-` cycling).
     @Test func theActiveWindowIsNeverCoveredByAnInactiveOne() {
         let inactive = Self.window(1, x: 0, width: 1000)
@@ -50,13 +67,27 @@ import Testing
         #expect(WindowOcclusionRule().isOccluded(behind, frontToBack: [behind, cover]))
     }
 
-    @Test func aMinimizedOrOtherSpaceWindowOrSleepingDisplaysAreOffScreen() {
+    @Test func aMinimizedOrOtherSpaceWindowOrSleepingDisplaysOrAHiddenAppAreOffScreen() {
         var minimized = Self.window(1, x: 0, width: 400)
         minimized.systemVisible = false
         #expect(WindowOcclusionRule().isOccluded(minimized, frontToBack: [minimized]))
         let shown = Self.window(2, x: 0, width: 400)
         #expect(!WindowOcclusionRule().isOccluded(shown, frontToBack: [shown]))
         #expect(WindowOcclusionRule(displaysAsleep: true).isOccluded(shown, frontToBack: [shown]))
+        #expect(WindowOcclusionRule(appHidden: true).isOccluded(shown, frontToBack: [shown]))
+    }
+
+    /// The shown page of an off-screen window is Chrome's active tab: kept from the timeout and from
+    /// memory pressure, never from the person's own Hibernate Tab.
+    @Test func theActiveTabRuleKeepsTheShownPageFromTheTimeoutAndPressure() {
+        var shown = ContentDiscardPlanner.Candidate(key: "shown", hiddenFor: 3600)
+        shown.isActiveTab = true
+        let setting = BrowserHibernationSetting(mode: .minutes(1))
+        let planner = ContentDiscardPlanner()
+        #expect(planner.eligibility(of: shown, setting: setting, for: .proactive).reason == .activeTab)
+        #expect(planner.eligibility(of: shown, setting: setting, for: .urgent).result == .protected)
+        #expect(HibernationPlanner.hibernateTabRefusal(shown, setting: setting) == nil)
+        #expect(HibernationPlanner.plan(setting, pressure: .critical, candidates: [shown]).due.isEmpty)
     }
 
     /// An off-screen window's panes keep no neighbors awake; back on screen they do again.
@@ -90,51 +121,178 @@ import Testing
         #expect(rig.checker.passes == 2, "two events in one turn ran two passes")
     }
 
+    /// A window the checker does not track (onboarding, a debug window) covers a tracked one; when
+    /// it is moved away (a programmatic move: no `willMove`), its own move ends the cover.
+    @Test func anUntrackedWindowThatMovesAwayUncovers() async throws {
+        let rig = CheckerRig()
+        defer { rig.stop() }
+        rig.policy.facts[ObjectIdentifier(rig.other)] = WindowOcclusionFacts(
+            id: ObjectIdentifier(rig.other), frame: CGRect(x: 0, y: 0, width: 1000, height: 800), isActive: true)
+        rig.checker.start()
+        try await rig.until("the covered window goes off screen") { rig.changes == [CheckerRig.Change(rig.tracked, true)] }
+        rig.policy.facts[ObjectIdentifier(rig.other)]?.frame = CGRect(x: 2000, y: 0, width: 1000, height: 800)
+        rig.post(NSWindow.didMoveNotification, rig.other)
+        try await rig.until("it comes back when the cover moves away") { rig.changes.last == CheckerRig.Change(rig.tracked, false) }
+    }
+
+    /// A resize with no live resize (a tiling or scripted resize) is an event too.
+    @Test func aProgrammaticResizeOfAnyWindowStartsAPass() async throws {
+        let rig = CheckerRig()
+        defer { rig.stop() }
+        rig.policy.facts[ObjectIdentifier(rig.other)] = WindowOcclusionFacts(
+            id: ObjectIdentifier(rig.other), frame: CGRect(x: 0, y: 0, width: 1000, height: 800), isActive: true)
+        rig.checker.start()
+        try await rig.until("the covered window goes off screen") { rig.changes == [CheckerRig.Change(rig.tracked, true)] }
+        rig.policy.facts[ObjectIdentifier(rig.other)]?.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+        rig.post(NSWindow.didResizeNotification, rig.other)
+        try await rig.until("the shrunk cover uncovers") { rig.changes.last == CheckerRig.Change(rig.tracked, false) }
+    }
+
+    /// `WindowActivation` orders a covered window front without the keys (`.bringForward`, a
+    /// background deep link): no notification fires, the reorder report starts the pass.
+    @Test func aReorderWithoutAKeyChangeStartsAPass() async throws {
+        let rig = CheckerRig()
+        defer { rig.stop() }
+        rig.policy.facts[ObjectIdentifier(rig.other)] = WindowOcclusionFacts(
+            id: ObjectIdentifier(rig.other), frame: CGRect(x: 0, y: 0, width: 1000, height: 800))
+        rig.checker.start()
+        try await rig.until("the covered window goes off screen") { rig.changes == [CheckerRig.Change(rig.tracked, true)] }
+        // The cover is not active (the app is in the background), so `orderedWindows` is current.
+        rig.order = { [rig] in [rig.tracked, rig.other] }
+        rig.checker.windowsDidReorder()
+        try await rig.until("the window ordered front is on screen") { rig.changes.last == CheckerRig.Change(rig.tracked, false) }
+    }
+
+    /// Cmd-H orders every window out: none comes back on screen while the app is hidden, and an
+    /// uncovered one goes off screen.
+    @Test func hidingTheAppKeepsEveryWindowOffScreen() async throws {
+        let rig = CheckerRig()
+        defer { rig.stop() }
+        rig.checker.start()
+        try await rig.until("the first pass ran") { rig.checker.passes == 1 }
+        #expect(rig.changes.isEmpty)
+        rig.appHidden = true
+        for window in [rig.tracked, rig.other] {
+            rig.policy.facts[ObjectIdentifier(window)]?.isVisible = false
+            rig.policy.facts[ObjectIdentifier(window)]?.systemVisible = false
+        }
+        rig.center.post(name: NSApplication.didHideNotification, object: nil)
+        try await rig.until("the hidden app's window goes off screen") { rig.changes == [CheckerRig.Change(rig.tracked, true)] }
+        rig.post(NSWindow.didChangeOcclusionStateNotification, rig.tracked)
+        try await rig.until("a second pass ran") { rig.checker.passes == 3 }
+        #expect(rig.changes == [CheckerRig.Change(rig.tracked, true)], "a window came back on screen in a hidden app")
+        rig.appHidden = false
+        rig.policy.facts[ObjectIdentifier(rig.tracked)]?.isVisible = true
+        rig.policy.facts[ObjectIdentifier(rig.tracked)]?.systemVisible = true
+        rig.center.post(name: NSApplication.didUnhideNotification, object: nil)
+        try await rig.until("it comes back when the app unhides") { rig.changes.last == CheckerRig.Change(rig.tracked, false) }
+    }
+
+    /// An off-screen window that closes is dropped, never reported back on screen.
+    @Test func aClosingOffScreenWindowIsDroppedNotShown() async throws {
+        let rig = CheckerRig()
+        defer { rig.stop() }
+        rig.policy.facts[ObjectIdentifier(rig.tracked)]?.isMiniaturized = true
+        rig.policy.facts[ObjectIdentifier(rig.tracked)]?.isVisible = false
+        rig.policy.facts[ObjectIdentifier(rig.tracked)]?.systemVisible = false
+        rig.checker.start()
+        try await rig.until("the minimized window goes off screen") { rig.changes == [CheckerRig.Change(rig.tracked, true)] }
+        rig.isTracking = false
+        rig.post(NSWindow.willCloseNotification, rig.tracked)
+        #expect(rig.closed == [ObjectIdentifier(rig.tracked)])
+        try await rig.until("the close ran a pass") { rig.checker.passes == 2 }
+        #expect(rig.changes == [CheckerRig.Change(rig.tracked, true)], "the closing window was reported on screen")
+        #expect(!rig.checker.isOffScreen(rig.tracked))
+    }
+
     // MARK: Pages
 
-    @Test func aPageInAMinimizedWindowIsDueAfterTheTimeoutNeverWhileVisible() async throws {
+    /// The acceptance case: the tab beside the shown one in a minimized window is due after the
+    /// timeout, never while the window is visible; the shown page stays as the active tab.
+    @Test func aNeighborInAMinimizedWindowIsDueAfterTheTimeoutNeverWhileVisible() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        let key = try await rig.showPage("minimized")
+        let (shown, neighbor) = try await rig.showPageWithNeighbor("minimized")
         try await Task.sleep(for: .seconds(2))
-        #expect(rig.services.cache.phase(of: key) == .mountedVisible, "a page on screen left its visible phase")
-        #expect(!rig.isHibernated(key), "a page on screen was discarded")
+        #expect(rig.services.cache.phase(of: shown) == .mountedVisible, "a page on screen left its visible phase")
+        #expect(!rig.isHibernated(neighbor), "a neighbor of a page on screen was discarded")
+        #expect(rig.exemption(neighbor) == .neighbor)
 
         rig.minimize()
-        try await rig.until("the page hides with its window") { rig.services.cache.phase(of: key) == .mountedHidden }
-        try await rig.until("the page is discarded after the timeout") { rig.isHibernated(key) || rig.exemption(key) != nil }
-        #expect(rig.exemption(key) == nil)
-        #expect(rig.isHibernated(key))
+        try await rig.until("the neighbor is discarded after the timeout") { rig.isHibernated(neighbor) }
+        try await rig.until("the shown page is kept as the active tab") { rig.exemption(shown) == .activeTab }
+        #expect(rig.services.cache.phase(of: shown) == .mountedVisible, "the shown page was hidden with its window")
+        #expect(!rig.isHibernated(shown))
 
         rig.restore()
-        try await rig.until("the page shows again with its window") {
-            [.restoring, .mountedVisible].contains(rig.services.cache.phase(of: key))
-        }
+        try await rig.until("the neighbor wakes when its window shows") { rig.services.cache.phase(of: neighbor) != .hibernated }
+        try await rig.until("the shown page is no longer kept as off screen") { rig.exemption(shown) == nil }
     }
 
-    @Test func aPageInAWindowCoveredByAnotherCmuxWindowCountsAsHidden() async throws {
+    @Test func aNeighborInAWindowCoveredByAnotherCmuxWindowIsDiscarded() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        let key = try await rig.showPage("covered")
+        let (shown, neighbor) = try await rig.showPageWithNeighbor("covered")
         rig.cover()
-        try await rig.until("the covered page hides") { rig.services.cache.phase(of: key) == .mountedHidden }
-        try await rig.until("the covered page is discarded") { rig.isHibernated(key) || rig.exemption(key) != nil }
-        #expect(rig.isHibernated(key))
+        try await rig.until("the covered window's neighbor is discarded") { rig.isHibernated(neighbor) }
+        #expect(rig.services.cache.phase(of: shown) == .mountedVisible)
+        #expect(rig.exemption(shown) == .activeTab)
 
         rig.uncover()
-        try await rig.until("the page shows when its window is uncovered") {
-            [.restoring, .mountedVisible].contains(rig.services.cache.phase(of: key))
+        try await rig.until("the neighbor wakes when its window is uncovered") {
+            rig.services.cache.phase(of: neighbor) != .hibernated
         }
     }
 
-    /// Without the feature (no checker) a minimized window's page stays as it is.
-    @Test func withoutTheCheckerAMinimizedWindowsPageStays() async throws {
+    /// Displays asleep overnight: the page each window shows is not discarded, so waking the
+    /// displays reloads nothing the person was looking at.
+    @Test func displaySleepPastTheTimeoutKeepsTheShownPage() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let key = try await rig.showPage("asleep")
+        rig.workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        try await rig.until("the shown page is kept as the active tab") { rig.exemption(key) == .activeTab }
+        try await Task.sleep(for: .seconds(2))
+        #expect(!rig.isHibernated(key), "display sleep discarded the page on screen")
+        #expect(rig.services.cache.phase(of: key) == .mountedVisible)
+        rig.workspaceCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        try await rig.until("the page is on screen again") { rig.exemption(key) == nil }
+    }
+
+    /// Closing a minimized window does not restore the pages it discarded while its panes go.
+    @Test func closingAnOffScreenWindowWakesNoPageInIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let (_, neighbor) = try await rig.showPageWithNeighbor("closing")
+        rig.minimize()
+        try await rig.until("the neighbor is discarded") { rig.isHibernated(neighbor) }
+        rig.post(NSWindow.willCloseNotification, rig.window)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(rig.services.cache.phase(of: neighbor) == .hibernated, "closing the window restored its page")
+        rig.services.cache.removePresenter(rig.pane)
+        rig.hibernation.paneDidGo(ObjectIdentifier(rig.pane))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(rig.services.cache.phase(of: neighbor) == .hibernated, "the closing window's teardown restored its page")
+    }
+
+    /// Without the feature (no checker) a minimized window's pages stay as they are.
+    @Test func withoutTheCheckerAMinimizedWindowsPagesStay() async throws {
         let rig = try Rig(follows: false)
         defer { rig.close() }
-        let key = try await rig.showPage("unfollowed")
+        let (shown, neighbor) = try await rig.showPageWithNeighbor("unfollowed")
         rig.minimize()
         try await Task.sleep(for: .seconds(2))
-        #expect(rig.services.cache.phase(of: key) == .mountedVisible)
+        #expect(rig.services.cache.phase(of: shown) == .mountedVisible)
+        #expect(!rig.isHibernated(neighbor))
+    }
+
+    /// The window manager's order report reaches the checker through hibernation.
+    @Test func hibernationForwardsAReorderToItsChecker() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        try await rig.until("the first pass ran") { rig.checker.passes == 1 }
+        rig.hibernation.windowsDidReorder()
+        try await rig.until("the reorder ran a pass") { rig.checker.passes == 2 }
     }
 
     // MARK: Rig
@@ -159,15 +317,81 @@ import Testing
         }
     }
 
-    /// The app's cache and hibernation (a 0.6 s timeout, no freeze, no neighbors), one pane in
-    /// `window`, a second cmux window `coverWindow` that can cover it, and the checker with the fake
-    /// draw policy's facts.
+    static func makeWindow(_ frame: NSRect) -> NSWindow {
+        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// One tracked window and one window the checker does not track (an onboarding or debug window)
+    /// in front of it, hidden at first; what the checker reported.
+    @MainActor final class CheckerRig {
+        struct Change: Equatable {
+            var window: ObjectIdentifier
+            var offScreen: Bool
+            init(_ window: NSWindow, _ offScreen: Bool) {
+                self.window = ObjectIdentifier(window)
+                self.offScreen = offScreen
+            }
+        }
+
+        let tracked: NSWindow
+        let other: NSWindow
+        let center = NotificationCenter()
+        let policy: FakeDrawPolicy
+        var appHidden = false
+        /// False once the tracked window is gone from the app's list (its controller closed).
+        var isTracking = true
+        var order: @MainActor () -> [NSWindow] = { [] }
+        private(set) var changes: [Change] = []
+        private(set) var closed: [ObjectIdentifier] = []
+        private(set) var checker: WindowOcclusionChecker!
+
+        init() {
+            tracked = OccludedWindowDiscardTests.makeWindow(NSRect(x: 100, y: 100, width: 400, height: 300))
+            other = OccludedWindowDiscardTests.makeWindow(NSRect(x: 0, y: 0, width: 1000, height: 800))
+            policy = FakeDrawPolicy()
+            policy.facts[ObjectIdentifier(tracked)] = WindowOcclusionFacts(id: ObjectIdentifier(tracked), frame: tracked.frame)
+            policy.facts[ObjectIdentifier(other)] = WindowOcclusionFacts(id: ObjectIdentifier(other), frame: other.frame,
+                                                                        isVisible: false, systemVisible: false)
+            order = { [tracked, other] in [other, tracked] }
+            checker = WindowOcclusionChecker(
+                windows: { [weak self] in self.map { $0.isTracking ? [$0.tracked] : [] } ?? [] },
+                orderedWindows: { [weak self] in self?.order() ?? [] },
+                facts: { [policy] in policy.read($0) }, isAppHidden: { [weak self] in self?.appHidden ?? false },
+                drawsWhenOccluded: false, center: center, workspaceCenter: NotificationCenter())
+            checker.onChange = { [weak self] window, offScreen in
+                guard let self else { return }
+                changes.append(Change(window == ObjectIdentifier(tracked) ? tracked : other, offScreen))
+            }
+            checker.onClose = { [weak self] window in self?.closed.append(window) }
+        }
+
+        func post(_ name: Notification.Name, _ target: NSWindow) { center.post(name: name, object: target) }
+
+        func until(_ what: @autoclosure () -> String, _ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(condition(), "\(what()) never happened")
+        }
+
+        func stop() {
+            checker.stop()
+            tracked.close()
+            other.close()
+        }
+    }
+
+    /// The app's cache and hibernation (a 0.6 s timeout, no freeze, one neighbor on each side), one
+    /// pane in `window`, a second cmux window `coverWindow` that can cover it, and the checker with
+    /// the fake draw policy's facts.
     @MainActor final class Rig {
         let services: AppServices
         let hibernation: BrowserHibernation
         let window: NSWindow
         let coverWindow: NSWindow
         let center = NotificationCenter()
+        let workspaceCenter = NotificationCenter()
         let policy = FakeDrawPolicy()
         let checker: WindowOcclusionChecker
         let pane: Pane
@@ -180,13 +404,9 @@ import Testing
             services = AppServices(environment: AppEnvironment.current([:]))
             hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: LowPowerMode(enabled: false))
             services.cache.hibernation = hibernation
-            hibernation.apply(BrowserHibernationSetting(mode: .minutes(0.01), freezeSeconds: nil, neighborRadius: 0))
-            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled],
-                                  backing: .buffered, defer: false)
-            let coverWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.titled],
-                                       backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            coverWindow.isReleasedWhenClosed = false
+            hibernation.apply(BrowserHibernationSetting(mode: .minutes(0.01), freezeSeconds: nil, neighborRadius: 1))
+            let window = OccludedWindowDiscardTests.makeWindow(NSRect(x: 100, y: 100, width: 400, height: 300))
+            let coverWindow = OccludedWindowDiscardTests.makeWindow(NSRect(x: 0, y: 0, width: 1000, height: 800))
             self.window = window
             self.coverWindow = coverWindow
             pane = Pane(window: window)
@@ -194,8 +414,8 @@ import Testing
             policy.facts[ObjectIdentifier(coverWindow)] = WindowOcclusionFacts(id: ObjectIdentifier(coverWindow), frame: coverWindow.frame,
                                                                               isVisible: false, systemVisible: false)
             checker = WindowOcclusionChecker(windows: { return [window, coverWindow] }, orderedWindows: { return [coverWindow, window] },
-                                             facts: { [policy] in policy.read($0) }, drawsWhenOccluded: false,
-                                             center: center, workspaceCenter: NotificationCenter())
+                                             facts: { [policy] in policy.read($0) }, isAppHidden: { false }, drawsWhenOccluded: false,
+                                             center: center, workspaceCenter: workspaceCenter)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-occluded-discard-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -218,6 +438,16 @@ import Testing
             services.cache.present(key, by: pane, presence: .visible)
             try #require(services.cache.phase(of: key) == .mountedVisible)
             return key
+        }
+
+        /// Two tabs in the pane: `shown`, and `neighbor` beside it, hidden and kept awake as its neighbor.
+        func showPageWithNeighbor(_ name: String) async throws -> (shown: String, neighbor: String) {
+            let neighbor = try await showPage("\(name)-neighbor")
+            let shown = try await showPage(name)
+            hibernation.paneDidChange(ObjectIdentifier(pane), order: [shown, neighbor], selected: shown)
+            services.cache.withdraw(neighbor, by: pane)
+            try #require(services.cache.phase(of: neighbor) == .mountedHidden)
+            return (shown, neighbor)
         }
 
         func minimize() {

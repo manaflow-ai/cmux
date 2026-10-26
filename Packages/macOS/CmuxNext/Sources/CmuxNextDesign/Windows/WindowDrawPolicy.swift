@@ -104,8 +104,19 @@ public struct WindowDrawPolicy {
             isActive: window.isKeyWindow || window.isMainWindow, canBecomeActive: window.canBecomeKey || window.canBecomeMain,
             paintsOpaque: window.alphaValue >= 1 && !window.ignoresMouseEvents
                 && (window.isOpaque || window.backgroundColor.alphaComponent >= 1),
-            isChild: window.parentWindow != nil
+            ancestors: ancestors(of: window)
         )
+    }
+
+    /// `window`'s `parentWindow` chain, nearest first.
+    private static func ancestors(of window: NSWindow) -> [ObjectIdentifier] {
+        var chain: [ObjectIdentifier] = []
+        var parent = window.parentWindow
+        while let next = parent {
+            chain.append(ObjectIdentifier(next))
+            parent = next.parentWindow
+        }
+        return chain
     }
 
     /// Whether content in `window` may draw now (false without a window).

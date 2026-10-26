@@ -14,9 +14,8 @@ import os
 /// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
-/// Triggers are events only: a page hides (also when its window goes off screen,
-/// `windowOcclusion`), with a one-shot deadline for the
-/// earliest page to reach its threshold, the memory coordinator's level (a
+/// Triggers are events only: a page hides (a one-shot deadline for the
+/// earliest page to reach its threshold), the memory coordinator's level (a
 /// lossy consumer registration, `MemoryLevelConsumer` below), a settings
 /// change, or the user's Hibernate Tab action. There is no polling. Before a
 /// page hibernates, a probe asks it for playing media and edited form fields (with a deadline) and captures its history; the
@@ -48,8 +47,10 @@ final class BrowserHibernation {
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     private(set) var setting: BrowserHibernationSetting = .fallback
     private(set) var pressure: MemoryPressureLevel = .normal
-    /// When each hidden page was last visible.
+    /// When each hidden page, or each page of `offScreenShown`, was last on screen.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
+    /// Pages shown in off-screen windows: kept as each window's active tab (`DiscardRule.activeTab`).
+    private var offScreenShown: Set<String> = []
     /// When an agent last called each page (`noteAgentUse`).
     private var agentUsedAt: [String: ContinuousClock.Instant] = [:]
     /// Seconds after an agent's call during which its hidden page stays awake
@@ -85,9 +86,9 @@ final class BrowserHibernation {
     /// Its lossy consumer registration while started; the coordinator hands it each level and limit.
     private var memoryRegistration: MemoryConsumerRegistration?
     /// The coordinator's limit: critical (0 %) means the next release slice runs an urgent pass.
-    private(set) var memoryLimit = MemoryLimit.default
+    var memoryLimit = MemoryLimit.default
     /// Urgent passes the coordinator's critical release slices ran (`debug.surfaces`).
-    private(set) var urgentPasses = 0
+    var urgentPasses = 0
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
@@ -119,8 +120,7 @@ final class BrowserHibernation {
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
-    /// Reports the app's windows going off screen and back (`occludedWindowDiscard`), so the
-    /// pages they show count as hidden (`TabContentCache.windowDidChangeOnScreen`); nil when off.
+    /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
@@ -192,8 +192,12 @@ final class BrowserHibernation {
         windowOcclusion?.stop()
         windowOcclusion = checker
         checker.onChange = { [weak self] window, offScreen in self?.cache?.windowDidChangeOnScreen(window, offScreen: offScreen) }
+        checker.onClose = { [weak self] window in self?.cache?.offScreenWindowDidClose(window) }
         checker.start()
     }
+
+    /// The app ordered a window in (`WindowActivation`): the checker looks again.
+    func windowsDidReorder() { windowOcclusion?.windowsDidReorder() }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
     func follow(_ settings: SettingsController) {
@@ -229,7 +233,7 @@ final class BrowserHibernation {
 
     /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
     /// replans with it (the heaviest of equally idle pages goes first).
-    private func refreshMemoryIfNeeded() {
+    func refreshMemoryIfNeeded() {
         guard pressure != .normal, let measureMemory, !measuringMemory else { return }
         if let at = memoryMeasuredAt, (ContinuousClock.now - at).seconds < Self.memoryMaxAge { return }
         measuringMemory = true
@@ -280,6 +284,7 @@ final class BrowserHibernation {
 
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
+        _ = markOffScreen(key, false)
         hiddenAt[key] = .now
         replan()
     }
@@ -291,6 +296,7 @@ final class BrowserHibernation {
         probeHistory.clearMisses(key)
         hoveredAt[key] = nil
         hiddenAt[key] = nil
+        offScreenShown.remove(key)
         prepared[key] = nil
         exemptions[key] = nil
         probeKeptAt[key] = nil
@@ -342,6 +348,7 @@ final class BrowserHibernation {
         awakeNeighbors.remove(key)
         focusedAt[key] = nil
         leased.remove(key)
+        offScreenShown.remove(key)
         memoryBytes[key] = nil
         savedBytes[key] = nil
         probeKeptAt[key] = nil
@@ -364,12 +371,32 @@ final class BrowserHibernation {
         refreshNeighbors()
     }
 
-    /// The window of `panes` went off screen or came back: an off-screen pane keeps no neighbors
-    /// awake (their hidden clocks start now), and back on screen they wake as neighbors again.
-    func panesDidChangeScreen(_ panes: [ObjectIdentifier], offScreen: Bool) {
+    /// The window of `panes` (showing `shownPages`) went off screen or came back: an off-screen
+    /// pane keeps no neighbors awake, and back on screen they wake as neighbors again.
+    func panesDidChangeScreen(_ panes: [ObjectIdentifier], shownPages: [String], offScreen: Bool) {
         guard !panes.isEmpty else { return }
         for pane in panes { neighbors.setOffScreen(offScreen, pane: pane) }
-        refreshNeighbors()
+        for key in shownPages { _ = markOffScreen(key, offScreen) }
+        refreshNeighbors(replans: false)
+        replan()
+    }
+
+    /// Shown page `key` is in an off-screen window (a switch or a move there) or not.
+    func pageDidChangeScreen(_ key: String, offScreen: Bool) {
+        if markOffScreen(key, offScreen) { replan() }
+    }
+
+    /// Starts or stops shown page `key`'s hidden clock with its window; true when that changed.
+    private func markOffScreen(_ key: String, _ offScreen: Bool) -> Bool {
+        if offScreen {
+            guard offScreenShown.insert(key).inserted else { return false }
+            hiddenAt[key] = .now
+        } else {
+            guard offScreenShown.remove(key) != nil else { return false }
+            hiddenAt[key] = nil
+            if exemptions[key] == .activeTab { exemptions[key] = nil }
+        }
+        return true
     }
 
     /// The pointer moved onto hidden tab `key` in a strip (nil: off every tab).
@@ -440,9 +467,11 @@ final class BrowserHibernation {
         guard let cache else { return }
         let now = ContinuousClock.now
         var graceEnds: Double?
-        let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
+        let shownOffScreen = offScreenShown.filter { cache.lifecycle.phase($0) == .mountedVisible }
+        let candidates = (cache.lifecycle.keys(in: .mountedHidden) + shownOffScreen).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
             var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            facts.isActiveTab = offScreenShown.contains(key)
             // Beside a shown tab or just hovered: stays awake for an instant switch (`DiscardRule.neighbor`).
             let hover = awakeNeighbors.contains(key) ? nil : hoverLeft(key, now: now)
             facts.isNeighbor = awakeNeighbors.contains(key) || hover != nil
@@ -472,7 +501,7 @@ final class BrowserHibernation {
         } else {
             deadline.cancel()
         }
-        replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving })
+        replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving && !$0.isActiveTab })
     }
 
     // MARK: Freeze
@@ -689,37 +718,4 @@ final class BrowserHibernation {
 
 private extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
-}
-
-// One lossy memory consumer of the app's coordinator, as Chrome's urgent page discarding policy
-// (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo), which acts when its limit
-// reaches the critical threshold. The critical limit's release slice, a frame after the level
-// change, runs one urgent pass; the planner's critical pace runs the next ones. The level sets the
-// timeout and the warning pace (p07-memory.md section 3.A).
-extension BrowserHibernation: MemoryLevelConsumer {
-    static let memoryConsumerName = "browser-hibernation"
-    static let memoryTraits = MemoryConsumerTraits(
-        estimatedUsage: .large, dataAccess: .reads, retention: .lossy, recreateCost: .expensive,
-        releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
-
-    /// The coordinator gives the limit first, so at critical the pass waits for the release slice.
-    func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level, replans: !memoryLimit.isCritical) }
-    func updateMemoryLimit(_ limit: MemoryLimit) { memoryLimit = limit }
-
-    /// At the critical limit, one urgent pass: it starts the probes of the pages due now (each
-    /// discard finishes on its own turn) and arms the planner's next look.
-    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
-        guard slice.limit.isCritical else { return .done }
-        urgentPasses += 1
-        replan()
-        refreshMemoryIfNeeded()
-        return .done
-    }
-
-    /// The last sampled memory of the hidden pages it could discard; nil before the first sample.
-    var memoryUsage: MemoryUsage? {
-        guard let cache, !memoryBytes.isEmpty else { return nil }
-        let sampled = cache.lifecycle.keys(in: .mountedHidden).compactMap { memoryBytes[$0] }
-        return MemoryUsage(footprintBytes: Int(clamping: sampled.reduce(0, +)), entries: sampled.count)
-    }
 }

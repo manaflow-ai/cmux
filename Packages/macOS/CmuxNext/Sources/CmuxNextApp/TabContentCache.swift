@@ -22,9 +22,7 @@ final class TabContentCache {
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
-    /// The presence each presenter asked for; the ledger gets ``effectivePresence`` of it.
-    var declaredPresence: [ObjectIdentifier: SurfacePresence] = [:]
-    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show count as hidden.
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
     var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).

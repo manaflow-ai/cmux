@@ -13,7 +13,8 @@ public nonisolated struct WindowOcclusionFacts: Equatable, Sendable {
     public var isVisible: Bool
     public var isMiniaturized: Bool
     /// AppKit's answer (``WindowDrawPolicy/isOnScreen(_:)``): `occlusionState` contains `.visible`.
-    /// False on another Space, minimized, in a hidden app, or covered by another app's windows.
+    /// False on another Space, minimized, or covered by another app's windows. A hidden app's
+    /// windows are ordered out instead (``WindowOcclusionRule/appHidden``).
     public var systemVisible: Bool
     /// Key or main.
     public var isActive: Bool
@@ -22,12 +23,15 @@ public nonisolated struct WindowOcclusionFacts: Equatable, Sendable {
     /// It hides what is under it: fully opaque, takes mouse events, and is opaque or paints an
     /// opaque background. A glass window (non-opaque, translucent background) does not.
     public var paintsOpaque: Bool
+    /// Its `parentWindow` chain, nearest first. A window never covers its own ancestors: a Chromium
+    /// page window is a child of its cmux window, ordered above it and key while the page has focus.
+    public var ancestors: [ObjectIdentifier]
     /// A child window (`parentWindow` set): never judged, as Chrome's checker skips them.
-    public var isChild: Bool
+    public var isChild: Bool { !ancestors.isEmpty }
 
     public init(id: ObjectIdentifier, frame: CGRect, level: Int = 0, isVisible: Bool = true, isMiniaturized: Bool = false,
                 systemVisible: Bool = true, isActive: Bool = false, canBecomeActive: Bool = true, paintsOpaque: Bool = true,
-                isChild: Bool = false) {
+                ancestors: [ObjectIdentifier] = []) {
         self.id = id
         self.frame = frame
         self.level = level
@@ -37,30 +41,33 @@ public nonisolated struct WindowOcclusionFacts: Equatable, Sendable {
         self.isActive = isActive
         self.canBecomeActive = canBecomeActive
         self.paintsOpaque = paintsOpaque
-        self.isChild = isChild
+        self.ancestors = ancestors
     }
 }
 
 /// Whether a window is off screen (Chrome's `Visibility::OCCLUDED`): AppKit says it is not visible
-/// (minimized, another Space, a hidden app, covered by other apps' windows), the displays sleep, or
-/// one of the app's own windows in front of it covers it.
+/// (minimized, another Space, covered by other apps' windows), the app is hidden, the displays
+/// sleep, or one of the app's own windows in front of it covers it.
 ///
 /// AppKit does not report a window covered by a window of the same app, so this copies the manual
 /// check of Chrome's `WebContentsOcclusionCheckerMac`
 /// (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm, `-isWindowOccluded:`):
 /// a single opaque window in front whose frame contains the window's frame covers it (no region
 /// union: the transparent rounded corners of two side-by-side windows can show what is under
-/// them). A window that moves or resizes covers nothing until it stops, and the active window is
-/// never covered by an inactive one at the same or a lower level, even when `orderedWindows` lags
-/// behind the window server.
+/// them). A window that moves or resizes covers nothing until it stops, a window never covers its
+/// own ancestors, and the active window is never covered by an inactive one at the same or a lower
+/// level, even when `orderedWindows` lags behind the window server.
 public nonisolated struct WindowOcclusionRule: Sendable {
     /// The displays sleep (`NSWorkspace.screensDidSleepNotification`): every window is off screen.
     public var displaysAsleep: Bool
+    /// The app is hidden (Cmd-H, `NSApplication.isHidden`): every window is off screen.
+    public var appHidden: Bool
     /// The window being moved or live-resized now: it covers nothing.
     public var moving: ObjectIdentifier?
 
-    public init(displaysAsleep: Bool = false, moving: ObjectIdentifier? = nil) {
+    public init(displaysAsleep: Bool = false, appHidden: Bool = false, moving: ObjectIdentifier? = nil) {
         self.displaysAsleep = displaysAsleep
+        self.appHidden = appHidden
         self.moving = moving
     }
 
@@ -72,7 +79,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     ///   - frontToBack: The app's windows, front first; `window` among them.
     /// - Returns: True when nothing of it can be seen.
     public func isOccluded(_ window: WindowOcclusionFacts, frontToBack: [WindowOcclusionFacts]) -> Bool {
-        if displaysAsleep || !window.systemVisible { return true }
+        if displaysAsleep || appHidden || !window.systemVisible { return true }
         var seenWindow = false
         for next in frontToBack where next.isVisible {
             if next.id == window.id {
@@ -82,7 +89,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
                 seenWindow = true
                 continue
             }
-            if next.id == moving { continue }
+            if next.id == moving || next.ancestors.contains(window.id) { continue }
             if seenWindow, !next.isActive || next.level < window.level { continue }
             if window.isActive, !next.isActive, next.level <= window.level { continue }
             guard next.systemVisible, next.paintsOpaque else { continue }
@@ -95,30 +102,37 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 /// Tells its owner when each of the app's tracked windows goes off screen and comes back
 /// (``WindowOcclusionRule``), from window events only: it never polls `occlusionState`.
 ///
-/// The events are Chrome's checker's: AppKit's occlusion changes, a move or live resize starting
-/// and ending, a window closing, a window becoming or resigning main (Chrome added these for Cmd-`
-/// cycling, which skips `orderWindow:relativeTo:`), fullscreen transitions (whose spurious
-/// occlusion changes are ignored for the transitioning window) and the displays sleeping or
-/// waking. Chrome also swizzles `-[NSWindow orderWindow:relativeTo:]` to see reorders; cmux does
-/// not swizzle AppKit, and a reorder that covers a window changes which window is main, which
-/// the main notifications report. As in Chrome, events coalesce into one pass on a later main
-/// turn (`performSelector:afterDelay:0`), so the owner's reaction never runs inside a window
+/// The events are Chrome's checker's, from any of the app's windows, since any of them can cover
+/// a tracked one (onboarding, a debug window, a panel): AppKit's occlusion changes, a move or live
+/// resize starting and ending, a resize, a window closing, a window becoming or resigning main
+/// (Chrome added these for Cmd-` cycling, which skips `orderWindow:relativeTo:`), fullscreen
+/// transitions (whose spurious occlusion changes are ignored for the transitioning window), the
+/// app hiding or unhiding, and the displays sleeping or waking. Chrome also swizzles
+/// `-[NSWindow orderWindow:relativeTo:]` to see reorders; cmux does not swizzle AppKit: its one
+/// owner of window ordering, `WindowActivation`, reports each order it makes
+/// (``windowsDidReorder()``). As in Chrome, events coalesce into one pass on a later main turn
+/// (`performSelector:afterDelay:0`), so the owner's reaction never runs inside a window
 /// notification.
 ///
 /// ```swift
 /// let checker = WindowOcclusionChecker(windows: { controllers.compactMap(\.window) })
 /// checker.onChange = { window, offScreen in cache.windowDidChangeOnScreen(window, offScreen: offScreen) }
+/// checker.onClose = { window in cache.offScreenWindowDidClose(window) }
 /// checker.start()
 /// ```
 @MainActor public final class WindowOcclusionChecker {
-    /// A tracked window went off screen (true) or came back (false). A closing window reports false.
+    /// A tracked window went off screen (true) or came back (false).
     public var onChange: ((ObjectIdentifier, Bool) -> Void)?
+    /// A window last reported off screen closed or stopped being tracked. It is dropped without a
+    /// report that it came back, so nothing it shows is shown again while it goes away.
+    public var onClose: ((ObjectIdentifier) -> Void)?
     /// Passes run (tests prove there is no polling).
     public private(set) var passes = 0
 
     private let windows: @MainActor () -> [NSWindow]
     private let orderedWindows: @MainActor () -> [NSWindow]
     private let facts: @MainActor (NSWindow) -> WindowOcclusionFacts
+    private let isAppHidden: @MainActor () -> Bool
     /// Occluded windows draw in this launch (``WindowDrawPolicy/drawsWhenOccluded``): none is off screen.
     private let drawsWhenOccluded: Bool
     private let center: NotificationCenter
@@ -136,18 +150,21 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     ///   - windows: The tracked windows.
     ///   - orderedWindows: The app's windows front to back, the candidates that cover them.
     ///   - facts: Reads a window's facts (a seam for tests: a fake draw policy).
+    ///   - isAppHidden: Whether the app is hidden now.
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing, and so on screen here.
-    ///   - center: Window notifications.
+    ///   - center: Window and application notifications.
     ///   - workspaceCenter: The displays' sleep and wake.
     public init(windows: @escaping @MainActor () -> [NSWindow],
                 orderedWindows: @escaping @MainActor () -> [NSWindow] = { NSApp?.orderedWindows ?? [] },
                 facts: @escaping @MainActor (NSWindow) -> WindowOcclusionFacts = WindowDrawPolicy.occlusionFacts(of:),
+                isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                 drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                 center: NotificationCenter = .default,
                 workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
         self.windows = windows
         self.orderedWindows = orderedWindows
         self.facts = facts
+        self.isAppHidden = isAppHidden
         self.drawsWhenOccluded = drawsWhenOccluded
         self.center = center
         self.workspaceCenter = workspaceCenter
@@ -166,10 +183,14 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         on(NSWindow.willStartLiveResizeNotification) { [weak self] in self?.movingStarted($0) }
         on(NSWindow.didMoveNotification) { [weak self] in self?.movingEnded($0) }
         on(NSWindow.didEndLiveResizeNotification) { [weak self] in self?.movingEnded($0) }
+        // A programmatic or tiling resize; a live resize reports its end instead.
+        on(NSWindow.didResizeNotification) { [weak self] window in
+            if !window.inLiveResize, window.parentWindow == nil { self?.schedule() }
+        }
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeMainNotification,
                      NSWindow.didResignMainNotification] {
-            on(name) { [weak self] in self?.windowChanged($0) }
+            on(name) { [weak self] _ in self?.schedule() }
         }
         for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
             on(name) { [weak self] window in self?.fullscreenTransition = window }
@@ -179,6 +200,10 @@ public nonisolated struct WindowOcclusionRule: Sendable {
                 self?.fullscreenTransition = nil
                 self?.schedule()
             }
+        }
+        // Hiding the app orders every window out without an occlusion change of its own.
+        for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+            observations.append(MainActorObservation(name, center: center) { [weak self] in self?.schedule() })
         }
         observations.append(MainActorObservation(NSWorkspace.screensDidSleepNotification, center: workspaceCenter) { [weak self] in
             self?.rule.displaysAsleep = true
@@ -204,11 +229,20 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     /// Whether `window` was last reported off screen.
     public func isOffScreen(_ window: NSWindow) -> Bool { offScreen.contains(ObjectIdentifier(window)) }
 
+    /// The app ordered a window in, in front or behind (`WindowActivation`), in place of Chrome's
+    /// `orderWindow:relativeTo:` swizzle: a window ordered front without becoming key or main
+    /// posts nothing else that starts a pass.
+    public func windowsDidReorder() {
+        guard !observations.isEmpty else { return }
+        schedule()
+    }
+
     /// Judges every tracked window now and reports the ones whose state changed.
     public func update() {
         scheduled?.cancel()
         scheduled = nil
         passes += 1
+        rule.appHidden = isAppHidden()
         let ordered = orderedWindows().map(facts)
         var tracked: Set<ObjectIdentifier> = []
         for window in windows() {
@@ -219,22 +253,22 @@ public nonisolated struct WindowOcclusionRule: Sendable {
             let current = facts(window)
             set(id, offScreen: judges(current) && rule.isOccluded(current, frontToBack: ordered))
         }
-        for id in offScreen.subtracting(tracked) { set(id, offScreen: false) }
+        for id in offScreen.subtracting(tracked) { drop(id) }
     }
 
     // MARK: Events
 
-    /// A window that is not ordered in and not minimized is the window's own hidden state, and a
-    /// child window is never judged; both count as on screen here, as in Chrome's pass.
+    /// A child window is never judged, as in Chrome's pass. A window that is neither ordered in nor
+    /// minimized is in its own hidden state and counts as on screen here, unless the app is hidden:
+    /// that orders every window out.
     private func judges(_ facts: WindowOcclusionFacts) -> Bool {
         guard !drawsWhenOccluded, !facts.isChild else { return false }
-        return facts.isVisible || facts.isMiniaturized
+        return facts.isVisible || facts.isMiniaturized || rule.appHidden
     }
 
-    private func tracks(_ window: NSWindow) -> Bool { windows().contains { $0 === window } }
-
+    /// A moving top-level window covers nothing until it stops. A child window moves with its parent.
     private func movingStarted(_ window: NSWindow) {
-        guard tracks(window) else { return }
+        guard window.parentWindow == nil else { return }
         rule.moving = ObjectIdentifier(window)
         schedule()
     }
@@ -242,17 +276,18 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     /// A programmatic move sends no `willMove`, so every end schedules a pass.
     private func movingEnded(_ window: NSWindow) {
         if rule.moving == ObjectIdentifier(window) { rule.moving = nil }
-        if tracks(window) { schedule() }
-    }
-
-    private func windowChanged(_ window: NSWindow) {
-        if tracks(window) { schedule() }
-    }
-
-    /// A closing window may cover others; it no longer counts as off screen itself.
-    private func windowWillClose(_ window: NSWindow) {
-        set(ObjectIdentifier(window), offScreen: false)
         if window.parentWindow == nil { schedule() }
+    }
+
+    /// A closing window may cover others. It is dropped, not reported back on screen.
+    private func windowWillClose(_ window: NSWindow) {
+        drop(ObjectIdentifier(window))
+        if window.parentWindow == nil { schedule() }
+    }
+
+    private func drop(_ id: ObjectIdentifier) {
+        guard offScreen.remove(id) != nil else { return }
+        onClose?(id)
     }
 
     private func schedule() {
