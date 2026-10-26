@@ -5,7 +5,9 @@ saver/thermal guard; procs.py's counters (interrupt and package-idle wakeups apa
 the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the reference browser
 refusal, ratio rows and their noise floor; xbench's Chrome switches); and the shipping measurement mode (launch
 env, Debug refusal under --gate, the five report fields); the role and App Nap audit (task 106: `ps` priorities, D16's
-expected roles, pooled acpmux agents). Runs on any host (libproc loads only to measure)."""
+expected roles, pooled acpmux agents); and bench-typing.py's D8 benches (p14-energy-135: the Chromium composer and
+page-scroll plans, the saver launch, the scroll page and its read path, fixture results into p50/p95 and dropped
+frames, the D8 verdicts). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
@@ -1811,6 +1813,271 @@ class ShippingModeTests(unittest.TestCase):
     def test_gate_refuses_a_session_with_no_shipping_record(self):
         self.assertEqual([what for what, _ in ib.refusals({"saver": {"mismatch": None}})],
                          ["activated", "sentry", "hang_reports"])
+
+
+typing_spec = importlib.util.spec_from_file_location("bench_typing", HERE / "bench-typing.py")
+bt = importlib.util.module_from_spec(typing_spec)
+typing_spec.loader.exec_module(bt)
+
+
+def frames_path(wheels, moved, *runs, after=None):
+    """The scroll page's post of `runs` (lists of rAF times), with after-frame times 2 ms after each by default."""
+    def enc(lists):
+        return ";".join(",".join(f"{t:.2f}" for t in times) for times in lists) or "-"
+    after = [[t + 2 for t in times] for times in runs] if after is None else after
+    return ib.SCROLL_FRAMES_PATH + f"/{wheels}/{moved}/{enc(runs)}/{enc(after)}"
+
+
+def gesture(events=240, px=24.0, **counts):
+    """One gesture's counts as ScrollRun.gesture returns them, sent on time."""
+    return {"events": events, "failed": 0, "late": 0, "max_late_ms": 0, "max_gap_ms": 8.4,
+            "delta_px": (events - 1) * px, **counts}
+
+
+def steady(count, start=0.0):
+    return [round(start + i * 1000 / 120, 2) for i in range(count)]
+
+
+class D8BenchTests(unittest.TestCase):
+    """bench-typing.py's Chromium composer typing and page scroll, saver on and off (p14-energy-135)."""
+
+    def test_saver_launch_turns_the_feature_on_in_both_states(self):
+        self.assertEqual(ib.saver_launch(True), ({"energy": {"saver": "always"}}, {"CMUX_ENABLE_FEATURES": "energySaver"}))
+        self.assertEqual(ib.saver_launch(False), ({"energy": {"saver": "off"}}, {"CMUX_ENABLE_FEATURES": "energySaver"}))
+
+    def test_the_energy_saver_session_launches_with_the_feature_on(self):
+        base = {"CMUX_NEXT_ISOLATED_LAUNCH": "1"}
+        self.assertEqual(ib.session_env("energy-saver", base), {**base, "CMUX_ENABLE_FEATURES": "energySaver"})
+        for session in ib.SESSIONS:
+            if session != "energy-saver":
+                self.assertEqual(ib.session_env(session, base), base, session)
+
+    def test_dry_run_prints_both_surfaces_with_the_saver_on_and_off(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(out):
+            code = bt.main(["--app", APP, "--surface", "agent-composer-chromium,chromium-page-scroll",
+                            "--energy-saver", "off,on", "--dry-run", "--out", folder])
+        self.assertEqual(code, 0)
+        rows = [json.loads(line.removeprefix("BENCH-TYPING-PLAN ")) for line in out.getvalue().splitlines()]
+        self.assertEqual([(r["surface"], r["energy_saver"]) for r in rows],
+                         [("agent-composer-chromium", "off"), ("agent-composer-chromium", "on"),
+                          ("chromium-page-scroll", "off"), ("chromium-page-scroll", "on")])
+        for row in rows:
+            self.assertEqual(row["config"]["browser"], {"defaultEngine": "chromium"})
+            self.assertEqual(row["config"]["energy"], {"saver": "always" if row["energy_saver"] == "on" else "off"})
+            self.assertEqual(row["env"]["CMUX_ENABLE_FEATURES"], "energySaver")
+            self.assertEqual(row["env"].get("CMUX_NEXT_AGENT_PANE_MOCK"), "1" if row["surface"] == "agent-composer-chromium" else None)
+            self.assertTrue(row["out"].endswith(f"{row['surface']}-saver-{row['energy_saver']}"))
+            # Each printed command is one launch of that combination.
+            again = bt.parse_args(bt.shlex.split(row["command"])[2:])
+            self.assertEqual((again.surfaces, again.savers, again.out), ([row["surface"]], [row["energy_saver"]], row["out"]))
+            self.assertTrue(again.launched)
+
+    def test_a_single_run_with_no_saver_asks_nothing(self):
+        args = bt.parse_args(["--tag", "t"])
+        self.assertEqual((args.surface, args.energy_saver), ("terminal", None))
+        self.assertEqual(bt.launch_config("terminal", None), ({"appearance": {"backgroundOpacity": 1}}, {}))
+        self.assertIsNone(bt.saver_block(None, [], None))
+
+    def test_options_that_do_not_fit_the_surface_are_refused(self):
+        for argv in (["--tag", "t", "--surface", "agent-composer-chromium", "--flood", "2"],
+                     ["--tag", "t", "--surface", "chromium-page-scroll", "--stress"],
+                     ["--tag", "t", "--energy-saver", "maybe"],
+                     ["--tag", "t", "--surface", "chromium-page-scroll", "--scroll-seconds", "0"],
+                     ["--csv", "x.csv", "--analyze-only", "--energy-saver", "on"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                bt.parse_args(argv)
+
+    def test_composer_fixture_parses_into_p50_and_p95(self):
+        stats = {"keys": 118, "to_frame": {"p50_ms": 7.1, "p95_ms": 9.4, "max_ms": 15.2},
+                 "to_paint": {"p50_ms": 8.0, "p95_ms": 10.9, "max_ms": 17.0}}
+        got = bt.composer_result(stats, sent=120, failed=1)
+        self.assertEqual(got["key_to_frame_ms"], {"n": 118, "p50": 7.1, "p95": 9.4, "max": 15.2})
+        self.assertEqual(got["key_to_paint_ms"]["p95"], 10.9)
+        self.assertEqual((got["timed"], got["untimed"], got["failed_keys"]), (118, 1, 1))
+        self.assertNotIn("error", got)
+        empty = bt.composer_result({"keys": 0, "to_frame": {"p50_ms": 0, "p95_ms": 0, "max_ms": 0}}, sent=120)
+        self.assertIsNone(empty["key_to_frame_ms"])
+        self.assertIn("error", bt.composer_result({"error": "no agent pane"}, sent=120))
+
+    def test_composer_series_records_every_key(self):
+        raw = {"keys": 3, "samples": [{"to_frame_ms": 6.1, "to_paint_ms": 7.0}, {"to_frame_ms": 7.2, "to_paint_ms": 8.1},
+                                      {"to_frame_ms": 8.3, "to_paint_ms": 9.2}]}
+        self.assertEqual(bt.composer_series(raw), {"key_to_frame_ms": [6.1, 7.2, 8.3], "key_to_paint_ms": [7.0, 8.1, 9.2]})
+        self.assertEqual(bt.composer_series({"keys": 3}), {"key_to_frame_ms": [], "key_to_paint_ms": []})
+        self.assertEqual(bt.composer_series(None), {"key_to_frame_ms": [], "key_to_paint_ms": []})
+
+    def test_scroll_fixture_counts_dropped_frames_at_120_hz(self):
+        period = 1000 / 120
+        # One frame late by two refreshes: two dropped.
+        janky = steady(100) + [round((i + 2) * period, 2) for i in range(100, 239)]
+        reads = [ib.parse_scroll_frames(frames_path(240, 5736, steady(240))),
+                 ib.parse_scroll_frames(frames_path(239, 5712, janky))]
+        got = bt.scroll_result(reads, 120.0, gestures=[gesture(), gesture()])
+        self.assertEqual([s["dropped_frames"] for s in got["scrolls"]], [0, 2])
+        self.assertEqual(got["dropped_frames"], 2)
+        self.assertEqual(got["frames"], 479)
+        self.assertEqual((got["wheels_sent"], got["wheels_received"], got["scrolled_px"]), (480, 479, 11448))
+        self.assertAlmostEqual(got["frame_interval_ms"]["p50"], period, delta=0.02)
+        self.assertAlmostEqual(got["frame_interval_ms"]["max"], 3 * period, delta=0.02)
+        self.assertAlmostEqual(got["after_frame_interval_ms"]["p50"], period, delta=0.02)
+        self.assertAlmostEqual(got["fps"], 119.2, delta=0.5)
+        self.assertEqual(got["nominal_ms"], 8.333)
+        self.assertNotIn("error", got)
+        # The same frames judged at 60 Hz drop nothing: the refresh rate sets what a drop is.
+        self.assertEqual(bt.frame_drops([period * 2] * 10, 1000 / 60), 0)
+
+    def test_a_pause_in_the_input_is_no_dropped_frame(self):
+        # The page stopped its loop after the quiet time and started a new run at the next wheel event, 100 ms later:
+        # the gap between the runs is no interval, so no frame dropped (one record of both runs counted 11).
+        first = steady(120)
+        second = steady(120, start=first[-1] + 100)
+        got = bt.scroll_result([ib.parse_scroll_frames(frames_path(240, 5736, first, second))], 120.0,
+                               gestures=[gesture()])
+        self.assertEqual(got["scrolls"][0]["runs"], 2)
+        self.assertEqual(got["dropped_frames"], 0)
+        self.assertEqual(len(got["intervals_ms"]), 238)
+        self.assertAlmostEqual(got["fps"], 120.0, delta=0.5)
+        self.assertNotIn("error", got)
+        self.assertEqual(bt.frame_drops(bt.run_intervals([first + second]), 1000 / 120), 11)
+        self.assertEqual(bt.run_intervals([[0, 8, 16], [116, 124]]), [8, 8, 8])
+
+    def test_a_scroll_the_bench_did_not_drive_steadily_is_an_error(self):
+        moved = ib.parse_scroll_frames(frames_path(240, 5736, steady(240)))
+        cases = {
+            "wheel events failed": (moved, gesture(failed=3)),
+            "ms apart: the input paused": (moved, gesture(max_gap_ms=104.0, late=1, max_late_ms=96.0)),
+            "received 12 of 240": (ib.parse_scroll_frames(frames_path(12, 288, steady(12))), gesture()),
+            "did not move": (ib.parse_scroll_frames(frames_path(240, 0, steady(240))), gesture()),
+            "moved 900 px of 5736": (ib.parse_scroll_frames(frames_path(240, 900, steady(240))), gesture()),
+        }
+        for reason, (read, sent) in cases.items():
+            got = bt.scroll_result([read], 120.0, gestures=[sent])
+            self.assertIn(reason, got.get("error", ""), reason)
+            self.assertIn("scroll 1: ", got["error"])
+        # A late send inside the quiet time keeps the run whole: no refusal.
+        on_time = gesture(late=4, max_late_ms=6.0, max_gap_ms=14.3)
+        self.assertNotIn("error", bt.scroll_result([moved], 120.0, gestures=[on_time]))
+
+    def test_a_scroll_with_no_frames_or_no_read_is_an_error(self):
+        none = bt.scroll_result([ib.parse_scroll_frames(frames_path(0, 0))], 120.0)
+        self.assertIn("did not move", none["error"])
+        self.assertIsNone(none["dropped_frames"])
+        self.assertIn("no wheel event reached it", bt.scroll_result([], 120.0)["error"])
+        unread = bt.scroll_result([{"error": "the page posted no scroll frames in 10 s"}], 120.0)
+        self.assertIn("posted no scroll frames", unread["error"])
+        self.assertIn("error", ib.parse_scroll_frames(ib.SCROLL_FRAMES_PATH + "/x/0/-/-"))
+        self.assertIn("error", ib.parse_scroll_frames(ib.SCROLL_FRAMES_PATH + "/3/0/0,8.33"))
+
+    def test_the_scroll_page_records_runs_only_while_input_is_active(self):
+        import urllib.request
+        with ib.IdlePages() as pages:
+            page = urllib.request.urlopen(pages.origin + ib.SCROLL_PATH, timeout=5).read().decode()
+        self.assertIn("addEventListener('wheel'", page)
+        self.assertIn("{passive:true}", page)
+        self.assertIn(f"performance.now()-last>{ib.SCROLL_QUIET_MS}", page)
+        self.assertIn("runs.push(run)", page)  # a loop that starts again starts a new run
+        self.assertIn("new MessageChannel()", page)  # the after-frame time
+        self.assertIn("scrollTo(0,0)", page)  # every gesture has the page's height to scroll
+        self.assertIn(f"i<{ib.SCROLL_ROWS}", page)
+        for path in (ib.SCROLL_READ_PATH, ib.SCROLL_FRAMES_PATH, "/loaded/scroll"):
+            self.assertIn(path, page)
+        self.assertNotIn("setInterval", page)
+
+    def test_a_gesture_that_scrolls_past_the_page_is_refused(self):
+        events = bt.gesture_events(2.0, 120.0)
+        self.assertEqual(events, 240)
+        self.assertLessEqual(events * 24.0, ib.SCROLL_PAGE_PX - bt.WINDOW[3])
+        self.assertGreater(bt.gesture_events(2.0, 240.0) * 100.0, ib.SCROLL_PAGE_PX - bt.WINDOW[3])
+
+    def test_a_gesture_moves_the_pointer_only_on_its_first_event(self):
+        sent = []
+
+        class App:
+            def rpc(self, method, params, timeout):
+                sent.append(params)
+                return {"delivered_to": "RenderWidgetHostViewCocoa"}
+        run = bt.ScrollRun.__new__(bt.ScrollRun)
+        run.app, run.args = App(), types.SimpleNamespace(scroll_seconds=0.05, scroll_px=24.0)
+        got = run.gesture(120.0)
+        self.assertEqual([p["phase"] for p in sent], ["began"] + ["changed"] * 4 + ["ended"])
+        self.assertNotIn("hover", sent[0])
+        self.assertTrue(all(p["hover"] is False for p in sent[1:]))
+        self.assertEqual((got["events"], got["failed"], got["delta_px"]), (6, 0, 120.0))
+        self.assertLess(got["max_gap_ms"], 60)
+
+    def test_read_scroll_answers_the_held_read_and_returns_the_posted_frames(self):
+        import threading
+        import urllib.request
+        with ib.IdlePages() as pages:
+            def page():
+                urllib.request.urlopen(pages.origin + ib.SCROLL_READ_PATH, timeout=10).read()
+                urllib.request.urlopen(urllib.request.Request(
+                    pages.origin + frames_path(3, 72, [0, 8.33], [120, 128.33]), method="POST"), timeout=5).read()
+            held = threading.Thread(target=page)
+            held.start()
+            got = pages.read_scroll(5)
+            held.join(5)
+            self.assertEqual(got, {"wheels": 3, "scrolled_px": 72, "runs_ms": [[0.0, 8.33], [120.0, 128.33]],
+                                   "post_runs_ms": [[2.0, 10.33], [122.0, 130.33]]})
+            self.assertIn("posted no scroll frames", pages.read_scroll(0.2)["error"])
+            self.assertIn("error", pages.read_anim(0.2))  # the two read paths are apart
+
+    def test_d8_verdicts(self):
+        def typed(p95, mismatch=None, timed=120, failed=0):
+            return {"sent": 120, "timed": timed, "failed_keys": failed, "saver": {"mismatch": mismatch},
+                    "key_to_frame_ms": {"n": timed, "p50": 6.0, "p95": p95, "max": 12.0}}
+
+        def terminal(p95, n=120, failed=0):
+            return {"phases": {"single": {"keys": 120, "failed_keys": failed,
+                                          "stats": {"key_to_frame_ms": {"n": n, "p95": p95}}}}}
+
+        def scrolled(dropped, fps=119.6, hz=120.0, source=bt.HZ_FROM_DISPLAY):
+            return {"dropped_frames": dropped, "fps": fps, "hz": hz, "hz_source": source}
+        verdicts = bt.d8_verdicts({
+            ("agent-composer-chromium", "off"): typed(9.0), ("agent-composer-chromium", "on"): typed(9.4),
+            ("chromium-page-scroll", "off"): scrolled(0), ("chromium-page-scroll", "on"): scrolled(3),
+            ("terminal", "off"): terminal(4.0), ("terminal", "on"): terminal(4.6)})
+        self.assertEqual(verdicts["agent-composer-chromium"]["verdict"], "pass")
+        self.assertEqual(verdicts["agent-composer-chromium"]["delta_ms"], 0.4)
+        self.assertEqual(verdicts["chromium-page-scroll"]["verdict"], "fail")
+        self.assertEqual(verdicts["terminal"]["verdict"], "fail")
+
+        def scroll(on):
+            return bt.d8_verdicts({("chromium-page-scroll", "off"): scrolled(0),
+                                   ("chromium-page-scroll", "on"): on})["chromium-page-scroll"]
+        self.assertEqual(scroll(scrolled(0))["verdict"], "pass")
+        self.assertEqual(scroll(scrolled(0, fps=100.0))["verdict"], "fail")  # no drop counted, but not 120 Hz
+        for unscored, reason in ((scrolled(0, hz=60.0, source=bt.HZ_FROM_FLAG), "60 Hz"),
+                                 (scrolled(0, source=bt.HZ_ASSUMED), "assumed"),
+                                 ({**scrolled(0), "error": "scroll 1: two wheel events were sent 104 ms apart"},
+                                  "104 ms apart")):
+            got = scroll(unscored)
+            self.assertEqual(got["verdict"], "unscored", reason)
+            self.assertTrue(any(reason in why for why in got["why"]), got["why"])
+
+        def composer(on):
+            return bt.d8_verdicts({("agent-composer-chromium", "off"): typed(9.0),
+                                   ("agent-composer-chromium", "on"): on})["agent-composer-chromium"]
+        refused = composer(typed(9.0, "asked energy saver on, debug.energy reported [False, False]"))
+        self.assertEqual(refused["verdict"], "unscored")
+        self.assertIn("saver on: asked energy saver on", refused["why"][0])
+        self.assertIn("40 of 120 keys timed", composer(typed(9.0, timed=40))["why"][0])
+        self.assertIn("2 keys failed", composer(typed(9.0, timed=118, failed=2))["why"][0])
+        short = bt.d8_verdicts({("terminal", "off"): terminal(4.0), ("terminal", "on"): terminal(4.1, n=60)})
+        self.assertEqual(short["terminal"]["verdict"], "unscored")
+        self.assertIn("60 of 120 keys timed", short["terminal"]["why"][0])
+        failed = bt.d8_verdicts({("chromium-page-scroll", "off"): {"error": "launch failed"},
+                                 ("chromium-page-scroll", "on"): scrolled(0)})
+        self.assertEqual(failed["chromium-page-scroll"]["verdict"], "unscored")
+        self.assertEqual(bt.d8_verdicts({("chromium-page-scroll", "on"): scrolled(0)}), {})
+
+    def test_saver_block_needs_both_ends_to_show_the_asked_state(self):
+        self.assertIsNone(bt.saver_block("on", [True, True], "setting")["mismatch"])
+        self.assertIn("asked energy saver on", bt.saver_block("on", [True, None], None)["mismatch"])
+        self.assertIn("asked energy saver on", bt.saver_block("on", [], None)["mismatch"])
+        self.assertIn("asked energy saver off", bt.saver_block("off", [False, True], "setting")["mismatch"])
+        self.assertIsNone(bt.saver_block("off", [False, False], None)["mismatch"])
 
 
 # ---------------------------------------------------------------------------------------------------------

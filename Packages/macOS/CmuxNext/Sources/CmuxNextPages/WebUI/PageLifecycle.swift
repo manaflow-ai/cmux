@@ -21,8 +21,9 @@ package protocol PageLifecycleTarget {
     /// The page shows again running (it was hidden or frozen, not discarded): the picture kept at its
     /// hide is out of date.
     func dropHideSnapshot()
-    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
-    func freeze()
+    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory. Returns false when
+    /// the page refused (it shows, or its engine did not freeze it): it stays hidden.
+    func freeze() -> Bool
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
@@ -36,10 +37,10 @@ package protocol PageLifecycleTarget {
 }
 
 /// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
-/// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode; the
-/// discard ends the document and thaw brings a discarded page back behind that picture
-/// (PageWebView+Discard.swift). Freeze, and thaw of a frozen page, are no-ops until p13-webui-028
-/// (Chromium SetPageFrozen, WebKit hidden in its window).
+/// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
+/// Freeze and thaw are the view's (``PageWebView/freezePage()``: Chromium SetPageFrozen, WebKit
+/// hidden in its window); the discard ends the document and thaw brings a discarded page back behind
+/// that picture (PageWebView+Discard.swift).
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
     private let encoder: PageSnapshotEncoder
@@ -80,8 +81,13 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
     package func dropHideSnapshot() { view?.hideState.drop() }
-    package func freeze() {}
-    package func thaw() { view?.restoreDiscardedPage() }
+    package func freeze() -> Bool { view?.freezePage() ?? false }
+    /// Thaws a frozen page, or brings a discarded one back; each step does nothing on a page in the
+    /// other state.
+    package func thaw() {
+        view?.thawPage()
+        view?.restoreDiscardedPage()
+    }
     package func discard() -> Bool { view?.discardPage(decoder: encoder) ?? false }
 }
 
@@ -312,7 +318,14 @@ package final class PageLifecycle {
         guard var entry = entries[decision.key], entry.state != decision.state else { return true }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
-            entry.target.freeze()
+            guard entry.target.freeze() else {
+                // Refused (its engine page is still starting, or still counts it visible): asked
+                // again after one recently visible window, as BrowserHibernation asks a refused
+                // page again after freezeSeconds. The plan's own deadline may be the discard, or none.
+                let retry = planner.timing.visibleWindow(energySaver: conditions.energySaver)
+                arm(at: uptime() + .seconds(retry))
+                return true
+            }
         case (.hidden, .discarded), (.frozen, .discarded):
             guard entry.target.discard() else { return false }
         case (.frozen, .hidden):

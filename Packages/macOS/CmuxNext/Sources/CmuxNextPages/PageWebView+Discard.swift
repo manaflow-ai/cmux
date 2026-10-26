@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 public import Foundation
 import CmuxNextSettings
 import QuartzCore
@@ -82,6 +83,12 @@ extension PageWebView {
         guard !isParkedSpare, !isShownForDiscard else { return false }
         // First: from here the page loads nothing, so ending its document below reports no load.
         discardShell.isDiscarded = true
+        // A frozen page's engine page goes with its document; the WebKit view gets back the
+        // throttling it had before the freeze, which its restored document runs with.
+        if case .webKit(let restoring)? = frozenEngine, let restoring {
+            webView.configuration.preferences.setHiddenPageThrottling(restoring)
+        }
+        frozenEngine = nil
         popupHost?.dismiss()
         router.close()
         _ = claimState.end()

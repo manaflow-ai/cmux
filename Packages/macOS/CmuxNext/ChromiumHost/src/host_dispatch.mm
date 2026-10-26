@@ -494,6 +494,17 @@ void HostContext::ForgetMirror(uint16_t op, const TlvWriter& key) {
   Post(MessageOf(kOpMirror, false, 0, forget.Take()));
 }
 
+void HostContext::RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards) {
+  if (mirrors_.Refresh(*this, op, key.fields(), wildcards)) return;
+  // A watched mirror: only the keys cmux watches, so no key it never asked for gets a value
+  // that nothing refreshes later.
+  auto found = watched_.find(op);
+  if (found == watched_.end()) return;
+  for (const std::vector<control::Field>& watched : found->second) {
+    if (HostMirrors::KeyMatches(watched, key.fields(), wildcards)) Produce(op, watched);
+  }
+}
+
 void HostContext::Post(control::Message message) {
   if (send_(message)) return;
   // Over a frame bound (a value past 64 KiB goes as shm, task 020) or the channel ended.
