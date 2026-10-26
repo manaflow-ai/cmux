@@ -62,6 +62,9 @@ public final class TraceRuntime: Sendable {
     /// and never released) when it routes the process's checked blocking calls (``shared`` does), else 0. Set
     /// once, in `init`, before any other thread sees the runtime.
     let blockingSinkAddress = Atomic<UInt64>(0)
+    /// The address of the histogram store ``attachMetrics(_:)`` attached (retained once and never released, as
+    /// the ring), 0 until its owner attaches one.
+    let metricsAddress = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -114,6 +117,29 @@ public final class TraceRuntime: Sendable {
     @inline(__always)
     private var attachedRing: Unmanaged<TraceRing>? {
         UnsafeRawPointer(bitPattern: UInt(ringAddress.load(ordering: .acquiring))).map { Unmanaged.fromOpaque($0) }
+    }
+
+    // MARK: metrics
+
+    /// Gives this runtime its histogram store, CmuxNextMetrics' `MetricsStore` (the only caller), which every
+    /// `Metrics(runtime:)` of the process then records into. Chrome keeps one `GlobalHistogramAllocator` per
+    /// process beside its `TraceLog` the same way (base/metrics/persistent_histogram_allocator.h).
+    ///
+    /// - Returns: false when a store was attached already (the first one stays).
+    @discardableResult
+    package func attachMetrics<Store: AnyObject & Sendable>(_ store: Store) -> Bool {
+        let retained = Unmanaged.passRetained(store)
+        let address = UInt64(UInt(bitPattern: retained.toOpaque()))
+        guard metricsAddress.compareExchange(expected: 0, desired: address, ordering: .acquiringAndReleasing).exchanged else {
+            retained.release()
+            return false
+        }
+        return true
+    }
+
+    /// The store ``attachMetrics(_:)`` attached, unretained (it lives as long as the process), nil until then.
+    package var attachedMetrics: Unmanaged<AnyObject>? {
+        UnsafeRawPointer(bitPattern: UInt(metricsAddress.load(ordering: .acquiring))).map { Unmanaged.fromOpaque($0) }
     }
 
     // MARK: categories
