@@ -52,6 +52,8 @@ final class AppControl {
     private(set) var errorJournal: ErrorJournalService?
     /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
     private(set) var actionBudget: ActionBudgetReporter?
+    /// The frames after the person's actions on the key window (`action.missed_frames.cmd_t/n/w`).
+    private var commitWindows: ActionCommitWindows?
     /// The task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`): the watchdog records over-budget
     /// tasks with a stack, and the action budget's Debug line names that it sampled them. Read once.
     private let recordsTaskBudgets = MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment)
@@ -104,6 +106,7 @@ final class AppControl {
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild, work: services.work)
+        commitWindows = ActionCommitWindows(monitor: services.actionBudget) { NSApp.keyWindow.map { FrameScheduler.forWindow($0) } }
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.

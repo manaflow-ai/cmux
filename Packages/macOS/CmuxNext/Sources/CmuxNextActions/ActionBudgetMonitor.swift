@@ -74,6 +74,10 @@ public final class ActionBudgetMonitor {
     private let presentEstimates: @MainActor (ActionPresentSignpostMessage) -> Void
     /// Estimated presents recorded since launch.
     public private(set) var presentEstimateCount: UInt64 = 0
+    /// Told once each committed run's commit has ended and been recorded, with the run's interned index and
+    /// entrypoint (the App's `ActionCommitWindows` counts the frames after it); never for a missed commit or a
+    /// nested loop. Nil tells no one.
+    public var onCommit: (@MainActor (_ index: UInt32, _ entrypoint: ActionEntrypoint) -> Void)?
     /// Each interned action's owner index on ``board``, by monitor index.
     private var owners: [UInt32] = [0]
     /// Runs before this sequence were handed to the batch reader (or had none to go to).

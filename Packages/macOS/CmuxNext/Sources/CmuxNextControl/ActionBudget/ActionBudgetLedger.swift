@@ -8,10 +8,10 @@ public import CmuxNextMetrics
 /// The same fold records the actions' field histograms (p09-observability task 056; Chrome reads latency and
 /// smoothness per interaction the same way, cc/metrics/event_latency_tracker.cc and
 /// cc/metrics/frame_sequence_tracker.cc): `action.commit.<entrypoint>` for every committed run, `action.cmd_t`,
-/// `action.cmd_n` and `action.cmd_w` for the key runs of New Tab, New Window and Close Tab (``command(for:)``),
-/// and `action.missed_frames.<command>` once that run's commit window has closed
-/// (``noteCommitWindow(missedFrames:closedAtUptimeNanos:)``). None of it adds work to the action's turn: the runs
-/// reach the ledger after the commit they are timed to.
+/// `action.cmd_n` and `action.cmd_w` for the key runs of New Tab, New Window and Close Tab (``command(for:)``).
+/// None of it adds work to the action's turn: the runs reach the ledger after the commit they are timed to. Their
+/// `action.missed_frames.<command>` is recorded on main where the frames after the commit are counted
+/// (``ActionCommitWindows``), not here.
 public actor ActionBudgetLedger {
     /// The histogram's bucket edges in milliseconds (fixed, so reports from every build and day
     /// add up, and p95 / p99 come out of the counts): a run counts in the first edge it does not
@@ -22,32 +22,9 @@ public actor ActionBudgetLedger {
     /// uncataloged ids fold into two report ids, so this bound is never reached in practice.
     public static let maxRows = 4_096
 
-    /// The longest a commit window may close after its run's commit and still count for it: a window spans the
-    /// 3 refreshes after the commit (`FrameSequenceTracker.commitWindowFrames`) and closes at the first frame
-    /// after them, so only a hung main thread takes longer, and the hang histograms own that.
-    public static let commitWindowSpanNanos: UInt64 = 1_000_000_000
-    /// Key runs of New Tab, New Window and Close Tab kept while they wait for their commit window.
-    static let maxPendingCommands = 16
-    /// Commit windows kept until a later run settles them (runs reach the ledger a batch at a time).
-    static let maxPendingWindows = 256
-
     private struct Key: Hashable {
         let id: String
         let entrypoint: ActionEntrypoint
-    }
-
-    /// A key run of a timed command whose commit window has not been seen yet.
-    private struct PendingCommand {
-        let command: HistogramID.Command
-        /// `CLOCK_UPTIME_RAW` nanoseconds at the end of the run's commit.
-        let committedAt: UInt64
-    }
-
-    /// A closed commit window whose run has not been folded yet.
-    private struct PendingWindow {
-        let missedFrames: Int64
-        /// `CLOCK_UPTIME_RAW` nanoseconds when the window closed.
-        let closedAt: UInt64
     }
 
     /// The budget, in milliseconds.
@@ -58,13 +35,6 @@ public actor ActionBudgetLedger {
     private var total = 0
     private var excluded = 0
     private var over = 0
-    /// Oldest first, by commit.
-    private var commands: [PendingCommand] = []
-    /// Oldest first, by close.
-    private var windows: [PendingWindow] = []
-    /// The end of the newest commit folded. Commits end in run order, so a window that closed before it has met
-    /// every run it could belong to.
-    private var newestCommit: UInt64 = 0
 
     /// - Parameters:
     ///   - budgetMilliseconds: The monitor's budget.
@@ -79,36 +49,22 @@ public actor ActionBudgetLedger {
     /// The timed command whose `action.cmd_*` and `action.missed_frames.*` histograms `id`'s key runs go to: the
     /// catalog's New Tab (Cmd-T), New Window (`cmd_n`, the catalog's "Cmd-N, a new window"; Shift-Cmd-N in cmux)
     /// and Close Tab (Cmd-W). Keyed by action, so a rebound shortcut still counts as its action.
-    public static func command(for id: ActionID) -> HistogramID.Command? {
-        switch id.rawValue {
-        case "newTab.default": .cmdT
-        case "newWindow": .cmdN
-        case "closeTab": .cmdW
-        default: nil
+    public nonisolated static func command(for id: ActionID) -> HistogramID.Command? {
+        HistogramID.Command.allCases.first { actionID(of: $0) == id }
+    }
+
+    /// The catalog action whose key runs `command`'s histograms time (the inverse of ``command(for:)``).
+    public nonisolated static func actionID(of command: HistogramID.Command) -> ActionID {
+        switch command {
+        case .cmdT: "newTab.default"
+        case .cmdN: "newWindow"
+        case .cmdW: "closeTab"
         }
     }
 
     /// Folds `runs` in.
     public func note(_ runs: [ActionTimingSample]) {
         for run in runs { note(run) }
-        matchCommitWindows()
-    }
-
-    /// A commit window closed with `missedFrames` refreshes that showed no frame (the `dropped` count of a
-    /// `FrameSequenceTracker` commit window). It counts for the newest New Tab, New Window or Close Tab key run
-    /// that committed before it closed, at most ``commitWindowSpanNanos`` earlier. Runs reach the ledger in
-    /// batches after the window, so it is recorded once a run that committed after the close is folded; a window
-    /// with no such command run records nothing.
-    ///
-    /// - Parameters:
-    ///   - missedFrames: The window's dropped frames.
-    ///   - closedAtUptimeNanos: `CLOCK_UPTIME_RAW` nanoseconds at the close (``ActionBudgetMonitor/now()``).
-    public func noteCommitWindow(missedFrames: Int, closedAtUptimeNanos: UInt64) {
-        if windows.count == Self.maxPendingWindows { windows.removeFirst() }
-        let window = PendingWindow(missedFrames: Int64(clamping: max(missedFrames, 0)), closedAt: closedAtUptimeNanos)
-        let position = windows.lastIndex { $0.closedAt <= closedAtUptimeNanos }.map { $0 + 1 } ?? 0
-        windows.insert(window, at: position)
-        matchCommitWindows()
     }
 
     private func note(_ run: ActionTimingSample) {
@@ -136,31 +92,13 @@ public actor ActionBudgetLedger {
     }
 
     /// `action.commit.<entrypoint>` (start to commit) and, for a timed command's key run, `action.cmd_*` from the
-    /// key event to the commit; that run then waits for its commit window.
+    /// key event to the commit.
     private func recordFieldHistograms(_ run: ActionTimingSample) {
         let microseconds = Int64(clamping: run.nanos / 1_000)
         metrics.record(.actionCommit(HistogramID.Entrypoint(run.entrypoint)), microseconds)
-        let committedAt = run.startUptimeNanos &+ run.nanos
-        newestCommit = max(newestCommit, committedAt)
         guard run.entrypoint == .key, let command = Self.command(for: run.id) else { return }
         let fromInput = run.inputToCommitMilliseconds.flatMap { Int64(exactly: ($0 * 1_000).rounded()) } ?? microseconds
         metrics.record(.actionCommand(command), fromInput)
-        if commands.count == Self.maxPendingCommands { commands.removeFirst() }
-        commands.append(PendingCommand(command: command, committedAt: committedAt))
-    }
-
-    /// Pairs each settled window, oldest first, with the newest pending command committed before it closed, and
-    /// drops a settled window with none. A window settles once a run that committed after it closed is folded:
-    /// runs commit in order, so every run it could belong to is folded by then. A later command in the same window
-    /// takes it from an earlier one (the window counts the frames after both, once), and the earlier one is dropped.
-    private func matchCommitWindows() {
-        while let window = windows.first, window.closedAt <= newestCommit {
-            windows.removeFirst()
-            commands.removeAll { $0.committedAt &+ Self.commitWindowSpanNanos < window.closedAt }
-            guard let latest = commands.last(where: { $0.committedAt <= window.closedAt }) else { continue }
-            metrics.record(.actionMissedFrames(latest.command), window.missedFrames)
-            commands.removeAll { $0.committedAt <= latest.committedAt }
-        }
     }
 
     /// The counters now, the most frequent row first (then the slowest, then by id).
