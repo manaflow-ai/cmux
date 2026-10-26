@@ -124,7 +124,9 @@ pub(super) const TOOLS: &[AgentTool] = &[
             output) and turn_end. Pass after = next_after to read on; an answer still being \
             written or a tool call still running is marked partial and read again whole. Set \
             last_code_block to also return the latest complete fenced block from an assistant \
-            answer as {language, code}; it is secret-masked like item text. Changes nothing.",
+            answer as {language, code}; it is secret-masked like item text. Oversized blocks \
+            carry truncated: true. A bounded history scan can refuse the lookup instead of \
+            returning stale code. Changes nothing.",
     },
     AgentTool {
         name: "agents_chat_new",
