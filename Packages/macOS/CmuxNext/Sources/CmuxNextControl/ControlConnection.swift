@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -20,7 +21,7 @@ final class ControlConnection: @unchecked Sendable {
         var maxLineBytes: Int
         var maxQueuedLines = 64
         var maxOutboxBytes = 8 << 20
-        var drainTimeout: DispatchTimeInterval = .seconds(5)
+        var drainTimeout: Duration = .seconds(5)
     }
 
     let id: ControlConnectionID
@@ -30,7 +31,7 @@ final class ControlConnection: @unchecked Sendable {
     // Queue-confined.
     private var readSource: (any DispatchSourceRead)?
     private var writeSource: (any DispatchSourceWrite)?
-    private var drainTimer: (any DispatchSourceTimer)?
+    private var drainTimer: DemandTimer?
     private var liveSources = 0
     private var inbound = Data()
     private var queuedLines = 0
@@ -128,12 +129,10 @@ final class ControlConnection: @unchecked Sendable {
                 closeNow()
                 return
             }
-            // wakeup-allow: one-shot drain deadline (5 s) after the client half-closes; cancelled by closeNow
-            let timer = DispatchSource.makeTimerSource(queue: queue)
-            timer.schedule(deadline: .now() + limits.drainTimeout)
-            timer.setEventHandler { [weak self] in self?.closeNow() }
+            // The drain deadline (5 s) after the client half-closes; cancelled by closeNow.
+            let timer = DemandTimer(owner: "ControlConnection.drain")
+            timer.schedule(after: limits.drainTimeout) { [weak self] in self?.drainDeadlinePassed() }
             drainTimer = timer
-            timer.resume()
         }
     }
 
@@ -241,6 +240,11 @@ final class ControlConnection: @unchecked Sendable {
         }
         isWriteArmed = true
         writeSource?.resume()
+    }
+
+    /// The drain deadline fired off the queue: close on it (a no-op when already closed).
+    private func drainDeadlinePassed() {
+        queue.async { [self] in closeNow() }
     }
 
     private func closeNow() {

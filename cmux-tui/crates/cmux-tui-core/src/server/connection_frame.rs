@@ -502,7 +502,7 @@ pub(super) fn write_vt_state_command_json(
 }
 
 pub(super) fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::line_parses::parse(message).ok()?;
     let object = value.as_object()?;
     if object.len() != 1 {
         return None;
@@ -515,7 +515,7 @@ pub(super) fn auth_token(message: &str) -> Option<String> {
 }
 
 pub(super) fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Ok(value) = crate::line_parses::parse::<Value>(message) else { return false };
     let Some(object) = value.as_object() else { return false };
     if object.len() != 1 {
         return false;

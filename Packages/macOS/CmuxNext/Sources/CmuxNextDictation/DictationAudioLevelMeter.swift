@@ -14,7 +14,7 @@ import os
 /// cannot hop to an actor. The lock guards one `Float` with a constant-time
 /// critical section.
 public final class DictationAudioLevelMeter: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock()
+    private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
     // Guarded by `lock`.
     private var storedLevel: Float = 0
 

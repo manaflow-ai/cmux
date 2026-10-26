@@ -75,6 +75,9 @@ final class AppServices {
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
     private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    /// The local and peer chat upload stagers' expiry deadlines.
+    private(set) lazy var chatUploadExpiry = MainDeadline(owner: "AgentChatUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
+    private(set) lazy var peerUploadExpiry = MainDeadline(owner: "AgentPeerUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -282,6 +285,11 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// The windows' frame-aligned pointer input for resize drags (feature `pointerFrameDrags`): pane dividers,
+    /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
+    /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
+    private(set) lazy var dragFrameInput: PointerFrameCoalescers? =
+        features.isEnabled(.pointerFrameDrags) ? PointerFrameCoalescers(tap: inputTap, mainWork: mainWork) : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).

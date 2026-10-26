@@ -12,5 +12,8 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+# MAX_KITTY_IMAGE_BYTES is the memory budget's per-terminal kitty cap (std and libc only).
+cmux-memory.workspace = true
+flate2.workspace = true
 ghostty-vt-sys.workspace = true
 png.workspace = true

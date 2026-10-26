@@ -65,6 +65,9 @@ final class CEFRuntime {
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
     var input: InputEventTap?
+    /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
+    /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
+    var pointerFrames: PointerFrameCoalescers?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
