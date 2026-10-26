@@ -6,7 +6,7 @@ public extension PageDescriptor {
     /// plans/cmux-next/chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn time of
     /// this Mac's Chiefs over time, read only. Its one op `cmux.chief_usage.summary` runs the
     /// bundled `optchat-chief usage --json`; nothing leaves the machine.
-    static let chiefUsage = PageDescriptor(id: "cmux.chief-usage", resource: "chief-usage", namespaces: ["cmux.chief_usage."])
+    static let chiefUsage = PageDescriptor(id: "cmux.chief-usage", resource: "chief-usage", processGroup: .privileged, namespaces: ["cmux.chief_usage."])
 }
 
 /// `cmux.chief_usage.summary {since, by, top, bucket?}`: one `optchat-chief usage` run, whose

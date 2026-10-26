@@ -10,7 +10,7 @@ import WebKit
 /// balanced and tagged with the asking page.
 @MainActor
 struct PageWebUITraceTests {
-    private let descriptor = PageDescriptor(id: "test.webui-trace", resource: "webui-trace", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-trace", resource: "webui-trace", processGroup: .solo, namespaces: [])
 
     /// A page view writing to `recorder`; with `load`, it starts its first document in `chromium` (WebKit
     /// when nil). The configuration has no scheme handler, so a WebKit load never commits.
@@ -162,7 +162,7 @@ private struct SchemeRig {
     let root: URL
     let handler: PageSchemeHandler
     let view: PageWebView
-    private let descriptor = PageDescriptor(id: "test.webui-scheme", resource: "webui-scheme", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-scheme", resource: "webui-scheme", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("webui-scheme-\(UUID().uuidString)", isDirectory: true)

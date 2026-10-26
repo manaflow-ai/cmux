@@ -2,9 +2,26 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
+    public static let pageProcessGroups = Feature(
+        index: 0,
+        name: "pageProcessGroups",
+        owner: "PL-webui",
+        description: "Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 0,
+        index: 1,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -21,7 +38,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 1,
+        index: 2,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -38,6 +55,7 @@ nonisolated extension Feature {
 
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .pageProcessGroups,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]

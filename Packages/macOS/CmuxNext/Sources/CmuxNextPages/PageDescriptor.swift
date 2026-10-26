@@ -11,6 +11,9 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let id: String
     /// The directory under `Resources/pages/` that holds the page's `index.html`.
     public let resource: String
+    /// The pages this page may share a renderer with (``PageProcessGroup``). Required, so a new page
+    /// picks its capability class on purpose.
+    public let processGroup: PageProcessGroup
     /// Op and stream name prefixes the page may use (`cmux.history.`).
     public let namespaces: [String]
     /// Native UI ops the page may call (`cmux.app.action.run`).
@@ -46,12 +49,14 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
 
-    public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
+    public init(id: String, resource: String, processGroup: PageProcessGroup, namespaces: [String], nativeOps: Set<String> = [],
+                denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
         self.id = id
         self.resource = resource
+        self.processGroup = processGroup
         self.namespaces = namespaces
         self.nativeOps = nativeOps
         self.denied = denied.union(confirmedOps.keys)
@@ -143,7 +148,7 @@ public extension PageDescriptor {
     /// lead). Deleting, publishing, firewall changes, billing, sign-in/out and connect run only
     /// through the native confirmation.
     static let cloud = PageDescriptor(
-        id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
+        id: "cmux.cloud", resource: "cloud", processGroup: .privileged, namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
@@ -160,7 +165,7 @@ public extension PageDescriptor {
     // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
     // These notes sit above the call: gallery-coverage reads the id right after the open parenthesis.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
+        id: "cmux.settings", resource: "settings", processGroup: .privileged, namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
@@ -182,7 +187,7 @@ public extension PageDescriptor {
     /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
     /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
-        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
+        id: "cmux.apps", resource: "apps", processGroup: .privileged, namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
@@ -190,7 +195,7 @@ public extension PageDescriptor {
     /// the page runs only three account actions. Connect adds a credential, so it is the host op
     /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
     static let coderouter = PageDescriptor(
-        id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
+        id: "cmux.coderouter", resource: "coderouter", processGroup: .privileged, namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
         actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
 
     /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
@@ -206,7 +211,7 @@ public extension PageDescriptor {
     /// A highlight's PR chip opens its link through the owner's `cmux.changelog.browser.openIn`,
     /// which takes only https and spends the person's gesture (ChangelogPageProvider).
     static let changelog = PageDescriptor(
-        id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
+        id: "cmux.changelog", resource: "changelog", processGroup: .solo, namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
         csp: PageCSP(media: [changelogReelSource]))
 
@@ -223,10 +228,10 @@ public extension PageDescriptor {
     /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and
     /// opens a file; the only native op copies a path.
     static let files = PageDescriptor(
-        id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
+        id: "cmux.files", resource: "files", processGroup: .viewer, namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
-        id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
+        id: "cmux.history", resource: "history", processGroup: .privileged, namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
 }
