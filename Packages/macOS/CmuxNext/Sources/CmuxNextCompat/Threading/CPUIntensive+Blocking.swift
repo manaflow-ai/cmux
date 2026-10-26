@@ -265,7 +265,7 @@ extension Data {
     /// - Returns: The size in bytes.
     @usableFromInline
     static func decompressedBytes(compressed: Int, expected: Int?) -> Int {
-        if let expected { return max(compressed, expected) }
+        if let expected { return Swift.max(compressed, expected) }
         let estimate = compressed.multipliedReportingOverflow(by: BlockingKind.cpuIntensiveCompressionRatio)
         return estimate.overflow ? .max : estimate.partialValue
     }
