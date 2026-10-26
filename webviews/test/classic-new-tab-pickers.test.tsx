@@ -97,14 +97,8 @@ async function mount(
     id: entry.id,
     name: entry.name,
     family: entry.families[0],
-    models: entry.models.map((model) => ({
-      id: model.id,
-      name: model.name,
-      ...(model.efforts ? { efforts: model.efforts } : {}),
-      ...(model.fast !== undefined ? { fast: model.fast } : {}),
-      ...(model.inlineFast !== undefined ? { inlineFast: model.inlineFast } : {}),
-      ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
-    })),
+    // A live model probe can report only id/name; the bundled catalog supplies its capabilities.
+    models: entry.models.map((model) => ({ id: model.id, name: model.name })),
   }));
   const snapshot = noChat([], {
     catalog,
