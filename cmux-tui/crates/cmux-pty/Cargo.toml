@@ -20,3 +20,7 @@ cmux-process.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+# The child-QoS test reads a PTY child's priority with its probe.
+cmux-threads.workspace = true

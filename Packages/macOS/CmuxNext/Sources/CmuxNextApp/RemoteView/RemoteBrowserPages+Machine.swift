@@ -28,6 +28,7 @@ extension RemoteBrowserPages {
                                                      viewer: "cmux-next", token: runtime.secret, carrier: carrier,
                                                      machineName: services.machines.machineName(machine) ?? machine),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let hosts = services.machineBrowserHosts
         session.onClose = {
             machineKeys.remove(key)

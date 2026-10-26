@@ -39,6 +39,8 @@ public final class ChromiumHostPageView: NSView {
     }
 
     let inputTarget: InputTarget
+    /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
+    var wireToken: UInt64 = 0
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }

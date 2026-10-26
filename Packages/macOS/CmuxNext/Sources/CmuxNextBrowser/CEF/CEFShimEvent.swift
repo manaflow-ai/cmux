@@ -11,6 +11,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// and how (0 and `.unknown` otherwise).
     case afterCreated(browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy = .none)
     case beforeClose(browser: Int32)
+    /// Host mode: the host refused a browser cmux minted (CREATE_FAILED; task 019 of
+    /// plans/cmux-next/chrome-parity/p01-process.md). `browser` is the minted id, `request`
+    /// `create_window`'s request (0 for `tab_add` and `tab_duplicate`). In process the shim's 0
+    /// return says it instead.
+    case createFailed(browser: Int32, request: Int32)
     case address(browser: Int32, url: String)
     case title(browser: Int32, title: String)
     case favicon(browser: Int32, url: String)
@@ -169,6 +174,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
                                acceptTypes: s1.split(separator: "\n").map(String.init), defaultPath: s2)
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
+        case 51: self = .createFailed(browser: browser, request: request)
         default: self = .unknown(kind: kind)
         }
     }

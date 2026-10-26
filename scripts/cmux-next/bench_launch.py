@@ -64,6 +64,15 @@ against the launch's first window frame; exit 0 when its p50 is at most the firs
 
     python3 scripts/cmux-next/bench_launch.py socket-probe --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
 
+The launch order check (p06-scheduler-229, done check 7 of plans/cmux-next/chrome-parity/p06-scheduler.md): over --runs
+launches, no background, idle or best-effort task starts before `launch.revealed`. It reads the app's own signposts
+(`log stream --signpost`: each `stall.main_task` begin names its class, each `launch.mark` its mark) and its startup
+trace (CMUX_TRACE_STARTUP: each lane job with its priority). `launch.order_ok` is true only when every run saw the
+reveal, saw scheduled main tasks at all, lost no signpost and had a startup trace, and none of the deferred classes
+ran first. Exit 0 when it holds:
+
+    python3 scripts/cmux-next/bench_launch.py order --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
+
 Resource limits: an app opened from Finder or the Dock gets launchd's limits (`launchctl limit`; on the fleet
 minis the soft open-file limit is 256), but an app a script starts inherits the script's, and fleet job shells
 raise theirs (the cmux-ci worker to 65536 for every job, the hosts' ~/.zshenv to 65536 for nx-remote jobs). A
@@ -1328,6 +1337,188 @@ class BenchApp:
                 self.teardown.end()
 
 
+# The launch order check (`order`): the signposts it reads, and the classes that wait for the reveal. Main-thread
+# classes (MainWorkClass: `background`) and lane priorities (WorkPriority: `idle`, `bestEffort`), as their descriptions
+# spell them. Chrome holds the same work behind its startup: AfterStartupTaskUtils and the best-effort fence
+# (chrome/browser/after_startup_task_utils.cc, base/task/thread_pool/thread_pool_instance.h).
+LAUNCH_ORDER_PREDICATE = 'subsystem == "com.cmuxterm.app.next" AND (category == "launch" OR category == "stall")'
+DEFERRED_CLASSES = ("background", "idle", "bestEffort")
+REVEALED_MARK = "launch.revealed"
+
+
+def signpost_fields(message):
+    """`key=value` words of a signpost message (`class=visible owner=daemon.store`)."""
+    return dict(word.split("=", 1) for word in (message or "").split() if "=" in word)
+
+
+def launch_signposts(lines, pid=None):
+    """The launch marks and scheduled main-task begins of `log stream --signpost --style ndjson` lines, in stream
+    order: {"at": machTimestamp, "mark": name} or {"at": ..., "task_class": ..., "owner": ...}, and {"lost": True}
+    for each loss event (the stream dropped events: of any process, so kept whatever `pid` is). Lines of another
+    process (when `pid` is given) and lines that are not JSON are skipped."""
+    events = []
+    for line in lines:
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("eventType") == "lossEvent":
+            events.append({"lost": True})
+            continue
+        if event.get("eventType") != "signpostEvent" or (pid is not None and event.get("processID") != pid):
+            continue
+        at, name, message = event.get("machTimestamp"), event.get("signpostName"), event.get("eventMessage") or ""
+        if not isinstance(at, int):
+            continue
+        if name == "launch.mark":
+            # LaunchSignposts.mark: `<name> ms=<ms>`.
+            events.append({"at": at, "mark": message.split(" ", 1)[0]})
+        elif name == "stall.main_task" and event.get("signpostType") == "begin":
+            fields = signpost_fields(message)
+            events.append({"at": at, "task_class": fields.get("class"), "owner": fields.get("owner")})
+    return events
+
+
+def startup_trace_events(text):
+    """The events of a startup trace file (StartupTraceEncoder: the JSON Array form, whose closing `]` a trace still
+    open does not have yet). [] for an empty or unreadable file."""
+    body = (text or "").strip()
+    if not body:
+        return []
+    if not body.endswith("]"):
+        body = body.rstrip(",") + "\n]"
+    try:
+        events = json.loads(body)
+    except ValueError:
+        return []
+    return [event for event in events if isinstance(event, dict)] if isinstance(events, list) else []
+
+
+def launch_order(signposts, trace=None, limit=20):
+    """One launch's order verdict from ``launch_signposts`` events and, when given, ``startup_trace_events``.
+
+    `order_ok` is True only when the reveal was seen, at least one scheduled main task was seen (a stream that saw
+    none proves nothing), the stream lost no event (a dropped begin could be a deferred task's, and a loss event
+    does not say when the drop was), and no main task of a deferred class began before the reveal; with a trace,
+    also no lane
+    job of a deferred priority started before the trace's own `launch.revealed` mark (one clock per source: mach
+    ticks for signposts, CLOCK_UPTIME_RAW microseconds for the trace). `reason` says why it is False."""
+    revealed = next((event["at"] for event in signposts if event.get("mark") == REVEALED_MARK), None)
+    tasks = [event for event in signposts if "task_class" in event]
+    before = [event for event in tasks if revealed is not None and event["at"] < revealed]
+    early = [event for event in before if event["task_class"] in DEFERRED_CLASSES]
+    lost = sum(1 for event in signposts if event.get("lost"))
+    result = {"revealed": revealed is not None, "main_tasks_seen": len(tasks), "main_tasks_before_reveal": len(before),
+              "early_main_tasks": len(early), "signpost_loss_events": lost,
+              "early_main_owners": [{"class": e["task_class"], "owner": e["owner"]} for e in early[:limit]]}
+    reasons = []
+    if revealed is None:
+        reasons.append(f"no {REVEALED_MARK} signpost")
+    if not tasks:
+        reasons.append("no stall.main_task signposts (the stream saw no scheduled task)")
+    if lost:
+        reasons.append(f"{lost} signpost loss events: the stream cannot prove the order")
+    if early:
+        reasons.append(f"{len(early)} {'/'.join(DEFERRED_CLASSES)} main tasks before {REVEALED_MARK}")
+    if trace is not None:
+        trace_revealed = next((event.get("ts") for event in trace
+                               if event.get("ph") == "i" and event.get("name") == REVEALED_MARK), None)
+        jobs = [event for event in trace if event.get("cat") == "lane"]
+        early_jobs = [event for event in jobs if trace_revealed is not None and event.get("ts", 0) < trace_revealed
+                      and (event.get("args") or {}).get("priority") in DEFERRED_CLASSES]
+        result.update(trace_revealed=trace_revealed is not None, lane_jobs_seen=len(jobs), early_lane_jobs=len(early_jobs),
+                      early_lane_job_names=[{"lane": e.get("name"), "priority": e["args"]["priority"]}
+                                            for e in early_jobs[:limit]])
+        if trace_revealed is None:
+            reasons.append(f"no {REVEALED_MARK} mark in the startup trace")
+        if early_jobs:
+            reasons.append(f"{len(early_jobs)} idle/bestEffort lane jobs before {REVEALED_MARK}")
+    result["order_ok"] = not reasons
+    result["reason"] = "; ".join(reasons) or None
+    return result
+
+
+def launch_order_summary(runs):
+    """`launch.order_ok` over runs: every run held (an empty list never does)."""
+    return {"order_ok": bool(runs) and all(run.get("order_ok") is True for run in runs), "runs": len(runs),
+            "failed_runs": [run.get("run") for run in runs if run.get("order_ok") is not True]}
+
+
+def launch_order_check(opts, make_app=None, start_stream=None):
+    """`order`: launches the app `opts.runs` times with its startup trace on and its launch and stall signposts
+    streamed; each run waits for `launch.revealed` (debug.timings), then `opts.after` seconds, writes the trace
+    (debug.startup_trace) and judges the order (``launch_order``). Prints one BENCH-LAUNCH line {"launch": ...};
+    exit 0 when `launch.order_ok`. `make_app(env)` builds the BenchApp and `start_stream(path)` starts the signpost
+    stream into `path` (tests pass stubs)."""
+    def stream_at(path):
+        with open(path, "w") as sink:  # the child keeps its own copy of the descriptor
+            return subprocess.Popen(["/usr/bin/log", "stream", "--signpost", "--style", "ndjson", "--predicate",
+                                     LAUNCH_ORDER_PREDICATE], stdout=sink, stderr=subprocess.DEVNULL)
+
+    out = os.path.abspath(opts.out or tempfile.mkdtemp(prefix="bench-launch-order-"))
+    os.makedirs(out, exist_ok=True)
+    runs = []
+    for index in range(opts.runs):
+        trace_path = os.path.join(out, f"startup-{index + 1}.json")
+        stream_path = os.path.join(out, f"launch-signposts-{index + 1}.ndjson")
+        seconds = f"{opts.trace_seconds:g}"
+        env = {"CMUX_TRACE_STARTUP": seconds, "CMUX_TRACE_STARTUP_FILE": trace_path,
+               "CMUX_NEXT_TRACE_STARTUP": seconds, "CMUX_NEXT_TRACE_STARTUP_FILE": trace_path}
+        app = make_app(env) if make_app else BenchApp(opts.app, out=out, env=env)
+        stream = (start_stream or stream_at)(stream_path)
+        run = {"run": index + 1, "signposts": stream_path, "trace": trace_path}
+        pid = None
+        try:
+            # The stream prints its filter line once it is attached: a launch before that loses its first marks.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not os.path.getsize(stream_path):
+                time.sleep(0.05)  # test script: waiting for our own log stream child to attach
+            app.launch(timeout=opts.timeout)
+            pid = app.process.pid
+            deadline = time.monotonic() + opts.timeout
+            while time.monotonic() < deadline:
+                marks = (app.rpc("debug.timings") or {}).get("launch_ms_since_process_start") or {}
+                if REVEALED_MARK in marks:
+                    run["revealed_ms"] = marks[REVEALED_MARK]
+                    break
+                time.sleep(0.25)  # test script: the reveal mark's poll
+            time.sleep(opts.after)  # test script: the tasks the reveal opens start, and the stream flushes them
+            run["trace_status"] = app.rpc("debug.startup_trace")
+        except LaunchError as error:
+            run["launch_error"] = error.reason
+        finally:
+            app.stop()
+            stream.send_signal(signal.SIGINT)  # our own log stream child: it flushes and exits
+            try:
+                stream.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                stream.kill()
+        with open(stream_path) as f:
+            signposts = launch_signposts(f, pid=pid)
+        # No trace file (the trace env not honored, or its write failed) is no evidence: judged as an empty trace,
+        # which has no launch.revealed mark.
+        trace = []
+        if os.path.exists(trace_path):
+            with open(trace_path) as f:
+                trace = startup_trace_events(f.read())
+        else:
+            run["trace_missing"] = True
+        run.update(launch_order(signposts, trace))
+        if "launch_error" in run:
+            run.update(order_ok=False, reason=f"launch failed: {run['launch_error']}")
+        note(f"bench-launch: launch order run {index + 1}: order_ok={run['order_ok']} {run['reason'] or ''}")
+        runs.append(run)
+    result = {"launch": {**launch_order_summary(runs), "per_run": runs}}
+    line = json.dumps(result)
+    print("BENCH-LAUNCH " + line, flush=True)
+    if opts.json:
+        with open(opts.json, "w") as f:
+            f.write(line + "\n")
+    return 0 if result["launch"]["order_ok"] else 1
+
+
 def launch_app(app, env, log_path, timeout=120, on_start=None, ready="debug.windows"):
     """For a script that keeps its own env, log and cleanup: launches `app` through ``BenchApp`` (the bench defaults
     under `env`, no window frame or screen of its own, no teardown) and returns (process, socket path). Raises
@@ -1388,6 +1579,16 @@ def main(argv=None):
     probe.add_argument("--timeout", type=float, default=180)
     probe.add_argument("--budget-ms", type=float, default=50)
     probe.add_argument("--json", help="also write the result here")
+    order = sub.add_parser("order", help="no background, idle or best-effort task before launch.revealed, over "
+                                         "launches (p06-scheduler-229: launch.order_ok)")
+    order.add_argument("--app", required=True)
+    order.add_argument("--out")
+    order.add_argument("--runs", type=int, default=5)
+    order.add_argument("--timeout", type=float, default=180)
+    order.add_argument("--after", type=float, default=3,
+                       help="seconds after the reveal before the trace is written (default 3)")
+    order.add_argument("--trace-seconds", type=float, default=30, help="the startup trace's length (default 30)")
+    order.add_argument("--json", help="also write the result here")
     sub.add_parser("session", help="only report whether this account has a GUI session")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
@@ -1395,6 +1596,8 @@ def main(argv=None):
     opts = parser.parse_args(argv)
     if opts.command == "socket-probe":
         return socket_probe(opts)
+    if opts.command == "order":
+        return launch_order_check(opts)
     if opts.command == "limits":
         launchd = launchd_soft_limits()
         print("BENCH-LAUNCH " + json.dumps({"launchd_soft": {k: shown(v) for k, v in launchd.items()},

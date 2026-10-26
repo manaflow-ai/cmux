@@ -11,6 +11,8 @@ description = "Child processes of the cmux daemon that inherit no descriptor the
 workspace = true
 
 [dependencies]
+# The class a child starts at (`Command::qos`): one table with the threads'.
+cmux-threads.workspace = true
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Install cmux CLI in PATH: a symlink at /usr/local/bin/cmux to the bundled
@@ -217,28 +218,19 @@ public nonisolated struct CLIPathInstaller: Sendable {
 
     /// `do shell script … with administrator privileges`, the command passed
     /// as an argument so it needs no AppleScript quoting.
+    ///
+    /// osascript starts through ``AsyncProcess`` (never on the caller's thread)
+    /// at the caller's priority, and runs to its end even when the caller is
+    /// cancelled: the command must not stop half way through a link.
     @concurrent public static func runAsAdministrator(_ command: String) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with administrator privileges",
-                             "-e", "end run", command]
-        let errors = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errors
-        let exited = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
-        process.terminationHandler = { process in
-            exited.continuation.yield(process.terminationStatus)
-            exited.continuation.finish()
-        }
-        try process.run()
-        var message: [UInt8] = []
-        for try await byte in errors.fileHandleForReading.bytes { message.append(byte) }
-        var status: Int32 = -1
-        for await code in exited.stream { status = code }
-        guard status == 0 else {
-            let text = String(decoding: message, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw Failure.privilegedCommandFailed(message: text.isEmpty ? "osascript exited with status \(status)" : text)
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/osascript"),
+                                     ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with administrator privileges",
+                                      "-e", "end run", command],
+                                     errorOutput: .separate, onCancel: .finish)
+        let outcome = try await AsyncProcess().run(request)
+        guard outcome.succeeded else {
+            let text = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw Failure.privilegedCommandFailed(message: text.isEmpty ? "osascript exited with status \(outcome.status)" : text)
         }
     }
 
