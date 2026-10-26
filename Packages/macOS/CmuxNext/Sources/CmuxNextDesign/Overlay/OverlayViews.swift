@@ -34,6 +34,8 @@ final class OverlayClipView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // A clipping container: nothing of its own to draw.
+        layerContentsRedrawPolicy = .never
         layer?.masksToBounds = true
     }
 
@@ -66,6 +68,7 @@ final class OverlayScrimView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         autoresizingMask = [.width, .height]
         updateLayer()
     }
