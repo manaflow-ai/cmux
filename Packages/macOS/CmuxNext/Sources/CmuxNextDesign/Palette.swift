@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///
@@ -112,6 +113,14 @@ public struct Palette {
     /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
     /// same in every theme, so an unread mark reads the same everywhere.
     public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
+    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
+    /// means one thing in every row (Lawrence msg 11983).
+    public static var statusUnread: NSColor { .systemBlue }
+    /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
+    /// user): `systemOrange` (Lawrence msg 11983).
+    public static var statusAttention: NSColor { .systemOrange }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
+    public static var statusError: NSColor { .systemRed }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
@@ -134,12 +143,12 @@ public struct Palette {
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
-    /// the theme's own hue with `appearance.accent`. A themed menu's highlight washes it (`menuHighlight`).
+    /// the theme's own hue with `appearance.accent`. `menuHighlight` washes it.
     public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
     /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
-    /// A themed menu's highlighted row (`NSMenu.themeRows(in:)`): `accentFill` as a faint wash over
-    /// the menu's glass, so labels keep their own ink. A neutral theme gets a gray wash.
+    /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
+    /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
     public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
     static let menuHighlightOpacity: CGFloat = 0.2
 

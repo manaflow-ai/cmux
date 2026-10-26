@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
@@ -33,6 +34,7 @@ import Testing
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
         var holdNextRun = false
+        var connectFails = false
 
         func services() -> AddMachineServices {
             AddMachineServices(
@@ -60,7 +62,7 @@ import Testing
                     }
                 },
                 install: { [self] host, name in installs.append(host); names.append(name); return installAnswer },
-                connect: { [self] host, name in connected.append(host); names.append(name); return "ssh-\(host)" },
+                connect: { [self] host, name in connected.append(host); names.append(name); return connectFails ? nil : "ssh-\(host)" },
                 record: { [self] id, report in recorded.append((id, report)) },
                 openWorkspace: { [self] id in opened.append(id) },
                 copy: { [self] text in copied.append(text) })
@@ -433,7 +435,7 @@ import Testing
     }
 
     @Test func peersAndSSHOffAreGreyedWithWhy() throws {
-        let added = HostCandidate(name: "a", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, sshOK: true)
+        let added = HostCandidate(name: "a", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, sshOK: true, inApp: true)
         let off = HostCandidate(name: "b", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false, sshOK: false)
         let offline = HostCandidate(name: "c", dnsName: "", ip: "", os: "", online: false, alreadyPeer: false)
         let unprobed = HostCandidate(name: "d", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false)
@@ -443,6 +445,121 @@ import Testing
         #expect(unprobed.isPickable && AddMachineCandidateList.badge(unprobed) == nil)
         model.pick(added)
         #expect(model.destination.isEmpty)
+    }
+
+    /// Leo's ask-2971491c27: huge-blue, cmux16, air-blue and big-red were acpmux peers but not in the
+    /// app, and the list greyed them out as Added. Added now means in the app; a peer the app lacks is
+    /// an Agent peer and stays pickable, its port included.
+    @Test func inAppPeerOnlyAndNewCandidatesPickAndBadgeApart() throws {
+        let inApp = HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "", os: "macOS", online: true, alreadyPeer: true,
+                                  sshOK: true, peer: "cmux16", peerURL: "ssh://cmux16", inApp: true)
+        let peerOnly = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: true,
+                                     sshOK: false, peer: "huge-blue", peerURL: "ssh://huge-blue:47822")
+        let fresh = HostCandidate(name: "big-red", dnsName: "big-red.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: false, sshOK: true)
+        let offlinePeer = HostCandidate(name: "air-blue", dnsName: "", ip: "", os: "macOS", online: false, alreadyPeer: true, peer: "air-blue", peerURL: "ssh://air-blue")
+        let inAppOnly = HostCandidate(name: "box", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false, inApp: true)
+        #expect(!inApp.isPickable && AddMachineCandidateList.badge(inApp) == AddMachineStrings.candidateAdded)
+        #expect(!inAppOnly.isPickable && AddMachineCandidateList.badge(inAppOnly) == AddMachineStrings.candidateAdded)
+        // The probe dialed port 22; the peer's own URL reaches it, so a failed probe does not grey it.
+        #expect(peerOnly.isPickable && AddMachineCandidateList.badge(peerOnly) == AddMachineStrings.candidateAgentPeer)
+        #expect(peerOnly.destination == "huge-blue", "the URL's port is the daemon's, not ssh's")
+        #expect(peerOnly.peerDaemonPort == 47822)
+        #expect(fresh.isPickable && AddMachineCandidateList.badge(fresh) == nil)
+        #expect(fresh.destination == "big-red.tail1.ts.net")
+        #expect(!offlinePeer.isPickable && AddMachineCandidateList.badge(offlinePeer) == AddMachineStrings.candidateOffline)
+        #expect(HostCandidate(name: "w", dnsName: "w.ts.net", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ws://10.0.0.9:47811").destination == "w.ts.net")
+        #expect(!HostCandidate(name: "w", dnsName: "w.ts.net", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ws://10.0.0.9:47811").isPickable)
+        // A URL acpmux refuses (a path) is not a peer target: the row falls back to its own name.
+        #expect(HostCandidate(name: "u", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ssh://leo@u.ts.net/x").peerSSHTarget == nil)
+    }
+
+    @Test func addingAPickedPeerConnectsAndChecksWithoutEnrolling() async throws {
+        let peer = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: true,
+                                 peer: "hb", peerURL: "ssh://huge-blue:47822")
+        host.candidates = [peer]
+        host.scripts = [[Self.report("hb", "huge-blue", ok: true, Self.okSteps)]]
+        model.begin()
+        try await waitFor { model.candidates != .loading }
+        model.pick(peer)
+        #expect(model.destination == "huge-blue")
+        #expect(model.canAdd)
+        #expect(model.defaultName == "hb")
+        #expect(host.commands.isEmpty, "a pick alone runs nothing")
+        model.perform(.add)
+        #expect(await model.finished() == nil)
+        #expect(host.commands == [.doctor(host: "hb", fix: false)], "no enroll for a peer")
+        #expect(host.connected == ["huge-blue"], "ssh to the host; the daemon port stays acpmux's")
+        #expect(host.names == ["hb"])
+        #expect(host.recorded.map(\.0) == ["ssh-huge-blue"])
+        #expect(model.machineID == "ssh-huge-blue")
+        #expect(model.buttons.last == AddMachineButton(action: .openWorkspace, key: .return))
+    }
+
+    @Test func aPickedPeerThatCannotConnectFailsAndAnEditedFieldEnrolls() async throws {
+        let peer = HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "", os: "macOS", online: true, alreadyPeer: true,
+                                 peer: "cmux16", peerURL: "ssh://cmux16")
+        host.connectFails = true
+        model.begin()
+        model.pick(peer)
+        model.perform(.add)
+        #expect(await model.finished() != nil)
+        #expect(model.phase == .failed(nil))
+        #expect(host.commands.isEmpty, "nothing runs when the connect failed")
+        #expect(model.checklist.failing?.detail == AddMachineStrings.peerConnectFailed)
+        // Typing over the field leaves the peer path: Add enrolls what was typed.
+        host.connectFails = false
+        model.begin()
+        model.pick(peer)
+        model.destination = "leo@cmux16"
+        host.scripts = [[Self.report("cmux16", "leo@cmux16", ok: true, Self.okSteps)]]
+        model.perform(.add)
+        #expect(await model.finished() == nil)
+        #expect(host.commands == [.enroll(host: "leo@cmux16", name: "cmux16")])
+    }
+
+    /// The peer URL as acpmux reads it, then the app's real field parser (`SSHDestination`): the
+    /// ssh destination never carries the daemon port, and it parses back to the same host.
+    @Test func aPeerURLBecomesAnSSHDestinationThatParsesBackTheSame() throws {
+        func target(_ url: String) -> HostCandidate {
+            HostCandidate(name: "n", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, peer: "p", peerURL: url)
+        }
+        func connected(_ text: String) throws -> SSHDestination {
+            let field = try #require(AddMachineServices.hostDestination(text), "\(text)")
+            return try SSHDestination(parsing: field.host)
+        }
+        // A daemon port: ssh stays on its own port (22 or ~/.ssh/config), the port is carried apart.
+        let hb = target("ssh://huge-blue:47822")
+        #expect(hb.peerSSHDestination == "huge-blue" && hb.peerDaemonPort == 47822)
+        let hbSSH = try connected(hb.destination)
+        #expect(hbSSH.host == "huge-blue" && hbSSH.port == nil && hbSSH.user == nil)
+        // No port: acpmux's default daemon port.
+        #expect(target("ssh://cmux16").peerDaemonPort == HostCandidate.sshPeerDefaultDaemonPort)
+        // user@.
+        let user = target("ssh://leo@air-blue.tail1.ts.net")
+        #expect(user.destination == "leo@air-blue.tail1.ts.net" && user.peerDaemonPort == 47811)
+        let userSSH = try connected(user.destination)
+        #expect(userSSH.user == "leo" && userSSH.host == "air-blue.tail1.ts.net" && userSSH.port == nil)
+        #expect(AddMachineServices.hostDestination(user.destination)?.shortName == "air-blue")
+        // Bracketed IPv6 without a port: the brackets stay, so no segment is read as a port.
+        let v6 = target("ssh://leo@[fd7a:115c:a1e0::2]")
+        #expect(v6.destination == "leo@[fd7a:115c:a1e0::2]" && v6.peerDaemonPort == 47811)
+        #expect(AddMachineServices.hostDestination(v6.destination)?.host == "leo@[fd7a:115c:a1e0::2]")
+        let v6SSH = try connected(v6.destination)
+        #expect(v6SSH.user == "leo" && v6SSH.host == "fd7a:115c:a1e0::2" && v6SSH.port == nil)
+        // Bracketed IPv6 with a daemon port.
+        let v6Port = target("ssh://[fd7a:115c:a1e0::2]:47822")
+        #expect(v6Port.destination == "[fd7a:115c:a1e0::2]" && v6Port.peerDaemonPort == 47822)
+        let v6PortSSH = try connected(v6Port.destination)
+        #expect(v6PortSSH.host == "fd7a:115c:a1e0::2" && v6PortSSH.port == nil)
+        // A typed IPv6 host the field reads (bare v6 is ambiguous with a port, so brackets it is).
+        #expect(AddMachineServices.hostDestination("leo@[fd7a::2]")?.host == "leo@[fd7a::2]")
+        // A typed port is still refused: enroll takes none.
+        #expect(AddMachineServices.hostDestination("huge-blue:2222") == nil)
+        // URLs acpmux refuses are no target.
+        #expect(target("ssh://huge-blue:0").peerSSHTarget == nil)
+        #expect(target("ssh://huge-blue:x").peerSSHTarget == nil)
+        #expect(target("ssh://@huge-blue").peerSSHTarget == nil)
+        #expect(target("ws://10.0.0.9:47811").peerSSHTarget == nil)
     }
 
     @Test func theCandidatesObjectOfTheCLIParses() throws {
@@ -458,13 +575,15 @@ import Testing
     @Test func theCandidatesArrayParses() throws {
         let json = """
         [{"name":"huge-blue","dns_name":"huge-blue.tail1.ts.net.","ip":"100.64.0.2","os":"linux","online":true,"already_peer":false,"ssh_ok":true},
-         {"name":"air","dns_name":"air.tail1.ts.net.","ip":"100.64.0.3","os":"macOS","online":false,"already_peer":true}]
+         {"name":"air","dns_name":"air.tail1.ts.net.","ip":"100.64.0.3","os":"macOS","online":false,"already_peer":true,"peer":"air","peer_url":"ssh://air:2222"}]
         """
         let list = try HostCandidate.parseList(Data(json.utf8))
         #expect(list.map(\.name) == ["huge-blue", "air"])
         #expect(list[0].sshOK == true && list[1].sshOK == nil)
         #expect(list[1].alreadyPeer && !list[1].online)
+        #expect(list.allSatisfy { !$0.inApp }, "the app sets inApp, not the CLI")
         #expect(list[0].destination == "huge-blue.tail1.ts.net")
+        #expect(list[1].peer == "air" && list[1].peerURL == "ssh://air:2222" && list[1].destination == "air" && list[1].peerDaemonPort == 2222)
     }
 
     // MARK: - Machines section

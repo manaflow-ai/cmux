@@ -8231,13 +8231,33 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["agent", "acp", "acpmux", "inspector", "log", "debug"],
+        "keywords": ["agent", "chat", "session", "session info", "acp", "acpmux", "inspector", "log", "debug"],
         "rankBias": 0,
         "sectionIndex": 9,
-        "title": "Show ACP Inspector",
+        "title": "Toggle Session Info",
         "typingSectionIndex": 16
       },
       "id": "action:agentPane.toggleInspector"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.stopTurn",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.stopTurn",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "suggestedRank": 3,
+        "suggestedSectionIndex": 18,
+        "title": "Stop Agent Turn",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.stopTurn"
     },
     {
       "entry": {
@@ -18637,6 +18657,71 @@
         "typingSectionIndex": 16
       },
       "id": "cmux/coderouter#cycleVariant"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setModel",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setModel",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "model", "models", "harness", "provider", "llm", "switch", "change", "set"],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Model…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setModel"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setEffort",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setEffort",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "effort", "reasoning", "thinking", "depth", "fast", "slow", "set", "change"],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Effort…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setEffort"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.setMode",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.setMode",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "chat",
+          "mode",
+          "permission",
+          "access",
+          "plan",
+          "read-only",
+          "full access",
+          "set",
+          "change"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 109,
+        "title": "Set Agent Chat Mode…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.setMode"
     },
     {
       "entry": {

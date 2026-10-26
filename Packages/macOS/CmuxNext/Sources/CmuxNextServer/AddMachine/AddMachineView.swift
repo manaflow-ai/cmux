@@ -186,10 +186,12 @@ struct AddMachineCandidateList: View {
         .accessibilityAddTraits(picked ? .isSelected : [])
     }
 
-    /// Why a peer cannot be picked, in the order a person would fix it.
+    /// Why a peer cannot be picked, in the order a person would fix it, or that it is an agent peer
+    /// the app does not have yet (pickable).
     static func badge(_ candidate: HostCandidate) -> String? {
-        if candidate.alreadyPeer { return AddMachineStrings.candidateAdded }
+        if candidate.inApp { return AddMachineStrings.candidateAdded }
         if !candidate.online { return AddMachineStrings.candidateOffline }
+        if candidate.alreadyPeer { return AddMachineStrings.candidateAgentPeer }
         if candidate.sshOK == false { return AddMachineStrings.candidateSSHOff }
         return nil
     }

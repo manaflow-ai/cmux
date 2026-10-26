@@ -7176,6 +7176,24 @@
       "kind": "scalar",
       "name": "string"
      }
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "row-client-keys-v1"
     }
    },
    "kind": "object"
@@ -8014,6 +8032,28 @@
      "type": {
       "kind": "scalar",
       "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "CloudConversationPresenceParticipant": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "viewing": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
      },
      "presence": "required",
      "nullable": false
@@ -9277,6 +9317,129 @@
     "user",
     "auto"
    ]
+  },
+  "SendExpectAgent": {
+   "kind": "object",
+   "fields": {
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
+  "HostSizeMode": {
+   "kind": "enum",
+   "values": [
+    "smallest",
+    "mac",
+    "latest",
+    "priority"
+   ]
+  },
+  "HostSizePolicy": {
+   "kind": "object",
+   "fields": {
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "HostSizeMode"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "order": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Device tokens, highest first: mac (this host's own views) or device:<id>; at most 32."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "HostSizePolicyRequest": {
+   "kind": "object",
+   "fields": {
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "HostSizeMode"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "order": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Device tokens, highest first: mac or device:<id> (1 to 128 of [A-Za-z0-9_.:-]); at most 32. Omitted keeps the stored order."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "GetHostSizePolicyResult": {
+   "kind": "object",
+   "fields": {
+    "policy": {
+     "type": {
+      "kind": "ref",
+      "name": "HostSizePolicy"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mac_participants": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Size-state participant ids of the surface's terminal that are this host's own views; empty without surface."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "SetHostSizePolicyResult": {
+   "kind": "object",
+   "fields": {
+    "policy": {
+     "type": {
+      "kind": "ref",
+      "name": "HostSizePolicy"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -9525,6 +9688,20 @@
       "since": 12,
       "constraints": [
        "How the client was installed (npm, pypi, app, other), so a refusal names its exact update command."
+      ]
+     },
+     "remote": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "host-size-policy-v1",
+      "constraints": [
+       "A remote device's spliced lane (cmux-mobile-host sets it); never one of this host's own views. Sticky: false never clears it."
       ]
      }
     },
@@ -10120,13 +10297,43 @@
       "nullable": true,
       "default": null,
       "capability": "send-expect-foreground-v1"
+     },
+     "expect_agent": {
+      "type": {
+       "kind": "ref",
+       "name": "SendExpectAgent"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-agent-v1"
+     },
+     "submit": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "send-expect-agent-v1"
+     },
+     "flow": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
      "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
-     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
+     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
     ]
    },
    "result": {
@@ -19407,6 +19614,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "proxy": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -22416,6 +22632,38 @@
        "kind": "scalar",
        "name": "string"
       }
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^pane_[0-9a-f]{32}$",
+        "format": "client-minted public pane id"
+       }
+      ]
+     },
+     "tab_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "row-client-keys-v1",
+      "constraints": [
+       {
+        "pattern": "^tab_[0-9a-f]{32}$",
+        "format": "client-minted public tab id"
+       }
+      ]
      }
     },
     "kind": "object"
@@ -23378,6 +23626,41 @@
    "stream": null,
    "constraints": [
     "While some client of the daemon subscribes the conversation (not_subscribed). Sends the owner's ephemeral typing {on, conversation} frame on the shared socket once it is live; the newest state replaces one not yet sent; nothing is stored. Answers the subscription's state. See spec/commands.md."
+   ]
+  },
+  "cloud-conversation-presence": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "viewing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "While some client of the daemon subscribes the conversation (not_subscribed). The person views while any client of the daemon views; a change of that goes out as the owner's ephemeral presence.set {conversation, viewing} frame on the shared socket once it is live, again on a new socket while viewing, and off when the last viewing client closes or unsubscribes; nothing is stored. Answers the subscription's state. See spec/commands.md."
    ]
   },
   "browser-host-provider": {
@@ -25245,6 +25528,61 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ]
+  },
+  "get-host-size-policy": {
+   "authority": "control",
+   "since": 12,
+   "capability": "host-size-policy-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GetHostSizePolicyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The host policy applies to every terminal without a terminal override or workspace default."
+   ]
+  },
+  "set-host-size-policy": {
+   "authority": "control",
+   "since": 12,
+   "capability": "host-size-policy-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "policy": {
+      "type": {
+       "kind": "ref",
+       "name": "HostSizePolicyRequest"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetHostSizePolicyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
    ]
   }
  },
@@ -29580,6 +29918,55 @@
       "type": {
        "kind": "scalar",
        "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-presence": {
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-presence"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participants": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "CloudConversationPresenceParticipant"
+       }
       },
       "presence": "required",
       "nullable": false
