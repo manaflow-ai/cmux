@@ -3,6 +3,10 @@
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
 //! the queue's prompts names it), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
 //! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
+//!
+//! In a chat several people share (`author.rs`), only the person who sent a prompt changes it or
+//! takes it back (`queue_author_check`), `_acpmux/queue_remove` included: anyone else gets
+//! `queue.not_author`. No author is the owner, and an agent's message counts as the owner's.
 
 use super::queue::PromptRun;
 use super::*;
@@ -115,11 +119,19 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
+        // Only its sender changes a prompt; `resume` changes no one prompt.
+        if op != "resume" {
+            self.queue_author_check(session, prompt_id, params)?;
+        }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
-                json!(self.update_queued(session, prompt_id, edit, control, trust_gate, device))
+                let editor = crate::author::author(params)?;
+                let editor = editor.as_ref().map(|a| a.id.as_str());
+                let updated = self
+                    .update_queued(session, prompt_id, edit, control, trust_gate, device, editor);
+                json!(updated)
             }
             "move" => {
                 let index = params
@@ -151,6 +163,36 @@ impl Hub {
         Ok(reply)
     }
 
+    /// `queue.not_author` unless the author of `params` (`author.rs`; none: the owner) sent
+    /// `prompt_id`, a waiting prompt or a steer the agent has not read. A prompt that no longer
+    /// waits is no one's to refuse: the change finds nothing.
+    pub fn queue_author_check(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+        params: &Value,
+    ) -> Result<(), RpcError> {
+        let caller = crate::author::author(params)?;
+        let queued = {
+            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let q = queue.iter().find(|q| q.prompt_id == prompt_id);
+            q.map(|q| crate::author::of_provenance(q.run.provenance.as_ref()).map(str::to_owned))
+        };
+        let sender = queued.or_else(|| {
+            let now = session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.waiting.get(prompt_id).cloned()
+        });
+        match sender {
+            Some(sender) if sender.as_deref() != caller.as_ref().map(|a| a.id.as_str()) => {
+                Err(RpcError::invalid_params(
+                    "queue.not_author: only the person who sent this prompt may change it",
+                )
+                .with_data(json!({"reason": "queue.not_author"})))
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
     /// masked (`server/peer_text.rs`), so it may not rewrite it: an edit from
     /// the masked text would write the mask over the secret.
@@ -163,7 +205,8 @@ impl Hub {
     }
 
     /// Replaces a waiting prompt's content (`Edit`); it keeps its place. It runs under the
-    /// stricter rules of its sender and its editor.
+    /// stricter rules of its sender and its editor. A person's prompt edited by that person
+    /// (`editor`, `author.rs`) is still theirs.
     fn update_queued(
         &self,
         session: &Arc<Session>,
@@ -172,6 +215,7 @@ impl Hub {
         control: Control,
         trust_gate: bool,
         device: Option<&str>,
+        editor: Option<&str>,
     ) -> bool {
         let (turn_id, run, text) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -187,8 +231,11 @@ impl Hub {
                 display_parts: None,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
-                // The person rewrote it: it is no longer the sender's message.
-                provenance: None,
+                // The person rewrote it: it is no longer the sender's message, unless the sender
+                // is that person.
+                provenance: q.run.provenance.clone().filter(|p| {
+                    crate::author::of_provenance(Some(p)).is_some_and(|id| Some(id) == editor)
+                }),
                 agent: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
@@ -214,6 +261,7 @@ impl Hub {
             msg["displayParts"] = display_parts.clone();
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
         true
     }
@@ -324,7 +372,7 @@ impl Hub {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
-            .contains(prompt_id);
+            .contains_key(prompt_id);
         if !waiting {
             return Ok(None);
         }
@@ -355,7 +403,7 @@ impl Hub {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
-            .contains(prompt_id);
+            .contains_key(prompt_id);
         if !waiting {
             return Ok(false);
         }
