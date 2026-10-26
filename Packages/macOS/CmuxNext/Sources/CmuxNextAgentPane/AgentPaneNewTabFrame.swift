@@ -106,7 +106,7 @@ public final class AgentPaneNewTabFrame {
                 let takenAt = self.generation, before = self.shows(view.model)
                 guard self.capturesFrames, size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
                 // One page frame first: an answer handed to the page before this is drawn by then.
-                // No frame comes when the redraw goes first (abandoned): nothing to capture then.
+                // A page that drops its frame callback releases `done` (AgentPageRedraw): abandoned, nothing to capture.
                 let framed: Void? = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
                     redraw.afterNextFrame { done.resume(returning: ()) }
                 }
