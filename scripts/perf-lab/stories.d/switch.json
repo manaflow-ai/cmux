@@ -1,0 +1,24 @@
+{
+  "id": "switch",
+  "tier": "T1",
+  "description": "perf-budgets families tab_switch (terminal and Chromium tabs, Ctrl-Tab to committed frame) and palette (open and query keys to frame) (the perf cron's switch part).",
+  "command": ["scripts/cmux-next/perf-budgets.py", "--only=tab_switch,palette"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "tab_switch\\.[^.]+\\.[0-9]+\\.e2e", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/tab_switch\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/tab_switch\\..*/floor"}},
+    {"name": "palette\\.[a-z0-9_]+\\.key_to_frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/floor"}}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.tab_switch"],
+  "hot_paths": ["tab-switch", "palette-key"],
+  "owner": "PL-switch",
+  "component": "Tabs>Switch",
+  "perf_cron_part": "switch"
+}
