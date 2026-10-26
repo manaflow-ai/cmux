@@ -14,10 +14,13 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextEnergy
+import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextInput
+import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -29,6 +32,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -76,7 +80,7 @@ final class AppServices {
     /// Pushes the policy to the consumers that take a value: the local daemon and KeepAwake (``EnergyHost``).
     private var energyLink: EnergyHostLink?
     /// KeepAwake's power-source input (``startEnergy(settings:onBattery:)``).
-    var keepAwakeOnBattery: (@MainActor (Bool) -> Void)?
+    private(set) var keepAwakeOnBattery: (@MainActor (Bool) -> Void)?
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -123,6 +127,8 @@ final class AppServices {
     let registry: ActionRegistry
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    let wireStats: DaemonWireStats?
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
@@ -189,7 +195,7 @@ final class AppServices {
         guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
+                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
@@ -245,6 +251,11 @@ final class AppServices {
                             live: simulatorKit)
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
+    /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
+    /// built once, on first read, from this build's channel and the launch environment
+    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
+    lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -294,12 +305,25 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
+    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
+    /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
+    /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
+    /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
+    private(set) lazy var webUI: WebUIHost = WebUIHost(
+        chromium: ChromiumPageHost(
+            cef: cache.cef,
+            preference: { [weak self] in
+                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
+            },
+            keyRouter: keyRouter),
+        openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -323,8 +347,11 @@ final class AppServices {
     private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
-    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
-    let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
+    /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or
+    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`).
+    let inputDispatch: InputDispatchContext
+    let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
+    private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
@@ -415,6 +442,11 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The app process's black box: its heap ring from init, its file steps on `.files` (task p09-observability-005).
+    /// Only the real app process has one (``AppEnvironment/marksRun``); tests that build `AppServices` do not.
+    let traceBlackBox: TraceBlackBoxFileSteps?
+    /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
+    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -429,15 +461,26 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars
-    ///   hold for; the app-wide one by default.
-    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
-    ///   instance unless a test passes its own.
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for
+    ///   (`AppDelegate` passes the one its startup phase reveals on); tests get one of their own.
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); by default
+    ///   one watched by `hangWatch`, unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+    /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
+    ///   connection readers, terminal attachments and terminal output lanes): the process's
+    ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
+         work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
+         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
+        let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
+        // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
+        // on; the ring file opens on `.files`, never on main.
+        traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
+        self.wireStats = wireStats
+        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         let energy = EnergyPolicySource()
         self.energy = energy
         energyMonitor = EnergyMonitor(policy: energy)
@@ -448,7 +491,10 @@ final class AppServices {
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
+                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
+                               hangWatch: hangWatch)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -551,8 +597,10 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
+        (NSApp as? CmuxApplication)?.inputTap = inputTap
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
+        registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
@@ -592,8 +640,7 @@ final class AppServices {
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
-        let registry = registry
-        daemon.workTracker = { registry.track($0) }
+        daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before
@@ -613,14 +660,17 @@ final class AppServices {
         browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
-        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
-            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
-            self?.browserHost?.noteInput(event)
-            // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
-            self?.linkHints.cancel()
-            self?.windowHints.cancel()
-            self?.keyRouter.cancelChord()
+        // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
+        // ends link hints and a waiting chord (it may move the keyboard).
+        mouseDownSubscription = inputTap.subscribePresses(.mouseDown, phase: .afterDispatch) { [weak self] event in
+            guard let self else { return }
+            notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
+            browserHost?.noteInput(event)
+            linkHints.cancel()
+            windowHints.cancel()
+            keyRouter.cancelChord()
         }
+        AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
         cache.webKit.follow(energy)
     }
     /// Starts Energy Saver's inputs once the settings are followed, so the first policy pushed already

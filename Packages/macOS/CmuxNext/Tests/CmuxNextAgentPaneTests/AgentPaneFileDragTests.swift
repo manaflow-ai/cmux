@@ -38,7 +38,8 @@ struct AgentPaneFileDragTests {
         }
         await table.flush()
 
-        #expect(table.sites.isEmpty, "a drag read the file on the main thread: \(table.sites)")
+        // The read runs on the cooperative pool today (a pool site; p02-threads 047 moves it onto a lane).
+        #expect(table.sites.filter { $0.context == .main }.isEmpty, "a drag read the file on the main thread: \(table.sites)")
         #expect(contents.data == png)
         let picture = try #require(contents.picture)
         #expect(picture.size == CGSize(width: 160, height: 80))

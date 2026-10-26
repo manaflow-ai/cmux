@@ -132,6 +132,7 @@ extension PageWebView {
     /// Loads the current page URL again (a plain load of the same URL with another fragment is only
     /// a fragment navigation in WebKit, so this reloads from script).
     func reloadDocument() {
+        traceOpenLoadStarted(.reload)
         let fragment = route ?? "/"
         webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
                                    completionHandler: nil)

@@ -27,7 +27,7 @@ struct AgentTabHarnessOnCreateTests {
 
     private static func agentTabs(defaults: UserDefaults = UserDefaults()) -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true,
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), environment: environment, showcase: true,
                                   defaults: defaults)
         tabs.localHost = host
         return tabs
