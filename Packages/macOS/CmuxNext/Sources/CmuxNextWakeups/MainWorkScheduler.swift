@@ -29,7 +29,7 @@ public import QuartzCore
 /// // The composition root, with the app's one display clock:
 /// let displays = DisplayClock()
 /// FrameScheduler.install(displays: displays)
-/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true),
 ///                                  displays: displays)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
