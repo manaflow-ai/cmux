@@ -22,9 +22,8 @@ struct SplitRenderMotion: RenderServerMotion {
 /// `motion.renderServer`): the zooming pane goes to its rest frame in the key's turn, laid out once at its
 /// rest size, and Core Animation shows it springing there on the zoom token (`PaneZoomMotion`). It stays
 /// above the docks until it lands through the `rank` that `reconcile` gives it, not the layer zPosition the
-/// task spec names. Hit testing reads the model frames, which are at rest from the key's turn, so until
-/// p03-rendering-098 a click during the spring goes to the pane at rest under the pointer, not to what shows
-/// there. The panes it covers stay untouched under it; their rings, dims and page cutouts leave out all the
+/// task spec names. A click during the spring goes to the pane drawn under the pointer (p03-rendering-098,
+/// `ScreenContentView+HitTest.swift`), not to the one whose rest frame holds it. The panes it covers stay untouched under it; their rings, dims and page cutouts leave out all the
 /// pane springs across (``ScreenContentView/coverFrame(_:)``), and the landing restores the stacking and lets
 /// them go once. Chromium runs a transform animation of a layer that keeps its place in the paint order the
 /// same way (`cc/animation/keyframe_model.h`, `cc/trees/property_tree.h`).
