@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
+import CmuxNextSignposts
 import Darwin
 import Foundation
 
@@ -43,10 +44,13 @@ nonisolated final class ChromiumHostConnection: Sendable {
 
     let frames: AsyncStream<ChromiumHostFrame>
     private let state: ChromiumHostWireState
+    /// Takes one `cef.host_input` instant per frame written (tests pass one on their own trace runtime).
+    private let signposter: Signposter
 
     /// Takes ownership of both descriptors: `readFD` carries frames from the
     /// host, `writeFD` frames to it. ``close()`` (or the host's EOF) closes them.
-    init(readFD: Int32, writeFD: Int32) {
+    init(readFD: Int32, writeFD: Int32, signposter: Signposter = Signposter.cef) {
+        self.signposter = signposter
         _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         var size = Self.sendBuffer
         _ = setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
@@ -81,10 +85,13 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// Writes one frame; false when the host is gone or has stopped reading
     /// (then the connection is closed and nothing more is sent), or when the
     /// frame does not ``fits(_:)`` (nothing is written and the connection stays).
+    /// A written frame is one `cef.host_input` instant with its kind.
     @discardableResult
     func send(_ frame: ChromiumHostFrame) -> Bool { // perf-hot: 5us cef-host-input (every forwarded input event)
         guard Self.fits(frame) else { return false }
-        return state.send(frame.encoded())
+        let sent = state.send(frame.encoded())
+        if sent { signposter.cefHostInput(kind: frame.rawKind, isKey: frame.kind == .key) }
+        return sent
     }
 
     /// Ends the connection: the write descriptor closes (the host reads EOF)

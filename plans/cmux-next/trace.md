@@ -329,6 +329,16 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   own ring (task 104). The app emits no `cef.pump` then.
 - `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
   Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
+- `cef.geometry` (category `cef`, perf-hot `cef-geometry`, owner PL-motion-cef, closed by
+  p09-observability-038) is one thread slice (B/E) per parent window move or resize
+  (`WindowOverlayLayer.parentGeometryDidChange`, begin arg0 1) and per divider catcher sync
+  (`syncCatchers`, begin arg0 2). End arg0 is the catcher panels shown, end arg1 the catcher panels
+  made or re-framed in the slice. Each `CEFHostView.postGeometryChange` is one `cef.geometry` instant
+  (arg0 0): the fork re-places one page window there, so a slice's instants are its page moves.
+- `cef.host_input` (category `cef`, perf-hot `cef-host-input`, closed by p09-observability-038) is
+  one instant per frame `ChromiumHostConnection.send` writes to the Chromium host; arg0 is the
+  frame's wire kind (3 mouse, 4 wheel, 5 key, ...). A key frame is not written while the
+  keystroke-timing gate is closed, and the black box upload drops every `cef.host_input`.
 - The holder and the terminal hosts have `task` trace points (recording only, never the black
   box), but a `cmux trace` capture does not show them yet. They record only after the process
   opens its ring (p09-observability-095) and a recording is forwarded to it
