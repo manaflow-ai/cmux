@@ -700,6 +700,15 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "overloaded: X": the provider's overload with no HTTP status in the text.
+    if text.startswith("overloaded:"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"}})
+        return
+    # "cap-fail-then-exit": the SR2 gateway's capacity error, then the agent exits.
+    if text == "cap-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
+        time.sleep(0.05)
+        os._exit(0)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return

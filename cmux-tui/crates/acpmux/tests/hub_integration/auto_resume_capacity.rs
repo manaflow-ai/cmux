@@ -146,3 +146,48 @@ async fn a_prompt_sent_meanwhile_clears_the_row() {
     assert_eq!(skipped[0]["skipped"], "superseded");
     assert_eq!(records(&hub, &id, "user_message").len(), 2);
 }
+
+/// An attempt refused before its turn starts (its folder went while it waited, and its agent
+/// had exited) is recorded as skipped `refused`, so a watcher sees the row's `retry` go.
+#[tokio::test]
+async fn an_attempt_refused_before_its_turn_is_skipped_where_watchers_hear_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![1_500]);
+    let dir = std::env::temp_dir().join(format!("acpmux-cap-refused-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": dir.to_string_lossy(), "mcpServers": [], "_meta": {"acpmux": {"name": "cap-refused"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-then-exit"}], "_meta": {"acpmux": {"promptId": "p-gone"}}}),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("no non-exhausted"));
+    let scheduled = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_scheduled"
+        })
+        .await;
+    assert_eq!(scheduled["session"]["retry"]["reason"], "capacity", "{scheduled}");
+    std::fs::remove_dir_all(&dir).unwrap();
+    let skipped = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_skipped"
+        })
+        .await;
+    assert_eq!(skipped["session"]["retry"], Value::Null, "{skipped}");
+    let records = records(&hub, &id, "auto_resume_skipped");
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records[0]["skipped"], "refused", "{records:?}");
+    assert!(records[0]["error"].as_str().unwrap().contains("folder"), "{records:?}");
+    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+}
