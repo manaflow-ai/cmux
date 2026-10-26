@@ -34,10 +34,13 @@ public final class PageHostPool {
     var spareReady = false
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
+    /// Normal came back while a build was in flight (`refillSpare`): that build lost its spare to the
+    /// pressure, so the pool builds again when it ends.
+    var refillAfterBuild = false
     var activityMark: UInt64 = 0
-    /// The app's memory pressure events; a warning or critical level drops the spare.
-    let memoryPressure: MemoryPressureEvents
-    var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// The pool's memory consumer: warning or critical drops the spare, and none is built or parked
+    /// again until normal (Chrome's spare rule, ``SpareMemoryConsumer``).
+    var spareMemory: SpareMemoryConsumer?
     var windowObservers: [any NSObjectProtocol] = []
     public internal(set) var isLikely = false
     public internal(set) weak var target: NSWindow?
@@ -51,19 +54,24 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
-    ///   source it drives); a warning or critical level drops the parked spare.
-    public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
+    /// - Parameter memory: the app's memory coordinator (a test passes one over a source it drives);
+    ///   the pool registers its spare with it at once.
+    public init(memory: any MemoryConsumerRegistry, policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
-        self.memoryPressure = memoryPressure
         self.policy = policy
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        spareMemory = SpareMemoryConsumer(
+            name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
+            drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })
     }
+
+    /// Whether memory pressure lets the pool keep, build or park a spare now (normal only).
+    var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
     public var isSpareReady: Bool { spare != nil && spareReady }
     /// The spare host while one waits, ready or still loading (`debug.memory` spares).
@@ -117,7 +125,7 @@ public final class PageHostPool {
             host.close()
             return
         }
-        if !host.touched, spare == nil, let content = target?.contentView {
+        if !host.touched, spare == nil, allowsSpare, let content = target?.contentView {
             host.countsTouches = false
             park(host, in: content)
             spare = host
