@@ -721,6 +721,10 @@ async fn dispatch_request(
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
+                    // Retry hints use the original params here; the peer does not need the
+                    // CLI argv or a second copy of the prompt file to create the session.
+                    m.remove("argv");
+                    m.remove("promptFileText");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
@@ -790,6 +794,11 @@ async fn dispatch_request(
                 disallowed_tools,
             };
             let s = hub.new_session(req).await?;
+            if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
+                && !tags.is_empty()
+            {
+                hub.set_tags(&s, Some(tags), &[], None);
+            }
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
                 // A dedicated agent VM (vmHost): a session its owner's peer
