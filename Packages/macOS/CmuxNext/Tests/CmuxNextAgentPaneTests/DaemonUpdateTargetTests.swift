@@ -89,44 +89,110 @@ import Testing
         #expect(!DaemonUpdateBoard.line(.updating).isEmpty && !DaemonUpdateBoard.line(.retrying).isEmpty)
     }
 
-    /// A recorded failure or rollback the policy asks a notice for shows one toast naming the
+    /// A recorded failure or rollback the policy asks a notice for shows a toast naming the
     /// machine; the same state without the ask, or any other state, shows none.
     @Test @MainActor func aFailureTheBoardIsAskedToNoticeShowsOneToast() {
         let board = DaemonUpdateBoard()
         var shown: [String] = []
-        board.showNotice = { shown.append($0.message) }
+        board.showNotice = { shown.append($0.toast.message); return nil }
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating, notify: true))
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false)))
         #expect(shown.isEmpty)
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true))
-        board.apply(DaemonUpdateEvent(id: "acpmux-peer:huge-blue", displayName: "huge-blue", sshHost: "huge-blue",
-                                      state: .failed(reason: "new daemon reported 0123456ff", rolledBack: true), notify: true))
-        #expect(shown.count == 2)
+        #expect(shown.count == 1)
         #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
-        #expect(shown.last?.contains("huge-blue") == true && shown.last?.contains("0123456ff") == true)
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)]) == nil)
     }
 
-    /// Each failed target and build is a toast of its own: the toast center replaces a same-id toast
-    /// and keeps a closed one quiet, so a later build's failure, or another machine of the same name
-    /// failing for the same reason, must not share an id with an earlier one. The same event again
-    /// keeps its id, and replaces its toast in place.
-    @Test @MainActor func eachFailedTargetAndBuildIsAToastOfItsOwn() throws {
-        func failed(_ id: String, build: String?) -> DaemonUpdateEvent {
-            DaemonUpdateEvent(id: id, displayName: "cmux16", sshHost: "cmux16", state: .failed(reason: "disk full", rolledBack: false),
-                              notify: true, build: build)
+    /// Leo's screen: three toasts stacked over the chat list and composer, one per machine (a
+    /// launchctl bootstrap 125, a rollback that failed too, another machine). Failures share one
+    /// toast (one id, replaced in place) that names every machine, with each reason in its tooltip;
+    /// closed, it stays closed for that build, also after a relaunch, and a later build's failure
+    /// shows again.
+    @Test @MainActor func failuresShareOneToastThatStaysClosedForItsBuild() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("daemon-update-\(UUID().uuidString)/notice-closed")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        var shown: [DaemonUpdateBoard.Notice] = []
+        func board() -> DaemonUpdateBoard {
+            let board = DaemonUpdateBoard()
+            board.closedNoticeFile = file
+            board.showNotice = { shown.append($0); return nil }
+            return board
         }
-        let first = try #require(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "abc123def")))
-        let laterBuild = try #require(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "fedcba987")))
-        let otherMachine = try #require(DaemonUpdateBoard.noticeToast(failed("cloud:cmux16", build: "abc123def")))
-        #expect(first.message == laterBuild.message && first.message == otherMachine.message)
-        #expect(first.id != laterBuild.id, "a later build's failure")
-        #expect(first.id != otherMachine.id, "another machine of the same name and reason")
-        #expect(DaemonUpdateBoard.noticeToast(failed("acpmux-peer:cmux16", build: "abc123def"))?.id == first.id, "the same event again")
-        #expect(first.duration == CmuxToast.untilClosed)
-        #expect(DaemonUpdateBoard.noticeToast(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", state: .updating,
-                                                                notify: true)) == nil)
+        func failed(_ name: String, reason: String = "Bootstrap failed: 125: Domain does not support specified action",
+                    build: String = "abc123def", rolledBack: Bool = false) -> DaemonUpdateEvent {
+            DaemonUpdateEvent(id: "acpmux-peer:\(name)", displayName: name, sshHost: name,
+                              state: .failed(reason: reason, rolledBack: rolledBack), notify: true, build: build)
+        }
+        let first = board()
+        first.apply(failed("lab-mini"))
+        first.apply(failed("build-box", reason: "rollback failed too (125)", rolledBack: true))
+        first.apply(failed("tidy-yellow-tern", reason: "the new daemon did not answer"))
+        #expect(Set(shown.map(\.toast.id)) == [DaemonUpdateBoard.noticeID], "a toast per machine: \(shown.map(\.toast.id))")
+        let grouped = try #require(shown.last?.toast)
+        for name in ["lab-mini", "build-box", "tidy-yellow-tern"] {
+            #expect(grouped.message.contains(name), "\(grouped.message)")
+        }
+        #expect(grouped.detail?.components(separatedBy: "\n").count == 3)
+        #expect(grouped.detail?.contains("Bootstrap failed: 125") == true)
+        #expect(grouped.duration == CmuxToast.untilClosed)
+
+        // Closed: no toast for this build again, in this run or after a relaunch.
+        shown.last?.closed()
+        first.apply(failed("cloud-vm"))
+        let relaunched = board()
+        relaunched.apply(failed("lab-mini"))
+        #expect(shown.count == 3, "a failure toast came back after it was closed for this build")
+        // A later build's failure shows.
+        relaunched.apply(failed("lab-mini", build: "fedcba987"))
+        #expect(shown.count == 4)
+        #expect(shown.last?.toast.message.contains("lab-mini") == true)
+    }
+
+    /// Only the person closes the notice for the build. Its window closing (the toast center ends
+    /// its toasts as `closed`), a newer notice in its place, or a timeout leaves later failures
+    /// free to show.
+    @Test func onlyThePersonClosesTheNotice() {
+        #expect(DaemonUpdateBoard.closedByPerson(.closed, windowShown: true))
+        #expect(DaemonUpdateBoard.closedByPerson(.action, windowShown: true))
+        #expect(!DaemonUpdateBoard.closedByPerson(.closed, windowShown: false), "a window closing closed the notice for the build")
+        #expect(!DaemonUpdateBoard.closedByPerson(.replaced, windowShown: true))
+        #expect(!DaemonUpdateBoard.closedByPerson(.timeout, windowShown: true))
+    }
+
+    /// One notice at a time, on real toast handles: a new failure in another window takes the old
+    /// toast down, and a close that settles after a newer failure of its build showed (the close
+    /// is read a turn later) takes that one down too, so nothing of a closed build stays up.
+    @Test @MainActor func oneNoticeAtATimeAndACloseTakesDownALaterOneOfItsBuild() throws {
+        let center = CmuxToastCenter(host: NoticeTestHost())
+        let windows = (0..<2).map { _ in
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
+        }
+        var notices: [DaemonUpdateBoard.Notice] = []
+        var handles: [CmuxToastHandle] = []
+        let board = DaemonUpdateBoard()
+        board.showNotice = { notice in
+            notices.append(notice)
+            let handle = center.show(notice.toast, in: windows[handles.count % 2])
+            handles.append(handle)
+            return handle
+        }
+        func failed(_ name: String) -> DaemonUpdateEvent {
+            DaemonUpdateEvent(id: "acpmux-peer:\(name)", displayName: name, state: .failed(reason: "disk full", rolledBack: false),
+                              notify: true, build: "abc123def")
+        }
+        board.apply(failed("lab-mini"))
+        board.apply(failed("build-box"))
+        #expect(handles.map(\.isDismissed) == [true, false], "two notices up at once")
+        #expect(center.toasts(in: windows[0]).isEmpty && center.toasts(in: windows[1]).count == 1)
+        // The person closed the first; a third failure showed before that close was read.
+        board.apply(failed("tidy-yellow-tern"))
+        notices[0].closed()
+        #expect(handles.allSatisfy(\.isDismissed), "a notice of a closed build stayed up")
+        board.apply(failed("cloud-vm"))
+        #expect(handles.count == 3, "a notice of a closed build showed again")
     }
 
     /// An update fails in the background, while the app is not active: AppKit then has no key and
@@ -177,4 +243,12 @@ import Testing
                 "on another Space, or minimized, when it is the only workspace window")
         #expect(DaemonUpdateBoard.noticeWindow(key: settings, main: settings, ordered: [settings], rules: rules) == nil, "no workspace window, no notice")
     }
+}
+
+/// Toasts with no window overlay: the center's stacks and handles only.
+@MainActor
+private final class NoticeTestHost: CmuxToastHosting {
+    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
+    func move(_ toast: CmuxToastView, to slot: Int) {}
+    func hide(_ toast: CmuxToastView, animated: Bool) {}
 }
