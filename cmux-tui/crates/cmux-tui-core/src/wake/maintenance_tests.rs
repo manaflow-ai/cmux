@@ -41,12 +41,15 @@ struct Log {
 }
 
 /// A wait that jumps the clock to the instant it is asked for, stops after
-/// `end`, and models a machine asleep between the two instants of `asleep`.
+/// `end`, models a machine asleep between the two instants of `asleep`, and
+/// steps the wall clock back by `step_back.1` in the first wake at or after
+/// `step_back.0`.
 struct FakeWait {
     clock: FakeClock,
     log: Arc<Mutex<Log>>,
     end: SystemTime,
     asleep: Option<(SystemTime, SystemTime)>,
+    step_back: Option<(SystemTime, Duration)>,
     commands: VecDeque<(SystemTime, Command)>,
 }
 
@@ -61,13 +64,22 @@ impl Wait for FakeWait {
             self.clock.set(when);
             return Wake::Command(command);
         }
-        let Some(until) = until.filter(|until| *until <= self.end) else {
+        let Some(until) = until else {
             return Wake::Closed;
         };
-        let woke = match self.asleep {
+        let mut woke = match self.asleep {
             Some((from, to)) if until >= from && until < to => to,
             _ => until,
         };
+        if let Some((at, by)) = self.step_back
+            && woke >= at
+        {
+            self.step_back = None;
+            woke -= by;
+        }
+        if woke > self.end {
+            return Wake::Closed;
+        }
         self.clock.set(woke);
         log.wakes.push(woke);
         Wake::Due
@@ -113,6 +125,7 @@ impl Sim {
             log: Arc::clone(&self.log),
             end,
             asleep,
+            step_back: None,
             commands: VecDeque::new(),
         };
         drive(self.schedule, waiter, &self.clock, &EnergyMode::new(saver));
@@ -168,6 +181,7 @@ fn a_registration_arms_the_first_timed_wait() {
         log: Arc::clone(&log),
         end: base() + secs(600),
         asleep: None,
+        step_back: None,
         commands: VecDeque::from([(
             base() + secs(10),
             Command::Register(spec("late.300", 300, false), job),
@@ -257,10 +271,38 @@ fn ordinary_jobs_may_register() {
 }
 
 #[test]
-#[cfg_attr(debug_assertions, should_panic(expected = "durability job"))]
 fn durability_jobs_are_refused() {
     for name in DURABILITY_JOBS {
-        assert_eq!(check(spec(name, 300, false)), Err(RegisterError::Durability(name)));
+        assert_eq!(refuse_durability(spec(name, 300, false)), Err(RegisterError::Durability(name)));
+    }
+    assert_eq!(refuse_durability(spec("acpmux.catalog", 300, false)), Ok(()));
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "output_store.flush is a durability job")]
+fn a_durability_registration_asserts_in_debug_builds() {
+    let _ = check(spec("output_store.flush", 300, false));
+}
+
+#[test]
+fn a_wall_clock_step_back_costs_at_most_one_period() {
+    for back in [3600, 86_400] {
+        let sim = Sim::new(&[spec("lease.renew", 300, false)]);
+        // The wake due at base + 300 reads a wall clock `back` seconds earlier.
+        let stepped = base() + secs(300) - secs(back);
+        let waiter = FakeWait {
+            clock: sim.clock.clone(),
+            log: Arc::clone(&sim.log),
+            end: stepped + secs(600),
+            asleep: None,
+            step_back: Some((base() + secs(300), secs(back))),
+            commands: VecDeque::new(),
+        };
+        drive(sim.schedule, waiter, &sim.clock, &EnergyMode::new(false));
+
+        let runs: Vec<SystemTime> = sim.runs.lock().unwrap().iter().map(|(_, at)| *at).collect();
+        assert_eq!(runs, [stepped + secs(300), stepped + secs(600)], "stepped back {back} s");
     }
 }
 
@@ -288,6 +330,26 @@ fn the_armed_kevent_carries_the_leeway() {
     assert_eq!(event.ext[1], 30_000_000_000);
     assert_eq!(event.data, 1_800_000_300_000_000_000);
     assert_ne!(event.flags & libc::EV_ONESHOT, 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_real_kqueue_accepts_and_fires_the_wall_clock_timer() {
+    let (_commands, receiver) = std::sync::mpsc::channel();
+    let (waiter, _trigger) = platform::waiter(receiver).expect("a kqueue");
+    let until = SystemTime::now() + Duration::from_millis(50);
+    let change = platform::timer_event(until, Duration::from_millis(1));
+    let events = waiter.kevent(Some(&change), Some(secs(5))).expect("kevent64");
+
+    let timer = events.iter().find(|event| event.filter == libc::EVFILT_TIMER);
+    let timer = timer.expect("the timer fired within 5 s");
+    assert_eq!(
+        timer.flags & libc::EV_ERROR,
+        0,
+        "the kernel refused the timer: errno {}",
+        timer.data
+    );
+    assert!(SystemTime::now() + Duration::from_millis(5) >= until, "the timer fired early");
 }
 
 #[cfg(target_os = "linux")]

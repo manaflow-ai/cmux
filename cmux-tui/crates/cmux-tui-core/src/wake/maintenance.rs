@@ -18,6 +18,8 @@
 //! - With nothing registered the thread waits with no timeout.
 //! - A wake later than the leeway allows (the machine slept) runs each overdue
 //!   job once, spread over one leeway window, then puts it back on its grid.
+//!   A wall clock that steps back puts a job due more than one period ahead
+//!   back on its grid from the new time, so either step costs one period.
 //! - In Energy Saver a job registered `skippable_in_saver` runs at 4 times its
 //!   period ([`SAVER_STRETCH`]); leases and renewals register with `false`.
 //!
@@ -203,9 +205,22 @@ impl Drop for MaintenanceClock {
 }
 
 fn check(spec: JobSpec) -> Result<(), RegisterError> {
-    let durability = DURABILITY_JOBS.contains(&spec.name);
-    debug_assert!(!durability, "{} is a durability job: use a one-shot wake::deadline", spec.name);
-    if durability { Err(RegisterError::Durability(spec.name)) } else { Ok(()) }
+    let checked = refuse_durability(spec);
+    debug_assert!(
+        checked.is_ok(),
+        "{} is a durability job: use a one-shot wake::deadline",
+        spec.name
+    );
+    checked
+}
+
+/// The durability refusal of [`check`], without its debug assertion.
+fn refuse_durability(spec: JobSpec) -> Result<(), RegisterError> {
+    if DURABILITY_JOBS.contains(&spec.name) {
+        Err(RegisterError::Durability(spec.name))
+    } else {
+        Ok(())
+    }
 }
 
 /// The thread's loop: wait for the earliest due instant or a command, apply
@@ -280,6 +295,7 @@ impl Schedule {
 
     /// Runs every job due at `now` and returns their names in run order.
     fn run_due(&mut self, now: SystemTime) -> Vec<&'static str> {
+        self.regrid_ahead(now);
         self.spread_overdue(now);
         let mut ran = Vec::new();
         for index in 0..self.entries.len() {
@@ -295,6 +311,20 @@ impl Schedule {
             ran.push(entry.spec.name);
         }
         ran
+    }
+
+    /// After the wall clock stepped back, puts every job due more than one
+    /// period ahead back on its grid from `now`: a backward step, like a
+    /// forward one, costs at most one period.
+    fn regrid_ahead(&mut self, now: SystemTime) {
+        for index in 0..self.entries.len() {
+            let period = self.period_secs(self.entries[index].spec);
+            let entry = &mut self.entries[index];
+            if entry.next > now + Duration::from_secs(period) {
+                entry.anchor = now;
+                entry.next = next_multiple(now, period);
+            }
+        }
     }
 
     /// After a sleep gap, gives the overdue jobs slots across one leeway
@@ -330,7 +360,7 @@ mod platform {
     use std::sync::mpsc::{Receiver, TryRecvError};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{Command, LEEWAY, Trigger, Wait, Wake};
+    use super::{Command, LEEWAY, THREAD_NAME, Trigger, Wait, Wake};
 
     const TIMER: u64 = 1;
     const USER: u64 = 2;
@@ -415,7 +445,7 @@ mod platform {
     }
 
     impl Wait for KqueueWait {
-        fn wait(&mut self, until: Option<SystemTime>, _now: SystemTime) -> Wake {
+        fn wait(&mut self, until: Option<SystemTime>, now: SystemTime) -> Wake {
             match self.commands.try_recv() {
                 Ok(command) => return Wake::Command(command),
                 Err(TryRecvError::Disconnected) => return Wake::Closed,
@@ -427,11 +457,57 @@ mod platform {
                 None => Some(timer_delete()),
             };
             self.armed = until;
-            let changes = change.as_ref().map_or(std::ptr::null(), std::ptr::from_ref);
+            let events = match self.kevent(change.as_ref(), None) {
+                Ok(events) => events,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => return Wake::Due,
+                Err(error) => return self.stop(&error),
+            };
+            let mut refused = None;
+            let mut user = false;
+            for event in &events {
+                user |= event.filter == libc::EVFILT_USER;
+                if event.filter == libc::EVFILT_TIMER {
+                    // The one-shot timer is gone once it fires or fails to arm.
+                    self.armed = None;
+                    if event.flags & libc::EV_ERROR != 0 {
+                        refused = Some(event.data);
+                    }
+                }
+            }
+            let (Some(errno), Some(at), false) = (refused, until, user) else {
+                return Wake::Due;
+            };
+            let error = io::Error::from_raw_os_error(i32::try_from(errno).unwrap_or(libc::EINVAL));
+            eprintln!(
+                "cmux-tui: {THREAD_NAME}: wall-clock timer refused ({error}); waiting on a relative timeout"
+            );
+            match self.kevent(None, Some(at.duration_since(now).unwrap_or(Duration::ZERO))) {
+                Err(error) if error.kind() != io::ErrorKind::Interrupted => self.stop(&error),
+                _ => Wake::Due,
+            }
+        }
+    }
+
+    impl KqueueWait {
+        /// Applies `change`, then waits for up to two events, at most
+        /// `timeout` when given. A change the kernel refuses comes back as an
+        /// `EV_ERROR` event.
+        pub(super) fn kevent(
+            &self,
+            change: Option<&libc::kevent64_s>,
+            timeout: Option<Duration>,
+        ) -> io::Result<Vec<libc::kevent64_s>> {
+            let changes = change.map_or(std::ptr::null(), std::ptr::from_ref);
             let count = i32::from(change.is_some());
+            let timespec = timeout.map(|timeout| libc::timespec {
+                tv_sec: libc::time_t::try_from(timeout.as_secs()).unwrap_or(libc::time_t::MAX),
+                tv_nsec: libc::c_long::from(timeout.subsec_nanos()),
+            });
+            let timespec_ptr = timespec.as_ref().map_or(std::ptr::null(), std::ptr::from_ref);
             let mut events = [user_event(0, 0); 2];
             // SAFETY: `changes` is null or one valid change, `events` has
-            // room for two; a null timeout blocks until an event.
+            // room for two, `timespec_ptr` is null (block until an event) or
+            // a valid timeout that outlives the call.
             let ready = unsafe {
                 libc::kevent64(
                     self.kq.as_raw_fd(),
@@ -440,16 +516,21 @@ mod platform {
                     events.as_mut_ptr(),
                     2,
                     0,
-                    std::ptr::null(),
+                    timespec_ptr,
                 )
             };
-            for event in &events[..usize::try_from(ready).unwrap_or(0)] {
-                // The one-shot timer is gone once it fires.
-                if event.filter == libc::EVFILT_TIMER && event.flags & libc::EV_ERROR == 0 {
-                    self.armed = None;
-                }
-            }
-            Wake::Due
+            let ready = usize::try_from(ready).map_err(|_| io::Error::last_os_error())?;
+            Ok(events[..ready].to_vec())
+        }
+
+        /// A kqueue that cannot wait stops the clock instead of spinning;
+        /// later registrations get [`super::RegisterError::Stopped`].
+        fn stop(&mut self, error: &io::Error) -> Wake {
+            eprintln!(
+                "cmux-tui: {THREAD_NAME}: kqueue wait failed ({error}); the maintenance clock stops"
+            );
+            self.armed = None;
+            Wake::Closed
         }
     }
 
