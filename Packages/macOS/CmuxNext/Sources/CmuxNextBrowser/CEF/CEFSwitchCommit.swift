@@ -51,8 +51,9 @@ extension CEFLayerHosting {
         if showsInSwitchTransaction, let fork, let browser {
             let shown = isViewShown
             switchCommit.apply(shown ? .visible : .hidden, browser: browser, fork: fork)
-            // The renderer hears the show now; its next frame takes the snapshot away.
-            if shown { awaitFrameUnderSnapshot(browser: browser, fork: fork) }
+            // The renderer hears the show now; its next frame takes the snapshot away. Hidden: a page past
+            // its grace that showed and hid again in this turn goes back past its grace.
+            if shown { awaitFrameUnderSnapshot(browser: browser, fork: fork) } else { keepPastGrace(browser: browser, fork: fork) }
         }
         syncDeadline()
         held?.place()
@@ -95,6 +96,10 @@ final class CEFSwitchCommit {
     private(set) var applied = CEFLayerHosting.PageVisibility.visible
     /// The page's hidden frame waits in the list (unlocked).
     private(set) var isFrameKept = false
+    /// The fork dropped the hidden page window's frame (``evictFrame(browser:fork:)``); a show gives it back.
+    private(set) var isFrameEvicted = false
+    /// The fork took the hide and the list keeps no frame for it: the page is past its grace.
+    var isPastGrace: Bool { applied != .visible && !isFrameKept }
     /// The app-wide list of kept frames; nil drops a hidden page's frame at once.
     weak var hiddenFrames: (any CEFHiddenFrames)?
     /// What a hidden page does when its grace ends (the layer hosting's snapshot); nil evicts at once.
@@ -147,6 +152,7 @@ final class CEFSwitchCommit {
         applied = wanted
         if wanted == .visible {
             isFrameKept = false
+            isFrameEvicted = false
             hiddenFrames?.addFrame(ObjectIdentifier(self), locked: true) {}
         } else if let hiddenFrames {
             isFrameKept = true
@@ -163,6 +169,7 @@ final class CEFSwitchCommit {
         if target != nil || isFrameKept { hiddenFrames?.removeFrame(ObjectIdentifier(self)) }
         applied = .visible
         isFrameKept = false
+        isFrameEvicted = false
         target = nil
     }
 
@@ -179,6 +186,6 @@ final class CEFSwitchCommit {
     func evictFrame(browser: Int32, fork: CEFLayerHosting.Fork) {
         guard let evictFrame = fork.evictFrame else { return }
         forkCalls += 1
-        _ = evictFrame(browser)
+        if evictFrame(browser) { isFrameEvicted = true }
     }
 }

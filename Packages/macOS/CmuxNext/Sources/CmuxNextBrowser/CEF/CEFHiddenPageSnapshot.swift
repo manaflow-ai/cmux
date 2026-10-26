@@ -73,10 +73,11 @@ final class CEFHiddenPageSnapshot {
         drop(page, keeping: snapshot)
     }
 
-    /// Hidden again past its grace before the page window's next frame: the snapshot it shows is still
-    /// the page's last picture, so it goes volatile again with no new copy.
+    /// Hidden again past its grace before the page window's next frame: the snapshot it shows (if any) is
+    /// still the page's last picture, so it goes volatile again with no new copy. A hibernation read that
+    /// runs keeps it non-volatile; its end makes it volatile (``picture(of:)``).
     func evictAgain(page: ChromiumHostPageView) {
-        snapshot?.makeSnapshotVolatile()
+        if readers == 0 { snapshot?.makeSnapshotVolatile() }
         drop(page, keeping: snapshot)
     }
 
@@ -221,6 +222,23 @@ extension CEFLayerHosting {
     /// The page shows in the switch's turn (``visibilityMayHaveChanged()``).
     func showHiddenSnapshot() {
         hiddenSnapshot.show(browser: browser)
+    }
+
+    /// After a commit that leaves the page hidden. A show and a hide in one turn make no fork call, but the
+    /// show (``showHiddenSnapshot()``) put the layer host back: a page past its grace drops it again. With
+    /// the renderer's frame still evicted that needs no fork call; a copy the show dropped starts again.
+    func keepPastGrace(browser: Int32, fork: Fork) {
+        guard let page, switchCommit.isPastGrace else { return }
+        switch hiddenSnapshot.phase {
+        case .capturing, .evicted:
+            return
+        case .live, .covering:
+            if switchCommit.isFrameEvicted {
+                hiddenSnapshot.evictAgain(page: page)
+            } else {
+                hiddenPastGrace(browser: browser, fork: fork)
+            }
+        }
     }
 
     /// After the show's commit, the fork heard the page shows: its next frame takes the snapshot away. A

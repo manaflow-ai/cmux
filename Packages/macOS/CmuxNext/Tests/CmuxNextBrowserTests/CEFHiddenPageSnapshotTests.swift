@@ -265,6 +265,67 @@ import Testing
         #expect(page.snapshotCover?.snapshot === surface)
     }
 
+    @Test func shownAndHiddenInOneTurnFromPastItsGraceItDropsTheLayerHostAgainWithNoForkCall() throws {
+        let hosting = makeHostedPage()
+        let page = try #require(hosting.page)
+        let surface = try frameCopy()
+        evicted(hosting, with: surface)
+        show(hosting)
+        #expect(page.contextID == 7, "the show put the layer host back in its turn")
+        hide(hosting)
+        #expect(fake.calls.isEmpty, "the renderer's frame is still evicted: nothing to tell the fork")
+        #expect(hosting.hiddenSnapshot.phase == .evicted)
+        #expect(page.contextID == 0, "no layer host")
+        #expect(page.snapshotCover?.snapshot === surface)
+        #expect(purgeableState(surface) == 1, "volatile again")
+        // The next show still presents the snapshot, then the live page.
+        show(hosting)
+        commit.end()
+        #expect(page.snapshotCover?.snapshot === surface)
+        #expect(fake.calls == ["visibility 3 visible", "next frame 3"])
+    }
+
+    @Test func shownAndHiddenInOneTurnWhileTheCopyRunsItCopiesAgainAndEvicts() throws {
+        let hosting = makeHostedPage()
+        let page = try #require(hosting.page)
+        hide(hosting)
+        frames.evictAll()
+        show(hosting)
+        #expect(hosting.hiddenSnapshot.phase == .live, "the show dropped the copy")
+        hide(hosting)
+        #expect(hosting.hiddenSnapshot.phase == .capturing)
+        #expect(fake.calls == ["visibility 3 hidden", "copy 3", "copy 3"], "no visibility call, a new copy")
+        let surface = try frameCopy()
+        fake.finishCopy(surface)
+        #expect(page.contextID == 0, "no layer host")
+        #expect(page.snapshotCover?.snapshot === surface)
+        #expect(purgeableState(surface) == 1)
+        #expect(hosting.hiddenSnapshot.phase == .evicted)
+        #expect(fake.calls.last == "evict 3", "the renderer's frame goes")
+    }
+
+    @Test func aSnapshotHibernationReadsStaysNonVolatileUntilTheReadEnds() async throws {
+        let hosting = makeHostedPage()
+        let surface = try frameCopy()
+        evicted(hosting, with: surface)
+        let snapshot = hosting.hiddenSnapshot
+        let reading = Task { await snapshot.picture(of: 3) }
+        // The reading task runs on the main actor up to its off-main copy, then this test goes on; the
+        // copy's return waits for the main actor, so the read runs until this test awaits it.
+        await Task.yield()
+        try #require(purgeableState(surface) == 0, "the read started")
+        show(hosting)
+        commit.end()
+        hide(hosting)
+        frames.evictAll()
+        #expect(snapshot.phase == .evicted)
+        #expect(hosting.page?.contextID == 0)
+        #expect(purgeableState(surface) == 0, "non-volatile while the read runs")
+        let picture = await reading.value
+        #expect(picture?.width == 400)
+        #expect(purgeableState(surface) == 1, "volatile once the read ends")
+    }
+
     @Test func hibernationReadsTheSnapshotAndLeavesItVolatile() async throws {
         let hosting = makeHostedPage()
         let surface = try frameCopy()
