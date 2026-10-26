@@ -32,6 +32,12 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         try await fallback.prewarm()
     }
 
+    /// Starts sessions in the Chief home's acpmux without constructing a page. Launch resume uses
+    /// the same routing as a restored tab's handshake, including old Chief homes kept on disk.
+    public func warm(sessionIds: [String]) async throws {
+        try await resolved().warm(sessionIds: sessionIds)
+    }
+
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
         try await resolved().sessionFolder(sessionId: sessionId)
     }

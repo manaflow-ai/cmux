@@ -27,6 +27,12 @@ import CmuxNextWakeups
         func putFile(sessionId: String, name: String, data: Data) async throws -> String { "" }
     }
 
+    private actor WarmHost: AgentPaneHostProviding {
+        var warmed: [[String]] = []
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw Reached(host: "warm") }
+        func warm(sessionIds: [String]) async throws { warmed.append(sessionIds) }
+    }
+
     private func reached(_ host: (any AgentPaneHostProviding)?, session: String) async -> String? {
         guard let host else { return nil }
         do {
@@ -57,7 +63,7 @@ import CmuxNextWakeups
     }
 
     @Test func aTabOfAnOldNightlyChiefHomeOpensItsChat() async throws {
-        let (base, current, old) = try homes()
+        let (base, _, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
         let chiefHost = ChiefHomeAcpmux.host(muxHome: current.muxHome), oldHost = ChiefHomeAcpmux.host(muxHome: old)
         let record = AgentSessionRef(host: oldHost, session: kept, harness: "claude")
@@ -95,6 +101,18 @@ import CmuxNextWakeups
         try FileManager.default.createDirectory(at: later.appendingPathComponent("acpmux/sessions/\(kept)", isDirectory: true),
                                                 withIntermediateDirectories: true)
         #expect(await reached(pane, session: kept) == "later-home")
+    }
+
+    @Test func anOldChiefHomeWarmsItsRestoredChatThroughItsAcpmux() async throws {
+        let (base, current, old) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let warm = WarmHost()
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in warm }
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory,
+                                        fallback: NamedHost(name: "app"))
+
+        try await pane.warm(sessionIds: [kept])
+        #expect(await warm.warmed == [[kept]])
     }
 
     /// A Chief home whose brain host runs (another build that is open) owns its acpmux: a tab of
