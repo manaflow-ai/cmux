@@ -52,6 +52,7 @@ enum DebugWakeups {
                 ]
             }),
             "frame_schedulers": .array(schedulers),
+            "display_links": JSONValue(budgeted.displayClock.liveLinks),
             "active_frame_clients": .array(all.flatMap(\.activeClients).map { .string($0) }),
         ]
         if params["run_loop"]?.boolValue == true {

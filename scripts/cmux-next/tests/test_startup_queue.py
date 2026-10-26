@@ -140,6 +140,26 @@ class BlockingTests(unittest.TestCase):
         _, warnings, _ = sq.blocking_hits([blocking_run(900, [], overflow=4)], "startup_complete")
         self.assertIn("4 sites past", warnings[0])
 
+    def test_only_main_thread_sites_are_hits(self):
+        # One line reached on the main thread and on the pool is two debug.blocking sites; only the main one is
+        # a main-thread blocking hit, with its own count.
+        run = blocking_run(900, [{"context": "main", "kind": "fileIO", "location": "A.swift:1", "count": 2},
+                                 {"context": "pool", "kind": "fileIO", "location": "A.swift:1", "count": 7},
+                                 {"context": "pool", "kind": "syncWait", "location": "P.swift:9", "count": 1}])
+        hits, _, used = sq.blocking_hits([run], "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertEqual([(h["location"], h["count"]) for h in hits], [("A.swift:1", 2)])
+
+    def test_pool_overflow_is_not_a_main_thread_warning(self):
+        run = blocking_run(900, [], overflow=3)
+        run["result"]["contexts"] = {"main": {"sites": 0, "count": 0, "overflow": 0},
+                                     "pool": {"sites": 0, "count": 0, "overflow": 3}}
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertFalse(any("past the detector" in w for w in warnings))
+        run["result"]["contexts"]["main"]["overflow"] = 2
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertIn("2 sites past", warnings[0])
+
     def test_cli_reads_a_raw_capture_and_writes_json(self):
         files = Files()
         raw = files.json("raw.json", {"mode": "blocking", "runs": [

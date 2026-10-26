@@ -42,7 +42,9 @@ launch these queues measure. A noActivate launch is an interrupted launch (task 
 
 Input contract. All times are ms since process start (the launch-mark clock, LaunchMarkSink.swift).
   bench-startup.py --json: {tag: {mode: [{mark: ms, ...}, ...]}}.
-  debug.blocking: {"compiled_in", "mode", "overflow", "sites": [{"kind", "location", "count", "first_ms"?}]}.
+  debug.blocking: {"compiled_in", "mode", "overflow", "contexts"?: {ctx: {"overflow", ...}},
+    "sites": [{"context"?, "kind", "location", "count", "first_ms"?}]}. Q5 reads only `main` sites (a site with
+    no `context` is a main one); a `pool` site already runs off the main thread.
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
@@ -219,6 +221,16 @@ NO_DETECTOR = ("the build has no blocking detector (debug.blocking compiled_in i
                "bench` app always reports no sites): measure a `--config bench-checks` or Debug build")
 
 
+def main_overflow(result):
+    """The main thread's unrecorded blocking calls: `contexts.main.overflow`, else the total `overflow` (a result
+    from before the detector split it by context)."""
+    contexts = result.get("contexts")
+    main = contexts.get("main") if isinstance(contexts, dict) else None
+    if isinstance(main, dict) and number(main.get("overflow")) is not None:
+        return int(number(main["overflow"]))
+    return int(number(result.get("overflow")) or 0)
+
+
 def blocking_hits(runs, until_mark):
     """Each main-thread blocking site first hit before the mark, in any run; most runs first."""
     sites, warnings, used, unproved = {}, [], 0, 0
@@ -237,11 +249,14 @@ def blocking_hits(runs, until_mark):
             warnings.append(f"run {index + 1}: no {until_mark} mark, left out (its launch window is unknown)")
             continue
         used += 1
-        if number(result.get("overflow")):
-            warnings.append(f"run {index + 1}: {int(result['overflow'])} sites past the detector's table")
+        overflow = main_overflow(result)
+        if overflow:
+            warnings.append(f"run {index + 1}: {overflow} sites past the detector's table")
         for site in result["sites"]:
-            first = number(site.get("first_ms")) if isinstance(site, dict) else None
-            if not isinstance(site, dict) or (first is not None and first > limit):
+            if not isinstance(site, dict) or site.get("context", "main") != "main":
+                continue
+            first = number(site.get("first_ms"))
+            if first is not None and first > limit:
                 continue
             unproved += first is None
             key = (str(site.get("kind", "?")), str(site.get("location", "?")))

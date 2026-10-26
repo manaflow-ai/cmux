@@ -22,7 +22,7 @@ struct AgentPaneRelaunchWakeTests {
     /// A tab store of one run, as the App wires it: tab records in a tree, pages on a page that
     /// never loads (a loopback port nobody serves), the wake file of the tag's state directory.
     static func run(file: URL, records: [String: AgentSessionRef]) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
@@ -96,7 +96,7 @@ struct AgentPaneRelaunchWakeTests {
         page.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.thisMac))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(),
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true)
         tabs.localHost = Self.thisMac
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
