@@ -14,16 +14,19 @@
       "reason": "Transport detail of the provider client: a request is backgrounded only when the caller sends the background-after header, which cmux VM never does, and background request ids are account-wide, so they cannot be scoped to a tenant."
     },
     "list_certificates": {
-      "status": "wrapped",
-      "by": ["domains.listCertificates"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "request_wildcard": {
-      "status": "wrapped",
-      "by": ["domains.requestWildcardCertificate"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "list_domains": {
-      "status": "wrapped",
-      "by": ["domains.listDomains", "domains.getDomain", "domains.deleteDomain"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "delete_placeholder_branding": {
       "status": "denied",
@@ -168,43 +171,55 @@
     },
     "list_tls_rules": {
       "status": "wrapped",
-      "by": ["vms.replaceVmHttpsProxy", "tlsRules.listTlsRules"]
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "create_tls_rule": {
-      "status": "wrapped",
-      "by": ["tlsRules.createTlsRule"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "list_tls_forward_auth": {
-      "status": "wrapped",
-      "by": ["tlsForwardAuth.listTlsForwardAuths"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "create_tls_forward_auth": {
-      "status": "wrapped",
-      "by": ["tlsForwardAuth.createTlsForwardAuth"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "delete_tls_forward_auth": {
-      "status": "wrapped",
-      "by": ["tlsForwardAuth.deleteTlsForwardAuth"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "get_tls_forward_auth": {
-      "status": "wrapped",
-      "by": ["tlsForwardAuth.getTlsForwardAuth"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "update_tls_forward_auth": {
-      "status": "wrapped",
-      "by": ["tlsForwardAuth.updateTlsForwardAuth"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "delete_tls_rule": {
-      "status": "wrapped",
-      "by": ["tlsRules.deleteTlsRule"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "get_tls_rule": {
-      "status": "wrapped",
-      "by": ["tlsRules.getTlsRule"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "update_tls_rule": {
       "status": "wrapped",
-      "by": ["vms.replaceVmHttpsProxy", "tlsRules.updateTlsRule"]
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "list_tunnels": {
       "status": "wrapped",
@@ -254,24 +269,29 @@
       "reason": "A cmux device is one tunnel in exactly one mesh: its routes, firewall rules and ACL are scoped to that mesh, so attaching another network would bridge two meshes outside their ACLs; joining another mesh is a new device enrollment there."
     },
     "list_verifications": {
-      "status": "wrapped",
-      "by": ["domains.listDomainVerifications"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "create_verification": {
-      "status": "wrapped",
-      "by": ["domains.createDomainVerification"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "delete_verification": {
-      "status": "wrapped",
-      "by": ["domains.deleteDomainVerification"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "get_verification": {
-      "status": "wrapped",
-      "by": ["domains.getDomainVerification"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "verify_domain": {
-      "status": "wrapped",
-      "by": ["domains.verifyDomain"]
+      "status": "planned",
+      "bead": "cx-b4h.6",
+      "reason": "planned in cx-b4h.6"
     },
     "list_vms": {
       "status": "wrapped",

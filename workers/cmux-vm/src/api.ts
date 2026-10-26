@@ -35,7 +35,6 @@ import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
 import { VmCreationKey } from "./lib/ids.ts";
 import { CreatedByCaller } from "./api/common.ts";
 import { VmInstanceIdentity, VmInstanceIdentityQuery } from "./api/instance-identity.ts";
-import { DomainsGroupDefinition, TlsForwardAuthGroupDefinition, TlsRulesGroupDefinition } from "./api/domains.ts";
 import { GuestPath } from "./api/guest-path.ts";
 import {
   abortFileUploadEndpoint,
@@ -578,10 +577,6 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(OverlayServersGroupDefinition.middleware(Authentication))
   .add(OverlayServerDeviceGroupDefinition)
   .add(MeshNetworkGroupDefinition.middleware(Authentication))
-  // Domains and TLS (cx-b4h.6).
-  .add(DomainsGroupDefinition.middleware(Authentication))
-  .add(TlsRulesGroupDefinition.middleware(Authentication))
-  .add(TlsForwardAuthGroupDefinition.middleware(Authentication))
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",
