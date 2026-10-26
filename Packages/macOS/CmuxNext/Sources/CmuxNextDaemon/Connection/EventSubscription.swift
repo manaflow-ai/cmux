@@ -183,8 +183,13 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
             waiter?.resume(returning: .event(envelope))
         }
 
-        /// The next item; waits while none is held; nil once the inbox ended and holds nothing.
+        /// The next item; waits while none is held; nil once the inbox ended and holds nothing, or
+        /// once the consuming task is cancelled (the held items dropped), as `AsyncStream` does.
         func next() async -> DaemonSubscriptionItem? {
+            if Task.isCancelled {
+                finish(dropping: true)
+                return nil
+            }
             switch state.withLock({ $0.take() }) {
             case .item(let item): return item
             case .ended: return nil

@@ -123,6 +123,7 @@ import Testing
         let wanted = (1...Self.count).map { Self.envelope($0) }.filter { Self.surface($0.event) == 3 }.map(\.sequence)
         let got = await liveItems.value
         #expect(Self.sequences(got) == wanted, "the stopped subscriber cost another subscriber events")
+        #expect(!got.contains(.resync) && live.resyncCount == 0, "the stopped subscriber's overflow resynced another subscriber")
         // The stopped one reads now: the resync first, then the events after its last overflow, in order.
         var items: [DaemonSubscriptionItem] = []
         for await item in stopped { items.append(item) }
@@ -187,6 +188,31 @@ import Testing
         let lateItem = await late.next()
         #expect(lateItem == nil)
         #expect(connection.route.subscriberCount == 0)
+    }
+
+    /// A cancelled consumer ends even when its inbox never empties, and leaves the route.
+    @Test func aCancelledConsumerEndsWhileMatchingEventsKeepComing() async {
+        let connection = Self.connection()
+        let subscription = connection.subscribe(limit: 16)
+        for index in 1...8 { connection.route.emit(Self.envelope(index)) }
+        let (gate, open) = AsyncStream.makeStream(of: Void.self)
+        let consumer = Task {
+            for await _ in gate {}
+            var read = 0
+            // The reader emits one more matching event per read: the inbox is never empty.
+            for await _ in subscription {
+                read += 1
+                if read == Self.count { break }
+                connection.route.emit(Self.envelope(8 + read))
+            }
+            return read
+        }
+        consumer.cancel()
+        open.finish()
+        let read = await consumer.value
+        #expect(read == 0, "a cancelled consumer kept taking events")
+        #expect(connection.route.subscriberCount == 0, "a cancelled consumer's subscription stayed on the route")
+        await connection.close()
     }
 
     /// A connection that serves requests only buffers nothing and needs no draining task.
