@@ -290,6 +290,7 @@ extension PageWebViewChromiumTests {
         #expect(call.params["expression"] as? String == "(async function(selector, text) {\nreturn text + selector;\n}).apply(null, [null,\"a\\\"b\"])")
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
+        #expect(page.evaluations.last == call.params["expression"] as? String)
         view.close()
     }
 }
