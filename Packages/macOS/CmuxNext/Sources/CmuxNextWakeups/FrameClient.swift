@@ -57,6 +57,16 @@ public final class FrameClient {
         self.onFrame = { tick in onFrame(tick, budget) }
     }
 
+    /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
+    /// clients, so they see the frame's input. Not visible motion: the busy watchdog does not excuse it.
+    init(inputStageOf scheduler: FrameScheduler, owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.owner = owner
+        self.isAnimation = false
+        self.workClass = .input
+        self.resolve = { [weak scheduler] in scheduler ?? .app }
+        self.onFrame = onFrame
+    }
+
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).
     public convenience init(owner: String, view: NSView, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.init(owner: owner, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }, onFrame: onFrame)

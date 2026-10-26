@@ -6,6 +6,7 @@ import CmuxNextNowPlaying
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -43,7 +44,8 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(suiteName: "UpdateCheckFeedbackTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: feed),
-                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.start()
         return updater

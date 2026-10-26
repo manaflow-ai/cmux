@@ -90,7 +90,7 @@ public final class LayoutPassGuard {
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
-    private static let log = Logger(subsystem: "com.cmuxterm.next", category: "layout-pass-guard")
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "layout-pass-guard")
 
     private init() {}
 
