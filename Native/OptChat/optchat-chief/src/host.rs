@@ -1364,13 +1364,17 @@ fn start(
             // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
             // workspace is the same kind of workspace as one the user makes (it outlives the app
             // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
+            // A Chief no app opened (`cmux chief --chief-home`): the link dangles, so
+            // its workspaces go to this host's own session until an app opens Home.
+            let fallback = (Path::new(daemon_socket) != daemon.as_path())
+                .then(|| PathBuf::from(daemon_socket));
             Some(Arc::new(crate::workspaces::DaemonWorkspaces {
                 daemon,
                 host: crate::workspaces::chief_host(home),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: true,
-                fallback: None,
+                fallback,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         crate::workspaces::Placement::Cloud(daemon, install) => {
