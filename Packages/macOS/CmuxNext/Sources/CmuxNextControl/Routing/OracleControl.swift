@@ -21,6 +21,13 @@ public struct OracleControl: Sendable {
         self.init(facets: host.makeOracleFacets())
     }
 
+    /// The methods over the host's list and the router's own facet, the topology of `snapshots`
+    /// (``OracleTopologyFacet``): what a server registers on its router.
+    @MainActor
+    public init(host: some OracleHost, snapshots: ControlSnapshotStore) {
+        self.init(facets: host.makeOracleFacets().adding([OracleTopologyFacet(snapshots: snapshots)]))
+    }
+
     public var methods: [ControlMethod] {
         [
             // Params: `facets` (facet names; all when absent), `list` (the catalog: every facet, its
@@ -78,6 +85,18 @@ public struct OracleControl: Sendable {
         case .string(let text): .string(text)
         case .array(let items): .array(items.map(json))
         case .object(let members): .object(members.mapValues(json))
+        }
+    }
+
+    /// A control answer as a facet value (the topology facet is `snapshot.get`'s JSON as is).
+    static func oracle(_ value: JSONValue) -> OracleValue {
+        switch value {
+        case .null: .null
+        case .bool(let flag): .bool(flag)
+        case .number(let number): .number(number)
+        case .string(let text): .string(text)
+        case .array(let items): .array(items.map(oracle))
+        case .object(let members): .object(members.mapValues(oracle))
         }
     }
 }

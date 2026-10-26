@@ -42,6 +42,20 @@ public struct ControlSnapshot: Sendable {
     }
 }
 
+extension ControlSnapshot {
+    /// The `snapshot.get` result before the caller's location (`caller`, `beside`): the topology at the daemon
+    /// sequence it reflects, with the publish counters. The oracle's topology facet answers the same members.
+    var snapshotGetMembers: [String: JSONValue] {
+        [
+            "sequence": JSONValue.number(Double(topology.daemonSequence)),
+            "generation": JSONValue(Int(truncatingIfNeeded: generation)),
+            "published_uptime_ns": .number(Double(publishedAtUptimeNanos)),
+            "tab_count": JSONValue(topology.tabCount),
+            "topology": topology.json,
+        ]
+    }
+}
+
 /// Daemon event sequences a read must see (read-your-writes across
 /// sessions): the home daemon's, and each remote session's by
 /// `ControlSessionInfo.id`. Sequences are per daemon connection.
