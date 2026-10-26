@@ -30,6 +30,22 @@ public struct ScreenInput: Codable, Sendable {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
         self.k = k; self.d = d; self.s = s; self.i = i; self.m = m
     }
+
+    /// Where a pointer message points in `display`. A coordinate past 0...1 points at the nearest
+    /// edge, so a viewer's message never points outside the display, and the point converts to an
+    /// integer pixel without overflow (JSON carries any finite double, 1e300 too).
+    public func location(in display: CGRect) -> CGPoint {
+        func fraction(_ value: Double?) -> CGFloat {
+            guard let value, value.isFinite else { return 0 }
+            return CGFloat(min(max(value, 0), 1))
+        }
+        return CGPoint(x: display.minX + fraction(x) * display.width, y: display.minY + fraction(y) * display.height)
+    }
+
+    /// A scroll message's wheel clicks, clamped to the 32 bits a wheel event takes.
+    public var wheel: (dx: Int32, dy: Int32) {
+        (Int32(clamping: dx ?? 0), Int32(clamping: dy ?? 0))
+    }
 }
 
 /// The viewer's choice of stream quality. `auto` leaves the trade-offs to
@@ -510,7 +526,8 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
 
     private func apply(_ input: ScreenInput, client: VNCClient) async {
         let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
-        let x = Int(display.minX + (input.x ?? 0) * display.width), y = Int(display.minY + (input.y ?? 0) * display.height)
+        let point = input.location(in: display)
+        let x = Int(point.x), y = Int(point.y)
         switch input.t {
         case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
         case "scroll":

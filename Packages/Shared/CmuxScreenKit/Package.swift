@@ -26,6 +26,8 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
+        // Test-only: the seeded fuzz suites (p10-stability-023).
+        .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
         .target(
@@ -38,6 +40,8 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .target(name: "CmuxScreenKitUI", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
-        .testTarget(name: "CmuxScreenKitTests", dependencies: ["CmuxScreenKit"], swiftSettings: swiftSettings),
+        .testTarget(name: "CmuxScreenKitTests", dependencies: [
+            "CmuxScreenKit", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+        ], swiftSettings: swiftSettings),
     ]
 )

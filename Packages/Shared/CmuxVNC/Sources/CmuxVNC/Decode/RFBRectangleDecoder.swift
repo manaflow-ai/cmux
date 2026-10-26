@@ -23,6 +23,13 @@ enum RFBRectangleEffect: Equatable {
 
 /// Decodes rectangle bodies into the framebuffer. Keeps the per-connection
 /// zlib streams of the Zlib and ZRLE encodings.
+///
+/// A rectangle, a subrectangle, a CopyRect source or a screen that does not lie
+/// inside what encloses it is refused with `RFBError.protocolViolation`, never
+/// clipped, as TigerVNC refuses it (common/rfb/DecodeManager.cxx "Rect too big",
+/// RREDecoder.cxx, HextileDecoder.cxx, ModifiablePixelBuffer::copyRect,
+/// ScreenSet::validate): the server and this client then never disagree about
+/// what is on screen.
 final class RFBRectangleDecoder {
     private var zlibStream: ZlibStream?
     private var zrleStream: ZlibStream?
@@ -32,9 +39,8 @@ final class RFBRectangleDecoder {
         }
         // Pixel rectangles must lie inside the framebuffer: their size bounds every read below.
         if ![.desktopSize, .lastRect, .cursor, .extendedDesktopSize].contains(encoding) {
-            guard header.x + header.width <= framebuffer.width, header.y + header.height <= framebuffer.height else {
-                throw RFBError.protocolViolation("rectangle \(header.x),\(header.y) \(header.width)x\(header.height) outside the framebuffer")
-            }
+            try Self.require(x: header.x, y: header.y, width: header.width, height: header.height,
+                             inside: framebuffer.width, framebuffer.height, "rectangle", "the framebuffer")
         }
         switch encoding {
         case .raw:
@@ -47,6 +53,8 @@ final class RFBRectangleDecoder {
         case .copyRect:
             let sourceX = Int(try await reader.u16())
             let sourceY = Int(try await reader.u16())
+            try Self.require(x: sourceX, y: sourceY, width: header.width, height: header.height,
+                             inside: framebuffer.width, framebuffer.height, "CopyRect source", "the framebuffer")
             framebuffer.copy(fromX: sourceX, fromY: sourceY, toX: header.x, toY: header.y, width: header.width, height: header.height)
         case .rre:
             try await decodeRRE(header, reader, framebuffer)
@@ -86,12 +94,27 @@ final class RFBRectangleDecoder {
             }
             guard header.y == 0 else { return .drew }
             try RFBLimits.checkFramebuffer(width: header.width, height: header.height)
+            for screen in screens {
+                let frame = screen.frame
+                guard !frame.isEmpty else { throw RFBError.protocolViolation("screen \(screen.id) is empty") }
+                try Self.require(x: Int(frame.minX), y: Int(frame.minY), width: Int(frame.width), height: Int(frame.height),
+                                 inside: header.width, header.height, "screen \(screen.id)", "the framebuffer")
+            }
             framebuffer.resize(width: header.width, height: header.height)
             return .screens(screens)
         case .cursor:
             return .cursor(try await decodeCursor(header, reader))
         }
         return .drew
+    }
+
+    /// Throws unless the rectangle lies inside `width` x `height` at the origin. Every value is
+    /// a wire u16 (or a sum of two), so the sums never overflow.
+    static func require(x: Int, y: Int, width: Int, height: Int, inside outerWidth: Int, _ outerHeight: Int,
+                        _ what: String, _ outer: String) throws {
+        guard x >= 0, y >= 0, width >= 0, height >= 0, x + width <= outerWidth, y + height <= outerHeight else {
+            throw RFBError.protocolViolation("\(what) \(x),\(y) \(width)x\(height) outside \(outer)")
+        }
     }
 
     private func inflate(_ reader: RFBReader, stream: inout ZlibStream?, limit: Int) async throws -> [UInt8] {
@@ -110,6 +133,7 @@ final class RFBRectangleDecoder {
             let color = try await reader.pixel()
             let x = Int(try await reader.u16()), y = Int(try await reader.u16())
             let w = Int(try await reader.u16()), h = Int(try await reader.u16())
+            try Self.require(x: x, y: y, width: w, height: h, inside: header.width, header.height, "RRE subrectangle", "its rectangle")
             framebuffer.fill(x: header.x + x, y: header.y + y, width: w, height: h, color: color)
         }
     }
@@ -140,8 +164,10 @@ final class RFBRectangleDecoder {
                 for _ in 0 ..< count {
                     let color = coloured ? try await reader.pixel() : foreground
                     let xy = try await reader.u8(), wh = try await reader.u8()
-                    framebuffer.fill(x: x + Int(xy >> 4), y: y + Int(xy & 0x0F),
-                                     width: Int(wh >> 4) + 1, height: Int(wh & 0x0F) + 1, color: color)
+                    let subX = Int(xy >> 4), subY = Int(xy & 0x0F), subWidth = Int(wh >> 4) + 1, subHeight = Int(wh & 0x0F) + 1
+                    try Self.require(x: subX, y: subY, width: subWidth, height: subHeight,
+                                     inside: tileWidth, tileHeight, "Hextile subrectangle", "its tile")
+                    framebuffer.fill(x: x + subX, y: y + subY, width: subWidth, height: subHeight, color: color)
                 }
             }
         }

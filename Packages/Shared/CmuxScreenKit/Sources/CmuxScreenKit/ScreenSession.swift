@@ -66,6 +66,8 @@ public final class ScreenSession {
     /// Set for a screen stream whose signaling the app supplies per connect
     /// (a device hub session's ticket): nil when there is none to connect with.
     @ObservationIgnored private let makeSignaling: (@MainActor () -> (any ScreenSignaling)?)?
+    /// Makes the byte stream of each connect to `endpoint`; nil for TCP.
+    @ObservationIgnored private let makeTransport: (@MainActor () -> any RFBTransport)?
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
@@ -102,15 +104,18 @@ public final class ScreenSession {
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
-    /// A VNC server reached directly (LAN, tailnet).
+    /// A VNC server reached directly (LAN, tailnet). `transport` makes the byte stream of
+    /// each connect (a tunnel, a test server); nil for TCP to `endpoint`.
     public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
-                preferences: ScreenPreferences = ScreenPreferences()) {
+                preferences: ScreenPreferences = ScreenPreferences(),
+                transport: (@MainActor () -> any RFBTransport)? = nil) {
         self.title = title
         self.endpoint = endpoint
         self.credentials = credentials
         self.preferences = preferences
         pairing = nil
         makeSignaling = nil
+        makeTransport = transport
     }
 
     /// A Mac paired over WebRTC: a screen stream host (`cmux-vnc-host
@@ -123,6 +128,7 @@ public final class ScreenSession {
         self.credentials = credentials
         self.preferences = preferences
         makeSignaling = nil
+        makeTransport = nil
     }
 
     /// A screen stream whose signaling the app supplies: each `connect()`
@@ -138,6 +144,7 @@ public final class ScreenSession {
         credentials = VNCCredentials()
         self.preferences = preferences
         makeSignaling = signaling
+        makeTransport = nil
     }
 
     /// "WebRTC" or "Direct", for the stats line.
@@ -151,6 +158,7 @@ public final class ScreenSession {
         preferences = demoPreferences
         pairing = nil
         makeSignaling = nil
+        makeTransport = nil
     }
 
     public var isDemo: Bool { endpoint == nil }
@@ -186,7 +194,8 @@ public final class ScreenSession {
             }
             guard let target else { return }
             let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
-            start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
+            let transport: (any RFBTransport)? = if let pairing { WebRTCRFBTransport(pairing: pairing) } else { makeTransport?() }
+            start(VNCClient(endpoint: target, options: options, transport: transport))
         })
     }
 
