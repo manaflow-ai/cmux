@@ -232,3 +232,54 @@ and the lock comes from the real URL), and process-per-site with Chrome's thresh
 (`cmux-ci build cef` of `97674583`, then `ceftests --gtest_filter=CmuxPageProcessTest.*` with each
 `--cmux-page-process-lock` value) and 011's two runs, then write the renderer counts per group and any kill here.
 If B does not give 1 renderer for 3 origins with 0 kills, 011 and 012 change before 012 depends on the fork.
+
+Preload park state (090), status 2026-10-26: the bench is ready, the run is not. The table below is what the spike
+fills; no cell is measured yet.
+
+| Park | Engine | Session | Key to cover (ms) p50 / p95 / p99 / max | Key to live (ms) p50 / p95 / p99 / max | Parked wakeups/s p50 / p95 / p99 / max | sha | host | job |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| frozen | chromium | light | not run | not run | not run | - | - | - |
+| rendered | chromium | light | not run | not run | not run | - | - | - |
+| frozen | webkit | light | not run | not run | not run | - | - | - |
+| rendered | webkit | light | not run | not run | not run | - | - | - |
+| frozen | chromium | stress | not run | not run | not run | - | - | - |
+| rendered | chromium | stress | not run | not run | not run | - | - | - |
+| frozen | webkit | stress | not run | not run | not run | - | - | - |
+| rendered | webkit | stress | not run | not run | not run | - | - | - |
+
+The variants. Frozen-hidden: the preload is hidden to its engine, then frozen (Chromium SetPageFrozen; WebKit hidden
+in its window with the throttling SPI, task 028); the census reports it `frozen`. Rendered-parked: the preload is
+hidden to its engine and not frozen, so its JS sees `visibilitychange`, pauses its own work, and the engine keeps its
+rendered frame; the census reports it `hidden` with `engine_visible` false. Chrome parks its preloaded WebUI the
+rendered way and never freezes it (`chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc`,
+`CannotFreezeReason::kWebUI`), so rendered is the default and frozen must earn its place.
+
+How it runs: `scripts/cmux-next/bench-webui.py park --park frozen|rendered` (one variant per run; the bench sets the
+debug tunable `webui.preloadPark`), 120 Hz host, light and `--session stress`, `--engine chromium` and `webkit`:
+8 runs, each through the fleet entry
+`cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/webui-bench.sh --ref <sha>
+--artifact artifacts/webui-bench --arg=--modes=park,home --arg=--park=<state> --arg=--engine=<engine>
+[--arg=--session=stress]`. Each run measures, from a preload parked as asked: the preload process's wakeups/s in
+1 s windows over `--measure` s, Cmd-T key to the cover frame, key to the live frame (the first frame the page
+painted after its show, when the cover goes), and the key's turn. A run whose build does not park as asked prints
+every row `unscored` and is never a sample. Then, anywhere:
+`python3 scripts/cmux-next/bench-webui.py park-table --run <job id> <artifact>/park/webui-park.json ...` prints the
+rows above with sha, host and job id, and the decision with its targets.
+
+The decision rule (`park_decision` in the bench): frozen wins only if, for every engine and session, its key to live
+p95 is at most one 120 Hz frame (8.3 ms) worse than rendered's and at most 50 ms, and its parked process wakes less
+(p50). Otherwise rendered. The D4 key to live frame target of each session is the chosen state's worst engine p95,
+rounded up to whole 120 Hz frames, never above 50 ms.
+
+D4 key to live frame target, until the run: <= 50 ms p95, light and STRESS (the ceiling in p13-webui.md D4). The
+run replaces this line with the target the rule writes.
+
+What the run needs first, none of it on perf/chrome-parity at this status:
+
+- Freeze and thaw on both engines (028, on `cp/p13-webui-028`). Today `PageWebViewLifecycle.freeze()` does nothing.
+- A preload owner that reads `webui.preloadPark` and parks as asked. Today NewTabSparePool's spare is never told it
+  is hidden (`engine_visible` true), so both variants print `unscored`. 043 (PagePreloadSlot) builds both park
+  states behind the tunable, rendered by default; the spike runs on it, and the tunable's default then follows the
+  decision. 043 lists 090 as a dependency, so 043 lands its two park states first and its default after.
+- `debug.new_tab bench_open` reporting `live_ms`. Today it reports the cover frame only (`visible_ms`), so key to live
+  prints `unscored` (in the `open` mode too).
