@@ -12,6 +12,7 @@ extension AgentPaneView {
                   let sizeNumber = params["size"] as? NSNumber,
                   sizeNumber.int64Value >= 0, UInt64(sizeNumber.int64Value) <= UInt64(Int.max),
                   let token = params["token"] as? String, !token.isEmpty,
+                  sessionId == model.sessionId,
                   let connection = model.transport.connection
             else { return AgentPaneReply.failure(code: "upload_invalid", message: "Invalid upload request") }
             let size = Int(sizeNumber.int64Value)
