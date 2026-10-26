@@ -2470,13 +2470,21 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
     record_mdm_off(&daemon);
     daemon.start();
     let mut rpc = daemon.rpc().await;
-    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "whoami"}]});
-    let r = rpc.reply("session/prompt", ask).await;
-    let said = daemon.events(&session).iter().map(Value::to_string).collect::<String>();
-    assert!(
-        !said.contains(&format!("pid={harness_pid}")),
-        "the full-access agent the host replayed answered a prompt under the managed off: {r}"
-    );
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi again"}]});
+    rpc.reply("session/prompt", ask).await;
+    // No prompt (the cut turn's resume or this one) was written to the left host once this daemon
+    // adopted it: from `host_adopted` to the next `host_started`.
+    let mut adopted = false;
+    for e in daemon.events(&session) {
+        match (e["dir"].as_str(), e["kind"].as_str()) {
+            (Some("mux"), Some("host_adopted")) => adopted = true,
+            (Some("mux"), Some("host_started")) => adopted = false,
+            (Some("out"), Some("session/prompt")) => {
+                assert!(!adopted, "a prompt reached the full-access agent the host replayed: {e}")
+            }
+            _ => {}
+        }
+    }
     assert!(
         gone_within(harness_pid, Duration::from_secs(10)),
         "the full-access agent the host replayed ran on under the managed off"
