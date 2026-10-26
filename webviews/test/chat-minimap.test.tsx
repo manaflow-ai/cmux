@@ -158,7 +158,15 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     expect(pane.draws()).toBe(1);
     expect(painted.rects).toBeGreaterThan(0);
     expect(minimap.querySelector(".acpmux-chat-minimap__placeholder")).toBeNull();
-    const control = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__track")!;
+    const control = minimap.querySelector<HTMLElement>("[role=scrollbar]")!;
+    expect(control.getAttribute("aria-label")).toBe("Chat minimap");
+    expect(control.tabIndex).toBe(0);
+    // A scrollbar names what it scrolls (the transcript) and its value; the canvas is decoration.
+    const transcript = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    expect(transcript.id).not.toBe("");
+    expect(control.getAttribute("aria-controls")).toBe(transcript.id);
+    expect(control.getAttribute("aria-valuenow")).toBe("0");
+    expect(minimap.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
     const scroller = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const box = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__view")!;
 
@@ -314,6 +322,42 @@ test("a reply that starts streaming freezes the box where the view is: the first
     page.height += 40;
     await scrollTo(pane.scroller(), page.height - VIEWPORT);
     expect(pane.box().style.transform).not.toBe(frozen);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("the scrollbar's value is the share scrolled of the real range, focused or not, and keys move it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const value = () => control.getAttribute("aria-valuenow");
+    // The scroller's own range (content less the view), whatever padding or dock is in the content.
+    const page = content(pane.scroller(), 1000);
+    await scrollTo(pane.scroller(), 1000 - VIEWPORT);
+    expect(value()).toBe("100");
+    await scrollTo(pane.scroller(), 0);
+    expect(value()).toBe("0");
+    await scrollTo(pane.scroller(), 200);
+    expect(value()).toBe("50");
+    // Keys on the focused control scroll the transcript; the value follows.
+    await act(async () => control.focus());
+    const key = (name: string) =>
+      act(async () => {
+        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+        pane.scroller().dispatchEvent(new dom.window.Event("scroll"));
+        runFrames();
+      });
+    await key("End");
+    expect(value()).toBe("100");
+    await key("Home");
+    expect(value()).toBe("0");
+    await key("ArrowDown");
+    expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
   } finally {
     await pane.done();
     setChatDisplay({});
