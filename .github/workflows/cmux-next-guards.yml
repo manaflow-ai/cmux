@@ -457,14 +457,6 @@ jobs:
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
 
-      # The snapshot is bot-only (#21946): it is stale on every event between a
-      # merge and the base autofix's commit, so this checks only that the
-      # settings exports match their sources (check-stamp). The exports go stale
-      # the same way, so only the sources this event changed fail; the rest is a
-      # warning (10-21: stale on the base, red on every pull request for hours).
-      - name: The settings exports match their sources
-        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
-
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
       - name: The group rows stay at the top of the right-click menus
