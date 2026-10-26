@@ -119,6 +119,7 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
     if (path.startsWith("~")) return false;
     if (!path.startsWith("/")) return !path.split("/").includes("..");
     const normalized = normalizedPath(path);
+    if (root === "/") return true;
     return normalized === root || normalized.startsWith(`${root}/`);
   });
 }
