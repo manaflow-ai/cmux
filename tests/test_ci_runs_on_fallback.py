@@ -85,6 +85,17 @@ def unconditional(alternative: str) -> bool:
     return re.fullmatch(r"'[^'\s]+'", alternative) is not None
 
 
+def conjuncts(text: str) -> list[str]:
+    """The `&&` terms of `text`, with parenthesized conjunctions flattened: `a && (b && c)` -> [a, b, c].
+    A parenthesized term holding an `||` stays one term."""
+    terms = []
+    for term in split_top(unwrap(text), "&&"):
+        term = unwrap(term)
+        nested = split_top(term, "&&")
+        terms += conjuncts(term) if len(nested) > 1 and len(split_top(term, "||")) == 1 else [term]
+    return terms
+
+
 def reserved_unsafe(expression: str, falls_through: bool = False) -> list[str]:
     """The reserved-slot reads in `expression` that are not a guarded preference with a fallback.
 
@@ -102,7 +113,7 @@ def reserved_unsafe(expression: str, falls_through: bool = False) -> list[str]:
         if len(split_top(inner, "||")) > 1:
             found += reserved_unsafe(inner, tail)
             continue
-        terms = [unwrap(term) for term in split_top(inner, "&&")]
+        terms = conjuncts(inner)
         for name in dict.fromkeys(match.group(0) for match in RESERVED_OUTPUT.finditer(inner)):
             guarded = any(re.fullmatch(re.escape(name) + r"\s*!=\s*''", term) for term in terms[:-1])
             if not (guarded and terms[-1] == name and tail):
@@ -281,6 +292,10 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertEqual(reserved_unsafe(f"({r} != '' && {r} || 'macos-26')"), [])
         self.assertEqual(reserved_unsafe(f"(a && {r} != '' && {r} || b && 'x') || (c || 'y')"), [])
         self.assertEqual(reserved_unsafe(f"a && {r} != '' && {r} || (b && 'x' || vars.V || 'y')"), [])
+        # A guard and value inside a nested conjunction (review of #25769, round 3).
+        self.assertEqual(reserved_unsafe(f"github.run_attempt == 1 && ({r} != '' && {r}) || 'macos-26'"), [])
+        self.assertEqual(reserved_unsafe(f"a && (b && ({r} != '' && {r})) || 'macos-26'"), [])
+        self.assertEqual(reserved_unsafe(f"a && ({r} != '' && {r} && b) || 'macos-26'"), [r])
         # No set check, or a slot that is not the alternative's value.
         self.assertEqual(reserved_unsafe(f"a && {r} || 'x'"), [r])
         self.assertEqual(reserved_unsafe(f"{r} != '' && 'other' || 'x'"), [r])
