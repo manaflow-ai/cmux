@@ -382,6 +382,7 @@ function PricingContent({
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("pro.cta")}
         currentPrice={isProCurrent ? snapshot.currentPrice : undefined}
+        currentPlan={isProCurrent}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -415,6 +416,7 @@ function PricingContent({
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("max.cta")}
         currentPrice={isMax ? snapshot.currentPrice : undefined}
+        currentPlan={isMax}
         badge={
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }

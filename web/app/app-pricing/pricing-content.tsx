@@ -274,6 +274,7 @@ export function AppPricingContent({
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={pricing.pro.cta}
         currentPrice={isProCurrent ? snapshot.currentPrice : undefined}
+        currentPlan={isProCurrent}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -307,6 +308,7 @@ export function AppPricingContent({
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={pricing.max.cta}
         currentPrice={isMax ? snapshot.currentPrice : undefined}
+        currentPlan={isMax}
         badge={
           isMax ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>

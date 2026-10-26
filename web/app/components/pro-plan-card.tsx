@@ -49,6 +49,7 @@ export function ProPlanCard({
   plan = "pro",
   pricing,
   currentPrice,
+  currentPlan,
   children,
 }: {
   name: string;
@@ -77,6 +78,8 @@ export function ProPlanCard({
    * Founder's Edition) shows here with today's list price struck through.
    */
   currentPrice?: PlanCardSubscriptionPrice;
+  /** This card is the account's plan in force. */
+  currentPlan?: boolean;
   children: ReactNode;
 }) {
   const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
@@ -105,7 +108,9 @@ export function ProPlanCard({
     shown,
     currentPrice,
     labels,
-    periodKnown: !action || currentPrice !== undefined,
+    // The plan in force's card, without its own price, hides the toggle
+    // and does not know the subscriber's period.
+    periodKnown: !(currentPlan && action) || currentPrice !== undefined,
   });
 
   return (
