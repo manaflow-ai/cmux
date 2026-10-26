@@ -48,6 +48,8 @@ extension AppControl {
                 return .value(DebugTabDrag.report(services: services))
             },
         ])
+        // The oracle's methods (p15-oracle.md section 3C), next to the input checks they extend.
+        services.registerOracleSwitchHits(on: service?.router)
         #endif
     }
 

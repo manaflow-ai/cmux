@@ -147,6 +147,7 @@ final class AppServices {
         resizes.onSend = { [weak trace] in trace?.noteSend($0, columns: $1.cols, rows: $1.rows) }
         return trace
     }()
+    let switchHits = SwitchHits() // each refactor-switch site's arm counts (`switchHit(_:site:)`, debug.oracle.switch_hits)
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
@@ -689,7 +690,6 @@ final class AppServices {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
         return daemon.store.tab(surface: surface)
     }
-
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
