@@ -14,6 +14,10 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     var environment: [String: String] = ProcessInfo.processInfo.environment
     /// Runs gh to its end (``AsyncProcess``; tests pass a fake).
     var processes: any ProcessRunning = AsyncProcess()
+    /// At most two gh runs of this reader at once (its copies share them), the rest in arrival
+    /// order: each may wait up to `timeout`, and restoring many chats offline must not start one gh
+    /// per chat (cx-mb1e0).
+    private let slots = GitHubCLISlots(count: 2)
 
     public init(gh: String? = nil, timeout: Duration = .seconds(30), environment: [String: String] = ProcessInfo.processInfo.environment,
                 processes: any ProcessRunning = AsyncProcess()) {
@@ -29,9 +33,6 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// no chip without them (cx-mb1e0).
     static let githubVariables = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST",
                                   "GH_CONFIG_DIR", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"]
-    /// At most two gh runs at once, the rest in arrival order: each may wait up to `timeout`, and
-    /// restoring many chats offline must not start one gh per chat (cx-mb1e0).
-    private static let slots = GitHubCLISlots(count: 2)
 
     public func read(in folder: String) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
@@ -190,9 +191,9 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
         let request = ProcessRequest(URL(fileURLWithPath: gh), arguments, environment: Self.environment(environment),
                                      directory: folder.map { URL(fileURLWithPath: $0) }, timeout: timeout, priority: .bestEffort)
-        await Self.slots.acquire()
+        await slots.acquire()
         let outcome = try? await processes.outcome(of: request)
-        await Self.slots.release()
+        await slots.release()
         // A deadline kill is never an answer.
         guard let outcome, outcome.succeeded || (anyExit && outcome.exited) else { return nil }
         return outcome.output

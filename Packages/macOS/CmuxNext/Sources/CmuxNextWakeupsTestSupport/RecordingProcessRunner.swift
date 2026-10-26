@@ -14,11 +14,14 @@ public final class RecordingProcessRunner: ProcessRunning {
     private let recorded = Mutex<[ProcessRequest]>([])
     private let answer: @Sendable (ProcessRequest) async throws -> ProcessOutcome
 
-    /// - Parameter answer: what each run returns or throws; by default an exit 0 with no output.
-    public init(answer: @escaping @Sendable (ProcessRequest) async throws -> ProcessOutcome = { _ in
-        ProcessOutcome(status: 0, exited: true, output: Data())
-    }) {
+    /// - Parameter answer: what each run returns or throws.
+    public init(answer: @escaping @Sendable (ProcessRequest) async throws -> ProcessOutcome) {
         self.answer = answer
+    }
+
+    /// A runner whose every run exits 0 with no output.
+    public convenience init() {
+        self.init { _ in ProcessOutcome(status: 0, exited: true, output: Data()) }
     }
 
     /// Every request so far, in arrival order.
