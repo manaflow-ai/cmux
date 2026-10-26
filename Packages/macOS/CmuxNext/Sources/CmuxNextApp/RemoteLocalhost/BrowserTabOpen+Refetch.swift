@@ -7,27 +7,37 @@ import Foundation
 extension BrowserTabOpen {
     /// Asks the Cloud app server for `machine`'s browser route again (#25595): ``CloudBrowserRoute``
     /// calls it when the route a tab had is gone (the link dropped or was replaced) and on the first
-    /// request of a tab restored after a relaunch. Each answer gets the checks of a page's request.
+    /// request of a tab restored after a relaunch. Only for a machine on the app server's link that
+    /// runs: `cloud.browser.open` connects the link, which would start a paused machine, and a page
+    /// must never do that. Each answer gets the checks of a page's request, for this machine.
     static func refetch(machine: String, name: String, services: AppServices) -> CloudBrowserRoute.Fetch {
         let ops = services.cloud.appOps
-        return { host, port in
+        return { [weak services] host, port in
+            guard let services, await isRunning(machine, services: services) else {
+                throw LoopbackTunnelFailure.unavailable("\(name) is not running")
+            }
             let args: CmuxNextDaemon.JSONValue = .object(["machine": .string(machine), "port": .number(Double(port)), "host": .string(host)])
             let route = try await ops("cloud.browser.open", args, UUID().uuidString.lowercased(), .script)
-            return try await answer(route, machineName: name)
+            return try await answer(route, machine: machine, machineName: name)
         }
     }
 
-    private static func answer(_ route: CmuxNextDaemon.JSONValue, machineName: String) throws -> CloudBrowserRoute.Answer {
+    private static func isRunning(_ machine: String, services: AppServices) -> Bool {
+        services.machines.cloud.contains { $0.machineID == machine && $0.appLink != nil && $0.machine.status.isLive }
+    }
+
+    private static func answer(_ route: CmuxNextDaemon.JSONValue, machine: String, machineName: String) throws -> CloudBrowserRoute.Answer {
         let request = try request(route: pageJSON(route), machineName: machineName)
+        guard request.machine == machine else { throw Refusal.proxyInvalid }
         return CloudBrowserRoute.Answer(proxyPort: request.proxyPort, credential: request.credential)
     }
 
     /// The store of a proxied tab restored after a relaunch (``ProxiedBrowserTabs/restore``): its
-    /// machine's route is fetched on the page's first request. Nil when the machine is gone or not on
-    /// the Cloud app server's link; the tab then stays blank, never on this Mac's localhost.
+    /// machine's route is fetched on the page's first request, once the machine is listed, linked
+    /// and running; until then the page shows the proxy's "not connected" page, which loads again
+    /// when the machine connects (``StrandedPageReload``). Never this Mac's localhost.
     static func restoredStore(_ machine: ProxiedBrowserTabs.Machine, services: AppServices) async -> BrowserMachineStore? {
-        guard services.machines.cloud.contains(where: { $0.machineID == machine.id && $0.appLink != nil }) else { return nil }
-        return try? await services.remoteLocalhost.restoredCloudBrowserStore(
+        try? await services.remoteLocalhost.restoredCloudBrowserStore(
             machineKey: machineKey(machine: machine.id), machineName: machine.name,
             fetch: refetch(machine: machine.id, name: machine.name, services: services))
     }

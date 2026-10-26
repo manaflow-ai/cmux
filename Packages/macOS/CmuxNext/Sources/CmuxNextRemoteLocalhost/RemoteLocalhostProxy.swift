@@ -219,7 +219,7 @@ public final class RemoteLocalhostProxy: Sendable {
     }
 
     /// The route of a machine listener's port, nil for the credential listener.
-    func route(forListenerPort port: UInt16) -> Route? {
+    public func route(forListenerPort port: UInt16) -> Route? {
         state.withLock { $0.routesByPort[port] }
     }
 

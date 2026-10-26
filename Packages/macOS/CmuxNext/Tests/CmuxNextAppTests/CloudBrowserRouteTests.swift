@@ -40,11 +40,40 @@ struct CloudBrowserRouteTests {
         }
     }
 
-    private func route(first: UInt16?, fetches: Fetches, dead: @escaping @Sendable (UInt16) -> LoopbackTunnelFailure?) -> CloudBrowserRoute {
+    /// A clock the test moves.
+    private final class Now: Sendable {
+        let start = ContinuousClock.now
+        let offset = Mutex(Duration.zero)
+        var instant: ContinuousClock.Instant { start.advanced(by: offset.withLock { $0 }) }
+        func advance(by duration: Duration) { offset.withLock { $0 += duration } }
+    }
+
+    private func route(first: UInt16?, fetches: Fetches, now: Now = Now(),
+                       dead: @escaping @Sendable (UInt16) -> LoopbackTunnelFailure?) -> CloudBrowserRoute {
         CloudBrowserRoute(
             first: first.map { .init(proxyPort: $0, credential: ProxyCredential(username: "cmux", password: String(repeating: "s", count: 32))) },
             fetch: { _, _ in try fetches.next() },
+            now: { now.instant },
             makeOpener: { Opener(port: $0.proxyPort, dead: dead) })
+    }
+
+    @Test func aMachineStillDownIsNotAskedForARouteOnEveryRequest() async throws {
+        let fetches = Fetches([2, 3, 4])
+        let now = Now()
+        // The link is down: every route the server answers fails too.
+        let route = route(first: 1, fetches: fetches, now: now) { _ in .unavailable("link down") }
+        _ = try? await route.openTunnel(host: "localhost", port: 3000)
+        #expect(fetches.count.withLock { $0 } == 1)
+        // A dev server's reload client asks again at once: no fetch inside the spacing.
+        for _ in 0..<5 { _ = try? await route.openTunnel(host: "localhost", port: 3000) }
+        #expect(fetches.count.withLock { $0 } == 1)
+        now.advance(by: .seconds(2))
+        _ = try? await route.openTunnel(host: "localhost", port: 3000)
+        #expect(fetches.count.withLock { $0 } == 2)
+        // The machine connected again: the next request fetches at once.
+        await route.machineConnected()
+        _ = try? await route.openTunnel(host: "localhost", port: 3000)
+        #expect(fetches.count.withLock { $0 } == 3)
     }
 
     @Test func aGoneRouteIsAskedForAgainAndTheRequestGoesThroughTheNewOne() async throws {

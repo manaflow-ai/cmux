@@ -364,7 +364,7 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
             lastError = nil
-            listRetry.succeeded()
+            listRetry.reset()
             reconcile(list)
             hasLoadedMachines = true
             loadedAccount = account
@@ -453,7 +453,7 @@ final class CloudService {
     private func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
-        listRetry.cancel()
+        listRetry.reset()
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil

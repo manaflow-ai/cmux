@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// One Cloud machine's browser route that follows the machine's link (#25595).
@@ -8,6 +9,8 @@ public import Foundation
 /// had no route at all. This opener asks for the machine's route again (``Fetch``) when it has none
 /// or when the one it has is gone (``LoopbackTunnelFailure/unavailable(_:)``), then tries once more.
 /// Concurrent requests share one fetch; a fetch that fails leaves the error page to the request.
+/// Fetches are spaced by a capped ``Backoff`` until a request goes through, so a page that keeps
+/// asking (a dev server's reload client) while the machine is down does not ask `cmux-cloud` each time.
 public actor CloudBrowserRoute: LoopbackTunnelOpening {
     /// A `cloud.browser.open` answer: the local `cmux-cloud` proxy and its credential.
     public struct Answer: Sendable, Equatable {
@@ -29,18 +32,24 @@ public actor CloudBrowserRoute: LoopbackTunnelOpening {
     private var current: (opener: any LoopbackTunnelOpening, number: Int)?
     private var number = 0
     private var fetching: Task<(opener: any LoopbackTunnelOpening, number: Int)?, Never>?
+    private let now: @Sendable () -> ContinuousClock.Instant
+    private var spacing = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    /// No fetch before this instant (set by each fetch, cleared by a request that went through).
+    private var notBefore: ContinuousClock.Instant?
 
     /// - Parameters:
     ///   - first: The route already answered (a tab opened now), or nil (a tab restored after a
     ///     relaunch: the first request fetches it).
     ///   - fetch: Asks for the route again.
     public init(first: Answer?, fetch: @escaping Fetch) {
-        self.init(first: first, fetch: fetch) { CloudProxyLoopbackOpener(proxyPort: $0.proxyPort, credential: $0.credential) }
+        self.init(first: first, fetch: fetch, now: { .now }) { CloudProxyLoopbackOpener(proxyPort: $0.proxyPort, credential: $0.credential) }
     }
 
-    /// Test seam: `makeOpener` builds the opener of an answer.
-    init(first: Answer?, fetch: @escaping Fetch, makeOpener: @escaping @Sendable (Answer) -> any LoopbackTunnelOpening) {
+    /// Test seam: `now` reads the clock, `makeOpener` builds the opener of an answer.
+    init(first: Answer?, fetch: @escaping Fetch, now: @escaping @Sendable () -> ContinuousClock.Instant,
+         makeOpener: @escaping @Sendable (Answer) -> any LoopbackTunnelOpening) {
         self.fetch = fetch
+        self.now = now
         self.makeOpener = makeOpener
         if let first {
             number = 1
@@ -58,14 +67,27 @@ public actor CloudBrowserRoute: LoopbackTunnelOpening {
             throw .unavailable("Cloud browser route unavailable")
         }
         do throws(LoopbackTunnelFailure) {
-            return try await route.opener.openTunnel(host: host, port: port)
+            return try await wentThrough(route.opener.openTunnel(host: host, port: port))
         } catch {
             // Only a route that is gone is asked for again: a port that refused stays refused.
             guard case .unavailable = error,
                   let fresh = await refreshed(after: route.number, host: host, port: port), fresh.number != route.number
             else { throw error }
-            return try await fresh.opener.openTunnel(host: host, port: port)
+            return try await wentThrough(fresh.opener.openTunnel(host: host, port: port))
         }
+    }
+
+    /// The machine connected again: the next request that needs a route fetches it at once.
+    public func machineConnected() {
+        spacing.reset()
+        notBefore = nil
+    }
+
+    /// A request went through: the next fetch, when one is needed, goes at once.
+    private func wentThrough(_ tunnel: any LoopbackTunnel) -> any LoopbackTunnel {
+        spacing.reset()
+        notBefore = nil
+        return tunnel
     }
 
     /// The route after `stale` (nil: none yet): a newer one when another request already fetched
@@ -73,6 +95,8 @@ public actor CloudBrowserRoute: LoopbackTunnelOpening {
     private func refreshed(after stale: Int?, host: String, port: UInt16) async -> (opener: any LoopbackTunnelOpening, number: Int)? {
         if let current, current.number != stale { return current }
         if let fetching { return await fetching.value }
+        if let notBefore, now() < notBefore { return nil }
+        notBefore = now().advanced(by: spacing.next())
         let task = Task { await self.fetchRoute(host: host, port: port) }
         fetching = task
         return await task.value

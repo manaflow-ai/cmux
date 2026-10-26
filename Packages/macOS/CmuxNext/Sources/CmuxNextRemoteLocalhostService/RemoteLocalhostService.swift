@@ -124,23 +124,34 @@ public final class RemoteLocalhostService {
     }
 
     /// Starts loading again, when a machine connects again, its pages that showed "not connected"
-    /// (``StrandedPageReload``); `reload` loads the pages of a machine store at those addresses.
-    public func reloadStrandedPages(_ reload: @escaping @MainActor (_ machineKey: String, _ addresses: Set<String>) -> Void) {
+    /// (``StrandedPageReload``). `keys` names the machine store keys of a machine besides its
+    /// remote-localhost key (a Cloud machine's proxy store); `reload` loads the pages of a machine
+    /// store at those addresses.
+    public func reloadStrandedPages(keys: @escaping @MainActor (DaemonService) -> [String],
+                                    _ reload: @escaping @MainActor (_ machineKey: String, _ addresses: Set<String>) -> Void) {
         guard strandedReload == nil else { return }
-        let watch = StrandedPageReload(localhost: self, machines: machines, reload: reload)
+        let watch = StrandedPageReload(localhost: self, machines: machines, keys: keys, reload: reload)
         strandedReload = watch
         watch.start()
     }
 
-    /// `daemon`'s machine store key and the `host:port` addresses its proxy listener answered
-    /// "not connected" since the last call (``RemoteLocalhostProxy/takeStranded(listenerPort:)``),
-    /// forgotten by this call; nil when its tabs have no listener. Called when `daemon` connects
-    /// again, so its pages that show that error load again (#25595).
-    public func takeStranded(of daemon: DaemonService) -> (machineKey: String, addresses: Set<String>)? {
+    /// `daemon`'s remote-localhost store key, nil before its first handshake.
+    func machineKey(of daemon: DaemonService) -> String? {
         guard !daemon.isLocal, let registryID = daemon.store.registryID else { return nil }
-        let key = Self.machineKey(registryID: registryID)
-        guard let port = proxy.machinePorts[key] else { return nil }
-        return (key, proxy.takeStranded(listenerPort: port))
+        return Self.machineKey(registryID: registryID)
+    }
+
+    /// The `host:port` addresses machine store `machineKey`'s proxy listener answered "not
+    /// connected" since the last call (``RemoteLocalhostProxy/takeStranded(listenerPort:)``),
+    /// forgotten by this call. Called when the machine connects again, so those pages load again
+    /// (#25595); a Cloud route of the machine may then fetch again at once (``CloudBrowserRoute``).
+    public func takeStranded(machineKey: String) async -> Set<String> {
+        guard let port = proxy.machinePorts[machineKey] else { return [] }
+        let stranded = proxy.takeStranded(listenerPort: port)
+        if !stranded.isEmpty, let route = proxy.route(forListenerPort: port)?.opener as? CloudBrowserRoute {
+            await route.machineConnected()
+        }
+        return stranded
     }
 
     /// 16 hex digits of SHA-256 over the daemon `registry_id`.

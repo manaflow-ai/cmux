@@ -41,7 +41,7 @@ struct CloudListRetryTests {
         var read = false
         retry.failed { read = true }
         try await clock.waitForSleeper()
-        retry.succeeded()
+        retry.reset()
         #expect(!retry.isScheduled)
         clock.advance(by: step)
         await Task.yield()
@@ -58,5 +58,10 @@ struct CloudListRetryTests {
             retry.cancel()
         }
         #expect(scheduled == RetryPolicy.cloudList.timedRetries)
+        // Another account (or a list that landed) gets the whole budget again.
+        retry.reset()
+        retry.failed {}
+        #expect(retry.isScheduled)
+        retry.cancel()
     }
 }

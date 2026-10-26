@@ -84,7 +84,7 @@ extension AppServices {
             return await BrowserTabOpen.restoredStore(machine, services: self)
         }
         // A machine back after its link was down: its localhost pages that showed "not connected" load again.
-        localhost.reloadStrandedPages { [weak self] machineKey, addresses in
+        localhost.reloadStrandedPages(keys: { [BrowserTabOpen.machineKey(machine: $0.machineID)] }) { [weak self] machineKey, addresses in
             guard let self else { return }
             for entry in cache.browsers.values {
                 guard let page = entry.tab as? CEFTab, page.machineStore?.machineKey == machineKey, let url = page.state.url,

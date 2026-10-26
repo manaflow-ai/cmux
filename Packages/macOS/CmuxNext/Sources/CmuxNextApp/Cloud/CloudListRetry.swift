@@ -33,8 +33,9 @@ final class CloudListRetry {
         }
     }
 
-    /// A read landed: the next failure starts the backoff over.
-    func succeeded() {
+    /// A read landed, or the account's machines were dropped (sign-out, another account): no retry
+    /// waits and the next failure starts the backoff over.
+    func reset() {
         cancel()
         pacer.reset()
     }

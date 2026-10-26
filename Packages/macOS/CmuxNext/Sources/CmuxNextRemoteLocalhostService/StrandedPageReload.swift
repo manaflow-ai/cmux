@@ -8,12 +8,14 @@ import CmuxNextRemoteLocalhost
 /// link was down (asleep, offline, the machine still booting) got the proxy's error page, and
 /// nothing loaded it once the link was back: the person had to find the tab and reload it.
 ///
-/// Only pages the proxy answered "not connected" reload (``RemoteLocalhostService/takeStranded(of:)``):
+/// Only pages the proxy answered "not connected" reload (``RemoteLocalhostService/takeStranded(machineKey:)``):
 /// a page that loaded, or one whose port refused, stays as it is. Observation only; nothing polls.
 @MainActor
 public final class StrandedPageReload {
-    private let localhost: RemoteLocalhostService
+    private weak var localhost: RemoteLocalhostService?
     private let machines: any RemoteLocalhostMachines
+    /// A machine's store keys besides its remote-localhost key (a Cloud machine's proxy store).
+    private let keys: @MainActor (DaemonService) -> [String]
     private let reload: @MainActor (_ machineKey: String, _ addresses: Set<String>) -> Void
     /// The connection epoch each machine was last checked at.
     private var epochs: [ObjectIdentifier: Int] = [:]
@@ -22,9 +24,11 @@ public final class StrandedPageReload {
     /// - Parameter reload: Loads again the pages of machine store `machineKey` whose URL's address
     ///   is one of `addresses` (``matches(_:addresses:)``).
     public init(localhost: RemoteLocalhostService, machines: any RemoteLocalhostMachines,
+                keys: @escaping @MainActor (DaemonService) -> [String] = { _ in [] },
                 reload: @escaping @MainActor (_ machineKey: String, _ addresses: Set<String>) -> Void) {
         self.localhost = localhost
         self.machines = machines
+        self.keys = keys
         self.reload = reload
     }
 
@@ -45,10 +49,17 @@ public final class StrandedPageReload {
         for daemon in machines.daemons where !daemon.isLocal {
             guard case .connected = daemon.store.connectionState else { continue }
             let id = ObjectIdentifier(daemon), epoch = daemon.store.connectionEpoch
-            guard epochs[id] != epoch else { continue }
+            guard epochs[id] != epoch, let localhost else { continue }
             epochs[id] = epoch
-            guard let stranded = localhost.takeStranded(of: daemon), !stranded.addresses.isEmpty else { continue }
-            reload(stranded.machineKey, stranded.addresses)
+            let storeKeys = [localhost.machineKey(of: daemon)].compactMap(\.self) + keys(daemon)
+            let reload = reload
+            // task-owner: one hop per reconnect; a Cloud route's spacing resets before the reload
+            Task { [weak localhost] in
+                for key in storeKeys {
+                    guard let addresses = await localhost?.takeStranded(machineKey: key), !addresses.isEmpty else { continue }
+                    reload(key, addresses)
+                }
+            }
         }
     }
 
