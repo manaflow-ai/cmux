@@ -41,6 +41,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlPeerAncestry.swift	2	remo
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/SystemProcessLineage.swift	2	remove	cx-t2sqm.11 (Kill Process walks a named pid's ancestors and reads its executable to decide it is cmux's; decision D5: end only pids the Task Manager sample listed)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	1	keep	peer authentication of one posted event source pid
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/PeerInspector.swift	1	remove	cx-t2sqm.11 (walks the peer's ancestors; decision D5)
+Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/ProcessInfo+Blocking.swift	6	keep	the checked blocking seams of proc_pidpath, proc_pidfdinfo and proc_listpids (p02-threads-127), no scan of their own; each caller's blockingProc* line counts in its own row
 cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route table under /proc/net, not processes
 cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this process's own parents, at most 2, no enumeration: a Codex hook refuses the route its shared app-server daemon inherited (#20757)
 cmux-tui/crates/cmux-tui-platform/src/platform/job_launch.rs	3	keep	one pid: the foreground job of a PTY this daemon holds (tcgetpgrp), read once when an agent session starts for its flags and account dir (#22199)
