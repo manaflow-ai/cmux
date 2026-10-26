@@ -200,12 +200,14 @@ fn disk_full(near: Option<&Path>) -> (String, Map<String, Value>) {
     details.insert("path".into(), json!(space.path));
     details.insert("freeBytes".into(), json!(space.free));
     details.insert("totalBytes".into(), json!(space.total));
-    (format!("The disk is full. {}", free_space_sentence(&space)), details)
+    (format!("The disk is full. {}", free_space_sentence(&space, false)), details)
 }
 
 /// `Free space on the disk that holds P: 0.9 GB free of 252 GB. acpmux's chats in H use 3.0 GB;
-/// `acpmux session stop NAME --purge` removes a chat you no longer need.`
-pub fn free_space_sentence(space: &Space) -> String {
+/// `acpmux session stop NAME --purge` removes a chat you no longer need.` The chats' size is
+/// measured only when `measure` (a blocking walk: `daemon status`, off the async workers);
+/// otherwise a size measured in the last minute is used, or none.
+pub fn free_space_sentence(space: &Space, measure: bool) -> String {
     let mut text = format!(
         "Free space on the disk that holds {}: {} free of {}.",
         space.path.display(),
@@ -215,7 +217,7 @@ pub fn free_space_sentence(space: &Space) -> String {
     let home = crate::config::home();
     let chats = home.join("sessions");
     if same_disk(&home, &space.path)
-        && let Some(size) = chats_size(&chats)
+        && let Some(size) = chats_size(&chats, measure)
         && size >= 100 << 20
     {
         text.push_str(&format!(
@@ -238,7 +240,7 @@ pub fn disk_status(low_bytes: u64) -> Value {
         v["errorKind"] = json!(kind::DISK_LOW);
         v["recovery"] = json!(format!(
             "The disk is nearly full; agents fail once it is. {}",
-            free_space_sentence(&space)
+            free_space_sentence(&space, true)
         ));
     }
     v
@@ -268,14 +270,18 @@ const CHATS_SIZE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
 type SizeCache = std::sync::Mutex<Option<(std::time::Instant, PathBuf, Option<u64>)>>;
 
-/// [`dir_size`] of `dir`, reused for [`CHATS_SIZE_TTL`]. Blocking.
-fn chats_size(dir: &Path) -> Option<u64> {
+/// [`dir_size`] of `dir`, reused for [`CHATS_SIZE_TTL`]; with `measure` false only a reused
+/// size (an error path in a request task never walks the folder). Blocking when `measure`.
+fn chats_size(dir: &Path, measure: bool) -> Option<u64> {
     static CACHE: SizeCache = std::sync::Mutex::new(None);
     if let Some((at, path, size)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         && path == dir
         && at.elapsed() < CHATS_SIZE_TTL
     {
         return *size;
+    }
+    if !measure {
+        return None;
     }
     let size = dir_size(dir);
     *CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -344,4 +350,23 @@ pub fn spawn_failed(e: &anyhow::Error, harness: &str, program: &str, cwd: &Path)
         "recovery": recovery,
         "details": {"binary": program, "cwd": cwd},
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An error path never walks the chats folder (a request task must not block on it);
+    /// a size `daemon status` measured is reused.
+    #[test]
+    fn only_a_measure_walks_the_chats_folder() {
+        let dir = std::env::temp_dir().join(format!("acpmux-chats-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a"), vec![0u8; 4096]).unwrap();
+        assert_eq!(chats_size(&dir, false), None, "an error path must not walk");
+        let measured = chats_size(&dir, true);
+        assert!(measured.is_some_and(|n| n >= 4096));
+        assert_eq!(chats_size(&dir, false), measured, "then it reuses the measure");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
