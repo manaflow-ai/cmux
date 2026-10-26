@@ -837,7 +837,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// or with an incomplete team list. Those panes stay restoring and are
     /// read again on the next refresh
     /// (https://github.com/manaflow-ai/cmux/issues/21820).
-    static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
+    nonisolated static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
         loss.isMachineScoped && loss != .notFound
     }
 
