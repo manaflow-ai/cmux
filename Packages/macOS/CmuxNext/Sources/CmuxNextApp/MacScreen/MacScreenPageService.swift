@@ -170,6 +170,8 @@ extension AppServices {
         pages.useShortcuts(of: services.registry)
         pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        // A shared screen may show any window: a connected viewer's vote reaches every window node under the app.
+        pages.hubHost.sharedScreenNode = services.appVisibility.node
         return pages
     }
 

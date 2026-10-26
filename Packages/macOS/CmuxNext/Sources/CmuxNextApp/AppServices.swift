@@ -415,7 +415,7 @@ final class AppServices {
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
-    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
+    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, deadlines: mainDeadlines)
     /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
     /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
@@ -487,19 +487,19 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
-    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface, most specific first;
-    /// an agent chat's Chromium page window (`CefNSWindow`) is the agent pane's. Its key and scroll slots carry the
-    /// `key.frame` and `key.scroll_frame` intervals.
-    private(set) lazy var inputLatency = InputLatencyDispatch(
-        tracker: InputLatencyTracker(presentation: PresentationClock()),
-        classifier: InputTargetClassifier(rules: [
+    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface (``inputTargets(agentPaneOwnsPage:)``).
+    /// Its key and scroll slots carry the `key.frame` and `key.scroll_frame` intervals.
+    private(set) lazy var inputLatency = InputLatencyDispatch(tracker: InputLatencyTracker(presentation: PresentationClock()), classifier: Self.inputTargets {
+        [weak self] page in self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
+    /// The surfaces, most specific first. A Chromium page in either process: an in-process page window (`CefNSWindow`, an agent
+    /// chat's being the agent pane's) or a host-mode page view, which takes text input, so it precedes that rule (p04-input-066).
+    static func inputTargets(agentPaneOwnsPage: @escaping @MainActor (NSWindow) -> Bool) -> InputTargetClassifier {
+        InputTargetClassifier(rules: [
             .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
-            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { [weak self] page in
-                self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true ? .agentPane : nil
-            }),
-            .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
-            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout),
-        ]))
+            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { agentPaneOwnsPage($0) ? .agentPane : nil }),
+            .view(ChromiumHostPageView.self, is: .chromiumPage), .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
+            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
+    }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
@@ -804,7 +804,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
-        registry.dispatchingInputEvent = { inputDispatch.event }
+        (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in

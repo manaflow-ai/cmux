@@ -47,7 +47,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Use secret, plus `childEnvironment`, non-secret Computer Use v2 state,
     /// the session offer tools while suggested tasks are on
     /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
-    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
+    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), the app's daemon
+    /// features (``AcpmuxEnvironment/daemonFeatures``) and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         let safeInherited = inherited.filter { key, _ in
@@ -69,8 +70,11 @@ nonisolated enum AcpmuxDaemonLauncher {
         } else {
             variables[AcpmuxEnvironment.agentPairGuardKey] = "0"
         }
+        variables.merge(environment.daemonFeatures) { $1 }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
+        // The owning app: the leftover daemon idle exit keeps the daemon while it runs.
+        variables["ACPMUX_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return variables
     }
 

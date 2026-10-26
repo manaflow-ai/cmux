@@ -65,9 +65,11 @@ extension DaemonService {
     /// first-party app packages shipped in the app bundle (its default apps).
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
-    /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
+    /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``),
+    /// and this app's pid: the leftover owner idle exit keeps the owner while the app runs.
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        environment["CMUX_TUI_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
         environment.merge(DaemonDiagnosticKnobs(processEnvironment: ProcessInfo.processInfo.environment).daemonEnvironment) { own, _ in own }
         return environment

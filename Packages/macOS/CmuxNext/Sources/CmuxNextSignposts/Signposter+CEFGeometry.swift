@@ -6,7 +6,7 @@ import os
 // or divider catcher sync (`WindowOverlayLayer`), with one instant (I) per geometry post a page view makes inside it,
 // like Chrome's `TRACE_EVENT0("ui", "RenderWidgetHostViewMac::SetBounds")` around a view move
 // (content/browser/renderer_host/render_widget_host_view_mac.mm). `cef.host_input` is one instant per input frame
-// (mouse, wheel, key, edit command) written to the Chromium host, like Chrome's
+// (mouse, wheel, key, edit command, IME text) written to the Chromium host, like Chrome's
 // `RenderWidgetHostImpl::ForwardInputEvent` marks (content/browser/renderer_host/render_widget_host_impl.cc).
 //
 // Both fire per display frame or per input event, so the ring takes them only while a recording-only category is
@@ -43,11 +43,13 @@ nonisolated extension Signposter {
         case key = 5
         /// An edit command from a key equivalent (copy, cut, paste, select all, undo, redo).
         case edit = 10
+        /// An IME composition or commit (marked text, inserted text; task p01-process-043).
+        case ime = 11
 
         /// Whether the frame's time is a keystroke's: the keystroke-timing gate (task 128) drops its instant.
         public var carriesKeyTiming: Bool {
             switch self {
-            case .key, .edit: true
+            case .key, .edit, .ime: true
             case .mouse, .wheel: false
             }
         }
