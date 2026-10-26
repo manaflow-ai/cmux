@@ -17,8 +17,6 @@ import Foundation
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
-        /// The engine made a tab that is not a CEF tab.
-        case notChromium
         /// The Chromium browser was not created (CEF failed to start, or the tab closed).
         case browserNotCreated
     }
@@ -49,23 +47,17 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: cef.beginPagesProfile(), pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
-        let made = try await cef.makeTab(configuration)
-        guard let tab = made as? CEFTab else {
-            made.close()
-            throw Failure.notChromium
-        }
-        tab.pageThemeSurface = .internalPage
+        let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage

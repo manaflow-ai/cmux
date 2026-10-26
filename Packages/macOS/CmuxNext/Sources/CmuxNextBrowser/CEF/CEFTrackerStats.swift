@@ -6,9 +6,9 @@ import Foundation
 /// display frame while a pane moves; these show how often that happens and
 /// what answering it costs on the main thread.
 public nonisolated struct CEFTrackerStats: Equatable, Sendable {
-    /// `-cmuxClipPath` reads by the fork (one per geometry update of a shown page).
+    /// Clip shape reads by the fork (one per geometry update of a shown page, `ChildWindowPageFallback`).
     public var clipReads = 0
-    /// `-cmuxOcclusionRects` reads by the fork.
+    /// Occlusion rect reads by the fork (`ChildWindowPageFallback`).
     public var occlusionReads = 0
     /// Clip shapes worked out (`CEFHostView.pageClip`): the walk of the
     /// view's ancestors plus, when one cuts into the page, the path operations.
@@ -33,7 +33,7 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// every Track A call for the fork (`CEFLayerHosting.Hosting.missingTrackA`).
     public var hostingWithoutTrackA = 0
     /// Page update requests a page answered with no post: nothing the fork reads had changed
-    /// since its last read (`CEFHostView.pagesNeedUpdate`).
+    /// since its last read (`ChildWindowPageGeometry.pagesNeedUpdate`).
     public var geometrySkips = 0
 
     public init() {}

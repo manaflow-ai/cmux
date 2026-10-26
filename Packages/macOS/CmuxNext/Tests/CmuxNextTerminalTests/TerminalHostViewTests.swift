@@ -102,6 +102,46 @@ import Testing
         rig.stop()
     }
 
+    /// Streaming output (p04-input-051): each frame's burst of scrollbar changes places the knob once,
+    /// and a frame with no change places nothing; the scroller adds no frame client of its own.
+    @Test func streamingOutputPlacesTheKnobOncePerFrame() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let io = ScriptedTerminalIO()
+        defer { io.finish() }
+        let session = TerminalSession(io: io, mainWork: rig.work)
+        let scroller = session.view.scroller
+        var placements = scroller.knobPlacements
+        for frame in 0..<4 {
+            for offset in 1...3 { session.model.scrollbar = Self.bar(frame * 10 + offset) }
+            rig.frame()
+            #expect(scroller.knobPlacements == placements + 1, "frame \(frame) placed the knob \(scroller.knobPlacements - placements) times")
+            #expect(scroller.shown == Self.bar(frame * 10 + 3))
+            placements = scroller.knobPlacements
+        }
+        rig.frame()
+        #expect(scroller.knobPlacements == placements, "a frame with no change placed the knob")
+        #expect(!rig.work.frames.activeClients.contains { $0.hasPrefix("Terminal.scroller") }, "the scroller keeps frames of its own")
+        rig.stop()
+    }
+
+    /// Two of a person's scrolls in one frame: each places the knob in its own input-response pass,
+    /// before the commit, so the knob is never drawn a frame after the content it describes.
+    @Test func aPersonsScrollsPlaceTheKnobInTheirOwnPass() throws {
+        _ = NSApplication.shared
+        let rig = TerminalFrameRig()
+        let io = ScriptedTerminalIO()
+        defer { io.finish() }
+        let session = TerminalSession(io: io, mainWork: rig.work)
+        rig.work.causes.withCause(.person) { session.model.scrollbar = Self.bar(40) }
+        #expect(rig.work.causes.flushPersonCaused() == 1)
+        #expect(session.view.scroller.shown == Self.bar(40), "the first scroll's knob waited for a frame")
+        rig.work.causes.withCause(.person) { session.model.scrollbar = Self.bar(30) }
+        #expect(rig.work.causes.flushPersonCaused() == 1)
+        #expect(session.view.scroller.shown == Self.bar(30), "the second scroll's knob waited for a frame")
+        rig.stop()
+    }
+
     @Test func aSurfaceSwapCancelsTheOldSurfacesScrollbarWatch() throws {
         _ = NSApplication.shared
         let rig = TerminalFrameRig()

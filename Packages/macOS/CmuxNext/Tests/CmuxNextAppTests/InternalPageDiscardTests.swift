@@ -90,7 +90,7 @@ import Testing
         rig.show()
         rig.hide()
         await rig.pages.discardRecords.pictures[rig.key]?.task?.value
-        #expect(rig.cache.previews.image(for: rig.key) != nil, "the hide took no picture of the painted page")
+        #expect(rig.cache.internalPagePictures.image(for: rig.key) != nil, "the hide took no picture of the painted page")
         let captures = { web.hosting.made.flatMap(\.calls).filter { $0.method == "Page.captureScreenshot" }.count }
         #expect(captures() == 1)
 
@@ -101,7 +101,7 @@ import Testing
 
         // A page that is never discarded pays for no picture.
         provider.policy = .never
-        rig.cache.previews.remove(rig.key)
+        rig.cache.internalPagePictures.remove(rig.key)
         rig.show()
         rig.hide()
         #expect(captures() == 1, "a page that is never discarded was pictured at its hide")

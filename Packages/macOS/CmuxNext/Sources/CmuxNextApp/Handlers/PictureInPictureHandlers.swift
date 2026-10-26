@@ -43,15 +43,15 @@ enum PictureInPictureHandlers {
         })
         // A tab's menu offers it on a page that plays (or played) a video; the media card's menu
         // (no target) while the card shows a tab's video.
-        ActionTargetVisibility.hide(actionID, in: registry) { invocation in
+        ActionTargetVisibility.hide(actionID, in: registry) { [weak services] invocation in
             guard enabled() else { return true }
-            guard let target = invocation.target else { return card(cache)?.canPictureInPicture != true }
+            guard let target = invocation.target else { return card(services)?.canPictureInPicture != true }
             return target.kind == .tab && cache.existingBrowser(target.id)?.tab.state.media?.isVideo != true
         }
         // On a floating video the row reads as what it does.
-        ActionTargetTitles.set(actionID, in: registry) { invocation in
+        ActionTargetTitles.set(actionID, in: registry) { [weak services] invocation in
             guard let target = invocation.target else {
-                return card(cache)?.isPictureInPicture == true ? PictureInPictureStrings.exit : nil
+                return card(services)?.isPictureInPicture == true ? PictureInPictureStrings.exit : nil
             }
             guard target.kind == .tab,
                   cache.existingBrowser(target.id)?.tab.state.media?.isPictureInPicture == true else { return nil }
@@ -68,8 +68,9 @@ enum PictureInPictureHandlers {
     static let cardArgument = "nowPlayingCard"
 
     /// What the media card shows now.
-    private static func card(_ cache: TabContentCache) -> SidebarNowPlaying? {
-        let source: any NowPlayingSource = cache.pageRequests.nowPlayingCard.source ?? cache.pageRequests.sidebarSources
+    private static func card(_ services: AppServices?) -> SidebarNowPlaying? {
+        guard let services else { return nil }
+        let source: any NowPlayingSource = services.cache.pageRequests.nowPlayingCard.source ?? services.nowPlayingSources
         return source.nowPlaying
     }
 

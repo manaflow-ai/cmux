@@ -26,6 +26,12 @@ import CmuxNextTerminal
 /// - `presses_mid_spring`: presses the layout's intercept handled while render-server springs ran on the
 ///   active screen (`LayoutRootView.pressesMidRenderSpring`), whatever their hit test read: when a press came
 ///   (every-action-sweep.py `click.during_motion`). Read a delta.
+/// - `scroll_routes`: scrolls the layout's intercept sent through its full routing, with its pane hit tests
+///   and claim queries (`LayoutRootView.routedScrolls`); a page's plain scroll and the changes and coast of a
+///   gesture the layout did not take add none (p04-input-052). Cumulative per root: read a delta.
+/// - `scroll_conversions`: scroll points the layout's intercept converted from a child window (a page, a
+///   divider catcher) into its own (`LayoutRootView.scrollPointConversions`); a page's plain scroll adds none.
+///   Cumulative per root: read a delta.
 /// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
 /// - `terminal_grid_reports`: grids terminals reported to their session (one PTY resize and shell
 ///   redraw each). A motion that moves the content edge over frames (a pane's layout spring, the
@@ -78,6 +84,8 @@ enum DebugLayoutCounters {
             "update_visibility": JSONValue(Int(truncatingIfNeeded: visibilityUpdates)),
             "presented_hit_reads": JSONValue(presentedHitReads),
             "presses_mid_spring": JSONValue(roots.reduce(0) { $0 + $1.pressesMidRenderSpring }),
+            "scroll_routes": JSONValue(Int(truncatingIfNeeded: roots.reduce(UInt64(0)) { $0 &+ $1.routedScrolls })),
+            "scroll_conversions": JSONValue(Int(truncatingIfNeeded: roots.reduce(UInt64(0)) { $0 &+ $1.scrollPointConversions })),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),

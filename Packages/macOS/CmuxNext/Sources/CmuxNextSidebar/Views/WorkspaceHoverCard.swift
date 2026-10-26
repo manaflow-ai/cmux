@@ -269,6 +269,7 @@ final class WorkspaceHoverCardView: NSView {
         guard isLive, let content else { return nil }
         let starts = ([content.activitySince] + content.facts.map(\.since)).compactMap { $0 }
         guard let newest = starts.max() else { return nil }
+        // wall-clock: the shown running time counts from a model Date.
         return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
     }
 

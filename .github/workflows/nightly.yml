@@ -7287,9 +7287,10 @@ jobs:
             signed+=(notes/announcements.json)
           fi
           # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
-          # release-notes/next/flags.json, signed with the same content-signing key.
+          # release-notes/next/flags.json, signed with the same content-signing key. The app refuses a
+          # document with no default FeaturesSerial (FeatureRemoteDocument), so one is always there.
           if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict)' release-notes/next/flags.json
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict) and type(d["default"].get("FeaturesSerial")) is int' release-notes/next/flags.json
             cp release-notes/next/flags.json notes/flags.json
             signed+=(notes/flags.json)
           fi
