@@ -11,6 +11,8 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -267,7 +269,16 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
     ROUTES = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner", "fast_runner",
               "gateway_runner", "retry_runner", "free_retry_runner", "hosted_runner")
 
+    def place_step_shell(self) -> str:
+        """The placement step's `run:` with the script call stubbed: the shell after it can still add routes."""
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())
+        step = next(step for step in workflow["jobs"]["macos-placement"]["steps"] if step.get("id") == "place")
+        call = "python3 scripts/ci/side_lane_placement.py\n"
+        self.assertEqual(step["run"].count(call), 1)
+        return step["run"].replace(call, ":\n")
+
     def test_no_route_output_names_the_nightly_runner(self):
+        shell = self.place_step_shell()
         dedicated = runner("cmux22", labels=(NIGHTLY_POOL, NIGHTLY_RUNNER, "glaeda-trusted-next-nightly"))
         fleets = {"idle nightly and side": [dedicated, runner("mini-a-glaeda-3")],
                   "only the nightly runner online": [dedicated, runner("mini-a-glaeda-3", status="offline")],
@@ -281,7 +292,8 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
                     output = Path(tmp) / "out"
                     values = env(SIDE_LABEL=side, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="" if runners is None else "t",
                                  GITHUB_REPOSITORY="manaflow-ai/cmux", NIGHTLY_POOL=NIGHTLY_POOL,
-                                 NIGHTLY_RUNNER=NIGHTLY_RUNNER, GATEWAY_LABEL="glaeda-side-light-xcode-26.6",
+                                 NIGHTLY_RUNNER=NIGHTLY_RUNNER, PROMOTE_LABEL="glaeda-promote-side-trusted-std-xcode-26.6",
+                                 GATEWAY_LABEL="glaeda-side-light-xcode-26.6",
                                  FAST_LABEL="glaeda-fast-light-xcode-26.6", CASCADE_RUNS=" release-compile ",
                                  FIRST_JOBS="release-compile")
                     free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
@@ -293,6 +305,9 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
                         else:
                             github.return_value.runners.return_value = runners
                         placement.main(values)
+                    # Then the rest of the step, as the runner runs it; a later line wins, as in GITHUB_OUTPUT.
+                    subprocess.run(["bash", "-e", "-c", shell], check=True,
+                                   env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **values})
                     lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                     for key in self.ROUTES:
                         value = lines.get(key, "")
