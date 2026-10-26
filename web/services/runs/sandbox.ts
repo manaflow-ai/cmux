@@ -8,6 +8,11 @@ import type { RunStatus, SandboxRunOutcome, SandboxRunReceipt } from "./model";
 export const SANDBOX_REPLY_MAX_CHARS = 4_000;
 
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
+
+/** `text` without terminal escapes and other control characters (newlines and tabs kept). */
+export function stripTerminalEscapes(text: string): string {
+  return text.replace(ANSI, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+}
 /** Token shapes an agent may echo; the receipt is shared wider than the terminal. */
 // Token prefixes match after any non-alphanumeric (`_`, `-`, `/`), not only a word boundary:
 // `\b` never matches after `_`, so `dump_sk-…` would slip through.
@@ -52,7 +57,7 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S
  * from text a receipt shows. Runs where the text is stored and again where it is served.
  */
 export function redactReceiptText(text: string, exact: readonly (string | null | undefined)[] = []): string {
-  let out = text.replace(ANSI, "").replace(PRIVATE_KEY_BLOCK, "[redacted private key]");
+  let out = stripTerminalEscapes(text).replace(PRIVATE_KEY_BLOCK, "[redacted private key]");
   for (const value of exact) {
     if (value) out = out.split(value).join("[redacted]");
   }
