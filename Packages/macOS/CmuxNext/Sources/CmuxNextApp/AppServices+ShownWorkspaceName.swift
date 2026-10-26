@@ -9,8 +9,9 @@ extension AppServices {
     /// palette, a row's menu) never opens on the daemon's stored `workspace-N` while the row reads
     /// as its front tab. A Chief subagent's workspace reads as its task title, as its row does.
     func shownWorkspaceName(_ workspace: WorkspaceModel) -> String {
-        let window = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:)) ?? windows.active
-        let selection = window?.state.selection
+        // The owner's state, built or not: a palette list over every workspace never builds a window.
+        let state = windows.registry.value.owner(of: workspace.id).flatMap { windows.states[$0] } ?? windows.active?.state
+        let selection = state?.selection
         let name = WorkspaceAutoNameWiring(services: self).reader.titlebarName(workspace) { pane in
             selection?.selection(in: pane.id)
         }
