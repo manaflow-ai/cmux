@@ -81,6 +81,11 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-message__text").waitFor();
     expect((await intact(".cv-message__text")).mask).toBe("none");
     await page.locator(".cv-message__more").waitFor();
+    expect(await page.locator(".cv-message .cv-agentmsg__card").evaluate((box) => ({
+      maxHeight: getComputedStyle(box).maxHeight,
+      overflowY: getComputedStyle(box).overflowY,
+      background: getComputedStyle(box).backgroundColor,
+    }))).toEqual({ maxHeight: "none", overflowY: "visible", background: "rgba(0, 0, 0, 0)" });
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
@@ -137,5 +142,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await row.locator(".cv-received__toggle").press("Enter");
     await row.locator(".cv-codeblock button").first().waitFor();
     expect(await row.locator(".cv-received__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
+  });
+  test("a received message mounts only its persistent header timestamp", async () => {
+    await open();
+    expect(await page.locator(".cv-received").first().locator("time").count()).toBe(1);
   });
 });
