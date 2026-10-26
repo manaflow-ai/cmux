@@ -21,6 +21,9 @@ final class CEFHostStart {
     private let helloDeadline: Duration
     private let clock: any Clock<Duration>
     private var task: Task<Result<CEFAttachedHost, CEFRuntime.BootError>, Never>?
+    /// The attached host maps the ids cmux mints (``CEFAttachedHost/mapsClientIDs``); set by
+    /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
+    var mapsClientIDs = false
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -41,7 +44,7 @@ final class CEFHostStart {
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome { remote = host.remote }
+        if case .success(let host) = outcome { (remote, mapsClientIDs) = (host.remote, host.mapsClientIDs) }
         return outcome
     }
 
@@ -79,7 +82,8 @@ final class CEFHostStart {
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
-                                            locale: locale, loadDuration: elapsed.now - started))
+                                            locale: locale, loadDuration: elapsed.now - started,
+                                            mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName)))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -98,6 +102,13 @@ nonisolated struct CEFAttachedHost: Sendable {
     var locale: CEFLocale
     /// From the supervisor's request to the host's hello.
     var loadDuration: Duration
+    /// The host maps the browser and DevTools ids cmux mints to Chromium's for every op and event
+    /// (its HELLO lists ``clientIDsHelloName``; HOST/src/host_client_ids.h), so cmux may create a
+    /// browser in the key's turn and name it by the minted id at once (task 019).
+    var mapsClientIDs: Bool
+
+    /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
+    static let clientIDsHelloName = "cmux_host_client_ids"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.

@@ -108,7 +108,10 @@ argument named `reply` or `token` never collides with a generated local:
     TlvWriter: as the client's, plus I32Array(const int*, size_t)
     HostContext: int Browser(int32_t client_id)  void* PageView(uint64_t token)  Ack(uint32_t)
       void* OptionalExport(uint16_t op) (the host shim's symbol, or NULL)
-      Reply(uint32_t token, const TlvWriter&)  BindMinted(uint16_t op, int32_t minted, int64_t result)
+      Reply(uint32_t token, const TlvWriter&)
+      BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser)
+        (client_browser: the export's first *browser_id argument as cmux sent it, 0 without one;
+        devtools_call's result is keyed by its browser, host_client_ids.h)
       BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started)
         (the event of that kind and request reports Chromium's id; started 0: it never comes)
       PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value)
@@ -1325,7 +1328,8 @@ def host_case(op: Op, model: Model) -> list[str]:
             lines.append(f"      ctx.BindMintedOnEvent({op_const(e)}, minted_id, {kind} /* {op.reply_event} */, "
                          f"{request_arg(e).var}, call_result);")
         else:
-            lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result);")
+            browser = next((a.var for a in e.wire if is_browser_arg(a)), "0")
+            lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result, {browser});")
         lines.append("      ctx.Ack(wire_token);")
     else:
         host_call(e, call_args, lines, "call_result" if e.ret_kind else None)

@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 
+#include "chromium_host_mint.h"
 #include "chromium_host_tlv.h"
 
 #define CMUX_REMOTE_EXPORT __attribute__((visibility("default")))
@@ -134,13 +135,13 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
 // Never 0.
 uint32_t NextToken();
-// Browser and window ids from 1 << 20, so they never meet one Chromium assigned; DevTools
-// message ids below 2^30 (the header's shim-internal range), from 2^29 so they never meet the
-// host shim's own counter. 0 when the range is used up.
+// Browser ids from 1 << 20, so they never meet one Chromium assigned; DevTools message ids below
+// 2^30 (the header's shim-internal range), from 2^29 so they never meet the host shim's own
+// counter (chromium_host_mint.h; the host maps them, host_client_ids.h). 0 when the range is used up.
 int32_t MintID(uint16_t op);
-inline constexpr int32_t kFirstMintedBrowserID = 1 << 20;
-inline constexpr int32_t kFirstMintedDevToolsID = 1 << 29;
-inline constexpr int32_t kEndMintedDevToolsID = 1 << 30;
+inline constexpr int32_t kFirstMintedBrowserID = cmux_host::mint::kFirstBrowserID;
+inline constexpr int32_t kFirstMintedDevToolsID = cmux_host::mint::kFirstDevToolsID;
+inline constexpr int32_t kEndMintedDevToolsID = cmux_host::mint::kEndDevToolsID;
 // A malloc'd copy, freed by cmux_shim_free or cmux_shim_free_owned.
 char* Dup(const std::string& text);
 void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards);
