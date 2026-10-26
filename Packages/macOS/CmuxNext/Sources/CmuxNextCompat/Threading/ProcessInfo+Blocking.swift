@@ -81,7 +81,7 @@ public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt6
 @inlinable
 public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidpath(pid, buffer, size) }
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { procPidPath(pid, buffer, size) }
 }
 
 /// Reads a process's descriptor information, like `proc_pidfdinfo`, as a checked blocking call (kind
@@ -100,7 +100,7 @@ public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer,
 @inlinable
 public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidfdinfo(pid, descriptor, flavor, buffer, size) }
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { procPidFDInfo(pid, descriptor, flavor, buffer, size) }
 }
 
 /// Lists process ids, like `proc_listpids`, as a checked blocking call (kind ``BlockingKind/systemQuery``).
@@ -117,7 +117,7 @@ public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: I
 @inlinable
 public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_listpids(type, typeInfo, buffer, size) }
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { procListPids(type, typeInfo, buffer, size) }
 }
 
 /// Reads a process's resource usage, like `proc_pid_rusage`, as a checked blocking call (kind
@@ -164,4 +164,22 @@ public func blockingGetpwuid(_ uid: uid_t, fileID: StaticString = #fileID, line:
 public func blockingGetpwnam(_ name: UnsafePointer<CChar>,
                              fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<passwd>? {
     return blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in getpwnam(name) }
+}
+
+/// `proc_pidpath`, written once for both ``blockingProcPidPath(_:_:_:fileID:line:)`` forms.
+@usableFromInline
+func procPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32) -> Int32 {
+    proc_pidpath(pid, buffer, size)
+}
+
+/// `proc_pidfdinfo`, written once for both ``blockingProcPidFDInfo(_:_:_:_:_:fileID:line:)`` forms.
+@usableFromInline
+func procPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32) -> Int32 {
+    proc_pidfdinfo(pid, descriptor, flavor, buffer, size)
+}
+
+/// `proc_listpids`, written once for both ``blockingProcListPids(_:_:_:_:fileID:line:)`` forms.
+@usableFromInline
+func procListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32) -> Int32 {
+    proc_listpids(type, typeInfo, buffer, size)
 }

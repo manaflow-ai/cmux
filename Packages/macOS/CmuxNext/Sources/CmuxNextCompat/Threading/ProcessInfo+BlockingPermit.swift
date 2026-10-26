@@ -31,7 +31,7 @@ public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt6
 @inlinable
 public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32,
                                 _ permit: borrowing BlockingPermit, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { proc_pidpath(pid, buffer, size) }
+    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { procPidPath(pid, buffer, size) }
 }
 
 /// ``blockingProcPidFDInfo(_:_:_:_:_:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.
@@ -39,7 +39,7 @@ public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer,
 @inlinable
 public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                   _ permit: borrowing BlockingPermit, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { proc_pidfdinfo(pid, descriptor, flavor, buffer, size) }
+    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { procPidFDInfo(pid, descriptor, flavor, buffer, size) }
 }
 
 /// ``blockingProcListPids(_:_:_:_:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.
@@ -47,7 +47,7 @@ public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: I
 @inlinable
 public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                  _ permit: borrowing BlockingPermit, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { proc_listpids(type, typeInfo, buffer, size) }
+    return blockingCall(.systemQuery, permit, fileID: fileID, line: line) { procListPids(type, typeInfo, buffer, size) }
 }
 
 /// ``blockingProcPidRusage(_:_:_:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.
