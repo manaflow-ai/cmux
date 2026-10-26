@@ -244,7 +244,7 @@ pub(super) fn rebuild(
                     let entry = entry?;
                     let name = entry.file_name();
                     let meta = stat_child(parent_fd, &name)
-                        .map_err(|e| io::Error::other(format!("{e}")))?;
+                        .map_err(|e| io::Error::other(e.to_string()))?;
                     Ok((dir.join(name), meta))
                 })
                 .collect::<io::Result<Vec<_>>>(),
