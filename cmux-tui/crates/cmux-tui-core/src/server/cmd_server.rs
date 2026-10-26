@@ -20,6 +20,7 @@ use crate::Mux;
 use crate::MuxEvent;
 use crate::PaneId;
 use crate::mux::DaemonHandoffRequest;
+use crate::work_reply::{Unanswered, WorkReply};
 use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::Value;
 use serde_json::json;
@@ -211,18 +212,34 @@ pub(super) fn machine_usage(mux: &Arc<Mux>) -> anyhow::Result<Value> {
 /// work item of the System lane and answers from there; the request thread
 /// goes on at once (Chrome posts blocking work to a MayBlock task runner,
 /// base/task/task_traits.h). The inventory is a view's poll: UserVisible.
+/// It only reads, so shutdown never waits for it (ContinueOnShutdown); a
+/// refused, dropped or panicked item still answers its id.
 pub(super) fn start_machine_listening_tcp(
     mux: &Arc<Mux>,
     id: Option<Value>,
     reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
-    let (item_writer, item_id) = (writer.clone(), id.clone());
-    let posted =
-        mux.work.post(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, move || {
-            reply.reply(|| respond(&item_writer, item_id, machine_listening_tcp_json()));
+    let item_writer = writer.clone();
+    let answer = WorkReply::new(move |listing: Result<anyhow::Result<Value>, Unanswered>| {
+        let listing = listing.unwrap_or_else(|why| {
+            Err(match why {
+                Unanswered::ShuttingDown => anyhow::anyhow!("the daemon is shutting down"),
+                Unanswered::Panicked => {
+                    anyhow::anyhow!("internal error: the listening-port read stopped unexpectedly")
+                }
+            })
         });
-    posted.is_ok() || respond(writer, id, Err(anyhow::anyhow!("the daemon is shutting down")))
+        reply.reply(|| respond(&item_writer, id, listing));
+    });
+    // A refused item is dropped here, and `answer` answers it.
+    let _ = mux.work.post(
+        Priority::UserVisible,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || answer.run(machine_listening_tcp_json),
+    );
+    true
 }
 
 fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {

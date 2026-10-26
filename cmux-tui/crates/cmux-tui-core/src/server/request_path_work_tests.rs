@@ -8,17 +8,21 @@
 //! `CMUX_DAEMON_BLOCKING=panic` sets it for a whole daemon), so a child
 //! process left on the request thread fails the test at its call site.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::SurfaceOptions;
-use cmux_threads::blocking::{BlockingMode, set_mode, with_blocking_disallowed};
+use crate::resource_router::ParsedResourceRequest;
+use cmux_threads::blocking::{BlockingMode, with_blocking_disallowed, with_mode};
+use cmux_threads::work::{Lane, LaneStats, Priority, Shutdown};
 use serde_json::{Value, json};
 
 use super::{
     BoundedOutbound, ClientTransport, Command, MessageWriter, Mux, OutboundItem, QueuedSink,
-    Request, handle_request, handle_resource_connection_message,
+    Request, RequestSpan, handle_request, handle_resource_connection_message,
 };
 
 fn scratch(name: &str) -> PathBuf {
@@ -78,7 +82,9 @@ fn client(mux: &Arc<Mux>) -> (u64, MessageWriter, Arc<BoundedOutbound>) {
 }
 
 /// Runs `f` with `mux` on a new thread that disallows blocking, in panic
-/// mode; a blocking call in `f` panics there and fails the test. The handle
+/// mode for that thread only (`with_mode`, so the other tests of this
+/// binary keep the process mode); a blocking call in `f` panics there and
+/// fails the test. The handle
 /// is dropped after the disallowed scope (a last handle's drop joins the
 /// daemon's threads, which a request thread never does).
 fn on_request_thread<R: Send + 'static>(
@@ -86,9 +92,8 @@ fn on_request_thread<R: Send + 'static>(
     f: impl FnOnce(&Arc<Mux>) -> R + Send + 'static,
 ) -> R {
     let mux = Arc::clone(mux);
-    set_mode(BlockingMode::Panic);
     let thread = std::thread::spawn(move || {
-        let value = with_blocking_disallowed(|| f(&mux));
+        let value = with_mode(BlockingMode::Panic, || with_blocking_disallowed(|| f(&mux)));
         drop(mux);
         value
     });
@@ -96,6 +101,17 @@ fn on_request_thread<R: Send + 'static>(
         Ok(value) => value,
         Err(panic) => std::panic::resume_unwind(panic),
     }
+}
+
+/// Dispatches `request` with a span that starts now.
+fn handle_resource_connection_message_now(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: ParsedResourceRequest,
+    writer: &MessageWriter,
+) -> bool {
+    let mut span = RequestSpan::for_resource(mux.request_stats(), request.envelope.operation);
+    handle_resource_connection_message(mux, client, request, writer, &mut span)
 }
 
 /// The next reply `outbound` carries, waiting for a work item's answer.
@@ -134,7 +150,7 @@ fn git_push_runs_off_the_request_thread() {
     let request = crate::resource_router::parse_resource_request(&line).expect("a valid git.push");
 
     let kept_open = on_request_thread(&mux, move |mux| {
-        handle_resource_connection_message(mux, client, request, &writer)
+        handle_resource_connection_message_now(mux, client, request, &writer)
     });
 
     assert!(kept_open);
@@ -166,7 +182,7 @@ fn git_status_runs_off_the_request_thread() {
         crate::resource_router::parse_resource_request(&line).expect("a valid git.status");
 
     on_request_thread(&mux, move |mux| {
-        handle_resource_connection_message(mux, client, request, &writer)
+        handle_resource_connection_message_now(mux, client, request, &writer)
     });
 
     let reply = next_reply(&outbound);
@@ -191,4 +207,147 @@ fn machine_listening_tcp_runs_off_the_request_thread() {
     assert_eq!(reply["id"], json!(7), "{reply}");
     assert!(reply["ok"] == json!(false) || reply["data"]["stdout"].is_string(), "{reply}");
     mux.shutdown();
+}
+
+const WAIT: Duration = Duration::from_secs(20);
+
+/// A v2 request of `operation` on the repository at `path`.
+fn v2(
+    id: &str,
+    operation: &str,
+    path: &Path,
+    params: Value,
+    key: Option<&str>,
+) -> ParsedResourceRequest {
+    let mut fields =
+        json!({"machine": "current", "session": "current", "path": path.to_string_lossy()});
+    if let (Some(fields), Value::Object(params)) = (fields.as_object_mut(), params) {
+        fields.extend(params);
+    }
+    let mut envelope = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": id,
+        "operation": operation,
+        "params": fields,
+    });
+    if let Some(key) = key {
+        envelope["idempotency_key"] = json!(key);
+    }
+    crate::resource_router::parse_resource_request(&envelope.to_string()).expect("a valid request")
+}
+
+/// Installs `body` as the repository's `name` hook.
+fn hook(repo: &Path, name: &str, body: &str) {
+    let path = repo.join(".git/hooks").join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn system_lane(mux: &Mux) -> LaneStats {
+    mux.work.stats().into_iter().find(|stats| stats.lane == Lane::System).unwrap()
+}
+
+fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + WAIT;
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Seven pushes stalled in a pre-push hook (one runs it, six wait on the
+/// repository's push lock) hold no System slot: a git.status from another
+/// client answers at once, other System work still runs, and shutdown
+/// does not wait for them. Before `will_block` they filled the lane.
+#[test]
+fn stalled_pushes_hold_no_system_slot_and_never_delay_shutdown() {
+    const PUSHES: usize = 7;
+    let root = scratch("stalled");
+    let (repo, _) = repository_with_remote(&root);
+    let (started, release) = (root.join("hook-started"), root.join("release"));
+    let wait_for_release = format!(
+        "touch '{}'\nwhile [ ! -e '{}' ]; do sleep 0.05; done",
+        started.display(),
+        release.display()
+    );
+    hook(&repo, "pre-push", &wait_for_release);
+    let mux = Mux::new("request-path-work-stalled", SurfaceOptions::default());
+    let mut pushes = Vec::new();
+    for n in 0..PUSHES {
+        let (client, writer, outbound) = client(&mux);
+        let key = format!("request-path-work-stalled-{n}");
+        let request = v2(&format!("push-{n}"), "git.push", &repo, json!({}), Some(&key));
+        assert!(handle_resource_connection_message_now(&mux, client, request, &writer));
+        pushes.push(outbound);
+    }
+    until("every push to wait outside the lane's count", || {
+        started.exists() && system_lane(&mux).blocked == PUSHES
+    });
+
+    let (client, writer, outbound) = client(&mux);
+    let asked = Instant::now();
+    let status = v2("status-1", "git.status", &repo, json!({}), None);
+    assert!(handle_resource_connection_message_now(&mux, client, status, &writer));
+    let reply = next_reply(&outbound);
+    assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!("status-1"), json!(true)));
+    assert!(asked.elapsed() < Duration::from_secs(5), "status took {:?}", asked.elapsed());
+    let probe =
+        mux.work.run(Priority::UserVisible, Lane::System, Shutdown::ContinueOnShutdown, || "ran");
+    until("a UserVisible System item to run", || probe.try_wait().is_some());
+
+    let began = Instant::now();
+    let report = mux.work.shutdown_until(began + Duration::from_secs(2));
+    assert_eq!(report.unfinished, 0, "shutdown waits for no git item");
+    assert!(began.elapsed() < Duration::from_millis(500), "shutdown took {:?}", began.elapsed());
+
+    std::fs::write(&release, "").unwrap();
+    let replies: Vec<Value> = pushes.iter().map(|outbound| next_reply(outbound)).collect();
+    let ids: Vec<Value> = replies.iter().map(|reply| reply["id"].clone()).collect();
+    assert_eq!(ids, (0..PUSHES).map(|n| json!(format!("push-{n}"))).collect::<Vec<_>>());
+    assert!(replies.iter().any(|reply| reply["ok"] == json!(true)), "{replies:?}");
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// One connection's git.commit then git.push, sent back to back: the push
+/// runs after the commit and pushes the new commit, as on the connection's
+/// own thread before. A slow pre-commit hook gives a push that ran beside
+/// the commit time to read the old HEAD.
+#[test]
+fn a_connections_commit_then_push_pushes_the_new_commit() {
+    let root = scratch("commit-push");
+    let (repo, remote) = repository_with_remote(&root);
+    git(&repo, &["config", "user.name", "t"]);
+    git(&repo, &["config", "user.email", "t@example.com"]);
+    let before = git(&repo, &["rev-parse", "HEAD"]);
+    hook(&repo, "pre-commit", "sleep 1");
+    std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+    let mux = Mux::new("request-path-work-commit-push", SurfaceOptions::default());
+    let (client, writer, outbound) = client(&mux);
+    let commit = v2(
+        "commit-1",
+        "git.commit",
+        &repo,
+        json!({"message": "two", "all": true}),
+        Some("request-path-work-commit-1"),
+    );
+    let push = v2("push-2", "git.push", &repo, json!({}), Some("request-path-work-push-2"));
+
+    assert!(handle_resource_connection_message_now(&mux, client, commit, &writer));
+    assert!(handle_resource_connection_message_now(&mux, client, push, &writer));
+
+    let committed = next_reply(&outbound);
+    assert_eq!(committed["id"], json!("commit-1"), "{committed}");
+    assert_eq!(committed["ok"], json!(true), "{committed}");
+    let pushed = next_reply(&outbound);
+    assert_eq!(pushed["id"], json!("push-2"), "{pushed}");
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    assert_ne!(head, before, "the commit moved HEAD");
+    assert_eq!(pushed["result"]["value"]["pushed_commit"], json!(head), "{pushed}");
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), head);
+    until("the sequence to end", || mux.git_sequences.active() == 0);
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
 }

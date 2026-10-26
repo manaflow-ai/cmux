@@ -34,6 +34,7 @@ use crate::panic_free::JsonFields;
 
 use super::MessageWriter;
 use super::OutboundStream;
+use super::RequestSpan;
 use super::ResourceWaitCancel;
 use super::activity;
 use super::chief_control;
@@ -101,12 +102,14 @@ fn handle_resource_session_shutdown(
 }
 
 /// Dispatches one request the origin gate admitted; `request` is the
-/// gate's own parse of the line.
+/// gate's own parse of the line. A git request takes `span` to the work
+/// item that answers it, so its latency ends at its real reply.
 pub(super) fn handle_resource_connection_message(
     mux: &Arc<Mux>,
     client: u64,
     request: crate::resource_router::ParsedResourceRequest,
     writer: &MessageWriter,
+    span: &mut RequestSpan<'_>,
 ) -> bool {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
@@ -297,16 +300,18 @@ pub(super) fn handle_resource_connection_message(
             origin_gate::handle_issue(mux, client, &request, id, writer)
         }
         operation if crate::git_ops::handles(operation) => {
-            let (reply_mux, reply_writer) = (mux.clone(), writer.clone());
-            crate::git_ops::answer(mux, request, move |handled| match handled {
-                Ok(response) => {
-                    activity::note_resource_input(&reply_mux, client, operation, &response);
-                    let _ = reply_writer.send_control(&response);
-                }
-                Err(error) => {
-                    send_resource_response(&reply_writer, id, operation, Err(error));
-                }
+            let (reply_mux, reply_writer, latency) =
+                (mux.clone(), writer.clone(), span.start_async());
+            let reply: crate::git_ops::Reply = Box::new(move |handled| {
+                latency.reply(|| match handled {
+                    Ok(response) => {
+                        activity::note_resource_input(&reply_mux, client, operation, &response);
+                        reply_writer.send_control(&response).is_ok()
+                    }
+                    Err(error) => send_resource_response(&reply_writer, id, operation, Err(error)),
+                });
             });
+            crate::git_ops::answer(mux, client, request, reply);
             true
         }
         _ => {

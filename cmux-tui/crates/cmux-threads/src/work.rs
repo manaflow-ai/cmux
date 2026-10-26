@@ -10,7 +10,10 @@
 //!   the performance cores minus one (at least 2) with BestEffort at 2 and Idle at 1. So BestEffort
 //!   plus Idle never hold more than 2 slots of a lane and Idle never more than 1 (Chrome's
 //!   `kMaxBestEffortTasks`, base/task/thread_pool/thread_pool_impl.cc). Limits rise with priority, so
-//!   a lower item never starts while a higher one waits.
+//!   a lower item never starts while a higher one waits. An item inside [`will_block`] (Chrome's
+//!   `ScopedBlockingCall` with `BlockingType::WILL_BLOCK`) stops counting until it leaves, so a wait
+//!   of minutes (git hooks, a remote, a lock another such item holds) never holds a slot
+//!   (base/task/thread_pool/thread_group_impl.cc raises `max_tasks` for it at once).
 //! - **Workers.** Each worker belongs to one priority class (UserInitiated, Utility, Background) for
 //!   life and runs only that class's items. Linux cannot lower a thread's nice value without
 //!   privilege, so a worker that once ran Idle work could never run UserBlocking work at nice 0; Chrome
@@ -34,6 +37,7 @@
 //! work.post(Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown, move || save(&state))?;
 //! ```
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
 use std::io;
@@ -335,6 +339,8 @@ pub struct LaneStats {
     pub pending: usize,
     /// Items admitted: running or handed to a worker.
     pub running: usize,
+    /// Running items inside [`will_block`], which no limit counts.
+    pub blocked: usize,
     /// Live worker threads.
     pub workers: usize,
     /// Live workers not running an item.
@@ -435,6 +441,43 @@ impl Drop for Work {
     }
 }
 
+/// Items of one lane that may be inside [`will_block`] at once; past it an item keeps its slot.
+/// Chrome caps a thread group's growth the same way (`kMaxNumberOfWorkers`, thread_group_impl.cc).
+const MAX_BLOCKED: usize = 64;
+
+thread_local! {
+    /// The lane of the item this worker runs, outside [`will_block`]; `None` on other threads.
+    static CURRENT_LANE: RefCell<Option<Arc<LaneShared>>> = const { RefCell::new(None) };
+}
+
+/// Runs `f`, a call that waits a long or unbounded time on something outside the process: a child
+/// process that runs the user's hooks, a remote, a lock another such call holds. Chrome's
+/// `ScopedBlockingCall(BlockingType::WILL_BLOCK)` (base/threading/scoped_blocking_call.h): on a work
+/// item, the item stops counting against its lane's limits while `f` runs, so the lane may admit
+/// one more item, and counts again after. Anywhere else (and nested) it only runs `f`.
+pub fn will_block<R>(f: impl FnOnce() -> R) -> R {
+    let Some(lane) = CURRENT_LANE.with(RefCell::take) else { return f() };
+    let counted = lane.enter_blocked();
+    let _leave = LeaveBlocked { lane: Some(lane), counted };
+    f()
+}
+
+/// Ends a [`will_block`] scope, unwinding included.
+struct LeaveBlocked {
+    lane: Option<Arc<LaneShared>>,
+    counted: bool,
+}
+
+impl Drop for LeaveBlocked {
+    fn drop(&mut self) {
+        let Some(lane) = self.lane.take() else { return };
+        if self.counted {
+            lane.lock().blocked -= 1;
+        }
+        CURRENT_LANE.with(|current| *current.borrow_mut() = Some(lane));
+    }
+}
+
 /// Sends the body's result. A panic is sent as [`WorkError::Panicked`] and raised again, so the worker
 /// counts it as it counts a [`Work::post`] item's.
 fn deliver<T, F: FnOnce() -> T>(sender: &SyncSender<Result<T, WorkError>>, body: F) {
@@ -515,6 +558,8 @@ struct LaneState {
     ready: [VecDeque<Job>; 3],
     /// Admitted items: in `ready` or running.
     running: usize,
+    /// Running items inside `will_block`: admission does not count them.
+    blocked: usize,
     workers: [ClassWorkers; 3],
     /// Items shutdown waits for: block items from acceptance and skip items from their start, until
     /// they finish.
@@ -551,6 +596,7 @@ impl LaneShared {
                 pending: Default::default(),
                 ready: Default::default(),
                 running: 0,
+                blocked: 0,
                 workers: Default::default(),
                 awaited: 0,
                 closed: false,
@@ -593,7 +639,7 @@ impl LaneShared {
     fn admit(&self, state: &mut LaneState) -> [usize; 3] {
         let mut admitted = [0usize; 3];
         for priority in Priority::ALL.into_iter().rev() {
-            while state.running < self.limits[priority.index()] {
+            while state.running < self.limits[priority.index()] + state.blocked {
                 let Some(job) = state.pending[priority.index()].pop_front() else { break };
                 let class = priority.class().index();
                 state.running += 1;
@@ -659,6 +705,20 @@ impl LaneShared {
         drop(dropped);
     }
 
+    /// Stops counting the calling item against the lane's limits (see [`will_block`]) and admits
+    /// what that lets start; false when [`MAX_BLOCKED`] items are already out of the count.
+    fn enter_blocked(self: &Arc<Self>) -> bool {
+        let mut state = self.lock();
+        if state.blocked >= MAX_BLOCKED {
+            return false;
+        }
+        state.blocked += 1;
+        let starts = self.admit(&mut state);
+        drop(state);
+        self.start_workers(starts);
+        true
+    }
+
     /// A worker `admit` counted did not start. Items of its class that no live worker will take go
     /// back to the front of their pending lists, where the next finished item admits them again. When
     /// no item runs nothing would, so every pending item is dropped (and returned, to drop unlocked).
@@ -698,7 +758,9 @@ impl LaneShared {
                     state.awaited += 1;
                 }
                 drop(state);
+                CURRENT_LANE.with(|current| *current.borrow_mut() = Some(Arc::clone(&self)));
                 let panicked = catch_unwind(AssertUnwindSafe(job.body)).is_err();
+                CURRENT_LANE.with(|current| current.borrow_mut().take());
                 state = self.lock();
                 state.panics += u64::from(panicked);
                 state.running -= 1;
@@ -815,6 +877,7 @@ impl LaneShared {
             lane: self.lane,
             pending: state.pending.iter().map(VecDeque::len).sum(),
             running: state.running,
+            blocked: state.blocked,
             workers: state.workers.iter().map(|class| class.live).sum(),
             idle_workers: state.workers.iter().map(|class| class.idle).sum(),
             workers_started: state.workers_started,

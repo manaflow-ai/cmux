@@ -2,7 +2,9 @@
 
 use super::*;
 
-/// How long shutdown waits for block work items (each one short save).
+/// The most shutdown waits for `BlockShutdown` and started `SkipOnShutdown`
+/// work items. None are posted today: git and listening-port items are
+/// `ContinueOnShutdown`, so the wait is 0 unless such an item is added.
 const WORK_SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 impl Mux {
@@ -124,8 +126,9 @@ impl Mux {
         self.stop_journal_maintenance();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
-        // Block work items (one short save each, such as a Chief engine file)
-        // finish; queued skip and continue items are dropped (work.rs).
+        // Closes the work lanes: queued git and listening-port items are
+        // dropped and answer that the daemon is shutting down; running ones
+        // are not waited for (ContinueOnShutdown, git_ops/sequence.rs).
         let work = self.work.shutdown_until(Instant::now() + WORK_SHUTDOWN_WAIT);
         if work.unfinished > 0 {
             eprintln!("cmux-tui: {} work items did not finish before shutdown", work.unfinished);

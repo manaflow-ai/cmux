@@ -9,9 +9,9 @@
 use crate::panic_free::RecoverPoison;
 #[cfg(not(target_os = "linux"))]
 use cmux_process::Command;
+#[cfg(target_os = "linux")]
 use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
-#[cfg(target_os = "linux")]
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 

@@ -84,7 +84,8 @@ impl Target {
     }
 
     /// Runs `body` while no other `operation` runs in this repository. A
-    /// retry of a running request waits here and then replays its result.
+    /// retry of a running request waits here, outside its lane's count
+    /// (`will_block`), and then replays its result.
     pub(super) fn exclusive<T>(&self, operation: &'static str, body: impl FnOnce() -> T) -> T {
         type Locks = Mutex<HashMap<(PathBuf, &'static str), Arc<Mutex<()>>>>;
         static LOCKS: OnceLock<Locks> = OnceLock::new();
@@ -95,7 +96,8 @@ impl Target {
             .entry((self.common_dir.clone(), operation))
             .or_default()
             .clone();
-        let _held = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let _held =
+            cmux_threads::work::will_block(|| lock.lock()).unwrap_or_else(PoisonError::into_inner);
         body()
     }
 }

@@ -10,6 +10,7 @@
 //! never signals it: only an explicit Terminate ends a session the host
 //! does not own.
 
+#[cfg(target_os = "linux")]
 use cmux_threads::checked::fs as files;
 use std::os::fd::{FromRawFd, OwnedFd};
 

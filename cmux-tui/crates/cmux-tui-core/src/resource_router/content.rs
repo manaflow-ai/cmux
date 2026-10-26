@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use cmux_threads::checked::fs as files;
 #[cfg(target_os = "macos")]
 use std::mem::size_of;

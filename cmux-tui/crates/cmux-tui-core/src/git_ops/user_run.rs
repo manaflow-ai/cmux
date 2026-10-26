@@ -93,8 +93,18 @@ impl UserGit<'_> {
         self.run_with(arguments, &[])
     }
 
-    /// Runs `git <arguments>` with `extra` set in its environment.
+    /// Runs `git <arguments>` with `extra` set in its environment. The run
+    /// may wait minutes on the user's hooks and remotes, so its work item
+    /// gives back its lane slot meanwhile (`will_block`).
     pub(super) fn run_with<S: AsRef<OsStr>>(
+        &self,
+        arguments: &[S],
+        extra: &[(&str, &str)],
+    ) -> Result<UserRun, GitFailure> {
+        cmux_threads::work::will_block(|| self.run_child(arguments, extra))
+    }
+
+    fn run_child<S: AsRef<OsStr>>(
         &self,
         arguments: &[S],
         extra: &[(&str, &str)],

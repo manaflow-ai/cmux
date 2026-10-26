@@ -18,13 +18,15 @@ use crate::resource::RequestEnvelope;
 /// Applies the origin rules to one parsed `cmux.protocol/2` line, then
 /// validates and dispatches the same parse. The origin rules run before
 /// the envelope and catalog validation, so a refused origin learns nothing
-/// from validation.
+/// from validation. `span` is the request's latency span, which a request
+/// answered on a work item takes along.
 pub(super) fn handle_resource_line(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
+    span: &mut RequestSpan<'_>,
 ) -> bool {
     let mut envelope = match envelope {
         Ok(envelope) => envelope,
@@ -51,7 +53,7 @@ pub(super) fn handle_resource_line(
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     crate::debug_spans::mark("origin.admitted");
     match admitted {
-        Ok(request) => handle_resource_connection_message(mux, client, request, writer),
+        Ok(request) => handle_resource_connection_message(mux, client, request, writer, span),
         Err(error) => {
             if operation == ResourceOperation::HistoryTrailRecord {
                 // The trail's failure log (cx-hnmbt.14): an origin refusal

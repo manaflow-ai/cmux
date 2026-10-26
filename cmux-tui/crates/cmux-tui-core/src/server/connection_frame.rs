@@ -129,7 +129,8 @@ pub(super) fn handle_connection_frame_at(
                 crate::debug_spans::install(Some(trace));
                 true
             });
-        let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
+        let keep_open =
+            origin_gate::handle_resource_line(mux, client, message, request, writer, &mut span);
         if traced {
             crate::debug_spans::mark("reply.sent");
             crate::debug_spans::finish(crate::debug_spans::take());

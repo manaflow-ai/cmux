@@ -95,12 +95,16 @@ pub mod fs {
     }
 
     /// `flock(2)` on `file`'s descriptor. `LOCK_SH` and `LOCK_EX` wait for
-    /// the lock unless `operation` has `LOCK_NB`.
+    /// the lock unless `operation` has `LOCK_NB`, and only that wait is
+    /// checked: `LOCK_UN` and a `LOCK_NB` try return at once, so a lock
+    /// guard's drop may unlock on any thread.
     #[cfg(unix)]
     #[track_caller]
     pub fn advisory_lock(file: &impl std::os::fd::AsFd, operation: libc::c_int) -> io::Result<()> {
         use std::os::fd::AsRawFd;
-        assert_blocking_allowed(BlockingKind::Fs);
+        if operation & (libc::LOCK_UN | libc::LOCK_NB) == 0 {
+            assert_blocking_allowed(BlockingKind::Fs);
+        }
         // SAFETY: flock reads or changes only the advisory lock of a
         // descriptor the borrow keeps open.
         if unsafe { libc::flock(file.as_fd().as_raw_fd(), operation) } == 0 {
@@ -330,24 +334,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn advisory_lock_records_one_site_and_locks() {
+    fn advisory_lock_records_only_a_waiting_lock() {
         let path = std::env::temp_dir().join(format!("cmux-threads-lock-{}", std::process::id()));
         let lock_path = path.clone();
-        let (line, held, free_again) = run_on(true, move || {
+        let (lines, held, free_again) = run_on(true, move || {
             let first = fs::create(&lock_path).expect("lock file");
             let second = fs::open(&lock_path).expect("second descriptor");
-            let line = line!() + 1;
-            fs::advisory_lock(&first, libc::LOCK_EX | libc::LOCK_NB).expect("lock");
+            let waiting = line!() + 1;
+            fs::advisory_lock(&first, libc::LOCK_EX).expect("lock");
+            let trying = line!() + 1;
             let held = fs::advisory_lock(&second, libc::LOCK_EX | libc::LOCK_NB).is_err();
+            let unlocking = line!() + 1;
             fs::advisory_lock(&first, libc::LOCK_UN).expect("unlock");
             let free_again = fs::advisory_lock(&second, libc::LOCK_EX | libc::LOCK_NB).is_ok();
-            (line, held, free_again)
+            ([waiting, trying, unlocking], held, free_again)
         });
         let _ = std::fs::remove_file(&path);
+        let [waiting, trying, unlocking] = lines;
         assert!(held, "a second descriptor sees the lock");
         assert!(free_again, "unlocking frees it");
-        assert_eq!(count_at(line), 1);
-        assert_eq!(kinds_at(line), vec![BlockingKind::Fs]);
+        assert_eq!(count_at(waiting), 1);
+        assert_eq!(kinds_at(waiting), vec![BlockingKind::Fs]);
+        assert_eq!(count_at(trying), 0, "a LOCK_NB try never waits");
+        assert_eq!(count_at(unlocking), 0, "an unlock never waits");
     }
 
     #[test]

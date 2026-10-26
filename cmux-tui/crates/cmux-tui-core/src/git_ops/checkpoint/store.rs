@@ -94,7 +94,10 @@ impl Store {
             .entry(self.root.clone())
             .or_default()
             .clone();
-        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        // A capture of the same root may hold it for a long run: wait
+        // outside the lane's count.
+        let _guard =
+            cmux_threads::work::will_block(|| lock.lock()).unwrap_or_else(PoisonError::into_inner);
         body()
     }
 

@@ -320,7 +320,7 @@ fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
         if unsafe { libc::fcntl(file.as_raw_fd(), command) } != -1 {
             return Ok(());
         }
-        files::sync_data(&file)
+        files::sync_data(file)
     }
     #[cfg(not(all(target_os = "macos", not(test))))]
     {
