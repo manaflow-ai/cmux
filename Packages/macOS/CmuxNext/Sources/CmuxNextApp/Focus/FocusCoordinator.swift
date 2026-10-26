@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSignposts
 import CmuxNextWakeups
 
@@ -36,6 +37,8 @@ final class FocusCoordinator {
     weak var window: NSWindow?
     /// Times each pane focus move (`switch.pane_focus`, `debug.pane_focus`); tests pass their own.
     var paneFocusTimer = DebugPaneFocus.timer
+    /// The key whose binding runs now (the key router's ``KeyRouter/keyInput``): a move's input stage.
+    var keyInput: KeyInputScope?
     /// The app's crash keys: what has the keyboard in the key window's focused pane (``CrashKeySlots/Key/paneKind``).
     var crashKeys: CrashKeySlots?
     private var queue: [FocusEvent] = []

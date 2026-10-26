@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSignposts
 @testable import CmuxNextTrace
 import QuartzCore
@@ -11,23 +13,35 @@ import Testing
 /// `switch.pane_focus` (p09-observability 029): every pane focus move is one ``Signposter`` interval in
 /// every build, recording or not. A focus intent's drain begins its ring async pair and the
 /// `CommitBoundary` after the turn that settled focus on the new pane ends it; drains that are not an
-/// intent (topology reports, programmatic moves) write nothing.
+/// intent (topology reports, programmatic moves, moves in a hidden workspace) write nothing.
 @MainActor @Suite(.serialized)
 struct PaneFocusTimingTests {
-    /// A coordinator with two panes, focus on `left`, timed into a runtime with only the `switch` category on.
-    private func coordinator() -> (FocusCoordinator, SwitchFrameTimer, PaneFocusRecordLog) {
+    private static let workspace = "pane-focus-workspace"
+
+    /// A timer on its own runtime with only the `switch` category on, and the log of what it writes.
+    private func makeTimer() -> (SwitchFrameTimer, PaneFocusRecordLog) {
         let log = PaneFocusRecordLog()
         let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
         runtime.setCategoryMask(1 << UInt64(SignpostCategory.switch.traceBit))
-        let timer = SwitchFrameTimer(owner: "test.pane_focus", signpost: .switchPaneFocus, trace: runtime)
-        let focus = FocusCoordinator()
-        focus.paneFocusTimer = timer
-        focus.send(.topology(FocusTopology(workspace: "pane-focus-workspace", panes: [
+        return (SwitchFrameTimer(owner: "test.pane_focus", signpost: .switchPaneFocus, trace: runtime), log)
+    }
+
+    /// Shows two panes in `focus`, with focus on `left`, and lets the turn end.
+    private func showTwoPanes(_ focus: FocusCoordinator) {
+        focus.send(.topology(FocusTopology(workspace: Self.workspace, panes: [
             .init(id: "left", tabs: [.init(id: "left-tab", kind: .terminal)], selected: "left-tab"),
             .init(id: "right", tabs: [.init(id: "right-tab", kind: .terminal)], selected: "right-tab"),
         ])))
         focus.send(.focusPane("left", source: .programmatic))
         pollingTurn()
+    }
+
+    /// A coordinator with two panes, focus on `left`, timed into its own runtime.
+    private func coordinator() -> (FocusCoordinator, SwitchFrameTimer, PaneFocusRecordLog) {
+        let (timer, log) = makeTimer()
+        let focus = FocusCoordinator()
+        focus.paneFocusTimer = timer
+        showTwoPanes(focus)
         return (focus, timer, log)
     }
 
@@ -63,6 +77,26 @@ struct PaneFocusTimingTests {
         #expect(log.records.isEmpty, "programmatic moves and reports are not pane focus intents: \(log.phases)")
     }
 
+    /// A move in a workspace the window does not show only remembers that workspace's pane: focus stays,
+    /// so it is no move here and writes no missed pair.
+    @Test func anIntentForAHiddenWorkspaceWritesNothing() {
+        let (focus, _, log) = coordinator()
+        focus.send(.focusPane("right", workspace: "hidden", source: .keyboard))
+        focus.send(.selectTab(pane: "right", tab: "right-tab", workspace: "hidden", source: .mouse))
+        pollingTurn()
+        #expect(focus.state.pane == "left")
+        #expect(log.records.isEmpty, "a hidden workspace's move wrote \(log.phases)")
+    }
+
+    @Test func anIntentNamingTheShownWorkspaceIsAMove() {
+        let (focus, _, log) = coordinator()
+        focus.send(.focusPane("right", workspace: Self.workspace, source: .keyboard))
+        #expect(focus.state.pane == "right")
+        pollingTurn()
+        #expect(log.phases == [.asyncBegin, .asyncEnd])
+        #expect(log.records.last?.arg0 == 0)
+    }
+
     @Test func anIntentAtTheFocusedPaneWritesNothing() {
         let (focus, _, log) = coordinator()
         focus.send(.focusPane("left", source: .mouse))
@@ -95,7 +129,9 @@ struct PaneFocusTimingTests {
     @Test func theKeyBeingHandledIsTheInputAge() throws {
         let (focus, _, log) = coordinator()
         // KeyRouter runs a key's binding in this scope (a synthetic key never becomes `NSApp.currentEvent`).
-        DebugTabSwitch.handling(input: CACurrentMediaTime() - 0.003) { focus.send(.focusPane("right", source: .keyboard)) }
+        let keyInput = KeyInputScope()
+        focus.keyInput = keyInput
+        keyInput.handling(input: CACurrentMediaTime() - 0.003) { focus.send(.focusPane("right", source: .keyboard)) }
         focus.send(.focusPane("left", source: .keyboard))
         let ages = log.records.filter { $0.phase == .asyncBegin }.map(\.arg0)
         try #require(ages.count == 2)
@@ -103,17 +139,53 @@ struct PaneFocusTimingTests {
         #expect(ages[1] == .max, "no input event: all ones")
     }
 
-    @Test func onlyUserEventsAimedAtAnotherPaneAreIntents() {
+    /// A bare key the key router runs (a page that owns bare keys, KeyRouter+BareKeys) carries its own age into
+    /// the move its binding makes: the router runs the binding inside its key-input scope, which the window's
+    /// coordinator reads. Without that scope the begin's arg0 is all ones.
+    @Test func aBareKeyThroughTheRouterCarriesItsAge() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        let controller = try #require(services.windows.openWindow(workspaces: [Self.workspace]))
+        defer { for open in services.windows.controllers { open.window?.close() } }
+        let window = try #require(controller.window)
+        let (timer, log) = makeTimer()
+        controller.focus.paneFocusTimer = timer
+        showTwoPanes(controller.focus)
+        try #require(controller.focus.state.pane == "left")
+        // The diff viewer's bare `j` (Diff: Next Line), bound here to a pane focus move from the keyboard.
+        services.registry.bind("diffViewerNextLine", invoke: { _ in controller.focus.send(.focusPane("right", source: .keyboard)) })
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: CACurrentMediaTime() - 0.003,
+                                                windowNumber: window.windowNumber, context: nil, characters: "j",
+                                                charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 38))
+        #expect(services.keyRouter.dispatchBare(key, in: window, controller: controller, context: KeyContext(bits: [.diffViewerFocused]),
+                                                facts: KeyRouter.Facts()))
+        #expect(controller.focus.state.pane == "right")
+        let ages = log.records.filter { $0.phase == .asyncBegin }.map(\.arg0)
+        try #require(ages.count == 1, "the key's move wrote \(log.phases)")
+        #expect(ages[0] >= 3_000 && ages[0] < 1_000_000, "the bare key 3 ms old: \(ages[0]) µs (all ones: no input stage)")
+    }
+
+    @Test func onlyUserEventsAimedAtAnotherPaneOfTheShownWorkspaceAreIntents() {
         typealias Timing = DebugPaneFocus
-        #expect(Timing.aimsAtAnotherPane(.focusPane("b", source: .cli), from: "a"))
-        #expect(Timing.aimsAtAnotherPane(.selectTab(pane: "b", tab: "t", source: .palette), from: "a"))
-        #expect(Timing.aimsAtAnotherPane(.responder(.addressBar(pane: "b"), source: .mouse), from: "a"))
-        #expect(Timing.aimsAtAnotherPane(.focusPane("b", source: .keyboard), from: nil))
-        #expect(!Timing.aimsAtAnotherPane(.focusPane("a", source: .keyboard), from: "a"))
-        #expect(!Timing.aimsAtAnotherPane(.focusPane("b", source: .programmatic), from: "a"))
-        #expect(!Timing.aimsAtAnotherPane(.responder(.sidebar, source: .mouse), from: "a"))
-        #expect(!Timing.aimsAtAnotherPane(.focusTarget(.addressBar, source: .keyboard), from: "a"))
-        #expect(!Timing.aimsAtAnotherPane(.appActive(true), from: "a"))
+        var onA = FocusState()
+        onA.topology = FocusTopology(workspace: "shown")
+        onA.pane = "a"
+        var none = onA
+        none.pane = nil
+        #expect(Timing.aimsAtAnotherPane(.focusPane("b", source: .cli), in: onA))
+        #expect(Timing.aimsAtAnotherPane(.selectTab(pane: "b", tab: "t", source: .palette), in: onA))
+        #expect(Timing.aimsAtAnotherPane(.responder(.addressBar(pane: "b"), source: .mouse), in: onA))
+        #expect(Timing.aimsAtAnotherPane(.focusPane("b", source: .keyboard), in: none))
+        #expect(Timing.aimsAtAnotherPane(.focusPane("b", workspace: "shown", source: .keyboard), in: onA))
+        #expect(Timing.aimsAtAnotherPane(.selectTab(pane: "b", tab: "t", workspace: "shown", source: .mouse), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.focusPane("b", workspace: "hidden", source: .keyboard), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.selectTab(pane: "b", tab: "t", workspace: "hidden", source: .mouse), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.focusPane("a", source: .keyboard), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.focusPane("b", source: .programmatic), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.responder(.sidebar, source: .mouse), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.focusTarget(.addressBar, source: .keyboard), in: onA))
+        #expect(!Timing.aimsAtAnotherPane(.appActive(true), in: onA))
     }
 }
 

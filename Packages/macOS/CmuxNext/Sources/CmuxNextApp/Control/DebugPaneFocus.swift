@@ -17,12 +17,16 @@ import CmuxNextSignposts
 /// age in microseconds, all ones without an input event) to the `CommitBoundary` after the turn whose
 /// drain settled focus on the new pane. A drain that keeps the pane (a refused or no-op move) ends it as
 /// missed (`commit=missed`), so readers and MetricKit drop it. Only an intent opens one: a user-sourced
-/// event aimed at another pane, or an explicit ``began(_:)``; the drains of daemon deltas, responder
-/// echoes and topology reports write nothing. A recorded row starts at the interval's begin and its
-/// `signpost_ms` is the interval. Each coordinator times into its ``FocusCoordinator/paneFocusTimer``
-/// (``timer`` unless a test passes its own). Chrome times a focus change the same way as a tab switch:
-/// one async trace event from the input to the presented frame, closed by `ContentToVisibleTimeReporter`
-/// (content/browser/renderer_host/visible_time_request_trigger.h).
+/// event aimed at another pane of the shown workspace, or an explicit ``began(_:)``; the drains of daemon
+/// deltas, responder echoes, topology reports and moves in a hidden workspace (the reducer only remembers
+/// those) write nothing. A recorded row starts at the interval's begin and its `signpost_ms` is the
+/// interval. Each coordinator times into its ``FocusCoordinator/paneFocusTimer`` (``timer`` unless a test
+/// passes its own) and reads its input from its ``FocusCoordinator/keyInput``.
+///
+/// Chrome has no focus-move metric: a click or key that moves focus is an input event, timed by
+/// EventLatency from the event's timestamp to the frame that presents its effect (cc/metrics/event_metrics.h,
+/// cc/metrics/compositor_frame_reporter.cc). This interval is that span for the focus move, in the
+/// `SwitchFrameTimer` shape cmux's other switches share, so one reader handles them all.
 @MainActor
 enum DebugPaneFocus {
     static let timer = SwitchFrameTimer(owner: "debug.pane_focus", signpost: SignpostName.switchPaneFocus)
@@ -60,13 +64,13 @@ enum DebugPaneFocus {
         guard !timer.awaitsShow(key) else { return }
         // The key whose binding runs now (KeyRouter), else the event being sent: its age is the input stage.
         let event = (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent : nil
-        timer.began(key, inputTimestamp: DebugTabSwitch.keyInput ?? event?.timestamp)
+        timer.began(key, inputTimestamp: coordinator.keyInput?.timestamp ?? event?.timestamp)
     }
 
     /// A drain of `coordinator` starts with `event`: a move begins when the event is a focus intent.
     /// Returns whether it is one, so the drain ends it (``shown(_:in:)`` or ``dropped(_:)``).
     static func began(_ coordinator: FocusCoordinator, for event: FocusEvent) -> Bool {
-        guard aimsAtAnotherPane(event, from: coordinator.state.pane) else { return false }
+        guard aimsAtAnotherPane(event, in: coordinator.state) else { return false }
         began(coordinator)
         return true
     }
@@ -86,12 +90,14 @@ enum DebugPaneFocus {
         coordinator.paneFocusTimer.forget(ObjectIdentifier(coordinator))
     }
 
-    /// A user-sourced event that names a pane other than the focused one: a pane focus intent.
-    nonisolated static func aimsAtAnotherPane(_ event: FocusEvent, from focused: String?) -> Bool {
+    /// A user-sourced event that names a pane of `state`'s shown workspace other than the focused one: a
+    /// pane focus intent. An event for another workspace only remembers its pane (cmux-focus-core reducer.rs).
+    nonisolated static func aimsAtAnotherPane(_ event: FocusEvent, in state: FocusState) -> Bool {
+        let shown = { (workspace: String?) in workspace == nil || workspace == state.topology.workspace }
         let target: String?
         switch event {
-        case .focusPane(let pane, _, let source) where source.isUserIntent: target = pane
-        case .selectTab(let pane, _, _, let source) where source.isUserIntent: target = pane
+        case .focusPane(let pane, let workspace, let source) where source.isUserIntent && shown(workspace): target = pane
+        case .selectTab(let pane, _, let workspace, let source) where source.isUserIntent && shown(workspace): target = pane
         case .responder(let responder, let source) where source.isUserIntent:
             switch responder {
             case .content(let pane), .addressBar(let pane), .findBar(let pane), .devTools(let pane): target = pane
@@ -99,6 +105,6 @@ enum DebugPaneFocus {
             }
         default: target = nil
         }
-        return target.map { $0 != focused } ?? false
+        return target.map { $0 != state.pane } ?? false
     }
 }

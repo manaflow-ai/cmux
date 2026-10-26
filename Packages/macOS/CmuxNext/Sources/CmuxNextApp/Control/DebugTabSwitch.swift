@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextSettings
 import os
 
@@ -14,21 +15,10 @@ enum DebugTabSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
     private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
     private static var intervals: [ObjectIdentifier: (id: OSSignpostID, state: OSSignpostIntervalState)] = [:]
-    /// The timestamp of the key whose binding runs now (a synthetic key never becomes `NSApp.currentEvent`).
-    private static var input: TimeInterval?
     static var isRecording: Bool { timer.isRecording }
-    /// The timestamp of the key whose binding runs now (``handling(input:_:)``): a pane focus move reads it too.
-    static var keyInput: TimeInterval? { input }
 
-    /// Runs `body` with `input` (an `NSEvent.timestamp`) as the start of any switch it begins.
-    static func handling(input timestamp: TimeInterval, _ body: () -> Void) {
-        let previous = input
-        input = timestamp
-        defer { input = previous }
-        body()
-    }
-
-    static func began(_ owner: AnyObject) {
+    /// A switch of `owner` begins; `keyInput` is the key whose binding runs now (``KeyInputScope``), if any.
+    static func began(_ owner: AnyObject, keyInput: KeyInputScope?) {
         let key = ObjectIdentifier(owner)
         if signposter.isEnabled {
             if let open = intervals.removeValue(forKey: key) { signposter.endInterval("switch", open.state, "superseded") }
@@ -39,7 +29,7 @@ enum DebugTabSwitch {
         // A key binding or click being handled now: its age is the input stage.
         let event = NSApp.currentEvent
         let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
-        timer.began(key, inputTimestamp: input ?? click)
+        timer.began(key, inputTimestamp: keyInput?.timestamp ?? click)
     }
 
     /// The switch of `owner` reached `stage`.

@@ -44,6 +44,8 @@ final class KeyRouter: BrowserKeyRouting {
     var onTyping: ((NSWindow?) -> Void)?
     /// The input event being dispatched now (``InputDispatchContext``), `sendEvent`'s and this router's own.
     let inputDispatch: InputDispatchContext
+    /// The key whose binding runs now: a tab switch's or a pane focus move's input stage reads it.
+    let keyInput = KeyInputScope()
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
@@ -256,7 +258,7 @@ final class KeyRouter: BrowserKeyRouting {
         switch decision {
         case .run(let candidate):
             // The key's own time starts a tab switch's or a pane focus move's input stage (debug.tab_switch, switch.pane_focus).
-            DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
+            keyInput.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
             // A refusal (no neighbor) is reported by the registry; the chord
             // was still a cmux shortcut and never reaches the page or terminal.
             return true
@@ -283,7 +285,8 @@ final class KeyRouter: BrowserKeyRouting {
         decided.add(event)
         let candidate = Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
                                   arguments: winner.arguments)
-        DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
+        // The key's own time starts a pane focus move's or a tab switch's input stage, as for a chord.
+        keyInput.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
         return true
     }
 
