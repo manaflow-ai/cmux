@@ -246,13 +246,16 @@ class Workflow(unittest.TestCase):
         self.assertTrue(decide["if"].startswith("vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' &&"))
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
-        self.assertLessEqual(decide["timeout-minutes"], 1)
-        self.assertLessEqual(capture["timeout-minutes"], 10)
-        self.assertLessEqual(30 + capture["timeout-minutes"], self.job["timeout-minutes"] - 15,
-                             "a capture that starts by minute 30 ends well inside the job's limit")
-        self.assertIn("$(date +%s) - STARTED > 30 * 60", capture["run"])
-        self.assertIn("select(.expired == false and .created_at >= ", decide["run"], "an expired capture does not count")
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
+        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertTrue(upload["continue-on-error"])
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+                             "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
+        self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
+        self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
+                      "timed from the job's own start, not from a later step")
+        self.assertIn('if [[ -z "$started" ]]', capture["run"], "an unknown start skips the capture")
+        self.assertIn("select(.expired == false and .created_at >= ", decide["run"], "an expired capture does not count")
         self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])

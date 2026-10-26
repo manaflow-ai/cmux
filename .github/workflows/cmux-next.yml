@@ -4507,7 +4507,6 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          printf 'started=%s\n' "$(date +%s)" >> "$GITHUB_OUTPUT"
           key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
           # A complete capture counts while its packs are still readable in the store (14 days from
           # their upload; the manifest artifact keeps the same 14 days).
@@ -4695,8 +4694,9 @@ jobs:
         id: hybrid-ref-capture
         if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 8
         env:
+          GH_TOKEN: ${{ github.token }}
           # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
           # compile step may carry them).
           HYBRID_REF_SETTINGS: |
@@ -4714,13 +4714,19 @@ jobs:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           KEY: ${{ steps.hybrid-ref.outputs.key }}
           SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
-          STARTED: ${{ steps.hybrid-ref.outputs.started }}
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
-          # This job holds the push compile slot and has a 60 minute limit: a capture starts only
-          # with 30 minutes left, and stops after 10. A skipped capture is taken by the next landing.
-          if (( $(date +%s) - STARTED > 30 * 60 )); then echo "::notice::REF capture skipped: the job is past 30 minutes"; exit 0; fi
+          # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
+          # most) and its manifest upload (2) start only while the job, timed from its own start, is
+          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
+          started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
+            echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
+            exit 0
+          fi
           log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
           python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
             --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
@@ -4729,6 +4735,7 @@ jobs:
       - name: Upload the REF capture manifest
         if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
         continue-on-error: true
+        timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
