@@ -48,6 +48,11 @@ extension AppDelegate {
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
+        return settings
+    }
+
+    /// The managed-preferences watch on app activation.
+    func registerManagedPreferencesWatch(settings: SettingsController) {
         // macOS posts no notification when an MDM profile changes; activation
         // is the event-driven backstop next to the managed-file watchers.
         Task { [weak settings] in
@@ -55,7 +60,6 @@ extension AppDelegate {
                 settings?.managedPreferencesMayHaveChanged()
             }
         }
-        return settings
     }
 
     /// cmux.json, created on first launch.

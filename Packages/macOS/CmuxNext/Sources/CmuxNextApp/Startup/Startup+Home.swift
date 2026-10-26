@@ -1,13 +1,19 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextSettings
 
 // Launch calls for Home, the chats feed, the New Tab page's feeds and its spare (task 014, see Startup+Core.swift).
 extension AppDelegate {
-    /// Chat settings, the chats feed and its importers, the New Tab feeds, the GitHub feed and the New Tab spare.
-    func registerHome(services: AppServices, settings: SettingsController) {
+    /// The chat settings push; returns the acpmux environment the chats feed's pager uses too.
+    func registerChatSettings(services: AppServices, settings: SettingsController) -> AcpmuxEnvironment? {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+        return acpmux
+    }
+
+    /// The chats feed and its importers, the New Tab feeds and the GitHub feed.
+    func registerHomeFeeds(services: AppServices, settings: SettingsController, acpmux: AcpmuxEnvironment?) {
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -25,7 +31,6 @@ extension AppDelegate {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
-        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
     }
 
     /// Home's feeds and cache.

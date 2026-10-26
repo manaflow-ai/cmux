@@ -1,7 +1,7 @@
-@testable import CmuxNextApp
+import CmuxNextLaunch
 import CmuxNextWakeups
-import Testing
 import CmuxNextWakeupsTestSupport
+import Testing
 
 /// Launch work behind the first window frame (perf-launch-memory).
 @MainActor

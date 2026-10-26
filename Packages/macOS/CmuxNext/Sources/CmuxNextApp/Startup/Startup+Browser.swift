@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 // Launch calls for pages and the browser: page roots, profiles, bookmarks, history, first-party
-// schemes, the browser preferences and the Chromium runtime (task 014, see Startup+Core.swift).
+// schemes and the browser preferences (task 014, see Startup+Core.swift).
 extension AppDelegate {
     /// The diff, file and agent activity pages' files, which live in the app bundle (markdown-viewer/webviews-app).
     func registerPageRoots() {
@@ -13,12 +13,10 @@ extension AppDelegate {
         PageDescriptor.registerAgentActivityRoot()
     }
 
-    /// The browser preferences that follow settings.
-    func registerBrowserPreferences(services: AppServices, settings: SettingsController) {
+    /// The browser tab and link click preferences, following settings.
+    func registerBrowserTabPreferences(services: AppServices, settings: SettingsController) {
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
-        BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        services.bookmarks.follow(settings)
     }
 
     /// The browser profiles; returns their directory, where bookmarks and history live too.
@@ -39,11 +37,5 @@ extension AppDelegate {
         // (p13-webui-006 to 009 move them, 010 deletes the statics).
         PageWebView.openPanel = services.webUI.openPanel
         PageWebView.chromiumHosting = services.webUI.chromium
-    }
-
-    /// The Chromium runtime pack check: it wires the engine reason at once; its download waits until asked.
-    /// After two quick unexpected ends in a row, Chromium starts only when the user reloads a browser tab.
-    func registerChromiumRuntime(services: AppServices) {
-        services.startChromiumRuntime()
     }
 }

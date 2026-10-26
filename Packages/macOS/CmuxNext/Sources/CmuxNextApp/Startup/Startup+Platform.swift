@@ -27,14 +27,21 @@ extension AppDelegate {
         }
     }
 
-    /// The system services that follow settings.
-    func registerPlatform(services: AppServices, settings: SettingsController) {
+    /// Keep-awake and the mobile pairing, following settings.
+    func registerKeepAwakeAndMobile(services: AppServices, settings: SettingsController) {
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
+    }
+
+    /// Config actions and the global hot keys.
+    func registerConfigActionsAndHotKeys(services: AppServices, settings: SettingsController) {
         services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
-        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
+    }
+
+    /// Notifications, Share This Mac, the device hub, the updater, Computer Use and hibernation, following settings.
+    func registerSystemFollows(services: AppServices, settings: SettingsController) {
         services.notifications.follow(settings)
         services.followMacScreenSettings(settings)
         services.startDeviceHub(settings)
@@ -43,8 +50,6 @@ extension AppDelegate {
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
         services.startHibernation(settings: settings)
-        services.remoteLocalhost.follow(settings)
-        services.apps.start()
     }
 
     /// Window borders and glass, and the update feed.

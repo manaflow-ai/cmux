@@ -61,7 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
          startupTrace: StartupTrace? = nil,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         launchCleanup: LaunchCleanup = LaunchCleanup(cleanUpDownloadTempFiles: { BrowserDownloadTempFiles.shared.cleanUpLeftovers() })) {
         self.environment = environment
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
@@ -78,7 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startup.whenReached(.settled) { DebugTimings.markLaunch("launch.settled") }
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         launchReveal = reveal
-        launchSettle = LaunchSettle(reveal: reveal)
+        // The agent pages' warm-up page is done at the settle: their first page made its own process by now.
+        launchSettle = LaunchSettle(reveal: reveal, imageHold: .shared, onSettle: { AgentPaneView.finishWarmup() })
         startupReferences = StartupReferences(startup: startup, reveal: reveal)
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
@@ -89,8 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    /// The launch: each domain's registerX (`Startup/Startup+<Domain>.swift`) in launch order, with the
-    /// launch marks between them.
+    /// The launch: each domain's groups of calls (registerX in `Startup/Startup+<Domain>.swift`) and its
+    /// single calls, in launch order, with the launch marks between them.
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerProcess()
         DebugTimings.markLaunch("did_finish_launching_start")
@@ -112,13 +114,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerTerminal(services: services)
         DebugTimings.markLaunch("dfl.bind")
         let settings = registerSettings(services: services, launch: settingsRead)
-        registerHome(services: services, settings: settings)
-        registerPlatform(services: services, settings: settings)
-        registerBrowserPreferences(services: services, settings: settings)
+        let acpmux = registerChatSettings(services: services, settings: settings)
+        registerKeepAwakeAndMobile(services: services, settings: settings)
+        registerHomeFeeds(services: services, settings: settings, acpmux: acpmux)
+        registerManagedPreferencesWatch(settings: settings)
+        registerConfigActionsAndHotKeys(services: services, settings: settings)
+        registerBrowserTabPreferences(services: services, settings: settings)
+        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
+        BrowserOmnibarPreference.follow(settings, cache: services.cache)
+        registerSystemFollows(services: services, settings: settings)
         registerTerminalTheme(services: services, settings: settings)
+        services.remoteLocalhost.follow(settings)
+        services.bookmarks.follow(settings)
+        services.apps.start()
         registerControl(services: services, settings: settings)
+        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        registerMenu(services: services)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
         DebugTimings.markLaunch("dfl.menu")
         registerDaemon(services: services)
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
@@ -129,12 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerInputBindings(services: services)
         registerBrowserData(services: services, profilesDirectory: profilesDirectory)
         DebugTimings.markLaunch("dfl.home_history")
-        registerWindows(services: services)
+        services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         registerWindowChrome(services: services)
-        registerChromiumRuntime(services: services)
+        // The runtime pack check wires the engine reason at once; its download waits until asked. After two
+        // quick unexpected ends in a row, Chromium starts only when the user reloads a browser tab.
+        services.startChromiumRuntime()
+        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         registerExternalOpen(services: services)
-        registerAfterFirstFrame(services: services)
+        // A launch whose first window never draws (no window, a daemon that never answers) still
+        // starts the work waiting for that frame.
+        firstFrame.armBackstop(after: .seconds(3))
     }
 
     /// Every quit (Cmd-Q, the Quit menu, the Dock, `cmux app quit`, power

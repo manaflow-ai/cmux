@@ -1,9 +1,5 @@
-import AppKit
-import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextDesign
-import CmuxNextLaunch
-import CmuxNextTerminal
+public import CmuxNextDesign
 import CmuxNextWakeups
 
 /// One-shot launch event: the first live terminal frame is drawn (the
@@ -18,28 +14,37 @@ import CmuxNextWakeups
 /// whose first window shows no terminal never settles; the palette then
 /// does its first-open work when it first opens, as without warm-up.
 @MainActor
-final class LaunchSettle {
+public final class LaunchSettle {
     private var waiters: [@MainActor () -> Void] = []
-    private(set) var isSettled = false
+    public private(set) var isSettled = false
     private var unavailableWatch: Task<Void, Never>?
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
+    /// The agent panes' launch images: settled work waits until none is shown.
+    private let imageHold: LaunchImageHold
+    /// Runs once, when the launch settles, before the waiters.
+    private let onSettle: @MainActor () -> Void
 
-    /// - Parameter reveal: The app's launch load-in (`AppServices.launchReveal`).
-    init(reveal: LaunchReveal) {
+    /// - Parameters:
+    ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
+    ///   - imageHold: The agent panes' launch images (the app's one hold).
+    ///   - onSettle: The app's own settle step (the agent pages' warm-up page is done).
+    public init(reveal: LaunchReveal, imageHold: LaunchImageHold, onSettle: @escaping @MainActor () -> Void = {}) {
         self.reveal = reveal
+        self.imageHold = imageHold
+        self.onSettle = onSettle
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
     /// its last frame (at once when both hold).
-    func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
+    public func whenSettled(_ work: @escaping @MainActor () -> Void) {
+        if isSettled { imageHold.whenClear(work) } else { waiters.append(work) }
     }
 
     /// Returns once `whenSettled` work would run, or after `limit` (a launch
     /// with no window never settles).
-    func settled(within limit: Duration) async {
+    public func settled(within limit: Duration) async {
         let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let backstop = DemandTimer(owner: "LaunchSettle.settled")
         backstop.schedule(after: limit) { done.finish() }
@@ -49,40 +54,32 @@ final class LaunchSettle {
     }
 
     /// Settles (first call only) and runs the waiters in order.
-    func settle() {
+    public func settle() {
         guard !isSettled else { return }
         isSettled = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
-        // The agent pages' warm-up page is done: their first page made its own process by now.
-        AgentPaneView.finishWarmup()
+        onSettle()
         let waiting = waiters
         waiters.removeAll()
         // An agent page still loading behind its last frame paints first (LaunchImageHold).
-        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
+        imageHold.whenClear { for work in waiting { work() } }
     }
 
-    /// Listens for the first terminal content (`TerminalTimings`), for the
-    /// pane region becoming ready any other way (a page or an agent shown
-    /// first, `PaneController`; or the reveal deadline), and for the local
-    /// daemon becoming unavailable.
-    func install(daemon: DaemonService) {
+    /// The first live terminal frame committed: the pane region is ready and the launch settles.
+    public func firstTerminalFrame() {
+        reveal.markReady(.pane)
+        settle()
+    }
+
+    /// Listens for the pane region becoming ready any other way (a page or an
+    /// agent shown first, `PaneController`; or the reveal deadline), and for
+    /// the local daemon becoming unavailable.
+    public func install(isUnavailable: @escaping @MainActor @Sendable () -> Bool) {
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
-        TerminalTimings.onContentApplied = { [weak self] in
-            TerminalTimings.onContentApplied = nil
-            DebugTimings.markLaunch("first_terminal_content_applied")
-            // Ghostty presents on its own layer in this commit.
-            CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_terminal_frame")
-                    self?.reveal.markReady(.pane)
-                    self?.settle()
-                }
-            }
-        }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
-            for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
+            for await unavailable in ObservationStream(isUnavailable) where unavailable {
                 // No region will get its data: show everything as it is.
                 self?.reveal.markAllReady()
                 self?.settle()
