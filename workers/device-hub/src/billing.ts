@@ -28,7 +28,13 @@ export function billingOrigin(env: Pick<Env, "BILLING_ORIGINS">, projectId: stri
     if (eq <= 0) continue;
     if (pair.slice(0, eq).trim() !== projectId) continue;
     const origin = pair.slice(eq + 1).trim().replace(/\/+$/, "");
-    return /^https:\/\/[^/\s]+$/.test(origin) ? origin : null;
+    try {
+      // Exactly an https origin: no path, query, fragment or credentials.
+      const u = new URL(origin);
+      return u.protocol === "https:" && u.origin === origin ? origin : null;
+    } catch {
+      return null;
+    }
   }
   return null;
 }

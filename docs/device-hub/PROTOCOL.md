@@ -102,8 +102,8 @@ end reason, the decision, or `old->new` for a permission change).
 | Method, path | Body | Result | Notes |
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
-| `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session without it is refused with 401 `unauthorized`. |
-| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans). Needs a registered device. |
+| `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
+| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |

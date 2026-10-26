@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { signEs256 } from "../src/crypto";
 import * as main from "../src/index";
 import { allowedStackProjects } from "../src/stack";
-import { Device, STACK_DEV_PROJECT, STACK_OTHER_PROJECT, STACK_PROJECT, hubEnv, mockOutbound, outbound, rawCall, signIn, stackClaims, stackToken } from "./helpers";
+import { Device, STACK_DEV_PROJECT, STACK_OTHER_PROJECT, STACK_PROJECT, billingPlans, hubEnv, mockOutbound, outbound, rawCall, signIn, stackClaims, stackToken } from "./helpers";
 
 describe("main module", () => {
   it("exports only the handler and the Durable Object classes (workerd rejects other exports)", () => {
@@ -106,10 +106,13 @@ describe("POST /v1/auth/stack", () => {
     // A token signed by another key (the ticket key) is not a session.
     const forged = await signEs256(hubEnv.TICKET_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 60 });
     expect((await d.call("GET", "/v1/me", undefined, { session: forged })).status).toBe(401);
-    // A session from before relay checks (no sealed Stack token) is refused, so
-    // the app exchanges its Stack token again instead of silently losing the relay.
+    // A session from before relay checks (no sealed Stack token) still works,
+    // so an app's socket reconnects after the deploy, but never gets the relay.
+    await d.register();
+    billingPlans.set(account.sub, { subscriptionPlanId: "pro" });
     const legacy = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600 });
-    expect((await d.call("GET", "/v1/me", undefined, { session: legacy })).json.error.code).toBe("unauthorized");
+    const legacyMe = await d.call("GET", "/v1/me", undefined, { session: legacy });
+    expect([legacyMe.status, legacyMe.json.plan]).toEqual([200, "free"]);
     // A sealed token that does not open (tampered) is refused too.
     const tampered = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600, stk: "AAAA.BBBB" });
     expect((await d.call("GET", "/v1/me", undefined, { session: tampered })).json.error.code).toBe("unauthorized");

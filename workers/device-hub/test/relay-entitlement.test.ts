@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { billingOrigin } from "../src/billing";
 import { type BillingAnswer, approvedSession, billingCalls, billingPlans, setup, signIn, STACK_DEV_PROJECT } from "./helpers";
 
 const CMUX_ICE = [
@@ -47,6 +48,8 @@ describe("cmux relay entitlement (cmux billing)", () => {
   it.each([
     ["a 500", { status: 500 }],
     ["a 401", { status: 401 }],
+    ["a redirect", { status: 302 }],
+    ["a body that is not JSON", "not-json"],
     ["a network failure", "network"],
     ["a timeout", "hang"],
     ["an unauthenticated answer", { subscriptionPlanId: "pro", authenticated: false }],
@@ -88,6 +91,30 @@ describe("cmux relay entitlement (cmux billing)", () => {
       const me = await u.viewer.call("GET", "/v1/me");
       expect(JSON.stringify(me.json)).not.toContain(u.account.stackToken.split(".")[2]);
       await u.viewer.call("POST", `/v1/sessions/${sid}/end`, { reason: "done" });
+    }
+  });
+
+  it("uses the session's own Stack token, not one a client sends in the internal header", async () => {
+    const u = await userOn({ subscriptionPlanId: "free" });
+    const paidSub = `billing-${crypto.randomUUID()}`;
+    billingPlans.set(paidSub, { subscriptionPlanId: "pro" });
+    const paid = await signIn(paidSub);
+    const before = billingCalls.length;
+    const me = await u.viewer.call("GET", "/v1/me", undefined, { extraHeaders: { "x-hub-stack-token": paid.stackToken } });
+    expect(me.json.plan).toBe("free");
+    expect(billingCalls.slice(before).map((c) => c.sub)).toEqual([u.sub]);
+  });
+});
+
+describe("BILLING_ORIGINS", () => {
+  it("maps a project to exactly an https origin, else none", () => {
+    const env = (v: string) => ({ BILLING_ORIGINS: v });
+    expect(billingOrigin(env("p=https://cmux.com,q=https://staging.example"), "q")).toBe("https://staging.example");
+    expect(billingOrigin(env("p=https://cmux.com/"), "p")).toBe("https://cmux.com");
+    expect(billingOrigin(env("p=https://cmux.com"), "other")).toBeNull();
+    expect(billingOrigin({}, "p")).toBeNull();
+    for (const bad of ["http://cmux.com", "https://cmux.com/api", "https://cmux.com?x=1", "https://cmux.com#x", "https://u:p@cmux.com", "cmux.com", ""]) {
+      expect(billingOrigin(env(`p=${bad}`), "p"), bad).toBeNull();
     }
   });
 });

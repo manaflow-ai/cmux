@@ -49,17 +49,20 @@ async function authStack(request: Request, env: Env): Promise<Response> {
 }
 
 /** Verifies `Authorization: Bearer <session>`; returns the user id and the opened Stack token. */
-async function requireSession(request: Request, env: Env): Promise<{ userId: string; stackToken: string }> {
+async function requireSession(request: Request, env: Env): Promise<{ userId: string; stackToken: string | null }> {
   const auth = request.headers.get("authorization") ?? "";
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
   if (!m) throw unauthorized("missing session");
   const payload = await verifyEs256Jws(env.SESSION_KEY, m[1]!);
   if (!payload || payload.iss !== SESSION_ISSUER || typeof payload.sub !== "string" || !payload.sub) throw unauthorized("bad session");
   if (typeof payload.exp !== "number" || payload.exp * 1000 <= Date.now()) throw unauthorized("session expired");
-  // Sessions from before the relay check carry no Stack token: refuse them so
-  // the app exchanges its Stack token again.
+  // Sessions from before the relay check carry no Stack token. They still work
+  // (the app's socket would otherwise stay refused until the session ends),
+  // but get no cmux relay: the billing check fails closed without a token.
+  // They are gone within the 1 h session lifetime.
+  if (payload.stk === undefined) return { userId: payload.sub, stackToken: null };
   const stackToken = typeof payload.stk === "string" ? await openString(env.SESSION_KEY, STACK_TOKEN_SEAL_INFO, payload.stk) : null;
-  if (!stackToken) throw unauthorized("session expired");
+  if (!stackToken) throw unauthorized("bad session");
   return { userId: payload.sub, stackToken };
 }
 
@@ -88,7 +91,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, userId);
   headers.set(ORIGIN_HEADER, publicOrigin(env, url));
-  headers.set(STACK_TOKEN_HEADER, stackToken);
+  if (stackToken) headers.set(STACK_TOKEN_HEADER, stackToken);
+  else headers.delete(STACK_TOKEN_HEADER);
   const stub = env.USER_DO.get(env.USER_DO.idFromName(userId));
   return stub.fetch(new Request(request.url, { method: request.method, headers, body: request.body }));
 }

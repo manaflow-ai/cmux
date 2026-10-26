@@ -22,7 +22,8 @@ export type BillingAnswer =
   | { subscriptionPlanId?: string; teamPlanId?: string; authenticated?: boolean; userId?: string }
   | { status: number }
   | "network"
-  | "hang";
+  | "hang"
+  | "not-json";
 export const billingPlans = new Map<string, BillingAnswer>();
 /** Every billing request the hub made: the origin and the Stack token it sent. */
 export const billingCalls: { origin: string; accessToken: string | null; sub: string | null }[] = [];
@@ -52,6 +53,7 @@ async function billingResponse(origin: string, headers: Headers, signal: AbortSi
       signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")));
     });
   }
+  if (answer === "not-json") return new Response("<html>oops</html>", { status: 200, headers: { "content-type": "text/html" } });
   if ("status" in answer) return Response.json({ error: "boom" }, { status: answer.status });
   if (!sub) return Response.json({ authenticated: false, planId: "free", subscriptionPlanId: "free", teamPlanId: "free", user: null });
   return Response.json({
@@ -228,9 +230,9 @@ export class Device {
   }
 
   /** A device-signed API call. `replay` reuses a prior call's headers verbatim. */
-  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string } = {}) {
+  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string> } = {}) {
     const bodyText = body === undefined ? "" : JSON.stringify(body);
-    const headers: Record<string, string> = opts.headers ?? (await this.headers(method, path, bodyText, opts));
+    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...(opts.extraHeaders ?? {}) };
     headers.authorization = `Bearer ${opts.session ?? this.account.session}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await worker.fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : bodyText });
