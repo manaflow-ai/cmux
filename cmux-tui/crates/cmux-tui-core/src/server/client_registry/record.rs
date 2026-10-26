@@ -3,7 +3,9 @@ use super::{
     AttachedSurface, BrowserPointerOwner, ClientIdentityWire, ClientTransport, MessageWriter,
     ResourceClientStream, ResourceClientWait, ResourceRequestId, SurfaceId,
 };
+use crate::server::connection_scheduler::connection_qos::{ConnectionClass, ConnectionClassCell};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub(in crate::server) struct ClientRecord {
@@ -36,6 +38,21 @@ pub(in crate::server) struct ClientRecord {
     /// `page-credential`), not the static or file token: the person's own
     /// client for the Cloud lease (`ws-cloud-conversations-v1`).
     pub(in crate::server) person: bool,
+    /// The connection's client class, which its reader and request threads
+    /// rest at (connection_qos.rs); set by [`Self::classify`].
+    pub(in crate::server) connection_class: Arc<ConnectionClassCell>,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
+}
+
+impl ClientRecord {
+    /// Classes the connection from what the daemon knows of it: its
+    /// transport, its derived origin and `set-client-info remote`.
+    pub(in crate::server) fn classify(&self) {
+        self.connection_class.set(ConnectionClass::of(
+            self.transport,
+            self.remote_device,
+            self.origin.derive(),
+        ));
+    }
 }

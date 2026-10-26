@@ -27,6 +27,7 @@ use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits}
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
 
+use super::connection_scheduler::connection_qos::ReaderClass;
 use super::*;
 use cmux_threads::checked::sync as waits;
 
@@ -58,11 +59,8 @@ pub(super) fn handle_connection_with_permit(
 }
 
 /// The class of a connection's reader thread (mux-conn, mux-remote-conn)
-/// until its client class is known. It runs request handlers inline, some of
-/// which spawn git, hook and plugin children that inherit its class, and it
-/// serves automation clients too. So it stays at the class those children
-/// start at until children reset their class (p02-threads task 223) and the
-/// app's UI connection is raised after its hello (task 224).
+/// until its client class is known: it serves the app and automation alike.
+/// Once classified it rests at the class's (connection_qos.rs, task 224).
 pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos =
     crate::thread_qos::ThreadType::UnclassifiedClient.qos();
 
@@ -242,10 +240,15 @@ pub(super) fn serve_connection(
         return ConnectionEnd::Dropped;
     }
     let mut hello = client_hello::HelloGate::new(transport);
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
+    let class = mux.control_clients.connection_class(client);
+    let mut reader_class = ReaderClass::new(class.clone(), mux.request_qos());
+    let surface_scheduler = Arc::new(
+        ConnectionSurfaceScheduler::new_inner(
+            mux.surface_operation_admission.clone(),
+            connection_permit.clone(),
+        )
+        .classed(class),
+    );
     let mut input = ConnectionInput::new(stream);
     let carries_frames = matches!(transport, ClientTransport::Unix) && admission.admits_frames();
     let end = loop {
@@ -316,15 +319,18 @@ pub(super) fn serve_connection(
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame_at(
-                        &mux,
-                        client,
-                        transport,
-                        &line,
-                        &writer,
-                        &surface_scheduler,
-                        arrived,
-                    ),
+                    None => {
+                        reader_class.before_line(&mux, client, hello.is_closed());
+                        handle_connection_frame_at(
+                            &mux,
+                            client,
+                            transport,
+                            &line,
+                            &writer,
+                            &surface_scheduler,
+                            arrived,
+                        )
+                    }
                 }
             }
         };

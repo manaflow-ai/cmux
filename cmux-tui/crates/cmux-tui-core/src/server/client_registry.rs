@@ -34,6 +34,7 @@ use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
 use super::{
@@ -453,6 +454,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                connection_class: Arc::default(),
                 #[cfg(unix)]
                 machine_catalog: None,
             },
@@ -690,6 +692,7 @@ impl ClientRegistry {
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
+        record.classify();
         Ok((record.name.clone(), record.kind.clone()))
     }
 
@@ -728,6 +731,24 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if let Some(record) = state.clients.get_mut(&client) {
             record.remote_device = true;
+            record.classify();
+        }
+    }
+
+    /// The client class cell of `client`'s connection, which its threads
+    /// follow (connection_qos.rs); a cell that stays unclassified for a
+    /// client the registry does not hold.
+    pub(super) fn connection_class(&self, client: u64) -> Arc<ConnectionClassCell> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.connection_class.clone()).unwrap_or_default()
+    }
+
+    /// Classes `client`'s connection now: its hello window has closed, so
+    /// its origin is final (connection_qos.rs).
+    pub(super) fn classify_connection(&self, client: u64) {
+        let state = self.state.lock().recover_poison();
+        if let Some(record) = state.clients.get(&client) {
+            record.classify();
         }
     }
 
@@ -865,6 +886,7 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = kind;
         }
+        record.classify();
         Ok((record.name.clone(), record.kind.clone()))
     }
 
