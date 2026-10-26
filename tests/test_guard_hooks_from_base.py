@@ -273,6 +273,15 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.install_gate(registered_in=self.home / ".claude", matcher="Bash|Edit")
         self.assertIsNone(self.hook(MERGE)[1])
 
+    def test_a_command_that_only_mentions_the_gate_is_no_registration(self):
+        """Codex review of #23858 (round 3): this repository's own settings hook names the gate's file in its fallback;
+        an account whose settings carry that hook has not registered the gate."""
+        account = self.tmp / "account"
+        account.mkdir()
+        shutil.copy(SETTINGS, account / "settings.json")
+        self.install_gate()
+        self.assert_refused(self.hook(MERGE, env={"CLAUDE_CONFIG_DIR": str(account)})[1], "installed landing gate")
+
     def test_a_stale_origin_is_fetched_with_gtimeout_where_timeout_is_missing(self):
         """Codex review of #23858: stock macOS has no `timeout`, so the merge's fetch never ran there; GNU coreutils
         from Homebrew installs it as `gtimeout`."""
