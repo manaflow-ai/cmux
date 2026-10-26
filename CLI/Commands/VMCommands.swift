@@ -56,6 +56,7 @@ struct VMCommand: LegacyVMCommand {
             VMResizeCommand.self,
             VMNetworkCommand.self,
             VMAgentUpdatesCommand.self,
+            VMCleanCommand.self,
             VMRenameCommand.self,
             VMPauseCommand.self,
             VMResumeCommand.self,
@@ -312,6 +313,13 @@ struct VMAgentUpdatesCommand: VMIDCommand {
     @Argument(completion: .list(["latest", "image"])) var setting: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "agent-updates", helpNames: [])
+}
+
+struct VMCleanCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Flag(name: .customLong("apply")) var apply = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "clean", helpNames: [])
 }
 
 struct VMPauseCommand: VMIDCommand {

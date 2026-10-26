@@ -37,6 +37,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case goToFile
     case commandPalette
     case agentInbox
+    case openChief
     case commandPaletteNext
     case commandPalettePrevious
     case sendFeedback

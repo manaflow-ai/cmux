@@ -36,6 +36,7 @@ extension ShortcutAction {
         case .goToFile: return String(localized: "commandPalette.goToFile.title", defaultValue: "Go to File…")
         case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
         case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+        case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"
         case .sendFeedback: return "Send Feedback"

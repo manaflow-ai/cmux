@@ -30,6 +30,7 @@ import Testing
         .mobilePairing: "mobilePairing",
         .accountSignIn: "accountSignIn",
         .cloudVPNSetup: "cloudVPNSetup",
+        .chief: "chief",
     ]
 
     @Test func everyPanelTypeMapsToItsCanonicalWireKind() throws {

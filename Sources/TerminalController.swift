@@ -426,7 +426,9 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        // Shows Chief Home in the target window, like workspace.select.
+        "chief.open"
     ]
 
     nonisolated static func commandHasFocusIntent(
@@ -15637,6 +15639,14 @@ class TerminalController {
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
+        case let method where method.hasPrefix("chief."):
+            // Chief already has one validated owner-backed implementation for
+            // the local control socket. Reuse it for the authenticated mobile
+            // data plane instead of maintaining a second parser or a second
+            // set of owner/conversation checks. `chiefResult` returns the
+            // Foundation-shaped v2 result, which is bridged to the mobile
+            // envelope below just like every other mobile handler.
+            result = await chiefMobileResult(method: method, params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(
                 method: method,
@@ -16322,15 +16332,25 @@ class TerminalController {
                     )
                 }
             }
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalTarget: terminalTarget,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
+            let snapshotSurface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalReplay.snapshot"
+            )
+            let snapshotSize = snapshotSurface.map(ghostty_surface_size)
+            let snapshotData = snapshotSize.flatMap { size in
+                terminalTarget.surface.readBoundedScreenTailVT(
+                    maxRows: max(Int(size.rows), 1),
+                    maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+                )
+            }?.data(using: .utf8)
+                ?? readTerminalTextFromVTExportForSnapshot(
+                    terminalTarget: terminalTarget,
+                    bindingAction: "write_active_file:copy,vt",
+                    lineLimit: nil,
+                    normalizeLineEndings: false
+                )?.data(using: .utf8)
+                ?? Data()
             let data = state?.data ?? Data()
-            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-                let size = ghostty_surface_size(surface)
+            if let size = snapshotSize {
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }

@@ -19,6 +19,8 @@ export type ClaimedRunAttempt = {
   readonly leaseId: string;
   readonly leaseUntil: Date;
   readonly workerId: string;
+  /** First claim time; bounds how long an in-progress VM create is retried. */
+  readonly startedAt: Date | null;
 };
 
 export type RunAttemptWorkerResult =
@@ -142,7 +144,7 @@ export async function claimNextRunAttempt(input: {
       where a.id = candidate.id
       returning a.run_id::text, a.id::text, a.ordinal, a.variant,
         a.lease_id::text, a.lease_until, a.worker_id,
-        a.checkpoint, a.retained_until, a.cleanup_state,
+        a.checkpoint, a.retained_until, a.cleanup_state, a.started_at,
         candidate.user_id, candidate.owner_team_id, candidate.spec
     `) as readonly Record<string, unknown>[];
     const row = rows[0];
@@ -161,6 +163,7 @@ export async function claimNextRunAttempt(input: {
       leaseId: rowString(row, "lease_id"),
       leaseUntil: rowDate(row, "lease_until"),
       workerId: rowString(row, "worker_id"),
+      startedAt: row.started_at ? rowDate(row, "started_at") : null,
     } satisfies ClaimedRunAttempt;
     await tx.execute(sql`update runs set status = 'running', updated_at = ${now.toISOString()}::timestamptz where id = ${claimed.runId}::uuid and status <> 'cancelled'`);
     await appendRunEvent(tx, claimed.runId, claimed.attemptId, "attempt.started", { workerId: claimed.workerId, leaseId: claimed.leaseId });
@@ -193,6 +196,14 @@ export async function renewRunAttemptLease(input: {
   });
 }
 
+/** A Date bound into raw `sql` reaches postgres.js as a Date, and drizzle's
+ * postgres-js driver turns off the timestamptz serializer, so the Bind step
+ * throws ERR_INVALID_ARG_TYPE. Pass an ISO string and cast it in SQL instead,
+ * like every `now` parameter in this file. */
+function timestamptzParam(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
 /** Persist provider progress while retaining the same lease fence. */
 export async function checkpointRunAttempt(input: {
   readonly runId: string;
@@ -212,7 +223,7 @@ export async function checkpointRunAttempt(input: {
       set provider_vm_id = coalesce(${input.providerVmId ?? null}, provider_vm_id),
           checkpoint = ${JSON.stringify(input.checkpoint)}::jsonb,
           cleanup_state = coalesce(${input.cleanupState ?? null}, cleanup_state),
-          retained_until = coalesce(${input.retainedUntil ?? null}, retained_until),
+          retained_until = coalesce(${timestamptzParam(input.retainedUntil)}::timestamptz, retained_until),
           updated_at = ${now.toISOString()}::timestamptz
       where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
         and status = 'running' and lease_id = ${input.leaseId}::uuid
@@ -276,7 +287,7 @@ async function transitionRunAttempt(input: {
           result = coalesce(${input.result ? JSON.stringify(input.result) : null}::jsonb, result),
           checkpoint = coalesce(${input.checkpoint ? JSON.stringify(input.checkpoint) : null}::jsonb, checkpoint),
           cleanup_state = coalesce(${input.cleanupState ?? null}, cleanup_state),
-          retained_until = coalesce(${input.retainedUntil ?? null}, retained_until),
+          retained_until = coalesce(${timestamptzParam(input.retainedUntil)}::timestamptz, retained_until),
           error = ${input.error?.slice(0, 1_000) ?? null},
           finished_at = ${now.toISOString()}::timestamptz, lease_until = null, updated_at = ${now.toISOString()}::timestamptz
       where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid

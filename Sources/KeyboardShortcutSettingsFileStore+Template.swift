@@ -77,6 +77,7 @@ extension CmuxSettingsFileStore {
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
                     "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
+                    "equalizeSplitsOnDividerDoubleClick": SettingCatalog().app.equalizeSplitsOnDividerDoubleClick.defaultValue,
                     "preferredEditor": "",
                     "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
@@ -226,6 +227,15 @@ extension CmuxSettingsFileStore {
                     "kiroNotificationLevel": IntegrationsCatalogSection().kiroNotificationLevel.defaultValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
+                ],
+            ],
+            [
+                "chief": [
+                    "enabled": ChiefCatalogSection().enabled.defaultValue,
+                    "harness": ChiefCatalogSection().harness.defaultValue,
+                    "model": ChiefCatalogSection().model.defaultValue,
+                    "effort": ChiefCatalogSection().effort.defaultValue,
+                    "dangerouslySkipPermissions": ChiefCatalogSection().dangerouslySkipPermissions.defaultValue,
                 ],
             ],
             [

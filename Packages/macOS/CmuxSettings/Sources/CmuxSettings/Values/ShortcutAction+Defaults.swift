@@ -91,6 +91,7 @@ extension ShortcutAction {
         case .goToFile: return ShortcutStroke(key: "p", command: true, option: true)
         case .commandPalette: return ShortcutStroke(key: "p", command: true, shift: true)
         case .agentInbox: return ShortcutStroke(key: "i", command: true, shift: true)
+        case .openChief: return ShortcutStroke(key: "c", command: true, shift: true)
         case .commandPaletteNext: return ShortcutStroke(key: "n", control: true)
         case .commandPalettePrevious: return ShortcutStroke(key: "p", control: true)
         case .sendFeedback: return nil

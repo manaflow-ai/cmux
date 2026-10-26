@@ -150,6 +150,10 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
+        # A last top-level `|| 'label'` is the fallback of the whole expression
+        # (build-nightly-app: trusted tuple || hosted 'macos-26').
+        if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
+            continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
             f"{', '.join(read.group(0) for read in reads)} with no literal runner "
