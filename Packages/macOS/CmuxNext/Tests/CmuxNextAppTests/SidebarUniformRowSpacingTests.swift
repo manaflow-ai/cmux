@@ -153,6 +153,22 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(header.y - above.maxY - m.rowSpacing) < 0.01, "the pins' end adds \(header.y - above.maxY - m.rowSpacing) pt")
     }
 
+    /// Group by Status with a computer that lists nothing: the sidebar lays out as without that computer, so no
+    /// spacing hangs under the Pinned block and a block after it still starts the list.
+    @Test(arguments: [false, true]) func aStatusListWithNoRowsTakesNoSpace(_ blockFirst: Bool) throws {
+        let m = SidebarLayoutMetrics.standard
+        let docs = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: "itm_docs")), nodes: [])
+        let block = blockFirst ? Self.pinnedBlock() : docs
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        var options = SidebarLayoutOptions()
+        options.grouping.setByStatus(true)
+        options.blockHeights = [SidebarLayoutDocument.pinnedSectionID.rawValue: 24, "itm_docs": 24]
+        let with = SidebarLayout.make(sections: blockFirst ? [block, machine] : [machine, block], metrics: m, options: options)
+        let without = SidebarLayout.make(sections: [block], metrics: m, options: options)
+        #expect(with.rows == without.rows, "\(with.rows.map(\.y)) vs \(without.rows.map(\.y))")
+        #expect(abs(with.totalHeight - without.totalHeight) < 0.01, "the empty status list adds \(with.totalHeight - without.totalHeight) pt")
+    }
+
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
         let m = SidebarLayoutMetrics.standard
         var options = SidebarLayoutOptions()
