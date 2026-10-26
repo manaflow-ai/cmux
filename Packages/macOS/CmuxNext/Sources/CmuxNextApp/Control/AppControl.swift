@@ -135,7 +135,7 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsReport(features: services.features).method,
+            Self.featureFlagsReport(services.features, tunables: TunableStore.shared).method,
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }
@@ -299,26 +299,6 @@ extension AppControl {
                 return .object(fields.mapValues(JSONValue.number))
             }.withDeadline(.fixed(.seconds(60))),
         ])
-    }
-
-    /// The Chromium host's idle deadline: `chromiumHostIdleExit`'s `idleExitAfter` while the
-    /// feature is on, else nil (the host runs while its session does).
-    static func chromiumHostIdleExit(in features: FeatureList) -> Duration? {
-        guard features.isEnabled(.chromiumHostIdleExit) else { return nil }
-        for param in Feature.chromiumHostIdleExit.params where param.name == "idleExitAfter" {
-            if case .duration(let seconds, _, _) = param.value { return .seconds(seconds) }
-        }
-        return nil
-    }
-
-    /// The Chromium host's switch: the launch's `cefHelperHost`, which Debug Settings
-    /// `browserHost.helper` overrides in FeatureList's order: below policy and the
-    /// environment, above remote, trial and the channel default, never in Release.
-    static func chromiumHostSwitch(in features: FeatureList, tunables: TunableStore) -> BrowserHostSwitch {
-        let launch = features.resolution(of: .cefHelperHost)
-        let decidedAboveLocal = launch.source == .policy || launch.source == .environment
-        return BrowserHostSwitch(launchValue: launch.isEnabled,
-                                 takesLocalOverride: features.channel.allowsLocalOverrides && !decidedAboveLocal, tunables: tunables)
     }
     #endif
 }

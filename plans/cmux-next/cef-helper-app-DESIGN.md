@@ -232,7 +232,9 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 The host stays off by default (the bench-only feature `cefHelperHost`, with Debug Settings `browserHost.helper` as
 its local override, p12-perf-process-101; `ChromiumHostDefaultOffTests`, `ChromiumHostSwitchTests`): every
 Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
-with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
+with the toggle on; `features.list` reports the toggle as `cefHelperHost` with source `local`, and benches set it
+through their tunables file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`: a launched app strips an inherited `CMUX_ENABLE_FEATURES`).
+It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
 The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
 (`Emulation.setFocusEmulationEnabled`) only below API 30 or before the page is detached; never
 `CefBrowserHost::SetFocus`, which activates the host's window and app (cmux's bundle id). The `addChildWindow` layout

@@ -63,7 +63,8 @@ public nonisolated struct BrowserHostTunables {
 /// takes one: DEV and NIGHTLY, when neither policy nor the environment decided the feature.
 /// Chrome reads its `chrome://flags` entries before it builds the list
 /// (chrome/browser/about_flags.cc); the toggle file loads off the main thread after the
-/// launch list, so the override applies here, when the switch is read.
+/// launch list, so the override applies here, when the switch is read, and `features.list`
+/// reports ``localOverride`` the same way (source `local`).
 public nonisolated struct BrowserHostSwitch: Sendable {
     /// `cefHelperHost` as the launch's feature list resolved it.
     public let launchValue: Bool

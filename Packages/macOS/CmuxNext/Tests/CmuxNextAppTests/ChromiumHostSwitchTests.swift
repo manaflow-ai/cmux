@@ -1,8 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextSettings
 import Testing
 
 /// The Chromium Host app follows the feature `cefHelperHost`, and Debug Settings
@@ -44,7 +46,9 @@ import Testing
         #expect(BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == .inProcess)
     }
 
-    /// `CMUX_ENABLE_FEATURES=cefHelperHost` turns the host on with no tunables file.
+    /// An environment decision (`CMUX_ENABLE_FEATURES` in the list's overrides) turns the host on with no toggle.
+    /// A launched app never sees an inherited `CMUX_ENABLE_FEATURES` (LaunchIdentity strips it), so benches turn
+    /// the host on through the tunables file's `browserHost.helper` instead.
     @Test func theEnvironmentTurnsItOn() {
         let hostSwitch = Self.hostSwitch(Self.features(enabled: ["cefHelperHost"]), Self.tunables())
         #expect(hostSwitch.isEnabled)
@@ -76,6 +80,37 @@ import Testing
         #expect(!Self.hostSwitch(Self.features(policyDisabled: ["cefHelperHost"]), Self.tunables(helper: true)).isEnabled)
         #expect(!Self.hostSwitch(Self.features(disabled: ["cefHelperHost"]), Self.tunables(helper: true)).isEnabled)
         #expect(Self.hostSwitch(Self.features(enabled: ["cefHelperHost"]), Self.tunables(helper: false)).isEnabled)
+    }
+
+    /// `features.list` (and so a bench's features snapshot) reports what the switch runs with: the toggle's value,
+    /// source `local`, while it is set and taken; the launch's resolution otherwise.
+    @Test(arguments: [Feature.Channel.dev, .nightly, .release])
+    func theReportFollowsTheSwitch(_ channel: Feature.Channel) throws {
+        let store = Self.tunables()
+        let features = Self.features(channel)
+        let hostSwitch = Self.hostSwitch(features, store)
+        let report = AppControl.featureFlagsReport(features, tunables: store)
+        for toggle in [true, false, nil] as [Bool?] {
+            store.set(BrowserHostTunables.helper.key, toggle.map(TunableValue.bool))
+            let resolution = report.resolution(of: .cefHelperHost)
+            #expect(resolution.isEnabled == hostSwitch.isEnabled)
+            #expect(resolution.source == (hostSwitch.localOverride == nil ? .channelDefault : .local))
+            let rows = try #require(report.json["features"]?.arrayValue)
+            let row = try #require(rows.first { $0["name"]?.stringValue == Feature.cefHelperHost.name })
+            #expect(row["state"]?.stringValue == (hostSwitch.isEnabled ? "on" : "off"))
+            #expect(row["source"]?.stringValue == resolution.source.description)
+        }
+        store.set(BrowserHostTunables.helper.key, .bool(true))
+        #expect(report.resolution(of: .cefHelperHost).isEnabled == (channel != .release))
+    }
+
+    /// Policy and the environment keep their source in the report with the toggle set.
+    @Test func theReportKeepsPolicyAndTheEnvironment() {
+        let store = Self.tunables(helper: true)
+        let disabled = AppControl.featureFlagsReport(Self.features(disabled: ["cefHelperHost"]), tunables: store)
+        #expect(disabled.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .environment))
+        let policy = AppControl.featureFlagsReport(Self.features(policyDisabled: ["cefHelperHost"]), tunables: store)
+        #expect(policy.resolution(of: .cefHelperHost) == Feature.Resolution(isEnabled: false, source: .policy))
     }
 
     /// Release takes no local override, even from an active store.
