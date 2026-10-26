@@ -96,6 +96,8 @@ export interface HomeSnapshot {
   threadStats: ReadonlyMap<string, HomeThreadStats>;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
+  /** Participant ids viewing the open conversation (ephemeral). */
+  viewing: readonly string[];
   /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
    * to the newest one then (`through`). Messages that arrive while it is open are read live. */
   unseen?: { after: number; through: number };
@@ -140,6 +142,7 @@ export class HomeChannelsStore {
   private readonly failedRuns = new Map<string, number>();
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
+  private readonly viewingBy = new Map<string, Set<string>>();
 
   /** Participants' pictures through this store's client (none without a client: initials). */
   readonly avatars: AvatarService | undefined;
@@ -175,6 +178,7 @@ export class HomeChannelsStore {
       hasOlder: false,
       loadingOlder: false,
       typing: [],
+      viewing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
       // A send still in flight on the old connection did not reach the owner as far as this
@@ -388,6 +392,7 @@ export class HomeChannelsStore {
       threadView: undefined,
       threadStats: new Map(),
       typing: [],
+      viewing: [...(this.viewingBy.get(id) ?? [])],
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
@@ -761,6 +766,13 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
+    // Each presence frame is the whole set, so only lost frames make it stale: a lost connection
+    // or a stream overflow (an inbox refetch keeps it: the conversation sockets stay subscribed).
+    // Unknown shows as nobody, never as someone who left; the owner's next set brings them back.
+    if (batch.connection || batch.presenceLost) {
+      this.viewingBy.clear();
+      patch.viewing = [];
+    }
     if (batch.connection === "offline") {
       this.drafts.clear();
       this.live.clear();
@@ -812,6 +824,13 @@ export class HomeChannelsStore {
         : threadIncoming;
       patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
+    if (batch.presence)
+      for (const entry of batch.presence) {
+        const people = new Set(entry.participants.filter((p) => p.viewing).map((p) => p.participant));
+        if (people.size) this.viewingBy.set(entry.conversation, people);
+        else this.viewingBy.delete(entry.conversation);
+        if (entry.conversation === selected) patch.viewing = [...people];
+      }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {

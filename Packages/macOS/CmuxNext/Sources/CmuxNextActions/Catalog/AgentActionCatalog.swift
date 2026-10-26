@@ -430,6 +430,31 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
             ),
+            // Import Memories… (chief-memory-import-DESIGN.md): finds what Claude Code, Codex, ChatGPT and claude.ai
+            // exports left on this Mac and brings it into a Chief in the background (`optchat-chief memory
+            // import-from` is the CLI). `chief` names a Cloud Chief to import into; `source` skips the question.
+            ActionDescriptor(
+                id: "chief.importMemories",
+                title: String(localized: "action.chief.importMemories", defaultValue: "Import Memories…", bundle: .module),
+                keywords: ["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
+                category: .agents, symbol: "square.and.arrow.down", surfaces: [.palette],
+                arguments: [
+                    ActionArgument(name: "chief", title: String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "source", title: String(localized: "argument.chiefImportSource", defaultValue: "Source", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "chief.importMemories.undo",
+                title: String(localized: "action.chief.importMemories.undo", defaultValue: "Undo Last Memory Import", bundle: .module),
+                keywords: ["chief", "memory", "memories", "import", "undo", "take back", "restore"],
+                category: .agents, symbol: "arrow.uturn.backward", surfaces: [.palette],
+                arguments: [ActionArgument(name: "chief", title: String(localized: "argument.chiefImportChief", defaultValue: "Cloud Chief", bundle: .module),
+                                           kind: .string, isRequired: false)],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "chief.openUsage",
                 title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
