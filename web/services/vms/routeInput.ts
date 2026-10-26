@@ -1,4 +1,3 @@
-import * as Effect from "effect/Effect";
 import { isProviderId, SecretBytes, type ProviderCredential, type ProviderId } from "./drivers/types";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
 
@@ -136,7 +135,7 @@ export function providerField(body: Record<string, unknown>): ProviderFieldResul
 /**
  * Reads the local client's short-lived GCP handoff headers. Headers are
  * intentionally separate from VM JSON so request-body logging cannot retain a
- * service credential. Callers must wipe the returned SecretBytes in finally.
+ * service credential. The workflow it is handed to wipes it when it ends.
  */
 export function gcpCredentialFromRequest(request: Request): ProviderCredential | undefined {
   const token = request.headers.get("x-cmux-gcp-access-token")?.trim();
@@ -157,29 +156,7 @@ export function gcpCredentialFromRequest(request: Request): ProviderCredential |
   };
 }
 
-export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
-  credential?.accessToken.wipe();
-  credential?.sshPrivateKeyPem?.wipe();
-}
-
-/**
- * Runs `program` with the request's GCP handoff credential and wipes it when
- * the program itself ends: success, failure or interruption. The wipe is tied
- * to the workflow, not the route's answer, so a create or resume that keeps
- * running after an answer deadline (and its rollback) still holds a live
- * token, and nothing is allocated when the program never runs.
- */
-export function withRequestProviderCredential<A, E, R>(
-  request: Request,
-  parse: boolean,
-  program: (credential: ProviderCredential | undefined) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> {
-  return Effect.acquireUseRelease(
-    Effect.sync(() => (parse ? gcpCredentialFromRequest(request) : undefined)),
-    program,
-    (credential) => Effect.sync(() => wipeProviderCredential(credential)),
-  );
-}
+export { wipeProviderCredential } from "./drivers/types";
 
 /** Non-secret GCP placement knobs handed off by the local Labs UI. */
 export function gcpProviderMetadataFromRequest(request: Request): Record<string, unknown> | undefined {

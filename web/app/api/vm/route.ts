@@ -97,7 +97,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { gcpProviderMetadataFromRequest, idempotencyKeyFromRequest, withRequestProviderCredential } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -434,8 +434,6 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
-      // The GCP handoff credential is allocated inside the workflow and wiped
-      // when it ends, including a create that continues past its answer.
       const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(request) : undefined;
 
       // Wire the machine to coderouter inside the workflow: the route token
@@ -447,7 +445,7 @@ export async function POST(request: Request): Promise<Response> {
       });
       setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
 
-      const run = await runVmRoute(withRequestProviderCredential(request, provider === "gcp", (providerCredential) => createVm({
+      const run = await runVmRoute(createVm({
         userId: user.id,
         billingCustomerType: entitlements.billingCustomerType,
         billingTeamId: entitlements.billingTeamId,
@@ -456,7 +454,6 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
-        providerCredential,
         providerMetadata,
         idempotencyKey,
         displayName: body.displayName,
@@ -471,7 +468,11 @@ export async function POST(request: Request): Promise<Response> {
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
-      })), {
+        // Allocated last, after every early return and every other input:
+        // createVm owns it from here and wipes it when the workflow ends,
+        // including a create that continues past its answer deadline.
+        providerCredential: provider === "gcp" ? gcpCredentialFromRequest(request) : undefined,
+      }), {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),

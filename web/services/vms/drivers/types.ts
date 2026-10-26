@@ -480,6 +480,12 @@ export type ProviderCredential = {
   readonly sshUsername?: string;
 };
 
+/** Zero-fills the credential's secrets. Safe to call more than once. */
+export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
+  credential?.accessToken.wipe();
+  credential?.sshPrivateKeyPem?.wipe();
+}
+
 export type SnapshotRef = {
   id: string;
   createdAt: number;

@@ -4,7 +4,8 @@ import * as Effect from "effect/Effect";
 import { vmCreateDisabledReason } from "../services/vms/config";
 import { GcpProvider } from "../services/vms/drivers/gcp";
 import { SecretBytes, type ProviderCredential } from "../services/vms/drivers/types";
-import { gcpCredentialFromRequest, wipeProviderCredential, withRequestProviderCredential } from "../services/vms/routeInput";
+import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vms/routeInput";
+import { releaseProviderCredential } from "../services/vms/workflows";
 
 const now = 1_735_689_600_000;
 
@@ -49,32 +50,28 @@ describe("GCP Labs provider", () => {
     expect(parsed?.accessToken.utf8()).toMatch(/^\0+$/);
   });
 
-  test("holds the credential for the whole workflow and wipes it when the workflow ends", async () => {
-    const request = new Request("https://cmux.test", {
+  test("a workflow holds the credential until it ends, then wipes it", async () => {
+    const parse = () => gcpCredentialFromRequest(new Request("https://cmux.test", {
       headers: {
         "x-cmux-gcp-access-token": "local-token",
         "x-cmux-gcp-ssh-private-key": "PRIVATE KEY",
       },
-    });
-    let seen: ProviderCredential | undefined;
-    const ok = await Effect.runPromise(withRequestProviderCredential(request, true, (credential) => Effect.sync(() => {
-      seen = credential;
-      expect(credential?.accessToken.wiped).toBe(false);
-      return credential?.accessToken.utf8();
-    })));
-    expect(ok).toBe("local-token");
-    expect(seen?.accessToken.wiped).toBe(true);
-    expect(seen?.sshPrivateKeyPem?.wiped).toBe(true);
+    }));
+    const live = parse();
+    const program = Effect.sync(() => {
+      expect(live?.accessToken.wiped).toBe(false);
+      return live?.accessToken.utf8();
+    }).pipe(releaseProviderCredential(live));
+    // Building the program wipes nothing; running it to the end does.
+    expect(live?.accessToken.wiped).toBe(false);
+    expect(await Effect.runPromise(program)).toBe("local-token");
+    expect(live?.accessToken.wiped).toBe(true);
+    expect(live?.sshPrivateKeyPem?.wiped).toBe(true);
 
-    let failed: ProviderCredential | undefined;
-    await expect(Effect.runPromise(withRequestProviderCredential(request, true, (credential) => {
-      failed = credential;
-      return Effect.fail(new Error("provider failed"));
-    }))).rejects.toThrow(/provider failed/);
-    expect(failed?.accessToken.wiped).toBe(true);
-
-    const skipped = await Effect.runPromise(withRequestProviderCredential(request, false, (credential) => Effect.succeed(credential)));
-    expect(skipped).toBeUndefined();
+    const failing = parse();
+    await expect(Effect.runPromise(Effect.fail(new Error("provider failed")).pipe(releaseProviderCredential(failing))))
+      .rejects.toThrow(/provider failed/);
+    expect(failing?.accessToken.wiped).toBe(true);
   });
 
   test("refuses a wiped token before touching Compute Engine", async () => {

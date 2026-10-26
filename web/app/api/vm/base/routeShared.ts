@@ -36,7 +36,7 @@ import {
   resetBaseVm,
 } from "../../../../services/vms/workflows";
 import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
-import { gcpProviderMetadataFromRequest, withRequestProviderCredential } from "../../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest } from "../../../../services/vms/routeInput";
 
 type BaseOperation = "open" | "reset";
 
@@ -137,11 +137,13 @@ export async function runBaseRoute(input: {
     }),
     timing: input.timing,
   };
+  // Allocated at the call: the workflow owns the credential and wipes it when
+  // it ends, including work that continues after the route answers.
+  const providerCredential = provider === "gcp" ? gcpCredentialFromRequest(input.request) : undefined;
   const run = await runVmRoute(
-    withRequestProviderCredential(input.request, provider === "gcp", (providerCredential) =>
-      input.operation === "reset"
-        ? resetBaseVm({ ...programInput, providerCredential, reason: parsed.body.reason })
-        : openBaseVm({ ...programInput, providerCredential })),
+    input.operation === "reset"
+      ? resetBaseVm({ ...programInput, providerCredential, reason: parsed.body.reason })
+      : openBaseVm({ ...programInput, providerCredential }),
     {
       request: input.request,
       onError: baseWorkflowErrorResponders(input.operation, entitlements.planId),

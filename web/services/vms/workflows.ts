@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCredential, type VmPauseState } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCredential, type VmPauseState, wipeProviderCredential } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -393,6 +393,16 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  * to an HTTP response through the responder table in `routeHelpers`, a defect
  * is a bug and propagates as a thrown error.
  */
+/**
+ * A workflow handed a short-lived provider credential owns it: it is wiped
+ * when the workflow ends (success, failure or interruption), which is after
+ * any work that continues past the route's answer deadline, never before.
+ */
+export function releaseProviderCredential(credential: ProviderCredential | undefined) {
+  return <A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    credential ? Effect.ensuring(program, Effect.sync(() => wipeProviderCredential(credential))) : program;
+}
+
 export function runVmWorkflowExit<A>(
   program: VmWorkflowProgram<A>,
   options: { readonly readDeadline?: VmReadDeadline; readonly deadline?: VmRouteDeadline } = {},
@@ -478,7 +488,7 @@ export function getVm(input: {
       }
     }
     return vmEntryFromRow(vm);
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 /** Sets or clears the label and refreshes the guest prompt. Routing ids stay stable. */
@@ -1535,7 +1545,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
 
     return vmEntryFromRow(running);
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 /**
@@ -1750,7 +1760,7 @@ export function openBaseVm(input: {
       repo.beginBaseOpen(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 /** Replace the account's Base generation after applying create-time gates. */
@@ -1797,7 +1807,7 @@ export function resetBaseVm(input: {
       repo.beginBaseReset(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 /** Finish a Base allocation, including provider and billing cleanup paths. */
@@ -2401,7 +2411,7 @@ export function pauseVm(input: {
   return Effect.gen(function* () {
     const vm = yield* requireUserVm(input);
     return yield* pauseVmRow(vm, input.providerVmId, "user", input.providerCredential);
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 /**
@@ -2574,7 +2584,7 @@ export function resumeVm(input: {
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane, providerCredential: input.providerCredential },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 export type VmRestartResult = {
@@ -4535,7 +4545,7 @@ export function destroyVm(input: {
         ...(homeVolume ? { homeVolume, homeVolumeDeleted } : {}),
       },
     }).pipe(Effect.catchAll(() => Effect.void));
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential));
 }
 
 export function revokeExpiredIdentityLeases(input: {

@@ -20,7 +20,7 @@ import { PublicationNotFoundError } from "../../../../services/vm-publications/r
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
-import { withRequestProviderCredential } from "../../../../services/vms/routeInput";
+import { gcpCredentialFromRequest } from "../../../../services/vms/routeInput";
 
 
 // Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
@@ -41,7 +41,8 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      const run = await runVmRoute(withRequestProviderCredential(request, true, (providerCredential) => getVm({
+      const providerCredential = gcpCredentialFromRequest(request);
+      const run = await runVmRoute(getVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
@@ -50,7 +51,7 @@ export async function GET(
         // row it retires is one no destroy or cron pass can revisit.
         modelPlane: vmModelPlaneRevoker(),
         providerCredential,
-      })), { request, readDeadline: { operation: "getVm" } });
+      }), { request, readDeadline: { operation: "getVm" } });
       if (!run.ok) return run.response;
       const vm = run.value;
       const live = vm.status === "running" || vm.status === "provisioning";
@@ -175,14 +176,15 @@ export async function DELETE(
         }
         return publicationErrorResponse(err);
       }
-      const run = await runVmRoute(withRequestProviderCredential(request, true, (providerCredential) => destroyVm({
+      const providerCredential = gcpCredentialFromRequest(request);
+      const run = await runVmRoute(destroyVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
         providerCredential,
-      })), { request, deadline: { operation: "destroy" } });
+      }), { request, deadline: { operation: "destroy" } });
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },
