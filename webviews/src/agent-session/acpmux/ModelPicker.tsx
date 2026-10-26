@@ -106,6 +106,8 @@ function quickSections(
       // Keep the running provider when present; otherwise land the first available provider.
       const landing = (
         visible.find((offer) => offer.model.id === model) ??
+        visible.find((offer) => offer.model.id === choice.id && !offer.model.unavailable) ??
+        visible.find((offer) => !offer.model.unavailable) ??
         visible.find((offer) => offer.model.id === choice.id) ??
         visible[0]!
       ).model;
