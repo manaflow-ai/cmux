@@ -1,0 +1,249 @@
+name: Cloud VM image promote
+
+# Promotes a smoked cmux VM image snapshot to the dev channel the way a person
+# runs images/cmux-vm/promote.ts (plans/cmux-next/release-rails.md "Promote from
+# CI"): it appends the bake run's channel-dev.json candidate to
+# images/cmux-vm/channels/dev.json history, runs promote.ts (a fresh-clone smoke
+# of that exact id on the cmux-next dev Freestyle account), and uploads the
+# resulting diff of channels/dev.json and backend/apps/api/wrangler.jsonc as an
+# artifact. It pushes nothing and opens no PR: the token can only read, so the
+# promotion takes effect only when a lane opens a PR from the diff and it lands
+# (the next development deploy ships it). delete_snapshot deletes one spare
+# image snapshot by exact id, refused when any channel file or wrangler.jsonc
+# references the id or its name (images/cmux-vm/cleanup.ts --snapshot).
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to promote to (dev only for now)
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+      snapshot:
+        description: Snapshot id to promote (sh-...); empty to only delete
+        required: false
+        default: ""
+        type: string
+      bake_run:
+        description: The cloud-vm-image-bake.yml run (keep_snapshot) whose channel-dev.json records the snapshot
+        required: false
+        default: ""
+        type: string
+      delete_snapshot:
+        description: Optional spare snapshot id (sh-...) to delete; refused when a channel file or wrangler.jsonc references it
+        required: false
+        default: ""
+        type: string
+
+# Read the repository and the bake run's artifact; nothing else.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cloud-vm-image-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The cmux-next dev Freestyle account only (D-A7), the bake's environment and key.
+    # The environment allows only feat-cmux-next.
+    environment: cmux-next-vm-image-dev
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      SNAPSHOT: ${{ inputs.snapshot }}
+      BAKE_RUN: ${{ inputs.bake_run }}
+      DELETE_SNAPSHOT: ${{ inputs.delete_snapshot }}
+      OUT_DIR: ${{ github.workspace }}/cmux-vm-promote-out
+    steps:
+      - name: Check the inputs
+        id: inputs
+        working-directory: .
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error title=Promote inputs::$1"; exit 1; }
+          [ "$CHANNEL" = dev ] || refuse "channel $CHANNEL: only dev is promoted from CI"
+          [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
+          [ -n "$SNAPSHOT$DELETE_SNAPSHOT" ] || refuse "nothing to do: set snapshot (with bake_run) or delete_snapshot"
+          if [ -n "$SNAPSHOT" ]; then
+            [[ "$SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "snapshot is not a snapshot id"
+            [[ "$BAKE_RUN" =~ ^[0-9]+$ ]] || refuse "bake_run is required with snapshot (a run id)"
+          elif [ -n "$BAKE_RUN" ]; then
+            refuse "bake_run without snapshot"
+          fi
+          if [ -n "$DELETE_SNAPSHOT" ]; then
+            [[ "$DELETE_SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "delete_snapshot is not a snapshot id"
+            [ "$DELETE_SNAPSHOT" != "$SNAPSHOT" ] || refuse "delete_snapshot is the snapshot being promoted"
+          fi
+          echo "promote=$([ -n "$SNAPSHOT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "delete=$([ -n "$DELETE_SNAPSHOT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Only a feat-cmux-next dispatch of the bake workflow writes a candidate this job takes.
+      - name: Check the bake run
+        if: steps.inputs.outputs.promote == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BAKE_RUN" \
+            --jq '[.path, .head_branch, .event, .conclusion, .head_repository.full_name] | @tsv' > "$RUNNER_TEMP/bake-run.tsv"
+          IFS=$'\t' read -r wf branch event conclusion repo < "$RUNNER_TEMP/bake-run.tsv"
+          echo "bake run $BAKE_RUN: $wf on $branch ($event, $conclusion, $repo)"
+          [ "${wf%%@*}" = .github/workflows/cloud-vm-image-bake.yml ] || { echo "::error title=Bake run::$BAKE_RUN is $wf, not cloud-vm-image-bake.yml"; exit 1; }
+          if [ "$branch" != feat-cmux-next ] || [ "$event" != workflow_dispatch ] || [ "$repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error title=Bake run::$BAKE_RUN is not a feat-cmux-next dispatch in $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          [ "$conclusion" = success ] || { echo "::error title=Bake run::$BAKE_RUN concluded $conclusion"; exit 1; }
+
+      - name: Download the bake candidate
+        if: steps.inputs.outputs.promote == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-vm-image-bake-${{ inputs.bake_run }}
+          run-id: ${{ inputs.bake_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/bake
+
+      - name: Record the candidate in channels/dev.json history
+        if: steps.inputs.outputs.promote == 'true'
+        id: record
+        run: |
+          set -euo pipefail
+          bun scripts/cmux-vm-image/promote-record.ts --candidate "$RUNNER_TEMP/bake/channel-dev.json" --snapshot "$SNAPSHOT" --run "$BAKE_RUN" | tee "$RUNNER_TEMP/record.out"
+          var="$(awk '/^VAR /{print $2}' "$RUNNER_TEMP/record.out")"
+          [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]]
+          echo "var=$var" >> "$GITHUB_OUTPUT"
+
+      # The key reaches promote.ts only as a 0600 file in RUNNER_TEMP (FREESTYLE_API_KEY_FILE),
+      # never on a command line or in a child's environment, and is deleted when the step ends.
+      - name: Promote (fresh-clone smoke on the dev account)
+        if: steps.inputs.outputs.promote == 'true'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT_VAR: ${{ steps.record.outputs.var }}
+          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          mkdir -p "$OUT_DIR"
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"
+
+      - name: Diff for the channel PR
+        if: steps.inputs.outputs.promote == 'true'
+        id: diff
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          diff_file="$OUT_DIR/promote-$CHANNEL-$SNAPSHOT.diff"
+          git -C .. diff -- images/cmux-vm/channels/dev.json backend/apps/api/wrangler.jsonc > "$diff_file"
+          # The artifact is not masked like the log: refuse to upload one that holds the key
+          # (grep reads the pattern from a pipe the builtin printf writes, never from argv or env).
+          if [ -n "$key" ] && grep -qF -f <(printf '%s\n' "$key") "$diff_file"; then
+            echo "::error title=Promote diff::the diff contains the Freestyle key; not uploading it"
+            rm -f "$diff_file"
+            exit 1
+          fi
+          unset key
+          echo "file=$diff_file" >> "$GITHUB_OUTPUT"
+          echo "lines=$(wc -l < "$diff_file" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the diff
+        if: steps.inputs.outputs.promote == 'true' && steps.diff.outputs.lines != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: promote-${{ inputs.channel }}-${{ inputs.snapshot }}.diff
+          path: ${{ steps.diff.outputs.file }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Job summary
+        if: steps.inputs.outputs.promote == 'true' && steps.diff.outcome == 'success'
+        env:
+          DIFF_FILE: ${{ steps.diff.outputs.file }}
+        run: |
+          set -euo pipefail
+          smoke="$(jq -c --arg id "$SNAPSHOT" '[.history[] | select(.snapshot_id == $id) | .promotion_smokes // [] | .[]] | last' ../images/cmux-vm/channels/dev.json)"
+          {
+            echo "## Promote $SNAPSHOT to $CHANNEL"
+            echo
+            echo "Bake run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BAKE_RUN. Base: feat-cmux-next at $GITHUB_SHA."
+            echo
+            echo "Fresh-clone smoke (promote.ts): \`$smoke\`"
+            echo
+            grep -E '^(bd-summary|rollback|backend/apps/api/wrangler.jsonc): ' "$OUT_DIR/promote.log" | sed 's/^/    /' || true
+            echo
+            if [ -s "$DIFF_FILE" ]; then
+              echo "Nothing is live yet. Download the artifact \`$(basename "$DIFF_FILE")\`, \`git apply\` it on a branch from feat-cmux-next, and open the channel PR; the development deploy after it lands ships the image."
+              echo
+              echo '```diff'
+              cat "$DIFF_FILE"
+              echo '```'
+            else
+              echo "No change: the channel already serves this snapshot."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # After a promotion, the check reads the promoted files, so the old pointer (now `previous`) stays protected too.
+      # It also reads feat-cmux-next as it is now, so a channel PR that landed while this job ran still counts.
+      - name: Delete the spare snapshot
+        if: steps.inputs.outputs.delete == 'true'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          tip="$RUNNER_TEMP/branch-tip"
+          rm -rf "$tip" && mkdir -p "$tip/images/cmux-vm/channels" "$tip/backend/apps/api"
+          git -C .. fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
+          git -C .. show FETCH_HEAD:backend/apps/api/wrangler.jsonc > "$tip/backend/apps/api/wrangler.jsonc"
+          # The entries of the channels tree itself (cleanup.ts reads its top-level *.json, as here).
+          # NUL-delimited: git quotes a name with unusual characters in line output, and that name would be skipped.
+          git -C .. ls-tree -z --name-only FETCH_HEAD:images/cmux-vm/channels > "$RUNNER_TEMP/tip-channels.txt"
+          while IFS= read -r -d '' f; do
+            case "$f" in */*) echo "::error title=delete_snapshot::unexpected channel entry name"; exit 1 ;; *.json) git -C .. show "FETCH_HEAD:images/cmux-vm/channels/$f" > "$tip/images/cmux-vm/channels/$f" ;; esac
+          done < "$RUNNER_TEMP/tip-channels.txt"
+          # Fail closed: without the tip's dev channel there is nothing to check against.
+          [ -s "$tip/images/cmux-vm/channels/dev.json" ] || { echo "::error title=delete_snapshot::could not read the branch tip's channels/dev.json; refusing"; exit 1; }
+          echo "branch tip feat-cmux-next $(git -C .. rev-parse FETCH_HEAD): $(tr '\0' ' ' < "$RUNNER_TEMP/tip-channels.txt")"
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --snapshot "$DELETE_SNAPSHOT" --also-root "$tip" 2>&1 | tee "$RUNNER_TEMP/delete.out"
+          { echo "## delete_snapshot $DELETE_SNAPSHOT"; echo; sed 's/^/    /' "$RUNNER_TEMP/delete.out"; } >> "$GITHUB_STEP_SUMMARY"

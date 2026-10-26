@@ -15,6 +15,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
+import { InspectorFold } from "./InspectorSection";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
 
 const ROW_ICON = rowIconSize(12);
@@ -106,13 +107,23 @@ export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestSta
 
 const ended = (state: PullRequestGlyphState) => state === "merged" || state === "closed";
 
+/// The pull requests Changes lists: one the agent only named in a reply (`#N` can be an issue)
+/// once the App has read it as a pull request.
+export const visibleChanges = (
+  pullRequests: readonly SummaryPullRequest[],
+  statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
+): SummaryPullRequest[] => pullRequests.filter((pr) => !pr.mentioned || statuses[pr.url]?.state !== undefined);
+
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
-/// then the merged and closed, newest first within each.
+/// then the merged and closed, the most recently touched or named first within each.
 export function changesOrder(
   pullRequests: readonly SummaryPullRequest[],
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
 ): SummaryPullRequest[] {
-  const newest = [...pullRequests].reverse();
+  const newest = pullRequests
+    .map((pr, index) => ({ pr, index, at: pr.touched ?? index }))
+    .sort((a, b) => b.at - a.at || b.index - a.index)
+    .map(({ pr }) => pr);
   const done = (pr: SummaryPullRequest) => ended(glyphState(pr, statuses[pr.url] ?? {}));
   return [...newest.filter((pr) => !done(pr)), ...newest.filter(done)];
 }
@@ -122,7 +133,7 @@ export function ChangesSection({
   statuses,
   onOpenBeside,
 }: {
-  /// Oldest first, as sessionSummary reads them.
+  /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a
@@ -142,14 +153,9 @@ export function ChangesSection({
         ))}
       </ul>
       {folds && (
-        <button
-          type="button"
-          className="acpmux-chat-inspector-fold acpmux-chat-inspector-pr-fold"
-          aria-expanded={all}
-          onClick={() => setAll(!all)}
-        >
+        <InspectorFold className="acpmux-chat-inspector-pr-fold" open={all} onToggle={() => setAll(!all)}>
           {t(all ? "chatInspector.changes.showLess" : "chatInspector.changes.showMore")}
-        </button>
+        </InspectorFold>
       )}
     </>
   );
@@ -175,6 +181,9 @@ function PullRequestRow({
   const comments = live.comments ?? 0;
   const stateLabel = t(STATE_LABELS[state]);
   return (
+    // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
+    // over the row's own gap and padding (inspector.css), with only the ⋯ button above it. The
+    // owner chip is inside the link and opens the pull request too; a label, not its own control.
     <li className="acpmux-chat-inspector-pr" data-state={state}>
       <a
         className="acpmux-chat-inspector-pr__link"

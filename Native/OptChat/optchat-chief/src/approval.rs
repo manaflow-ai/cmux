@@ -12,17 +12,18 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 /// Tools that only read (the OptChat memory, the versions): allowed without asking.
-pub const MEMORY_TOOLS: [&str; 3] = [
+pub const MEMORY_TOOLS: [&str; 4] = [
     "mcp__optchat__zoom",
     "mcp__optchat__date",
     "mcp__optchat__version",
+    "mcp__optchat__transcript",
 ];
 
 /// The Chief's own tools: Chief talking to the person and to its
 /// subagents, never a local effect of their own. `spawn` is safe in a gated turn because a child spawned there
 /// takes the ask floor (`spawn_policy`); `tell` and `control` are checked
 /// against their target by the brain (`Brain::internal_allowed`).
-pub const CHIEF_TOOLS: [&str; 9] = [
+pub const CHIEF_TOOLS: [&str; 10] = [
     "mcp__optchat__send",
     "mcp__optchat__reply",
     "mcp__optchat__react",
@@ -32,6 +33,7 @@ pub const CHIEF_TOOLS: [&str; 9] = [
     "mcp__optchat__tell",
     "mcp__optchat__control",
     "mcp__optchat__profile",
+    "mcp__optchat__remember",
 ];
 
 /// The tools a turn session runs without a permission request (its

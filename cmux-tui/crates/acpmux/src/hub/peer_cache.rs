@@ -218,7 +218,11 @@ mod tests {
             "{}",
             e.message
         );
-        assert!(e.message.ends_with(": connect timed out)"), "{}", e.message);
+        assert!(
+            e.message.contains(": connect timed out); the request was not sent"),
+            "{}",
+            e.message
+        );
         assert_eq!(e.data.as_ref().unwrap()["reason"], "peer_unreachable");
 
         // A name the peer never listed here: still the peer, not no_session.

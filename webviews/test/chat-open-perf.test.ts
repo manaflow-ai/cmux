@@ -163,8 +163,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
-  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar.
-  const picked = [...Array(VISITS).keys()].map((at) => chats[7 + at * 17]!);
+  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar, and
+  /// below the recent chats the pane reads ahead (direct.ts READ_AHEAD_RECENT), so the first visit
+  /// to each is the cold open this measures (chat-switch-prefetch.test.ts holds the read-ahead).
+  const picked = [...Array(VISITS).keys()].map((at) => chats[20 + at * 17]!);
   /// The chats that keep working under load. None of them is one the run opens: a reader's own
   /// chat redrawing is its attach, not the load around it.
   const busyLanes = chats.filter((entry) => !picked.includes(entry)).slice(-BUSY_LANES);
@@ -189,6 +191,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         return null;
     }
   }
+
+  /// A chat whose attach outlasts the switch's hold (SWITCH_HOLD_MS, 400 ms) and whose agent says
+  /// LIVE_MARKER at SLOW_LIVE_MS, before the attach lands at SLOW_ATTACH_MS. None of the runs
+  /// above opens it and it is not a busy lane.
+  const slowChat = chats[3]!;
+  const SLOW_LIVE_MS = 600;
+  const SLOW_ATTACH_MS = 1_000;
+  const LIVE_MARKER = "Live line before the read.";
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -240,10 +250,41 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
+          const slow = message.method === "_acpmux/attach" && message.params?.sessionId === slowChat.sessionId;
+          // The slow chat's agent says something while its attach is still out, after the switch's
+          // hold gave up: a live row the pane draws before it read the chat.
+          if (slow)
+            setTimeout(
+              () =>
+                ws.send(
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "_acpmux/event",
+                    params: {
+                      sessionId: slowChat.sessionId,
+                      seq: slowChat.events.length + 1,
+                      at: START + 3_600_000,
+                      dir: "in",
+                      kind: "agent_message_chunk",
+                      msg: {
+                        method: "session/update",
+                        params: {
+                          sessionId: slowChat.sessionId,
+                          update: {
+                            sessionUpdate: "agent_message_chunk",
+                            content: { type: "text", text: LIVE_MARKER },
+                          },
+                        },
+                      },
+                    },
+                  }),
+                ),
+              SLOW_LIVE_MS,
+            );
           // Every call costs a round trip, an attach the chat's read on top: the daemon is busy.
           setTimeout(
             () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result })),
-            message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
+            slow ? SLOW_ATTACH_MS : message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
           );
         },
       },
@@ -634,6 +675,69 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
 
   test(`opening chats with ${CHAT_COUNT} in the list draws fast, with no shift and no blank frame`, async () => {
     holdToTheBrief(await openEachTwice("quiet"));
+  });
+
+  /// The transcript stays mounted across a switch, so a fade belongs to the chat it started for
+  /// (the Codex review of #24113): a chat the page holds, opened while a chat read cold is still
+  /// fading in, shows whole on the frame it draws, never under the other chat's fade.
+  test("a cached chat opened while a cold chat fades in shows whole at once", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(url(chats[0].sessionId));
+      await page.getByText(chats[0].marker).waitFor();
+      const [held, fresh] = [picked[0]!, picked[1]!];
+      const opening = (entry: (typeof chats)[number], settleMs: number) =>
+        `(${openChat.toString()})(${JSON.stringify({
+          sessionId: entry.sessionId,
+          marker: entry.marker,
+          settleMs,
+          limitMs: 8_000,
+        })})`;
+      // Read once, so the page holds it.
+      await page.evaluate(opening(held, SETTLE_MS));
+      // In one page task: the held chat is selected on the frame the cold one first drew, while
+      // its fade still runs.
+      const { cold, cached } = (await page.evaluate(
+        `(async () => { const cold = await ${opening(fresh, 0)}; const cached = await ${opening(held, SETTLE_MS)}; return { cold, cached }; })()`,
+      )) as { cold: Opened; cached: Opened };
+      expect(cold.drawOpacity).toBeLessThan(1);
+      expect(cached.drawn).not.toBeNull();
+      expect(cached.drawOpacity).toBe(1);
+      expect(cached.animated).toEqual([]);
+      expect(cached.flashes).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  /// A row on screen is never taken back to nothing (the Codex review of #24113): a chat read cold
+  /// whose agent speaks while its attach is still out draws that live row whole, and the read that
+  /// lands under it later does not fade the transcript either.
+  test("a live row drawn before a slow chat is read shows whole, with no fade after", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(url(chats[0].sessionId));
+      await page.getByText(chats[0].marker).waitFor();
+      const opened = (await page.evaluate(
+        `(${openChat.toString()})(${JSON.stringify({
+          sessionId: slowChat.sessionId,
+          marker: LIVE_MARKER,
+          settleMs: SLOW_ATTACH_MS,
+          limitMs: 8_000,
+        })})`,
+      )) as Opened;
+      expect(opened.drawn).not.toBeNull();
+      expect(opened.drawOpacity).toBe(1);
+      expect(opened.animated).toEqual([]);
+      expect(opened.fadeMs).toBe(0);
+      expect(opened.flashes).toBe(0);
+      // The read landed inside the watch: the chat's own tail is on screen now.
+      await page.getByText(slowChat.marker).waitFor({ timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
   });
 
   /// The other half of Leo's ask: "even with a high number of chats and high load?". Every working

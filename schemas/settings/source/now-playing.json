@@ -95,6 +95,42 @@
           ]
         }
       ]
+    },
+    {
+      "name": "pictureInPicture",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.media",
+        "text": "Media"
+      },
+      "note": "cmux's own Picture in Picture entry points for a web page's video: on by default (today's behavior).",
+      "rows": [
+        {
+          "key": "media.pictureInPicture.enabled",
+          "name": "pictureInPicture",
+          "note": "On by default. Off: cmux offers no Picture in Picture of its own: the tab and media card menus, the palette, the CLI and MCP action, the Now Playing card's button and the media hub's button are gone. A site's own video controls are unchanged.",
+          "title": {
+            "key": "settings.media.pictureInPicture.enabled",
+            "text": "Picture in Picture"
+          },
+          "help": {
+            "key": "settings.media.pictureInPicture.enabled.help",
+            "text": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "pip",
+            "picture in picture",
+            "video",
+            "float",
+            "floating",
+            "pop out",
+            "media",
+            "now playing"
+          ]
+        }
+      ]
     }
   ]
 }

@@ -4,28 +4,20 @@
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
+
+export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-export type PullRequestState = "open" | "merged" | "closed";
-export type SummaryPullRequest = {
-  url: string;
-  repo: string;
-  number: number;
-  title?: string;
-  state: PullRequestState;
-  /// When the chat closed it (epoch ms), if the call says.
-  closedAt?: number;
-  /// The chat opened it (`gh pr create`); false for one it only touched (merged, edited, labelled,
-  /// commented on, reviewed or checked out by URL or `owner/repo` and number).
-  opened: boolean;
-};
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
+  /// What the call says it does (Claude's Bash `description`), when it says.
+  description?: string;
   state: "running" | "completed" | "failed" | "stopped";
   /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
   startedAt?: number;
@@ -39,86 +31,10 @@ export type SessionSummary = {
   backgroundTasks: SummaryBackgroundTask[];
 };
 
-const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
-/// `--title "..."`, `--title '...'`, `--title=...` or `-t "..."` on a `gh pr create` line.
-const TITLE = /(?:--title[= ]|-t )(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/;
-/// `gh pr merge|close` with a number, `#N` or a pull request URL, and `gh-merge-green owner/repo#N`.
-const PR_ARGUMENT = String.raw`(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/|#)?(\d+)`;
-const MERGE = new RegExp(String.raw`\bgh\s+pr\s+merge\s+${PR_ARGUMENT}|\bgh-merge-green\s+([\w.-]+\/[\w.-]+)?#(\d+)`);
-const CLOSE = new RegExp(String.raw`\bgh\s+pr\s+close\s+${PR_ARGUMENT}`);
 const URL = /https?:\/\/[^\s"'<>)]+/;
 
 const tools = (rows: readonly AcpmuxRow[]): Tool[] =>
   rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : []));
-
-const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
-
-/// A `gh pr` verb that acts on an existing pull request, and `gh-merge-green`.
-const TOUCH =
-  /\bgh\s+pr\s+(?:merge|close|edit|comment|review|ready|reopen|checkout)\b[^\n;&|]*|\bgh-merge-green\b[^\n;&|]*/g;
-/// `owner/repo#N` or `-R owner/repo` / `--repo owner/repo` with a bare number.
-const REPO_REF = /(?:^|\s)([\w.-]+\/[\w.-]+)#(\d+)\b/;
-const REPO_FLAG = /(?:^|\s)(?:-R|--repo)[= ]([\w.-]+\/[\w.-]+)\b/;
-const BARE_NUMBER = /(?:^|\s)#?(\d+)(?=\s|$)/;
-const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
-
-/// The pull request a touching command names by URL or repository and number, if it names one.
-function touched(call: string): { url: string; repo: string; number: number } | undefined {
-  // Quoted text (a comment's --body, an edit's --title) can name other pull requests.
-  const command = call.replace(QUOTED, " ");
-  const url = new RegExp(PR_URL.source).exec(command);
-  if (url) return { url: url[0], repo: url[1]!, number: Number(url[2]) };
-  const ref = REPO_REF.exec(command);
-  const repo = ref?.[1] ?? REPO_FLAG.exec(command)?.[1];
-  const number = ref?.[2] ?? BARE_NUMBER.exec(command.replace(REPO_FLAG, " "))?.[1];
-  if (!repo || !number) return undefined;
-  return { url: `https://github.com/${repo}/pull/${number}`, repo, number: Number(number) };
-}
-
-/// Pull requests a `gh pr create` call printed, and the ones a later successful `gh pr` call
-/// touched by URL or repository and number, oldest first. A successful `gh pr merge`,
-/// `gh-merge-green` or `gh pr close` naming the same number marks it merged or closed, and
-/// `gh pr reopen` opens it again.
-function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
-  const found = new Map<string, SummaryPullRequest>();
-  for (const tool of all) {
-    const command = tool.command ?? "";
-    if (!succeeded(tool)) continue;
-    if (/\bgh\s+pr\s+create\b/.test(command)) {
-      const title = TITLE.exec(command);
-      for (const [url, repo, number] of (tool.output ?? "").matchAll(PR_URL))
-        if (!found.has(url))
-          found.set(url, {
-            url,
-            repo: repo!,
-            number: Number(number),
-            title: title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined,
-            state: "open",
-            opened: true,
-          });
-      continue;
-    }
-    for (const [call] of command.matchAll(TOUCH)) {
-      const named = touched(call);
-      if (named && !found.has(named.url)) found.set(named.url, { ...named, state: "open", opened: false });
-    }
-    const reopened = new RegExp(String.raw`\bgh\s+pr\s+reopen\s+${PR_ARGUMENT}`).exec(command);
-    const merged = MERGE.exec(command);
-    const match = merged ?? CLOSE.exec(command) ?? reopened;
-    if (!match) continue;
-    // A URL or `owner/repo#N` names its repository; a bare number could be any of them.
-    const repo = match[1] ?? match[3];
-    const number = Number(match[2] ?? match[4]);
-    for (const pr of found.values())
-      if (pr.number === number && (!repo || repo === pr.repo)) {
-        pr.state = merged ? "merged" : match === reopened ? "open" : "closed";
-        const at = tool.endedAt ?? tool.startedAt;
-        if (pr.state === "closed" && at !== undefined) pr.closedAt = at;
-        else if (pr.state === "open") delete pr.closedAt;
-      }
-  }
-  return [...found.values()];
-}
 
 /// The session's own subagents, from its subagent groups (subagents/subagentFold.ts); records
 /// from before acpmux reported subagents carry Claude's Task tool as a `think` tool call titled
@@ -184,7 +100,8 @@ function sources(all: readonly Tool[]): SummarySource[] {
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
-export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows)).filter((pr) => pr.opened);
+export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
+  transcriptPullRequests(rows).filter((pr) => pr.opened);
 
 /// How background shells ended: on their call (`background`, direct.ts `markBackgroundCall`), or
 /// in a background task row when the call is not in the transcript.
@@ -212,6 +129,7 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
     .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
+      ...(field(input(tool).description) ? { description: field(input(tool).description) } : {}),
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
       ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));
@@ -228,11 +146,17 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
 export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
   backgroundTasks(rows, tools(rows)).filter((task) => task.state === "running");
 
-export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
+/// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
+/// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
+/// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
+export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null): SessionSummary {
   const all = tools(rows);
+  const inspector = repository !== undefined;
+  // The summary card reads only the commands, and lists no mention.
+  const pullRequests = transcriptPullRequests(rows, { folder: repository ?? undefined, replies: inspector });
   return {
     scheduled: scheduled(all),
-    pullRequests: pullRequests(all),
+    pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
     sources: sources(all),

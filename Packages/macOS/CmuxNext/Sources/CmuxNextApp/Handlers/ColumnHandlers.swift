@@ -19,7 +19,7 @@ enum ColumnHandlers {
         registry.bind("newRow", unavailable: { newRowUnavailableReason(ctx) }, invoke: { invocation in
             guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
             if !content.layoutModel.newRow(below: pane.layoutPaneID) {
-                ctx.refuse(newRowUnavailableReason(ctx) ?? RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.rows))
+                ctx.refuse(newRowUnavailableReason(ctx) ?? RefusalStrings.needsDaemonCapability(DaemonCapability.rows.rawValue))
             }
         })
         registry.bind("column.focusLeft", invoke: { focusAdjacent($0, forward: false, ctx) })
@@ -49,8 +49,8 @@ enum ColumnHandlers {
     @MainActor static func newRowUnavailableReason(_ ctx: AppActionContext) -> String? {
         guard ctx.design.layoutRows else { return RefusalStrings.rowsTurnedOff }
         let daemon = ctx.services.activeDaemon
-        guard !daemon.supports(DaemonCapabilities.shared.rows) else { return nil }
-        return daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows)
+        guard !daemon.supports(DaemonCapability.rows.rawValue) else { return nil }
+        return daemon.missingCapabilityMessage(DaemonCapability.rows.rawValue)
     }
 
     /// The targeted column (`column:<id>`), else the targeted or focused
@@ -105,12 +105,12 @@ enum ColumnHandlers {
         }
         guard let handle = content.handles.panes[pane] ?? ctx.refuse(RefusalStrings.paneHasNoDaemonHandle(pane.rawValue)) else { return }
         let daemon = ctx.services.activeDaemon
-        if daemon.supports(DaemonCapabilities.shared.columnMove) {
+        if daemon.supports(DaemonCapability.columnMove.rawValue) {
             let columnDirection: ColumnMoveDirection = direction == .right ? .right : .left
             return ctx.send("move-column") { try await $0.moveColumn(of: handle, direction: columnDirection) }
         }
         guard column.root.panes.count == 1 else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.columnMove))
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapability.columnMove.rawValue))
         }
         ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(direction)) }
     }

@@ -115,7 +115,7 @@ test("a question with several items or many choices gets no one-click answers", 
 test("a chat waiting with no readable ask still shows, once; an archived chat never does", () => {
   const items = needsYouItems({
     sessions: [
-      session("remote", { indicator: "input", updatedAt: 5, preview: "Pick a branch" }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 5, preview: "Pick a branch" }),
       session("counted", { pendingPermissions: 2 }),
       session("asked", { pendingPermissions: 1 }),
       session("gone", { indicator: "input", archived: true }),
@@ -125,13 +125,95 @@ test("a chat waiting with no readable ask still shows, once; an archived chat ne
   });
   expect(items.map((item) => item.id)).toEqual(["acpmux:p1", "chat:remote", "chat:counted"]);
   expect(items[1]!.kind).toBe("input");
-  expect(items[1]!.ask).toBe("Pick a branch");
+});
+
+// Leo 2026-10-21: the list said "Waiting 5m" for a chat and showed the agent's last message, not the
+// question it waited on. A chat whose ask is not read here shows what acpmux says it waits on: a
+// question by its prompt, a permission as a permission, and never the chat's last message.
+test("a waiting chat shows the question or permission it waits on, never its last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("question", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 9,
+        preview: "I compared both branches.",
+        waitingOn: { on: "question", prompt: "Which branch should the release start from?" },
+      }),
+      session("unworded", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 8,
+        preview: "Here is the plan.",
+        waitingOn: { on: "question" },
+      }),
+      session("permission", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 7,
+        preview: "Running the suite now.",
+        waitingOn: { on: "permission" },
+      }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 6, preview: "Drafted the notes." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
+    ["chat:question", "decision", "Which branch should the release start from?"],
+    ["chat:unworded", "decision", ""],
+    ["chat:permission", "approval", ""],
+    ["chat:remote", "input", ""],
+  ]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain("Which branch should the release start from?");
+  // A question reads as a question, a permission as a permission.
+  expect(html.split(translate("needsYou.waiting")).length - 1).toBe(2);
+  expect(html.split(translate("needsYou.waitingPermission")).length - 1).toBe(1);
+  expect(html).toContain(translate("needsYou.kind.decision"));
+  expect(html).toContain(translate("needsYou.kind.approval"));
+  for (const said of ["I compared both branches.", "Here is the plan.", "Running the suite now.", "Drafted the notes."])
+    expect(html).not.toContain(said);
+});
+
+test("a chat with nothing pending is not listed as waiting", () => {
+  // acpmux says the chat is idle: a stale dot claims no wait.
+  const items = needsYouItems({
+    sessions: [session("done", { status: "idle", indicator: "input", updatedAt: 5, preview: "All set." })],
+    asks: [],
+  });
+  expect(items).toEqual([]);
+});
+
+// Review of #23875: acpmux marks a chat `waiting` for a secret request too (hub/secrets.rs), with no
+// pending permission and no `waitingOn`. That chat stays listed, with the plain waiting line and
+// never its last message.
+test("a local chat waiting on a secret stays listed and shows no last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("secret", { status: "waiting", indicator: "input", updatedAt: 5, preview: "I need the deploy token." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([["chat:secret", "input", ""]]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain(translate("needsYou.waiting"));
+  expect(html).not.toContain("I need the deploy token.");
 });
 
 // Leo 2026-10-21: a row read "Waiting 5m" over the chat's last reply while a question waited. A chat
 // whose ask the page cannot read (another computer's) still names it in its summary (acpmux
-// `waitingOn`, `waitingPrompt`): the row shows that question; only a chat that names nothing falls
-// back to its last reply.
+// `waitingOn`, `waitingPrompt`): the row shows that question. A row never shows the last reply: a
+// chat that names no question text reads as its kind's line (NeedsYou.tsx `askText`).
 test("a waiting chat's row shows the question it waits on, not its last reply", () => {
   const items = needsYouItems({
     sessions: [
@@ -159,9 +241,9 @@ test("a waiting chat's row shows the question it waits on, not its last reply", 
   });
   expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
     ["chat:question", "decision", "Which branch should the docs target?"],
-    ["chat:permission", "approval", "The tests pass; pushing next."],
-    ["chat:unnamed", "decision", "Which tag should the notes start from?"],
-    ["chat:plain", "input", "Pick a branch"],
+    ["chat:permission", "approval", ""],
+    ["chat:unnamed", "decision", ""],
+    ["chat:plain", "input", ""],
   ]);
   expect(items.every((item) => item.answers.length === 0)).toBe(true);
   const html = renderToStaticMarkup(
@@ -262,7 +344,10 @@ test("an answer goes to the ask's own chat: a permission by option, a question i
     },
   });
   // A waiting chat with no ask read is answered at its source.
-  const waiting = needsYouItems({ sessions: [session("r", { indicator: "input" })], asks: [] })[0]!;
+  const waiting = needsYouItems({
+    sessions: [session("r", { indicator: "input", pendingPermissions: 1 })],
+    asks: [],
+  })[0]!;
   expect(answerParams(waiting, { id: "x", label: "x", tone: "choice" })).toBeUndefined();
 });
 

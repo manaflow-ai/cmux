@@ -19,6 +19,7 @@ import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
+import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -92,6 +93,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    // Cloud groups (cloud-groups-DESIGN.md): rows only, in team-groups.ts.
+    if (GROUP_OPS.has(op)) return reduceGroup(state, op, params, ctx)
     switch (op) {
       case "team.rows_migrate": {
         // (f) An old head's members and hosts move to rows in one commit; the maps leave the head.
@@ -310,6 +313,14 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted", retired_exported: "retired team VM files exported" }[t.action ?? ""]
         if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
+      }
+      case "team.github.token_minted": {
+        // Delivered by the team's own ConnectionDO outbox (integrations/github-tokens.ts): audit only.
+        if (p.kind !== "system" || !state.team || p.identity !== `system:connections:${state.team.id}`) return reject("auth.forbidden", "internal op of this team's ConnectionDO")
+        const t = params as { repo?: string; permissions?: Record<string, string>; principal_kind?: string; install?: string; user?: string; label?: string; token_id?: string }
+        const perms = Object.entries(t.permissions ?? {}).map(([k, v]) => `${k}:${v}`).join(", ")
+        const who = `${t.principal_kind} ${t.install ?? t.user}${t.label ? ` (${t.label})` : ""}`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `GitHub token ${t.token_id} for ${t.repo} (${perms}) minted for ${who}`, detail: params } }, state.team.id, ctx, op)
       }
       case "team_vm.ssh_ca_installed":
       case "team_vm.ssh_certs_revoked":

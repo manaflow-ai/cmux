@@ -14,6 +14,16 @@ public enum Intent: Sendable, Hashable {
     case renameTab(surface: SurfaceID, name: String?)
     /// `set-tab-pinned`.
     case setTabPinned(surface: SurfaceID, pinned: Bool)
+    /// `rename-pane`; nil or empty clears the name (shown as nil).
+    case renamePane(pane: PaneID, name: String?)
+    /// `rename-screen`; nil or empty clears the name (shown as nil).
+    case renameScreen(screen: ScreenID, name: String?)
+    /// `set-screen-metadata` with `color` (a palette token); nil clears it.
+    case setScreenColor(screen: ScreenID, color: String?)
+    /// `set-screen-metadata` with `icon` (an SF Symbol name or one emoji); nil clears it.
+    case setScreenIcon(screen: ScreenID, icon: String?)
+    /// `set-screen-pinned`.
+    case setScreenPinned(screen: ScreenID, pinned: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
     /// `move-workspace`: to final daemon-order `index` (clamped).

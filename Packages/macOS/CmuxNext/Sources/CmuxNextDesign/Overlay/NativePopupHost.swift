@@ -60,14 +60,17 @@ public final class NativePopupHost {
     public var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: panel.frame) }
 
     /// Shows (or moves) the popup with a card of `size` at `anchor` (screen) over `window`.
+    /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
-    /// active). Returns the card frame and the side it took, or nil when it cannot show.
+    /// active). `entrance` false shows it in one frame, with no grow or fade in (its close still
+    /// fades). Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
-                     trailing: Bool = false, makeKey: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
+                     entrance: Bool = true) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                                 screen: screen.visibleFrame)
+                                                 centered: centered, screen: screen.visibleFrame)
         generation += 1
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing
@@ -82,7 +85,9 @@ public final class NativePopupHost {
         // Opens like every native popup (no flash); a popup already open stays put.
         if opening, !panel.isVisible { panel.alphaValue = 0 }
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
-        if opening { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) }
+        if opening {
+            if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) } else { panel.showPopupAtOnce() }
+        }
         watch(window)
         return (frame, side)
     }

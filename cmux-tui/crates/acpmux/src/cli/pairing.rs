@@ -1,4 +1,4 @@
-//! `acpmux host ticket new|ls|revoke` (the minting machine) and
+//! `acpmux host ticket new|ls|revoke|full-access` (the minting machine) and
 //! `acpmux host join TICKET` (the new one); `cmux host ticket|join` run the
 //! same. See `crate::pairing` for the model and `server/pairing.rs` for the
 //! daemon's side. Every command prints one JSON object with `--json`; exit
@@ -49,7 +49,7 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             // the new one at; the placeholder fails until it is filled in.
             let advertise = match role {
                 Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
-                Role::Client | Role::ReadOnly => String::new(),
+                Role::Client | Role::ReadOnly | Role::Phone => String::new(),
             };
             v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
             v["join_command"] = json!(format!("cmux host join '{ticket}'{advertise}"));
@@ -63,6 +63,25 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             let v = client.request(method::MUX_PAIR_LIST, json!({})).await?;
             if !json_out {
                 print_list(&v);
+                return Ok(());
+            }
+            v
+        }
+        TicketCmd::FullAccess { id, state } => {
+            let v = full_access(&client, &id, state == "on").await?;
+            if !json_out {
+                let name = v["device"]["name"].as_str().unwrap_or(&id);
+                match v["allows"].as_str() {
+                    Some(allows) => println!("Full access on: {allows}"),
+                    None => println!(
+                        "Full access off for {name}{}",
+                        match v["held_again"].as_u64() {
+                            Some(n) if n > 0 =>
+                                format!("; {n} chat(s) back in their policy's mode"),
+                            _ => String::new(),
+                        }
+                    ),
+                }
                 return Ok(());
             }
             v
@@ -95,6 +114,26 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
     Ok(())
 }
 
+/// `host ticket full-access ID on|off` (`_acpmux/pair_set`).
+async fn full_access(client: &Client, id: &str, on: bool) -> Result<Value> {
+    let v = client.request(method::MUX_PAIR_SET, json!({"id": id, "fullAccess": on})).await;
+    let person = |e: &anyhow::Error| {
+        e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            d.0.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str)
+                == Some(crate::hub::person::REASON)
+        })
+    };
+    match v {
+        Err(e) if person(&e) => Err(AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "person_required",
+            "the CLI cannot turn Full access on for a machine: only the cmux app may (Settings > Devices). `cmux host ticket full-access ID off` still turns it off.",
+        )
+        .into()),
+        other => other,
+    }
+}
+
 /// `900`, `900s`, `15m` or `2h` as seconds.
 fn parse_ttl(text: &str) -> Result<u64> {
     let text = text.trim();
@@ -116,7 +155,16 @@ fn parse_ttl(text: &str) -> Result<u64> {
 
 fn install_command(ticket: &str) -> String {
     let url = std::env::var("CMUX_INSTALL_URL").unwrap_or_else(|_| INSTALL_URL.to_owned());
-    format!("curl -fsSL {url} | sh -s -- '{ticket}'")
+    install_line(&url, ticket)
+}
+
+/// Installs cmux, then joins with the CLI it installed (at the script's
+/// default `~/.cmux/bin`). The ticket goes to `cmux host join`, not to the
+/// script: a script that does not join (cmux.com served one on 2026-10-22)
+/// would install and stop, and a script that does join would spend the
+/// single-use ticket before a second join.
+fn install_line(url: &str, ticket: &str) -> String {
+    format!("curl -fsSL {url} | sh && \"$HOME/.cmux/bin/cmux\" host join --serve '{ticket}'")
 }
 
 fn print_minted(v: &Value) {
@@ -164,7 +212,11 @@ fn print_list(v: &Value) {
             if d["revoked_at"].is_string() {
                 "revoked".to_owned()
             } else {
-                format!("{} open connection(s)", d["connections"].as_u64().unwrap_or(0))
+                format!(
+                    "{} open connection(s){}",
+                    d["connections"].as_u64().unwrap_or(0),
+                    if d["full_access"] == true { ", Full access on" } else { "" }
+                )
             },
         );
     }
@@ -219,7 +271,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             params["advertiseToken"] = issued["token"].clone();
             issued_here = issued["deviceId"].as_str().map(str::to_owned);
         }
-        Role::Client | Role::ReadOnly => {
+        Role::Client | Role::ReadOnly | Role::Phone => {
             let peers = client.request("_acpmux/peers", json!({})).await?;
             let taken = peers["peers"].as_array().is_some_and(|ps| {
                 ps.iter().any(|p| p["name"].as_str() == Some(peer_name.as_str()))
@@ -317,4 +369,60 @@ async fn redeem(ticket: &Ticket, params: Value) -> Result<Value> {
     Err(anyhow!(
         "the other machine closed the connection: the ticket is unknown, expired, revoked or used"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_line;
+
+    /// A scratch folder removed at drop.
+    struct Dir(std::path::PathBuf);
+    impl Dir {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The line a person pastes on the new machine joins it even when the
+    /// install script it pipes into ignores its arguments, as the script
+    /// cmux.com served on 2026-10-22 did (it installed cmux and stopped).
+    #[test]
+    fn the_pasted_line_joins_even_through_an_install_script_that_ignores_the_ticket() {
+        let root = std::env::temp_dir().join(format!("acpmux-pair-line-{}", uuid::Uuid::now_v7()));
+        let dir = Dir(root);
+        let home = dir.path().join("home");
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let log = dir.path().join("cmux.log");
+        // An old install script: it installs a cmux that logs its arguments,
+        // and never reads "$@".
+        let script = format!(
+            "mkdir -p \"$HOME/.cmux/bin\"\nprintf '#!/bin/sh\\necho \"$*\" >> {log}\\n' > \"$HOME/.cmux/bin/cmux\"\nchmod 755 \"$HOME/.cmux/bin/cmux\"\n",
+            log = log.display()
+        );
+        let script_path = dir.path().join("install.sh");
+        std::fs::write(&script_path, script).unwrap();
+        let curl = format!("#!/bin/sh\ncat '{}'\n", script_path.display());
+        std::fs::write(bin.join("curl"), curl).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(bin.join("curl"), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let line = install_line("https://cmux.example/install.sh", "cmxt1.abc");
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&line)
+            .env("HOME", &home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .status()
+            .unwrap();
+        assert!(status.success(), "{line}");
+        let calls = std::fs::read_to_string(&log).unwrap_or_default();
+        assert_eq!(calls.trim(), "host join --serve cmxt1.abc", "{line}");
+    }
 }

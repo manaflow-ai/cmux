@@ -414,6 +414,9 @@ jobs:
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
           python3 tests/test_release_notes_pr_media.py
+          python3 tests/test_release_notes_clips.py
+          python3 tests/test_whats_new_clips.py
+          python3 scripts/cmux-next/media/whats-new-clips.py check
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -455,7 +458,7 @@ jobs:
         if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.3.6"
+          bun-version: "1.4.4"
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -632,6 +635,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      - name: Validate Linux SwiftPM rolling cache keys
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_swift_packages_linux_cache.py
+
       - name: Validate Swift package result reuse
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_result_reuse.py
@@ -731,6 +738,10 @@ jobs:
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate the starved fleet runner label alert
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
 
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -971,6 +982,10 @@ jobs:
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
+
+      - name: Validate upload-artifact retention and large artifacts on R2
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_upload_artifact_retention.py
 
       - name: Validate the PR media pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1229,9 +1244,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
+      - name: Validate the feat-cmux-next channel pointer only moves forward
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_point_channel.py
+
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate nightly builds and signers never cancel or replace a waiting run
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_delivery_concurrency.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1294,7 +1317,9 @@ jobs:
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
+        run: |
+          python3 tests/test_cmux_next_dev_daily_dispatch.py
+          python3 tests/test_cmux_next_dev_kick.py
 
       - name: Validate nightly tag permission probe
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1338,6 +1363,16 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+
+      # .github/nightly-step-coverage.json: every step only the nightly runs
+      # names its pull-request dry run here or elsewhere, or a reviewed reason.
+      - name: Validate every nightly step has a pull request counterpart
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_step_coverage.py
+
+      - name: Dry-run the nightly's tested-DMG gate for the old feed
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: bash tests/test_nightly_next_legacy_tested_digest.sh
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1591,15 +1626,31 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
-      - name: Validate bash watcher retirement and shell PR refresh
+      - name: Validate portable shell and no-socket regressions
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
-          if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zsh
+          if ! command -v zsh >/dev/null 2>&1 || ! command -v fish >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh fish
           fi
+          # The shim tests create private homes; group-writable fixture
+          # directories are intentionally rejected by the integrations.
+          umask 022
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py
+          # These use fake sockets/helpers and need no app or compile artifact.
+          python3 tests/test_stress_cli_socket_api.py
+          python3 tests/test_cmux_cua_helper_identity.py
+          python3 tests/test_issue_7028_claude_shim_persistence.py
+          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_9356_bash_shim_noclobber.py
+          python3 tests/test_shell_git_branch_stale_cwd.py
+          python3 tests/test_shell_git_config_remote_url_parsing.py
+          python3 tests/test_shell_first_prompt_spawns.py
+          python3 tests/test_shell_no_git_watch.py
+          python3 tests/test_shell_pr_watch_private_state.py
+          python3 tests/test_shell_welcome_banner_startup.py
 
       - name: Validate shell surface-scoped environment keys
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

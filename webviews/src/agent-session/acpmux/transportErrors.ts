@@ -7,6 +7,7 @@ import { translate, type StringKey } from "./i18n";
 const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.gesture_required": "transport.gestureRequired",
   "transport.path_outside_roots": "transport.pathOutsideRoots",
+  "transport.person_required": "transport.personRequired",
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
   "transport.mode_not_confirmed": "transport.modeNotConfirmed",
@@ -14,9 +15,12 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
 };
 
 // acpmux's own refusals (`data.reason`, which direct.ts copies to `error.reason`) that read the
-// same as the pane host's: start_mode.rs refuses full access with `full_access_off`.
+// same as the pane host's: start_mode.rs refuses full access with `full_access_off`, and
+// hub/person.rs an allow from a client that is not the person at the app with
+// `permission.person_required`.
 const DAEMON_REASON_CODE: Record<string, string> = {
   full_access_off: "transport.full_access_off",
+  "permission.person_required": "transport.person_required",
 };
 
 function refusalCode(error: unknown): unknown {

@@ -80,7 +80,8 @@ import Testing
         let brackets = off.filter { Self.bracketKeys.contains($0["key"]?.stringValue ?? "") }
         let bracketCommands = Set(brackets.compactMap { $0["command"]?.stringValue })
         #expect(scoped.isEmpty, "\(scoped)")
-        #expect(bracketCommands == ["nextSurface", "prevSurface"], "\(bracketCommands)")
+        // The pane tab actions, and on Home the chat list's (HomeChatSwitchingKeyTests).
+        #expect(bracketCommands == ["nextSurface", "prevSurface", "home.nextConversation", "home.previousConversation"], "\(bracketCommands)")
         #expect(on.count == off.count + 2)
     }
 
