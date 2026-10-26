@@ -24,9 +24,13 @@ let ask: AskStartMode | undefined;
 let generation = 0;
 /// Bumped whenever a kept answer changed: every pending chat draws it.
 let version = 0;
-/// The generation the last ask was sent in: a managed-access probe (useFullAccessProbe) asks only
-/// when no other ask went out in this generation.
+/// The generation the last ask that answered (or is in flight) was sent in: a managed-access probe
+/// (useFullAccessProbe) asks only when no other ask went out in this generation. An ask that fails
+/// gives its generation back (review 42 of #23322).
 let askedGeneration = -1;
+/// Bumped when an ask other than a probe failed: a shown chat's probe asks once more. A probe's own
+/// failure bumps nothing, so it never retries itself in a loop.
+let failedAsks = 0;
 /// The kept answers, read from storage once per page (each pane asks acpmux itself; storage only
 /// gives a new page its first frame).
 let memory: Record<string, StartMode | null> | undefined;
@@ -175,15 +179,15 @@ export function useFullAccessManaged(): boolean {
 export function useFullAccessProbe(harness: string | undefined, cwd: string | undefined, enabled: boolean): void {
   const asked = useSyncExternalStore(
     subscribe,
-    () => generation,
-    () => generation,
+    () => `${generation}:${failedAsks}`,
+    () => `${generation}:${failedAsks}`,
   );
   useEffect(() => {
     if (!enabled || !harness) return;
     let live = true;
     // After this commit's other effects: a pending chat's ask in the same generation answers it.
     queueMicrotask(() => {
-      if (live && ask && askedGeneration !== generation) void askStartMode(harness, cwd);
+      if (live && ask && askedGeneration !== generation) void askStartMode(harness, cwd, { probe: true });
     });
     return () => {
       live = false;
@@ -197,6 +201,8 @@ export function resetStartModesForTests(): void {
   memory = undefined;
   fullAccessManaged = false;
   fullAccessAsked = 0;
+  askedGeneration = -1;
+  failedAsks = 0;
   version += 1;
   notify();
 }
@@ -221,16 +227,28 @@ export function setStartModeSource(next: AskStartMode | undefined): void {
 }
 
 /// Asks acpmux now and keeps its answer. Without a client: the kept answer.
-export async function askStartMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+export async function askStartMode(
+  harness: string,
+  cwd?: string,
+  { probe = false }: { probe?: boolean } = {},
+): Promise<StartMode | undefined> {
   const source = ask;
   if (!source) return exactStartMode(harness, cwd);
-  askedGeneration = generation;
+  const sent = generation;
+  askedGeneration = sent;
   let mode: StartMode | undefined;
   try {
     mode = await source(harness, cwd);
   } catch {
     // Not asked (the socket closed under it, the request failed): acpmux said nothing, so the
     // kept answer stays. Kept as "sets none", the chip lost its mode until the next answer.
+    // Nor did it say whether full access is managed: a shown chat's probe asks again, once
+    // (`failedAsks`), unless this was that probe.
+    if (askedGeneration === sent) askedGeneration = -1;
+    if (!probe && source === ask) {
+      failedAsks += 1;
+      notify();
+    }
     return exactStartMode(harness, cwd);
   }
   rememberStartMode(harness, cwd, mode);
