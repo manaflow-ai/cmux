@@ -28,6 +28,7 @@ The CoreGraphics calls sit behind a backend (`CoreGraphicsBackend`, or `Recordin
 clock and sleep are injected, so `python3 scripts/cmux-next/hid_input.py --self-test` checks the pacing, the event
 sequences and the parsers on any OS.
 """
+import contextlib
 import csv
 import json
 import os
@@ -223,11 +224,13 @@ class CoreGraphicsBackend:
             cg.CGEventSetFlags(event, flags)
         self._post(event)
 
-    def scroll(self, x, y, dx, dy, phase, momentum):
+    def scroll(self, x, y, dx, dy, phase, momentum, flags=0):
         cg = self._lib()
         event = cg.CGEventCreateScrollWheelEvent2(None, 0, 2, int(dy), int(dx), 0)  # kCGScrollEventUnitPixel
         if event:
             cg.CGEventSetLocation(event, self.CGPoint(x, y))
+            if flags:
+                cg.CGEventSetFlags(event, flags)
             cg.CGEventSetIntegerValueField(event, FIELD_SCROLL_IS_CONTINUOUS, 1)
             cg.CGEventSetIntegerValueField(event, FIELD_SCROLL_PHASE, phase)
             cg.CGEventSetIntegerValueField(event, FIELD_MOMENTUM_PHASE, momentum)
@@ -256,8 +259,9 @@ class RecordingBackend:
     def mouse(self, kind, x, y, click_state=1, flags=0):
         self._add({"type": "mouse", "kind": kind, "x": x, "y": y, "flags": flags})
 
-    def scroll(self, x, y, dx, dy, phase, momentum):
-        self._add({"type": "scroll", "x": x, "y": y, "dx": dx, "dy": dy, "phase": phase, "momentum": momentum})
+    def scroll(self, x, y, dx, dy, phase, momentum, flags=0):
+        self._add({"type": "scroll", "x": x, "y": y, "dx": dx, "dy": dy, "phase": phase, "momentum": momentum,
+                   "flags": flags})
 
     def main_display_height(self):
         return self.display_height
@@ -340,28 +344,60 @@ class HidPoster:
             self.backend.key(MODIFIER_KEYCODES[modifier], False, flags)
         return {"events": len(path), "rate_hz": pacer.achieved_hz(), "late": pacer.late}
 
-    def scroll_gesture(self, point, dy=-12.0, dx=0.0, rate_hz=120.0, changes=30, momentum=20):
+    def scroll_gesture(self, point, dy=-12.0, dx=0.0, rate_hz=120.0, changes=30, momentum=20, modifiers=()):
         """A trackpad scroll at `point`: began, `changes` changed events, ended, then `momentum` momentum events
-        that decay, all at `rate_hz` (the display rate). Returns {events, rate_hz, late}."""
+        that decay, all at `rate_hz` (the display rate). With `modifiers` (`command` for the layout's
+        Command + Scroll) the modifier keys go down before the began event, every scroll event carries their
+        flags, and they come up after the last momentum event, as a person holds them. Returns
+        {events, rate_hz, late}."""
         x, y = point
         pacer = Pacer(rate_hz, self.clock, self.sleep)
         events = 0
+        with self._held(modifiers) as flags:
 
-        def post(ddx, ddy, phase, momentum_phase):
-            nonlocal events
-            pacer.tick()
-            self.backend.scroll(x, y, ddx, ddy, phase, momentum_phase)
-            events += 1
+            def post(ddx, ddy, phase, momentum_phase):
+                nonlocal events
+                pacer.tick()
+                self.backend.scroll(x, y, ddx, ddy, phase, momentum_phase, flags)
+                events += 1
 
-        post(0, 0, SCROLL_BEGAN, MOMENTUM_NONE)
-        for _ in range(changes):
-            post(dx, dy, SCROLL_CHANGED, MOMENTUM_NONE)
-        post(0, 0, SCROLL_ENDED, MOMENTUM_NONE)
-        for index in range(momentum):
-            decay = 0.9 ** (index + 1)
-            phase = MOMENTUM_BEGIN if index == 0 else (MOMENTUM_END if index == momentum - 1 else MOMENTUM_CONTINUE)
-            post(round(dx * decay), round(dy * decay), 0, phase)
+            post(0, 0, SCROLL_BEGAN, MOMENTUM_NONE)
+            for _ in range(changes):
+                post(dx, dy, SCROLL_CHANGED, MOMENTUM_NONE)
+            post(0, 0, SCROLL_ENDED, MOMENTUM_NONE)
+            for index in range(momentum):
+                decay = 0.9 ** (index + 1)
+                phase = MOMENTUM_BEGIN if index == 0 else (MOMENTUM_END if index == momentum - 1 else MOMENTUM_CONTINUE)
+                post(round(dx * decay), round(dy * decay), 0, phase)
         return {"events": events, "rate_hz": pacer.achieved_hz(), "late": pacer.late}
+
+    def scroll_touch(self, point, modifiers=()):
+        """Fingers down and up with no movement: a began and an ended event. The app's ledger starts a scroll at a
+        began event and emits the scroll before it only then (Chrome emits a scroll's PerScroll histograms at the
+        next OnScrollStarted, cc/metrics/scroll_jank_dropped_frame_tracker.cc), so a bench ends its gestures with
+        one to have the last gesture counted. Returns {events}."""
+        x, y = point
+        with self._held(modifiers) as flags:
+            self.backend.scroll(x, y, 0, 0, SCROLL_BEGAN, MOMENTUM_NONE, flags)
+            self.backend.scroll(x, y, 0, 0, SCROLL_ENDED, MOMENTUM_NONE, flags)
+        return {"events": 2}
+
+    @contextlib.contextmanager
+    def _held(self, modifiers):
+        """Presses each modifier key, its flags growing as a person's chord does, and yields all their flags. The
+        keys it pressed come up in reverse order when the block ends, also when a post raises (HidUnavailable) or the
+        run is interrupted, so no modifier stays down at the HID tap for later input."""
+        pressed, flags = [], 0
+        try:
+            for modifier in modifiers:
+                self.backend.key(MODIFIER_KEYCODES[modifier], True, flags | FLAGS[modifier])
+                flags |= FLAGS[modifier]
+                pressed.append(modifier)
+            yield flags
+        finally:
+            for modifier in reversed(pressed):
+                flags &= ~FLAGS[modifier]
+                self.backend.key(MODIFIER_KEYCODES[modifier], False, flags)
 
 
 def uptime_raw():
@@ -388,7 +424,7 @@ class DebugKeyPoster:
     def _refuse(self, *args, **kwargs):
         raise InputRefused("--input debug sends keys over the control socket only; pointer input needs --input real")
 
-    click = drag = scroll_gesture = _refuse
+    click = drag = scroll_gesture = scroll_touch = _refuse
 
 
 def poster_for(mode, control=None, backend=None, debug_params=None, clock=time.perf_counter, sleep=time.sleep):
@@ -621,6 +657,49 @@ def self_test():
     HidPoster(backend, clock=clock, sleep=sleep).scroll_gesture((10, 10), dy=-10, changes=3, momentum=3)
     phases = [(e["phase"], e["momentum"]) for e in backend.events]
     check("scroll phases", phases == [(1, 0), (2, 0), (2, 0), (2, 0), (4, 0), (0, 1), (0, 2), (0, 3)], phases)
+    check("scroll without modifiers", all(e["flags"] == 0 for e in backend.events), backend.events)
+
+    # Command + Scroll: Command goes down first, every scroll event carries its flag, and it comes up last.
+    backend = RecordingBackend(clock=clock)
+    HidPoster(backend, clock=clock, sleep=sleep).scroll_gesture((10, 10), dx=-10, dy=0, changes=2, momentum=2,
+                                                                modifiers=("command",))
+    first, last, scrolls = backend.events[0], backend.events[-1], backend.events[1:-1]
+    check("command down first", first["type"] == "key" and first["code"] == MODIFIER_KEYCODES["command"] and first["down"]
+          and first["flags"] == FLAGS["command"], first)
+    check("command up last", last["type"] == "key" and last["code"] == MODIFIER_KEYCODES["command"] and not last["down"]
+          and last["flags"] == 0, last)
+    check("command scroll flags", len(scrolls) == 6 and all(e["type"] == "scroll" and e["flags"] == FLAGS["command"]
+                                                            for e in scrolls), scrolls)
+    check("sideways deltas", [e["dx"] for e in scrolls] == [0, -10, -10, 0, -9, -8] and all(e["dy"] == 0 for e in scrolls),
+          [e["dx"] for e in scrolls])
+
+    # A post that fails mid-gesture still lifts Command: the HID tap is left with no modifier held.
+    class FailingBackend(RecordingBackend):
+        def __init__(self, fail_at):
+            super().__init__(clock=clock)
+            self.fail_at = fail_at
+
+        def scroll(self, *args, **kwargs):
+            if sum(e["type"] == "scroll" for e in self.events) == self.fail_at:
+                raise HidUnavailable("CoreGraphics made no event")
+            super().scroll(*args, **kwargs)
+
+    for fail_at, gesture in ((3, lambda p: p.scroll_gesture((10, 10), dx=-10, dy=0, changes=4, momentum=2, modifiers=("command",))),
+                             (1, lambda p: p.scroll_touch((10, 10), modifiers=("command",)))):
+        backend = FailingBackend(fail_at)
+        try:
+            gesture(HidPoster(backend, clock=clock, sleep=sleep))
+            failures.append(f"a failing post at {fail_at} did not raise")
+        except HidUnavailable:
+            pass
+        keys = [(e["down"], e["flags"]) for e in backend.events if e["type"] == "key"]
+        check(f"command released after a failed post at {fail_at}", keys == [(True, FLAGS["command"]), (False, 0)]
+              and backend.events[-1]["type"] == "key", backend.events)
+
+    # A touch: began and ended with no movement (the ledger's next OnScrollStarted).
+    backend = RecordingBackend()
+    HidPoster(backend).scroll_touch((5, 5))
+    check("scroll touch", [(e["phase"], e["dx"], e["dy"]) for e in backend.events] == [(1, 0, 0), (4, 0, 0)], backend.events)
 
     # debug.key only by name, and it refuses pointer input.
     class FakeControl:
@@ -643,11 +722,12 @@ def self_test():
             failures.append(f"poster_for({mode!r}) did not refuse")
         except InputRefused:
             pass
-    try:
-        debug.drag((0, 0), (1, 1))
-        failures.append("debug drag did not refuse")
-    except InputRefused:
-        pass
+    for refused in (lambda: debug.drag((0, 0), (1, 1)), lambda: debug.scroll_touch((0, 0))):
+        try:
+            refused()
+            failures.append("debug pointer input did not refuse")
+        except InputRefused:
+            pass
 
     # Geometry: a window at (100, 200) 800 x 600 on a 1080 pt display.
     check("bottom-left point", window_point([100, 200, 800, 600], (10, 20), 1080) == (110, 860),

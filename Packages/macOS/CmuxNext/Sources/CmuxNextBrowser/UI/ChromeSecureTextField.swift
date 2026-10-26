@@ -10,7 +10,6 @@ final class ChromeSecureTextField: NSSecureTextField {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         isBezeled = false
         drawsBackground = false
@@ -31,6 +30,7 @@ final class ChromeSecureTextField: NSSecureTextField {
         applyColors()
     }
 
+    // visibility-walk-allow: a text color and the placeholder in the theme scope, no layout; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

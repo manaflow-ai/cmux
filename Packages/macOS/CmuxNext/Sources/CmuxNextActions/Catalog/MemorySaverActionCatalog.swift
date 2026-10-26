@@ -37,7 +37,7 @@ nonisolated enum MemorySaverActionCatalog: ActionCatalogGroup {
     }
 }
 
-extension MemorySaverMode {
+nonisolated extension MemorySaverMode {
     /// The palette action that sets `memory.saver` to this mode: `memory.saver.<mode>`.
     public var actionID: ActionID {
         ActionID(rawValue: "memory.saver.\(rawValue)")

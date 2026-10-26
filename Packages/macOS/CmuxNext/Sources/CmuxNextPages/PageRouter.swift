@@ -392,10 +392,21 @@ public final class PageRouter {
         for call in running.values { call.cancel() }
     }
 
-    /// Reopens after a reload of the same page (a new document starts with no subscriptions).
+    /// Reopens after a reload of the same page (a new document starts with no subscriptions); an
+    /// ended router (``end()``) stays closed.
     public func reset() {
         close()
-        closed = false
+        closed = isEnded
+    }
+
+    /// ``end()`` ran: the page closed for good.
+    public private(set) var isEnded = false
+
+    /// The page closed for good (its tab closed): as ``close()``, and no later ``reset()`` reopens it, so a
+    /// commit, crash or browser end its engine page reports before that page ends serves nothing.
+    public func end() {
+        isEnded = true
+        close()
     }
 
     public var subscriptionCount: Int { subscriptions.count }

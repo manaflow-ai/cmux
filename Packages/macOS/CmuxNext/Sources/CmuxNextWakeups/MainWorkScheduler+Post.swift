@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Where a main-thread task was posted: Chrome's `posted_from` (`FROM_HERE`, base/location.h).
 /// The posting functions take it as `#fileID` and `#line` defaults; the board publishes it with
@@ -124,14 +127,20 @@ extension MainWorkScheduler {
                                              line: UInt = #line, _ body: @escaping @MainActor () throws(E) -> T) async throws(E) -> T {
         startup.checkAwait(workClass.workClass, owner: owner, file: file, line: line)
         let interned = taskOwner(owner)
-        let result: Result<T, E> = await withCheckedContinuation { continuation in
-            post(workClass, owner: interned, site: MainPostSite(file: file, line: line)) {
-                do throws(E) {
-                    continuation.resume(returning: .success(try body()))
-                } catch {
-                    continuation.resume(returning: .failure(error))
+        let result: Result<T, E>
+        do {
+            result = try await withOnceContinuation { (continuation: OnceContinuation<Result<T, E>, OnceContinuationError>) in
+                post(workClass, owner: interned, site: MainPostSite(file: file, line: line)) {
+                    do throws(E) {
+                        continuation.resume(returning: .success(try body()))
+                    } catch {
+                        continuation.resume(returning: .failure(error))
+                    }
                 }
             }
+        } catch {
+            // The class queue was released with the task unrun (abandoned): run it here, on main.
+            return try body()
         }
         return try result.get()
     }

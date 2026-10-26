@@ -131,6 +131,8 @@ void HostContext::Attach() {
   for (const auto& entry : kOptionalExports) {
     if (OptionalExport(entry.op)) exports.push_back(entry.name);
   }
+  // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
+  if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -161,6 +163,10 @@ void HostContext::Resume() {
   if (state_ != State::kInitializing) return;
   state_ = State::kRunning;
   InstallHostPolicies();
+  if (set_wheel_ack_handler_ && !set_wheel_ack_handler_(&HostContext::OnWheelAck, this)) {
+    // The HELLO said acks come: the swipe waits for them, so a refusal is the fork's bug, logged.
+    fprintf(stderr, "cmux-chromium-host: the fork refused the wheel ack handler\n");
+  }
   Ack(initialize_token_);
   ProduceAttach(false);
   while (!waiting_.empty() && state_ == State::kRunning) {
@@ -495,6 +501,17 @@ void HostContext::OnTextInput(void* ctx, int browser_id, const void* state) {
   host->text_input_.Changed(browser_id, std::move(read));
 }
 
+void HostContext::OnWheelAck(void* ctx, int browser_id, const void* ack) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  WheelAck read;
+  // An unreadable ack still answers its wheel, so the next ack names the next wheel.
+  const bool readable = ReadForkWheelAck(ack, &read);
+  const std::optional<WheelAckEvent> event = host->wheel_acks_.Acked(browser_id, readable ? &read : nullptr);
+  if (!event) return;
+  host->ForwardEvent(kEventWheelAck, browser_id, event->request, event->a, event->b, "", "");
+}
+
 void HostContext::Dispatch(const control::Message& message) {
   if (message.op == kOpShutdown) {
     // CefShutdown runs once the loop has ended (browser_host_main.mm), never inside a task.
@@ -676,6 +693,7 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   page_visibility_.erase(client_id);
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
+  wheel_acks_.Forget(chromium_id);
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();
     std::erase_if(keys, [&](const std::vector<control::Field>& key) { return HostMirrors::NamesTab(op, key, client_id); });

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pageTabsShareChromiumWindow",
+  "owner": "PL-webui",
+  "description": "The Chromium page tabs of one pane share one Chromium window, as a Chrome window holds its tab strip: a pane's second page builds no window, a tab moved to another pane moves its page into that pane's window, and an emptied window closes.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["new-tab-page", "memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

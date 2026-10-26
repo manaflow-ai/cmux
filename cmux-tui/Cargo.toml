@@ -55,6 +55,7 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
     "crates/cmux-trace",
+    "crates/cmux-hang-watch",
     "crates/cmux-wake",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
@@ -226,6 +227,7 @@ cmux-features = { path = "crates/cmux-features" }
 cmux-threads = { path = "crates/cmux-threads" }
 cmux-wake = { path = "crates/cmux-wake" }
 cmux-trace = { path = "crates/cmux-trace" }
+cmux-hang-watch = { path = "crates/cmux-hang-watch" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }

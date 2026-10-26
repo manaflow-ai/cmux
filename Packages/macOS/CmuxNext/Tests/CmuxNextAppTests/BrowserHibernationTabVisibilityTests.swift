@@ -47,13 +47,13 @@ struct BrowserHibernationTabVisibilityTests {
         let freezer = try #require(rig.freezers[key])
         try await rig.until("the hidden page freezes") { rig.hibernation.frozen.contains(key) }
 
-        node.setCaptured(true)
+        let capture = node.captureVote(reason: "test capture", stayHidden: true)
         #expect(!rig.hibernation.frozen.contains(key), "the capture thaws the page in the vote's turn")
         #expect(freezer.calls == [true, false])
         try await rig.until("a freeze is refused while the capture lasts") { freezer.refused > 0 }
         #expect(!rig.hibernation.frozen.contains(key))
 
-        node.setCaptured(false)
+        capture.release()
         try await rig.until("the page freezes again after the capture") { rig.hibernation.frozen.contains(key) }
         #expect(freezer.calls == [true, false, true])
     }

@@ -37,6 +37,9 @@ final class CEFHostStart {
     /// The attached host maps the ids cmux mints (``CEFAttachedHost/mapsClientIDs``); set by
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
+    /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
+    /// navigation decides from those acks and probes no page (task p01-process-234).
+    private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
 
@@ -66,7 +69,9 @@ final class CEFHostStart {
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome { (remote, mapsClientIDs, hostGone) = (host.remote, host.mapsClientIDs, false) }
+        if case .success(let host) = outcome {
+            (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        }
         return outcome
     }
 
@@ -75,7 +80,7 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
-        (task, remote, mapsClientIDs, hostGone, pageResizes) = (nil, nil, false, true, nil)
+        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -121,7 +126,8 @@ final class CEFHostStart {
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
-                                            mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName)))
+                                            mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
+                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName)))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -144,9 +150,14 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// (its HELLO lists ``clientIDsHelloName``; HOST/src/host_client_ids.h), so cmux may create a
     /// browser in the key's turn and name it by the minted id at once (task 019).
     var mapsClientIDs: Bool
+    /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
+    /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
+    var acksWheels = false
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"
+    /// `cmux_host::kWheelAcksHelloName` (HOST/src/host_wheel_ack.h).
+    static let wheelAcksHelloName = "cmux_host_wheel_acks"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.

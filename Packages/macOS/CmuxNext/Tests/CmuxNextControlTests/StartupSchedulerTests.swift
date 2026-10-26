@@ -361,6 +361,27 @@ import Testing
         #expect(f.startup.log.phase == .quitting)
     }
 
+    /// p08-startup-065: a value the completion's own mark must follow (`launch.views_built` before `startup_complete`)
+    /// registers late and still runs before every earlier `whenComplete` observer.
+    @Test func aFirstObserverRegisteredLateRunsBeforeTheEarlierObservers() {
+        let f = StartupFixture()
+        f.startup.whenComplete { [ran = f.ran] _ in ran.names.append("startup_complete") }
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("views_built") }
+        f.complete()
+        #expect(f.ran.names == ["views_built", "startup_complete"])
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("late") }
+        #expect(f.ran.names == ["views_built", "startup_complete", "late"], "after completion it runs at once")
+    }
+
+    @Test func aFirstObserverNeverRunsAfterQuit() {
+        let f = StartupFixture()
+        var ran = false
+        f.startup.whenCompleteFirst { _ in ran = true }
+        f.startup.beginQuit()
+        f.complete()
+        #expect(!ran)
+    }
+
     @Test func afterBeginQuitNoQueuedOrLaterLaneTaskRuns() async {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Launch.cleanup") }
