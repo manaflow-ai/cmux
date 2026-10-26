@@ -1,0 +1,4 @@
+{
+  "$comment": "p10 Package.swift settings (plans/cmux-next/chrome-parity/p10-stability.md C.5). Add a row {task, package, target, setting, reason}; package is a closure directory or \"*\", target a Swift target or \"*\". Never edit a closure Package.swift for these settings: scripts/cmux-next/apply-stability-settings.py --commit lands every row in one commit, then compile-check that commit on the fleet.",
+  "rows": []
+}
