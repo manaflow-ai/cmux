@@ -124,7 +124,7 @@ struct PageWebViewEngineNeutralTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, page) = try await started(FakeChromiumHosting())
         view.close()
-        view.endDocument()
+        view.endPageDocument()
         #expect(page.closed)
         #expect(view.webKitPieces == nil, "ending a Chromium document built a WebKit view")
     }

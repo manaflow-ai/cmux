@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
-import WebKit
+public import WebKit
 
 // Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through
 // ``PageChromiumPage``), so a host never reaches into a WebKit view for them: a script,
@@ -31,11 +31,11 @@ extension PageWebView {
         set { webKitHooks.underPageColor = newValue }
     }
 
-    /// Drops the document for good after ``close()``, so its sockets and timers end now and not when
+    /// Drops the document for good after ``close()`` (not NSView's printing `endDocument()`), so its sockets and timers end now and not when
     /// the view is freed: a WebKit view that loaded stops and shows an empty document. A Chromium
     /// page ended with ``close()`` and has no WebKit view, and a WebKit view that never loaded has no
     /// process to end (an empty load would start one).
-    public func endDocument() {
+    public func endPageDocument() {
         guard let webView = webKitPieces?.view, webView.url != nil else { return }
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)

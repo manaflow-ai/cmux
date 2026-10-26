@@ -184,7 +184,7 @@ public struct LabelParityProbe {
             row["\(at).cell.stock"] = "\(celled)"
             report.checked += 1
             if !Self.placed(celled, inks.1) { note("\(name) \(at) cell ink: old label \(celled) label \(inks.1)", into: &report) }
-            label.display()
+            label.display() // sync-layout: the debug probe reads the label's rendered layer below.
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"
             report.checked += 1
@@ -208,8 +208,8 @@ public struct LabelParityProbe {
                         fills ? view.trailingAnchor.constraint(equalTo: box.trailingAnchor)
                             : view.trailingAnchor.constraint(lessThanOrEqualTo: box.trailingAnchor),
                     ])
-                    box.layoutSubtreeIfNeeded()
-                    // The second pass a wrapping label's width change asks for.
+                    box.layoutSubtreeIfNeeded() // sync-layout: the debug probe reads the laid-out frame below.
+                    // sync-layout: the second pass a wrapping label's width change asks for.
                     box.layoutSubtreeIfNeeded()
                     let frame = view.frame
                     view.removeFromSuperview()

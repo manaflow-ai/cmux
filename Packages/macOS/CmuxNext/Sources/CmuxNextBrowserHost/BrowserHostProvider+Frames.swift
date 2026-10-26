@@ -1,10 +1,13 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
+import CmuxNextWakeups
 import Foundation
 
 extension BrowserHostProvider {
     /// `cookies.restore` names a backup, not a tab: the backup records its profile.
     static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
+    /// The WebKit driver's capture call: it holds the tab's capture vote until it answers.
+    static let screenshotMethod = "tab.screenshot"
 
     /// A frame the app handles: its task's owner on the board, `browser-host.<tag>`, and its handler.
     struct FrameTask {
@@ -67,6 +70,9 @@ extension BrowserHostProvider {
             return
         }
         let link = connection
+        // A screenshot of a tab nobody sees renders it while the driver takes the picture.
+        let vote = method == Self.screenshotMethod
+            ? targetID.flatMap { capture?.captureVote(targetID: $0, reason: "agent.screenshot") } : nil
         Task { [weak self] in
             let frame: ProviderFrame
             do throws(DriverError) {
@@ -75,6 +81,7 @@ extension BrowserHostProvider {
             } catch {
                 frame = .result(id: id, result: nil, error: error.json)
             }
+            vote?.release()
             guard let self, let link, self.connection === link else { return }
             // A tab the call opened or closed reaches the host before the
             // reply, so the session's next tabs.list sees it.

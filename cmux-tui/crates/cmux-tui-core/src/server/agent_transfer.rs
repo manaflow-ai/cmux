@@ -82,7 +82,8 @@ use serde_json::{Map, Value, json};
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
-use super::{MessageWriter, Response, SurfaceId};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
@@ -554,30 +555,23 @@ impl From<LinkError> for Failure {
 
 /// The `cmd` names this module answers (server/routes.rs); access requests
 /// and agent updates have their own routes.
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Prefix("agent-transfer-")],
-        stage: crate::server::FrameStage::AgentTransfer,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("agent-transfer-")],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
 
-/// Handles an `agent-transfer-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-transfer-") {
-        return None;
-    }
+/// Answers a line whose `cmd` starts with `agent-transfer-` (the route found
+/// it by name). The line's one decode is its `Value`, which gives every
+/// reply the `id` as written, a refused one too, and then the typed
+/// [`Verb`]. `None` only for a line with no `Value` (a number past `f64`, a
+/// lone surrogate); the `Command` parse answers it. Remote-relay
+/// connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if !object.get("cmd").and_then(Value::as_str)?.starts_with("agent-transfer-") {
-        return None;
-    }
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {

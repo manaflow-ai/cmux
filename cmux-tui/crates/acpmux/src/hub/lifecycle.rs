@@ -967,12 +967,13 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
-        // A probe starts the agent: none while launches are off (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
+        // A probe starts the agent: only one the launch policy allows (cx-9ettq).
+        if crate::launch_policy::every_launch_denied() {
             tracing::info!("agent launch is disabled; model probes skipped");
             return;
         }
-        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
+        let policy = crate::launch_policy::LaunchPolicy::current();
+        let picked = |n: &str| policy.allows(n) && only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();

@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextFocus
+import CmuxNextInput
 import Testing
 
 /// A key the app routes itself (`debug.key`, a replayed held key: `KeyRouter.dispatchingSynthetic`) is the
@@ -35,5 +37,28 @@ struct InputDispatchAgeTests {
         #expect(age >= 5 && age < 5_000, "input age \(age) ms (want the key's own, not -1 or the stale key's 30 s)")
         #expect(services.registry.dispatchingInputEvent() == nil, "the dispatch ended but an event is still reported")
         #expect(!services.registry.isDispatchingKeyDown())
+    }
+
+    /// The tap's action event (p04-input-067) is wired to the same dispatch: a handler run by a key reads that key,
+    /// and a run after the dispatch (a CLI or socket run) reads none, though AppKit still keeps the person's last key.
+    @Test func theActionEventIsTheDispatchedKeyAndNoneAfterIt() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let now = ProcessInfo.processInfo.systemUptime
+        let cmdT = try Self.key("t", keyCode: 17, at: now - 0.005)
+        let last = try Self.key("w", keyCode: 13, at: now - 1)
+        // The person's last key went through `sendEvent` and stays AppKit's current event after its dispatch.
+        services.inputTap.currentEvent = { last }
+        services.inputTap.sendEventBegan(last)
+        services.inputTap.deliverObserve(last)
+        services.inputTap.sendEventEnded()
+
+        let (actionEvent, source) = services.keyRouter.dispatchingSynthetic(cmdT) {
+            (services.inputTap.actionEvent, FocusEvent.Source.of(services.inputTap.actionEvent))
+        }
+        #expect(actionEvent === cmdT, "a handler run by the key does not read that key")
+        #expect(source == .keyboard)
+        #expect(services.inputTap.actionEvent == nil, "a run after the dispatch reads the person's last key as its own")
+        #expect(FocusEvent.Source.current == .programmatic)
     }
 }

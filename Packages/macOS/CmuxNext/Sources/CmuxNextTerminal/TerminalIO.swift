@@ -76,14 +76,14 @@ public nonisolated protocol TerminalIO: Sendable {
 }
 
 public extension TerminalIO {
-    var answersTerminalQueries: Bool { true }
+    nonisolated var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
-    func inputDrain() -> TerminalInputDrain { .awaiting(self) }
+    nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
 }
 
 /// One event from a ``TerminalIO``.
