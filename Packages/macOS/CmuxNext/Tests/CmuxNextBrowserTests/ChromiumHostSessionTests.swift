@@ -361,6 +361,31 @@ import Testing
         #expect(launcher.count == 1)
     }
 
+    /// The presentation reports the session handed on (the app's input latency tracker), observed.
+    @MainActor @Observable
+    final class PresentedReports {
+        var reports: [[UInt64]] = []
+    }
+
+    /// The host reports when each input's frame was presented (task p04-input-066): the session hands the event time
+    /// and the presentation time on, in order, and keeps a frame that failed to present to itself.
+    @Test func hostPresentationReportsReachTheInputLatencySeam() async throws {
+        let launcher = FakeLauncher()
+        let recorded = PresentedReports()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          inputPresented: { event, presented in recorded.reports.append([event, presented]) })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        host.wire.send(.inputPresented(.init(eventNanos: 1_000, presentedNanos: 9_000,
+                                             feedbackFlags: ChromiumHostFrame.presentationFailed)))
+        host.wire.send(.inputPresented(.init(eventNanos: 2_000, presentedNanos: 20_000, feedbackFlags: 1)))
+        host.wire.send(.inputPresented(.init(eventNanos: 3_000, presentedNanos: 30_000, feedbackFlags: 1 | 1 << 2)))
+        try await until("two reports") { recorded.reports.count == 2 }
+        #expect(recorded.reports == [[2_000, 20_000], [3_000, 30_000]])
+        #expect(session.report["input_presented_failed"] as? Int == 1)
+    }
+
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
     /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
     /// sequential calls continue where the last one stopped.

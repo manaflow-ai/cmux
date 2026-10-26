@@ -292,7 +292,8 @@ extension AppControl {
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
                                                  isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
-                                                 idleExitAfter: chromiumHostIdleExit(in: services.features))
+                                                 idleExitAfter: chromiumHostIdleExit(in: services.features),
+                                                 inputPresented: { [weak services] in _ = services?.inputLatency.tracker.hostPresented(eventNanos: $0, at: $1) })
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
