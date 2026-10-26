@@ -527,6 +527,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Corrupted Chrome, Firefox and Safari profiles through every import reader (p10-stability-025).
+        .testTarget(
+            name: "CmuxNextBrowserImportTests",
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(

@@ -126,22 +126,34 @@ public actor BrowserImporter {
         #else
         let path = profile.path
         if kind == .bookmarks {
-            batch.bookmarks = try readBookmarks(profile)
+            let read = try readBookmarks(profile)
+            batch.bookmarks = read.items
+            batch.skippedBookmarks = read.skipped
             return
         }
         if kind == .history, let file = profile.historyFile {
-            batch.history = try readHistory(profile.browser.family, file: file, limit: historyLimit)
+            let read = try readHistory(profile.browser.family, file: file, limit: historyLimit)
+            batch.history = read.items
+            batch.skippedHistory = read.skipped
             return
         }
         switch (profile.browser.family, kind) {
         case (.chromium, .openTabs):
-            if let file = ChromiumSessionReader().sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader().parse(try Data(contentsOf: file)) }
+            if let file = ChromiumSessionReader().sessionFile(profile: path) {
+                let read = ChromiumSessionReader().parse(try Data(contentsOf: file))
+                batch.openTabs = read.items
+                batch.skippedOpenTabs = read.skipped
+            }
         case (.chromium, .searchEngines):
             batch.searchEngine = ChromiumSearchEngineReader().read(profile: path)
         case (.chromium, .extensions):
             batch.extensions = ChromiumExtensionsReader().read(profile: path)
         case (.firefox, .openTabs):
-            if let file = FirefoxSessionReader().sessionFile(in: path) { batch.openTabs = FirefoxSessionReader().parse(try Data(contentsOf: file)) }
+            if let file = FirefoxSessionReader().sessionFile(in: path) {
+                let read = FirefoxSessionReader().parse(try Data(contentsOf: file))
+                batch.openTabs = read.items
+                batch.skippedOpenTabs = read.skipped
+            }
         case (.firefox, .searchEngines):
             batch.searchEngine = FirefoxSearchEngineReader().read(profile: path)
         case (.safari, .searchEngines):
@@ -152,16 +164,16 @@ public actor BrowserImporter {
         #endif
     }
 
-    /// One history database, newest pages first, with its family's reader.
-    public static func readHistory(_ family: BrowserFamily, file: URL, limit: Int) throws -> [ImportedHistoryEntry] {
+    /// One history database, newest pages first, with its family's reader, and the pages it left out.
+    public static func readHistory(_ family: BrowserFamily, file: URL, limit: Int) throws -> ImportRead<ImportedHistoryEntry> {
         #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
-        return []
+        return ImportRead()
         #else
         switch family {
         case .chromium: return try ChromiumHistoryReader().read(file, limit: limit)
         case .firefox: return try FirefoxPlacesReader().readHistory(file, limit: limit)
         case .safari: return try SafariHistoryReader().read(file, limit: limit)
-        case .webkit, .other: return []
+        case .webkit, .other: return ImportRead()
         }
         #endif
     }
@@ -169,9 +181,9 @@ public actor BrowserImporter {
     /// One profile's bookmarks, read with the reader its registry row names
     /// (engine family, not browser). Sources the reader cannot open throw;
     /// private stores return nothing (their HTML export is the path).
-    public static func readBookmarks(_ profile: BrowserSourceProfile) throws -> [ImportedBookmark] {
+    public static func readBookmarks(_ profile: BrowserSourceProfile) throws -> ImportRead<ImportedBookmark> {
         #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
-        return []
+        return ImportRead()
         #else
         let files = profile.browser.source?.files
         func file(_ fallback: String) -> URL { profile.bookmarksFile ?? profile.path.appending(path: files?.bookmarks ?? fallback) }
@@ -189,7 +201,7 @@ public actor BrowserImporter {
             }
             return try ArcSidebarReader().parse(Data(contentsOf: sidebar), profileDirectory: profile.directoryName)
         case .htmlExport, .noStore:
-            return []
+            return ImportRead()
         }
         #endif
     }
