@@ -1265,6 +1265,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_dev_tip_feed.py
 
+      - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_rcodesign_sign_bundle_dev.py
+
       - name: Validate the cmux NEXT tip Swift suite dispatcher
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_tip_swift_suite_dispatch.py
