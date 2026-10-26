@@ -126,6 +126,7 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/offer/SuggestedTasks.tsx#SuggestedTasks",
     "agent-session/acpmux/offer/SuggestedTasks.tsx#ReceivedResult",
+    "agent-session/acpmux/conversation/icons.tsx#Bot",
   ],
   styles: () => import("../styles.css"),
   load: async () => GallerySuggestedTasks,

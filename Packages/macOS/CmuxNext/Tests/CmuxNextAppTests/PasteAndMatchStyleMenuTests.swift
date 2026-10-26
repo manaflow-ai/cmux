@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 @testable import CmuxNextApp
 import Testing
 
@@ -17,7 +18,7 @@ import Testing
 
     private func editMenu() throws -> NSMenu {
         _ = NSApplication.shared
-        let bar = MainMenu.make(registry: ActionRegistry.standard())
+        let bar = MainMenu.make(registry: ActionRegistry.standard(), blocking: .forProcess())
         return try #require(bar.items.first { $0.title == Strings.menuEdit }?.submenu)
     }
 

@@ -10,6 +10,9 @@ import Foundation
 ///   remote connect`) waits for the machine's cmux-tui to answer;
 /// - `connecting`: the link is up; the daemon handshake and first snapshot;
 /// - `ready`: the machine's daemon tree is loaded (the terminal opens);
+/// - `paused`: the machine is paused (by the idle auto-pause or a person's
+///   Pause Machine) and nothing attached yet; not a failure, and an attach
+///   resumes it;
 /// - `failed`: why it stopped, from the API, the link or the daemon.
 nonisolated enum CloudMachineStage: Hashable, Sendable {
     case requesting
@@ -17,9 +20,11 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
     case booting
     case connecting
     case ready
+    /// Paused; `idle` when the idle auto-pause paused it.
+    case paused(idle: Bool)
     case failed(String)
 
-    /// The stages in order, for the progress list (no `failed`).
+    /// The stages in order, for the progress list (no `paused` or `failed`).
     static let steps: [CloudMachineStage] = [.requesting, .creating, .booting, .connecting, .ready]
 
     /// The position in `steps`; a failure has none.
@@ -33,8 +38,14 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
         case .booting: "booting"
         case .connecting: "connecting"
         case .ready: "ready"
+        case .paused: "paused"
         case .failed: "failed"
         }
+    }
+
+    var isPaused: Bool {
+        if case .paused = self { return true }
+        return false
     }
 
     var failure: String? {
@@ -42,7 +53,7 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
         return nil
     }
 
-    var isFinished: Bool { self == .ready || failure != nil }
+    var isFinished: Bool { self == .ready || isPaused || failure != nil }
 }
 
 /// What the stage is derived from: plain values, so the rule is testable
@@ -58,6 +69,12 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
     var daemonFailure: String?
     /// The app link ended ("click to connect"), nil otherwise.
     var linkEnded: String?
+    /// Why a paused machine is paused (`/api/vm` `pauseReason`).
+    var pauseReason: CloudMachine.PauseReason?
+    /// An attach is resuming the paused machine.
+    var resuming = false
+    /// Why the attach's resume failed, nil otherwise.
+    var resumeFailure: String?
 
     /// The stage. A link that is still starting is `booting` even after the
     /// daemon's ten-second first-connect deadline: a new VM's link takes
@@ -71,9 +88,17 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
         case .created, nil: break
         }
         if daemonConnected, daemonLoaded { return .ready }
+        if machineStatus == .paused {
+            // A paused machine is not a failure: it reads "Paused (idle)" or
+            // "Paused" until an attach resumes it. An app link ends when its
+            // machine pauses, so an ended link on a paused machine is the
+            // pause, not a failure.
+            if resuming { return .booting }
+            if let resumeFailure { return .failed(resumeFailure) }
+            if link == .idle || linkEnded != nil { return .paused(idle: pauseReason == .idle) }
+        }
         if let linkEnded { return .failed(linkEnded) }
         if machineStatus == .failed { return .failed(CloudStrings.machineFailed) }
-        if machineStatus == .paused, link == .idle { return .failed(CloudStrings.machinePaused) }
         switch link {
         case .up:
             if let daemonFailure { return .failed(daemonFailure) }

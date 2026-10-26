@@ -21,6 +21,7 @@ public final class SetClientInfoRequest implements WireValue {
     private final Field<String> install;
     private final Field<String> kind;
     private final Field<String> name;
+    private final Field<Boolean> remote;
     private final Field<String> userId;
     private final Field<String> version;
 
@@ -34,6 +35,7 @@ public final class SetClientInfoRequest implements WireValue {
         this.install = builder.install;
         this.kind = builder.kind;
         this.name = builder.name;
+        this.remote = builder.remote;
         this.userId = builder.userId;
         this.version = builder.version;
     }
@@ -49,6 +51,7 @@ public final class SetClientInfoRequest implements WireValue {
     public Field<String> install() { return install; }
     public Field<String> kind() { return kind; }
     public Field<String> name() { return name; }
+    public Field<Boolean> remote() { return remote; }
     public Field<String> userId() { return userId; }
     public Field<String> version() { return version; }
 
@@ -91,6 +94,10 @@ public final class SetClientInfoRequest implements WireValue {
         if (!Wire.isMissing(rawName)) {
             builder.name(rawName == null ? null : Wire.string(rawName, "SetClientInfoRequest.name"));
         }
+        Object rawRemote = Wire.optional(object, "remote");
+        if (!Wire.isMissing(rawRemote)) {
+            builder.remote(rawRemote == null ? null : Wire.bool(rawRemote, "SetClientInfoRequest.remote"));
+        }
         Object rawUserId = Wire.optional(object, "user_id");
         if (!Wire.isMissing(rawUserId)) {
             builder.userId(rawUserId == null ? null : Wire.string(rawUserId, "SetClientInfoRequest.user_id"));
@@ -114,6 +121,7 @@ public final class SetClientInfoRequest implements WireValue {
         Wire.put(object, "install", install);
         Wire.put(object, "kind", kind);
         Wire.put(object, "name", name);
+        Wire.put(object, "remote", remote);
         Wire.put(object, "user_id", userId);
         Wire.put(object, "version", version);
         return Collections.unmodifiableMap(object);
@@ -122,11 +130,11 @@ public final class SetClientInfoRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetClientInfoRequest that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(install, that.install) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(userId, that.userId) && Objects.equals(version, that.version);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(install, that.install) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(remote, that.remote) && Objects.equals(userId, that.userId) && Objects.equals(version, that.version);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, capabilities, deviceId, deviceKind, deviceName, displayName, install, kind, name, userId, version); }
+    public int hashCode() { return Objects.hash(apiRevision, capabilities, deviceId, deviceKind, deviceName, displayName, install, kind, name, remote, userId, version); }
 
     @Override
     public String toString() { return "SetClientInfoRequest" + toWire(); }
@@ -141,6 +149,7 @@ public final class SetClientInfoRequest implements WireValue {
         private Field<String> install = Field.omitted();
         private Field<String> kind = Field.omitted();
         private Field<String> name = Field.omitted();
+        private Field<Boolean> remote = Field.omitted();
         private Field<String> userId = Field.omitted();
         private Field<String> version = Field.omitted();
 
@@ -178,6 +187,10 @@ public final class SetClientInfoRequest implements WireValue {
         }
         public Builder name(String value) {
             this.name = Field.ofNullable(value);
+            return this;
+        }
+        public Builder remote(Boolean value) {
+            this.remote = Field.ofNullable(value);
             return this;
         }
         public Builder userId(String value) {

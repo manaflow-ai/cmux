@@ -50,8 +50,8 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
-        #if DEBUG
-        services.pages.register(DebugHomeNativeFixture())
+        #if DEBUG || CMUX_BENCH_HOOKS
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
@@ -117,8 +117,15 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
+        // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
+        // agent chat's exact folder, unless `window-inherit-working-directory = false`.
+        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+           let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
+            spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
+        }
 
         let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not
@@ -213,7 +220,7 @@ extension AppActions {
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
-                    if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }
