@@ -52,8 +52,9 @@ protocol InternalPageProvider: AnyObject {
     var symbol: String { get }
     /// The tab's cmux icon. Default: nil.
     var icon: IconName? { get }
-    /// A new view for the tab `key` (called on first show, and again after a discard).
-    /// `window` is the main window the tab opens in, for its theme scope.
+    /// A new view for the tab `key` (called on the tab's first show, not at its open, and again
+    /// after a discard). What the open asked for (a route, a folder) is kept under `key` until then
+    /// (``PageOpenRequests``). `window` is the main window the tab is in, for its theme scope.
     func makeView(for key: String, in window: WindowController?) -> NSView
     /// The tab `key` closed: its view is gone.
     func tabClosed(_ key: String)
@@ -106,6 +107,10 @@ protocol InternalPageProvider: AnyObject {
     /// nobody prepared): called right before ``makeView(for:in:)``, so a page can take its state in
     /// its first config. Default: nothing.
     func willRemakeView(for key: String, with state: ContentViewState)
+    /// Whether tab `key`'s last picture is kept while its view is gone (the rebuilt view's cover
+    /// and the tab's hover preview). Default: true; a page that lists secrets says false, so its
+    /// listing is not kept as a bitmap.
+    func keepsDiscardPicture(for key: String) -> Bool
     /// Tab `key`'s view went and the tab stays: close and drop the view's page, models and holders
     /// (``tabClosed(_:)`` without forgetting the tab's route or file), so the next
     /// ``makeView(for:in:)`` makes a new, live view. Default: nothing (the never policy's).
@@ -130,11 +135,10 @@ extension InternalPageProvider {
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
         guard let scroll = state.scroll else { return }
         if let page = content as? PageWebView { return await page.scrollDocument(to: scroll) }
-        guard let view = content.firstScrollView else { return }
-        view.contentView.scroll(to: scroll)
-        view.reflectScrolledClipView(view.contentView)
+        content.firstScrollView?.restoreScroll(scroll)
     }
     func willRemakeView(for key: String, with state: ContentViewState) {}
+    func keepsDiscardPicture(for key: String) -> Bool { true }
     func viewDiscarded(_ key: String) {}
 }
 
@@ -157,15 +161,31 @@ extension PageWebView {
 extension NSView {
     /// The first scroll view in this view's tree, breadth first (a page's main list or document):
     /// the default view state of a discarded page tab.
-    var firstScrollView: NSScrollView? {
+    var firstScrollView: NSScrollView? { firstScrollView(where: { _ in true }) }
+
+    /// The first scroll view of a list (`NSTableView`, which a SwiftUI `List` is) in this view's
+    /// tree: a native page's rows, past a sidebar or toolbar scroll view before it.
+    var listScrollView: NSScrollView? { firstScrollView(where: { $0.documentView is NSTableView }) }
+
+    /// The first scroll view in this view's tree, breadth first, that `matches`.
+    func firstScrollView(where matches: (NSScrollView) -> Bool) -> NSScrollView? {
         var queue: [NSView] = [self]
         var index = 0
         while index < queue.count {
             let next = queue[index]
             index += 1
-            if let scroll = next as? NSScrollView { return scroll }
+            if let scroll = next as? NSScrollView, matches(scroll) { return scroll }
             queue.append(contentsOf: next.subviews)
         }
         return nil
+    }
+}
+
+extension NSScrollView {
+    /// Scrolls to `origin`, a discarded page's saved scroll; nothing for nil.
+    func restoreScroll(_ origin: CGPoint?) {
+        guard let origin else { return }
+        contentView.scroll(to: origin)
+        reflectScrolledClipView(contentView)
     }
 }

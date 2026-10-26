@@ -16,7 +16,7 @@ package import CmuxNextSettings
 /// reasons in webui-DESIGN.md.
 ///
 /// ```swift
-/// let plan = PageLifecyclePlanner().plan(pages, conditions: .init(setting: setting, pressure: .normal, lowPowerMode: false))
+/// let plan = PageLifecyclePlanner().plan(pages, conditions: .init(setting: setting, pressure: .normal, energySaver: false))
 /// ```
 package nonisolated struct PageLifecyclePlanner: Sendable {
     /// A page's lifecycle state, from most to least alive.
@@ -37,7 +37,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
 
         /// The page shows now (Chrome's kVisible).
         case visible
-        /// Hidden less than ``Timing/visibleWindow(lowPowerMode:)`` ago (Chrome's kRecentlyVisible).
+        /// Hidden less than ``Timing/visibleWindow(energySaver:)`` ago (Chrome's kRecentlyVisible).
         case recentlyVisible = "recently_visible"
         /// Still loading, until its load and first paint (Chrome's kLoading).
         case loading
@@ -177,13 +177,15 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         /// the freeze seconds time browser tabs; pages use ``Timing`` (p13-webui.md section 3.C).
         package var setting: BrowserHibernationSetting
         package var pressure: MemoryPressureLevel
-        package var lowPowerMode: Bool
+        /// Pages spend less (`EnergyPolicy.pageSaver`): Energy Saver, or Low Power Mode while the
+        /// `energySaver` feature is off.
+        package var energySaver: Bool
 
         package init(setting: BrowserHibernationSetting = .fallback, pressure: MemoryPressureLevel = .normal,
-                     lowPowerMode: Bool = false) {
+                     energySaver: Bool = false) {
             self.setting = setting
             self.pressure = pressure
-            self.lowPowerMode = lowPowerMode
+            self.energySaver = energySaver
         }
     }
 
@@ -191,9 +193,9 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     package nonisolated struct Timing: Hashable, Sendable {
         /// Hidden this long, a page is no longer recently visible and may freeze.
         package var recentlyVisible: Double = 10
-        /// The same in Low Power Mode, which, as for the neighbor tabs (`NeighborTabs.radius`), spends
+        /// The same under Energy Saver, which, as for the neighbor tabs (`NeighborTabs.radius`), spends
         /// fewer wakeups on a quick switch back.
-        package var lowPowerRecentlyVisible: Double = 3
+        package var saverRecentlyVisible: Double = 3
         /// Hidden this long without memory pressure, a page is discarded.
         package var discardAfterNormal: Double = 300
         /// At warning pressure.
@@ -210,8 +212,8 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package init() {}
 
         /// Seconds a hidden page counts as recently visible.
-        package func visibleWindow(lowPowerMode: Bool) -> Double {
-            lowPowerMode ? lowPowerRecentlyVisible : recentlyVisible
+        package func visibleWindow(energySaver: Bool) -> Double {
+            energySaver ? saverRecentlyVisible : recentlyVisible
         }
 
         /// Seconds hidden before a page is discarded at `pressure`, never under ``minimumHidden``, nor
@@ -279,7 +281,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         var reasons = page.keepReasons.subtracting(KeepReason.derived)
         if page.isShown {
             reasons.insert(.visible)
-        } else if page.hiddenFor < timing.visibleWindow(lowPowerMode: conditions.lowPowerMode) {
+        } else if page.hiddenFor < timing.visibleWindow(energySaver: conditions.energySaver) {
             reasons.insert(.recentlyVisible)
         }
         if isMostRecentlyUsed { reasons.insert(.mostRecentlyUsed) }
@@ -292,7 +294,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     /// Each page's target state and the next deadline. O(pages) plus the sort of the pages due for
     /// a discard.
     package func plan(_ pages: [Page], conditions: Conditions) -> Plan {
-        let window = timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
+        let window = timing.visibleWindow(energySaver: conditions.energySaver)
         let discardAfter = timing.discardAfter(at: conditions.pressure, setting: conditions.setting)
         let pace = timing.pace(at: conditions.pressure)
         let discardDue = max(discardAfter, pace.minimumHidden)

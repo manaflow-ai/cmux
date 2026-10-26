@@ -1,4 +1,7 @@
+import CmuxNextCompat
 import CmuxNextLaunch
+@testable import CmuxNextSignposts
+@testable import CmuxNextTrace
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
@@ -18,6 +21,22 @@ import Testing
         #expect(read.waitingCount == 0)
         read.signal()
         #expect(ran.names == ["a", "b"], "a second signal ran a step again")
+    }
+
+    /// The signal is the catalog's `launch.read_done` instant on the launch category (p09-observability-036), with
+    /// the steps it released in arg0; a second signal records nothing.
+    @Test func theSignalIsOneLaunchReadDoneEventWithTheStepsReleased() {
+        let log = TraceLog()
+        let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { record in log.append(record) })
+        runtime.setCategoryMask(1 << UInt64(SignpostCategory.launch.traceBit))
+        let read = LaunchReadEvent("BrowserProfiles.loaded", signposter: Signposter(category: .launch, trace: runtime))
+        read.post {}
+        read.post {}
+        read.signal()
+        read.signal()
+        let done = log.records.filter { $0.name == SignpostName.launchReadDone.rawValue }
+        #expect(done.map(\.phase) == [.instant])
+        #expect(done.map(\.arg0) == [2])
     }
 
     @Test func aStepPostedAfterTheSignalRunsAtOnce() {
@@ -56,4 +75,13 @@ import Testing
 @MainActor
 private final class ReadRan {
     var names: [String] = []
+}
+
+/// The records a test trace runtime wrote, from any thread.
+nonisolated private final class TraceLog: Sendable {
+    private let state = Mutex<[TraceRuntime.StubRecord]>([])
+
+    var records: [TraceRuntime.StubRecord] { state.withLock { $0 } }
+
+    func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }
 }

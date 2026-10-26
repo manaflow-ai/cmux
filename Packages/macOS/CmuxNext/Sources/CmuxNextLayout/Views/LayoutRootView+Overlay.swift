@@ -73,6 +73,7 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var stripPlanes: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
+        let inMotion = isInLayoutMotion
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
@@ -102,7 +103,7 @@ extension LayoutRootView {
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX - shift, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
-                host.noteWindowFrame()
+                host.noteWindowFrame(inMotion: inMotion)
                 overlayHostsPlaced += 1
             }
         }
@@ -143,9 +144,10 @@ extension LayoutRootView {
     }
 
     /// Divider and column edge hit areas of the active screen, in this
-    /// view's coordinates. Over a Chromium page the App covers them with a
-    /// click-catching panel that forwards the mouse to this window, so the
-    /// page keeps drawing edge to edge under them.
+    /// view's coordinates. While a Chromium page window takes the mouse the
+    /// App covers them with a click-catching panel that forwards the mouse
+    /// to this window, so the page keeps drawing edge to edge under them;
+    /// over a page attached as a view the divider views take it here.
     public var dividerMouseAreas: [LayoutMouseArea] {
         guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in

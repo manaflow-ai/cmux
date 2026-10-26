@@ -70,6 +70,8 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
+    /// Whether a view is in a live window resize (`NSView.inLiveResize`; tests pass their own).
+    private let liveResize: @MainActor (NSView) -> Bool
     /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
     /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
     /// load shows.
@@ -91,8 +93,11 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
+    /// - Parameter liveResize: Whether a view is in a live window resize (`NSView.inLiveResize`).
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                liveResize: @escaping @MainActor (NSView) -> Bool = { $0.inLiveResize }) {
         self.images = images
+        self.liveResize = liveResize
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
@@ -185,6 +190,20 @@ public final class WindowMaterialView: NSView {
             keyFamily?.add(self)
         }
         updateInactiveTint()
+    }
+
+    /// The art's place moves the pages lensing it (``noteGlassSourceChange()``) when its size is final: not per
+    /// frame of a live window resize or of a pane spring, whose ends tell them (``viewDidEndLiveResize()``,
+    /// `GlassBackdropFeed.landed()`).
+    override public func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized, !liveResize(self), !isInPaneMotion { noteGlassSourceChange() }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        noteGlassSourceChange()
     }
 
     /// Makes `window`'s key tracker (the inactive wash of its material views) observe through the

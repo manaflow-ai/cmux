@@ -1,9 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
-@@ -146,6 +146,16 @@
+@@ -142,10 +142,20 @@
+             bytes -= e.1
+             freed.append(e.0)
+         }
+-        Reclaimer.release(freed)
++        Reclaimer.release(bitmaps: freed)
      }
      var count: Int { map.count }
-     func removeAll() { Reclaimer.release(map.values.map(\.0)); map.removeAll(); bytes = 0 }
+-    func removeAll() { Reclaimer.release(map.values.map(\.0)); map.removeAll(); bytes = 0 }
++    func removeAll() { Reclaimer.release(bitmaps: map.values.map(\.0)); map.removeAll(); bytes = 0 }
 +    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the tiles of these long texts go
 +    /// (freed off main).
 +    func evict(lineages: Set<Int>) {
@@ -12,11 +18,20 @@
 +        guard !gone.isEmpty else { return }
 +        for k in gone.keys { map.removeValue(forKey: k) } // dictionary write
 +        bytes -= gone.values.reduce(0) { $0 + $1.1 }
-+        Reclaimer.release(gone.values.map(\.0))
++        Reclaimer.release(bitmaps: gone.values.map(\.0))
 +    }
  }
  
  /// The long-text layers of one RowCell.
+@@ -288,7 +298,7 @@
+             let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
+             if key != badgeKey {
+                 badgeKey = key
+-                Reclaimer.release(badges.contents)
++                Reclaimer.release(badges.bitmapContents)
+                 badges.contentsScale = s
+                 let b = body
+                 badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
 @@ -331,10 +341,13 @@
          }
          guard folded else { bandRect = .zero; return }
@@ -34,15 +49,18 @@
          bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
          band.frame = bandRect
          drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
-@@ -358,7 +371,7 @@
+@@ -358,9 +371,9 @@
          if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
          defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
          let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
 -        let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
 +        let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
          let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
-         Reclaimer.release(band.contents)
+-        Reclaimer.release(band.contents)
++        Reclaimer.release(band.bitmapContents)
          band.contentsScale = s
+         band.contents = WideBitmap.make(size: bandRect.size, scale: s, opaque: false) { ctx in
+             rule.setFill()
 @@ -399,8 +412,8 @@
          // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
          var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]

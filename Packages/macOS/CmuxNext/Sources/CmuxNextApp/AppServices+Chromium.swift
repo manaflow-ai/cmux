@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextFeatures
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
@@ -28,11 +29,13 @@ extension AppServices {
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare
             // closes; switched back, the next idle moment builds it again. The current value is
-            // the one `start` already reads; only changes act.
-            let (_, engineChanges) = ObservationStream.current({ preference.defaultEngine == .chromium })
-            chromiumLikelyObservations.append(Task { [weak self] in
-                for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
-            })
+            // the one `start` already reads; only changes act (the first apply is that value).
+            var started = false
+            pagesSpareWatch = ServiceObservation(.background, owner: "ChromiumWarmup.pagesSpare", on: mainWork) {
+                preference.defaultEngine == .chromium
+            } apply: { [weak self] _ in
+                if started { self?.chromiumWarmup.pagesSpareChanged() } else { started = true }
+            }
         }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
@@ -58,11 +61,20 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
+        // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
+        let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
+        // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
+        chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput] stores, deadlines, source in
-                                      CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
-                                                contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
-                                                pumpInput: pumpInput, pointerFrames: pointerFrames)
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
+                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in
+                                      // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
+                                      let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
+                                                                           isStarting: { launchStartup.map { $0.completion == nil } ?? false })
+                                      return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
+                                                       contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
+                                                       launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
+                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork).usingLayerHostingByDefault(layerHosting)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

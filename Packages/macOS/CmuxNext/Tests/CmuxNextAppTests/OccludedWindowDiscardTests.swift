@@ -4,7 +4,6 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextSettings
 import Foundation
@@ -403,7 +402,7 @@ import Testing
         init(follows: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: LowPowerMode(enabled: false))
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .minutes(0.01), freezeSeconds: nil, neighborRadius: 1))
             let window = OccludedWindowDiscardTests.makeWindow(NSRect(x: 100, y: 100, width: 400, height: 300))

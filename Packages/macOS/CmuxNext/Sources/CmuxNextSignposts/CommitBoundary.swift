@@ -1,4 +1,5 @@
 public import CoreFoundation
+import Darwin
 
 /// Runs work once, right after the next Core Animation commit of the main run loop.
 ///
@@ -23,6 +24,9 @@ public import CoreFoundation
 /// common modes fires when a common mode runs again (Core Animation's observer is in the common
 /// modes too, so nothing committed in between either).
 ///
+/// A boundary writes no trace record of the commit: `frame.commit` is written once per turn's commit
+/// by one repeating observer, however many boundaries wait on it (``FramePresentEstimate/observeCommits()``).
+///
 /// ```swift
 /// let interval = Signposter.action.begin(.actionCommit, "id=tab.new")
 /// CommitBoundary().after { Signposter.action.end(.actionCommit, interval, $0) }
@@ -37,6 +41,21 @@ public struct CommitBoundary: Sendable {
         case missed
     }
 
+    /// One firing of the boundary: how it fired and when.
+    public struct Commit: Sendable, Hashable {
+        /// How the boundary fired.
+        public let outcome: Outcome
+        /// `CLOCK_UPTIME_RAW` nanoseconds when the boundary ran, right after the commit. It is the
+        /// clock of `NSEvent.timestamp` and `CACurrentMediaTime`, so an input's latency and the
+        /// display's vsync phase subtract from it directly.
+        public let commitEndNanos: UInt64
+
+        public init(outcome: Outcome, commitEndNanos: UInt64) {
+            self.outcome = outcome
+            self.commitEndNanos = commitEndNanos
+        }
+    }
+
     /// The observer order: one after Core Animation's commit observer.
     public static let order: CFIndex = 2_000_001
 
@@ -49,12 +68,23 @@ public struct CommitBoundary: Sendable {
     ///   and gets ``Outcome/missed`` when the boundary first saw the run loop wake instead.
     @MainActor
     public func after(_ body: @escaping @MainActor (Outcome) -> Void) {
+        afterCommit { body($0.outcome) }
+    }
+
+    /// Runs `body` once, after the Core Animation commit that ends this main run-loop turn, with
+    /// the time the commit ended: the start of a presented estimate (CmuxNextWakeups'
+    /// `PresentationClock.presented(commitEndNanos:on:_:)`, resolved by the next real vsync).
+    ///
+    /// - Parameter body: Main-actor work, as for ``after(_:)``.
+    @MainActor
+    public func afterCommit(_ body: @escaping @MainActor (Commit) -> Void) {
         let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
             | CFRunLoopActivity.afterWaiting.rawValue
         let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, false, Self.order) { _, activity in
-            let outcome: Outcome = activity == .afterWaiting ? .missed : .committed
+            let commit = Commit(outcome: activity == .afterWaiting ? .missed : .committed,
+                                commitEndNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
             // main-proof: the observer is added to the main run loop only (below).
-            MainActor.assumeIsolated { body(outcome) }
+            MainActor.assumeIsolated { body(commit) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
     }

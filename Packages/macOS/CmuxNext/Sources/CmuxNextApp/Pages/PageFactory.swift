@@ -196,7 +196,7 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession()
+        let museumArt = MuseumArtSession(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },

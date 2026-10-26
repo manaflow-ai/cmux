@@ -136,7 +136,7 @@ enum NewTabSlot {
                 return false
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.schedule(after: listLimit) { @MainActor in
+            bound.scheduleOnMain(after: listLimit) {
                 listed.cancel()
             }
             let found = await listed.value

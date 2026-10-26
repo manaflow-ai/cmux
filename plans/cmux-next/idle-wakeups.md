@@ -26,8 +26,16 @@ These are the only allowed ways to wake up. `scripts/cmux-next/check-concurrency
 | `assignIfChanged`, `UpdateCycleDetector` | Observation updates that settle: a set of the same value does not notify; re-entrant update cycles are counted and logged in debug builds. |
 | `ExpectedActivity` | Input, animation-frame and terminal-output counters for the busy watchdog. |
 | `ProcessUsage` | `proc_pid_rusage` CPU time and wakeups per process (app, helpers, daemon, hosts). |
+| `MainDeadline` (MainDeadline.swift, `TimerAlignment` in TimerAlignment.swift, `MainDeadlineScheduler` in MainDeadlineScheduler.swift; p06-scheduler task 011, landed) | The main-thread deadline: `MainDeadline(owner:, workClass:, alignment:, scheduler:)`. Its wake is an entry of the main thread's one `MainWakeUpQueue` timer; its action runs through `mainWork.post` in its class. `.precise` only under 36 ms (longer falls back to flexible); `.flexible`, the default, is no sooner than the deadline, snapped up to the next 8 ms boundary (32 ms in Energy Saver) below 1 s and to the whole second above; `.whenHidden(node)` aligns to 1 s while the node is hidden, and a repeating or self-re-arming deadline whose node has been hidden 5 minutes shares one wake a minute per node (or one 1 s-aligned wake when the node had none in the last minute). No alignment within 30 s of media activity or while the node is captured. A deadline that a person or a request waits on is never `.whenHidden`. `MainDeadlineScheduler.nextFire` feeds the idle deadline. |
+| `Deadline` (Deadline.swift, task 011, landed) | The timeout of a race (an await against a deadline), on the injected clock; it throws `Deadline.Exceeded`. |
+| `MainWakeUpQueue`, `AlignedWakeups` (MainWakeUpQueue.swift, AlignedWakeups.swift, tasks 011 and 012, landed) | One `CFRunLoopTimer` for every main-thread deadline, re-armed and never re-created, with a heap ordered by latest time. `AlignedWakeups` places deadlines on its boundaries, so 50 hidden deadlines in one second are 1 wakeup and 20 visible flexible deadlines in one 8 ms bucket are 1 wakeup. `DemandTimer` stays for off-main deadlines; `schedule(after:tolerance:)` has a tolerance by default. |
+| `IdleScheduler` (IdleScheduler.swift, task 005, spec'd) | `mainWork.postIdle(owner:, maxDelay:) { deadline in }`. Long idle periods start after 50 ms of quiet (deadline at most 50 ms and never past the next `MainDeadline` fire); short periods use 2 ms or more left before vsync. An empty queue arms no timer (0 wakeups). Idle stops 10 s after the app or the task's node goes hidden. Use it for warmups, spare-window refills and snapshot writes instead of an idle poll. |
+| `CPUTimeBudgetPool` (CPUTimeBudgetPool.swift, task 210, spec'd) | Hidden-node work is charged to it: it refills 10 ms per second up to 100 ms, and a negative balance waits for the next aligned wake with budget. Media and capture are exempt. |
+| `VisibilityNode` (VisibilityNode.swift, task 020, landed) | The hidden state that `.whenHidden`, the wake-up budget, the CPU-time pool (task 210) and the frame clients read (`isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `isCaptured`). Task 047 (spec'd) stops ticking a hidden node's frame client with `visibleOnly:`. |
 
 cmux-tui gets the same rules (section 6): blocking reads and condvar waits with no timeout, one-shot computed deadlines, one shared Backoff.
+
+How to choose (recipe R-timer, [main-thread-budget.md](main-thread-budget.md) section 11): first make the timer an event (a callback, a stream, a source the producer signals). Only if no event exists, use a `MainDeadline` with a class and an alignment on the main thread, or a `DemandTimer` with `tolerance:` off it. A sleep inside a race uses `Deadline`. `scripts/cmux-next/p06_queue.py` counts the open sites (queue Q6, escape `// timer-class-allow: <why>`). The pre-push guardrail `timer-class` (task 014, landed) refuses a new main-actor `DemandTimer` and new `Task.sleep` and `clock.sleep` loops with the same escape. `check-concurrency.sh`'s `// wakeup-allow:` stays the escape for timers and loops outside CmuxNextWakeups.
 
 ## 3. Diagnostics
 
@@ -185,3 +193,80 @@ Open:
 - MainActorWorkQueue/ControlDeadline/ControlSnapshot deadlines and the UI one-shot delays still sleep in their own Tasks (reviewed `wakeup-allow`); moving them onto DemandTimer would put them in the ledger.
 - The bench's first Chromium tab can miss the 2 s control deadline on a loaded machine (cold CefInitialize); the bench waits for a renderer but that also failed twice.
 - UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab; cmux-tui remote, browser-proxy and Windows paths (compiled on CI only).
+
+## 9. Hidden main wakes (p14-energy-095)
+
+speed-of-sound-DESIGN.md sec. 5/7 measured the Release app's main thread at 107 wakes/s while the app was hidden,
+more than in view (cmux20). This section names who wakes it. No source changes here; the fixes are Q9 tasks
+(p14-energy-092 and the other Q9 slots), one per `HIDDEN-WAKE` owner of basis `callout-count`.
+
+### Method
+
+`scripts/cmux-next/idle-budget.py --sessions light-hidden,minimized` launches each session in the shipping
+measurement mode of p14-energy-100 (`bench_launch.shipping_env`: shipping occlusion draw, Sentry and hang reports
+on, no `CMUX_NEXT_NO_ACTIVATE`) and activates the app once. The mode needs p14-energy-100 on the measured commit:
+without it the app ignores `CMUX_NEXT_BENCH_SHIPPING_DRAW`. The session then hides the app (Show/Hide All Windows
+`hidden=true`; the action toggles, so it needs the activation) or minimizes its window (`minimizeWindow`), settles,
+and measures one window with no input.
+
+A hidden-wake session fails (`IDLE-BUDGET-SESSION-FAILED`) and prints no `HIDDEN-WAKE` line when:
+
+- the build has no sha (`bench_launch.build_sha`: Info.plist `CMUXCommit` or `CMUX_CI_SHA`), checked before the launch;
+- the hide or minimize action replies with an error;
+- `debug.window_list` at the start or the end of the window, or after the wake trace, shows a visible main window
+  (light-hidden) or a main window that is not miniaturized (minimized).
+
+When p14-energy-100's applied fields do not confirm the shipping app (not activated, `draws_when_occluded`, no
+Sentry thread, no main-thread watchdog), or when atos did not name a callback of a counted source (`atos failed: N
+callbacks unnamed`), the source lines are `HIDDEN-WAKE-UNCONFIRMED`, and no Q9 task comes from them.
+
+Right after the window (a 1 s quiet gap, then the trace, then the hidden-state check, then `/usr/bin/sample`, so the
+sample tool's suspensions never precede the trace), three bases count wakes and one names frames. A source can show
+under several bases, so each basis is its own list and they are never added:
+
+| Basis | What it reads | per_s |
+| --- | --- | --- |
+| `callout-count` | DTrace on the main thread for `--wake-trace` s (30), its span from `BEGIN` (after the probes are enabled) to `END`. A wake is a return from a run-loop wait that can block (`__CFRunLoopServiceMachPort` with a timeout other than 0). Each wake goes once to the first non-observer callout after it, keyed per item: a timer by callback and `CFRunLoopTimerRef`, a source by perform function and info, a block by its invoke, and each main-queue drain item by its dispatch function, block invoke or Swift job resume function | wakes/s over the trace span (the rows and `no-callout` add up to the traced wakes), with `calls_per_s` (callout entries/s) beside it. Owner (`owner_from`): `callback` when atos names it in an owner image; `timer` when the run-loop timer at the same address has a naming callout; `item-stack` from the item's own 997 Hz stacks (`multiplexed` when they show several owners: their shares are time, not rates); else `none` |
+| `unattributed` | with a trace, its wakes no callout claimed before the next wait (`CFRunLoopWakeUp` with no work, a wait timeout), on the same span; without a trace, the window's main wakes less the run-loop timer fires, both over the window | wakes/s no counted source covers |
+| `run-loop-timer` | the main run loop's `CFCopyDescription` at both ends of the window: each repeating timer's next fire date advances one interval per fire, by timer address; an `__NSFireTimer` timer is "unnamed NSTimer" (its callout names Foundation) | fires/s (upper bound under App Nap); a timer at one end only is `unpaired` with per_s null |
+| `ledger` | `debug.wakeups` owners (DemandTimer, FrameScheduler, Backoff), every owner | fires/s on any thread (`thread: any`) |
+| `sample-time` (`HIDDEN-WAKE-FRAME`) | 3 x `--sample` s (10) of `/usr/bin/sample`, added: below each outermost callout, the first frame in an owner image (images are OS by their `Binary Images:` path: /System, /usr/lib), wait frames dropped, OS-only samples to the first non-trampoline frame on their own path | null: samples measure time, not wakes; share of callout time only, no floor |
+
+DTrace's pid provider needs root (`sudo -n`) and a process it may trace; atos runs with the same right. When
+DTrace can not run, the `HIDDEN-WAKE-TOTAL` line has `trace.ok: false` with the reason, and the uncounted wakes are
+in `unattributed`. The `debug.hangs` main wakes around the dtrace run (`trace.rpc_main_wakes_per_s` over
+`trace.rpc_seconds`, which include dtrace's start and exit) are given beside the traced rate, never subtracted from
+it. Callback addresses are OS or owner by the sample report's `Binary Images:` ranges, so that decision never rests
+on atos.
+
+Observers (`__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__`) run on every wake that another source
+causes, so they are listed (`HIDDEN-WAKE-OBSERVER`) and never counted as a cause. This is the split Chromium's
+`MessagePumpCFRunLoopBase` makes (base/message_loop/message_pump_apple.mm: a work source and a delayed-work timer
+wake the loop, observers only bracket it). The per-item key follows Chrome's TaskAnnotator, which keys each task by
+its own `posted_from` location (base/task/common/task_annotator.cc), not by the pump that runs it.
+
+Output for each hidden session: one `HIDDEN-WAKE {json}` line per source above 0.1/s and basis (`session`, `basis`,
+`owner`, `owner_from`, `kind`, `per_s`, `calls_per_s`, `item`, `top` frame), `HIDDEN-WAKE-FRAME` and
+`HIDDEN-WAKE-OBSERVER` lines, and one `HIDDEN-WAKE-TOTAL` line with the build `sha`, `host`, main wakes/s, the
+trace's state and span, `unattributed_per_s`, `unnamed`, `samples_taken`, `sources_by_basis`, `confirmed` and
+`problems`. The JSON report keeps them under
+`sessions.<session>.hidden_wake`.
+
+Run (Q9, a quiet fleet host, Release with bench hooks):
+
+    cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \
+      --ref <sha> --arg=--suite=idle-budget --arg=--config=bench --arg=--sessions=light-hidden,minimized
+
+(No `--` before `--sessions`: idle-budget.py reads its options with argparse, which takes every word after
+`--` as a positional argument and would run the default sessions.)
+
+### Report
+
+Not measured yet, so p14-energy-095 is not done. It stays open until the Q9 run of the command above, on a
+Release build with bench hooks, fills this table: sha, host and every `HIDDEN-WAKE` line above 0.1/s for both
+sessions, with `confirmed: true`, `trace.ok: true` and `unnamed: 0`. Until then, the 107/s figure has no named owner.
+
+| Session | sha | host | main wakes/s | basis | owner | kind | per_s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| light-hidden | | | | | | | |
+| minimized | | | | | | | |

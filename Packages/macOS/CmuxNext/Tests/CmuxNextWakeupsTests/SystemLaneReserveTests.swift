@@ -60,13 +60,14 @@ import Testing
         let work = BackgroundWork(label: "test.reserve", onQueued: { lane, _ in if lane == .system { queued.signal() } })
         let release = DispatchSemaphore(value: 0)
         let width = BackgroundWork.systemWidth
+        // User-visible work: best effort stops at its own cap of two (task 115) before it reaches the reserve.
         for _ in 0..<width {
-            work.post(.bestEffort, mayBlock: .system) {
+            work.post(.userVisible, mayBlock: .system) {
                 started.signal()
                 release.wait()
             }
         }
-        // Best effort fills every slot but the reserved one; the last item waits.
+        // User-visible work fills every slot but the reserved one; the last item waits.
         await started.wait(width - BackgroundWork.systemReserved)
         await queued.wait(1)
         let answer = try await work.run(.userBlocking, mayBlock: .system) { () throws -> Int in 7 }

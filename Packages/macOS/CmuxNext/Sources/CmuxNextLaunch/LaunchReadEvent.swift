@@ -1,4 +1,4 @@
-public import os
+public import CmuxNextSignposts
 
 /// A launch read's completion as a one-shot event (Chromium's `base::OneShotEvent`,
 /// base/one_shot_event.h): steps that need the read post to it and run on its ``signal()``, in post
@@ -16,17 +16,17 @@ public import os
 /// ```
 @MainActor
 public final class LaunchReadEvent {
-    /// The read's signpost event name (`Domain.read`): ``signal()`` emits it with the count of steps it released.
+    /// The read's name (`Domain.read`): ``signal()`` names it in its `launch.read_done` event.
     public let name: StaticString
     /// True once the read is done.
     public private(set) var isSignaled = false
     private var steps: [@MainActor () -> Void] = []
-    private let signposter: OSSignposter
+    private let signposter: Signposter
 
     /// - Parameters:
-    ///   - name: The read's signpost event name (`BrowserProfiles.loaded`).
-    ///   - signposter: Where ``signal()`` emits it (Instruments' "launch" category by default).
-    public init(_ name: StaticString, signposter: OSSignposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "launch")) {
+    ///   - name: The read's name (`BrowserProfiles.loaded`).
+    ///   - signposter: Where ``signal()`` records the read's ``SignpostName/launchReadDone`` event.
+    public init(_ name: StaticString, signposter: Signposter = .launch) {
         self.name = name
         self.signposter = signposter
     }
@@ -46,7 +46,7 @@ public final class LaunchReadEvent {
         isSignaled = true
         let waiting = steps
         steps = []
-        signposter.emitEvent(name, "\(waiting.count, privacy: .public) waiting steps")
+        signposter.event(.launchReadDone, "read=\(name) waiting=\(waiting.count)", arg0: UInt64(waiting.count))
         for step in waiting { step() }
     }
 }

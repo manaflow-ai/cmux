@@ -2,11 +2,15 @@ import CmuxNextCompat
 
 /// The monitor's side of the slot table: one thread (the app's main-thread watchdog thread, through
 /// `HangMonitor` in CmuxNextControl) scans the slots when ``nextScanNanos`` comes, and reports what
-/// ``scan(nowNanos:)`` returns as overdue.
+/// ``scan(nowNanos:)`` returns as overdue: each scope once as a ``Tier/jank`` at its budget, and once as
+/// a ``Tier/hang`` when it is still open ``HangWatch/hangAfterBudget`` later (a scan that finds both due
+/// at once returns only the hang).
 ///
 /// The rule (p09-observability.md section 3E, p02-threads.md section E):
 /// - While scopes open and close, the monitor scans once per ``HangWatch/minimumDeadline``: a scope that
-///   opens then is seen at most one period past its deadline, and wakes nobody.
+///   opens then is seen at most one period past its deadline, and wakes nobody. A scope that opened and
+///   closed between two scans counts as a change (it leaves a closed mark with its budget), so a busy lane
+///   keeps the monitor on its period and its opens make no system call.
 /// - After a scan in which no slot changed, it sleeps to the earliest open deadline, with no periodic
 ///   wake (a 30 s job alone costs the wake that started the watch and, if it overruns, its report).
 /// - With nothing open, it parks with no timer: an idle process has no hang-watch wakeup, where Chrome's
@@ -18,15 +22,25 @@ import CmuxNextCompat
 /// A scan publishes `.max` as the plan before it reads the slots, so a scope that opens during the scan
 /// sees it and wakes the monitor, and the scan's own plan never hides that scope.
 extension HangWatch {
-    /// One scope past its deadline, marked reported (``scan(nowNanos:)``).
+    /// How far past its budget an overdue scope is.
+    public enum Tier: Sendable, Equatable {
+        /// Open past its budget: a record with no stack.
+        case jank
+        /// Still open ``HangWatch/hangAfterBudget`` past its budget: a stack dump with crash keys.
+        case hang
+    }
+
+    /// One scope past a tier's deadline, marked reported for that tier (``scan(nowNanos:)``).
     public struct Overdue: Sendable {
+        /// Which tier the scope reached.
+        public let tier: Tier
         /// The registration's name (``registerThread(_:name:)``, ``registerLane(_:)``).
         public let name: String
         /// What the slot runs (``ThreadKind/lane`` for a lane).
         public let kind: ThreadKind?
         /// The Mach port of the thread running the scope (`pthread_mach_thread_np`), for its stack sample.
         public let port: UInt32
-        /// When the scope's deadline passed (`CLOCK_UPTIME_RAW` nanoseconds).
+        /// When the scope's budget passed (`CLOCK_UPTIME_RAW` nanoseconds), in both tiers.
         public let deadlineNanos: UInt64
         let slot: Int
         let marked: UInt64
@@ -72,8 +86,8 @@ extension HangWatch {
     /// Now on the clock of every deadline.
     public func nowNanos() -> UInt64 { clock.nowNanos() }
 
-    /// Scans every slot (monitor thread only): marks each scope past its deadline reported and returns
-    /// it, and plans the next scan by the rule above.
+    /// Scans every slot (monitor thread only): marks each scope past its next tier's deadline reported
+    /// for that tier and returns it, and plans the next scan by the rule above.
     ///
     /// - Parameter now: Now, from ``nowNanos()``.
     /// - Returns: The overdue scopes and the next scan.
@@ -98,23 +112,26 @@ extension HangWatch {
                 changed = true
                 seen.pointee = current
             }
-            let due = current & Self.deadlineMask
-            guard due != 0, current & Self.flagMask == 0 else { continue }
+            guard let due = nextTierDue(current) else { continue }
             guard due <= now else {
                 earliest = min(earliest, due)
                 continue
             }
-            let marked = current | Self.reportedFlag
+            // The hang tier when the scope janked before, or when its hang deadline passed too (a late scan).
+            let hangDue = nextTierDue(current | Self.jankFlag) ?? due
+            let tier: Tier = current & Self.jankFlag != 0 || hangDue <= now ? .hang : .jank
+            let marked = current | (tier == .hang ? Self.reportedFlag | Self.jankFlag : Self.jankFlag)
             guard word.compareExchange(expected: current, desired: marked, ordering: .acquiringAndReleasing).exchanged else {
                 changed = true // the scope ended or nested meanwhile: look again next period
                 continue
             }
             seen.pointee = marked
+            if tier == .jank { earliest = min(earliest, hangDue) }
             let state = Self.word(slot, Self.stateWord).load(ordering: .relaxed)
-            overdue.append(Overdue(name: Self.unpack(Self.word(slot, Self.nameWord).load(ordering: .relaxed)),
+            overdue.append(Overdue(tier: tier, name: Self.unpack(Self.word(slot, Self.nameWord).load(ordering: .relaxed)),
                                    kind: ThreadKind(rawValue: UInt8(truncatingIfNeeded: state & Self.kindMask)),
                                    port: UInt32(truncatingIfNeeded: Self.word(slot, Self.portWord).load(ordering: .relaxed)),
-                                   deadlineNanos: due, slot: index, marked: marked))
+                                   deadlineNanos: current & Self.deadlineMask, slot: index, marked: marked))
         }
         let next = changed ? now &+ periodNanos : earliest // `.max`: park
         var final = next

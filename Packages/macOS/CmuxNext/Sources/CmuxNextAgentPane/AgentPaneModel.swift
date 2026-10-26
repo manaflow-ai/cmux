@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -52,8 +53,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
     /// The new tab page's style switch picked a template, or its edit mode changed a widget.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
-    /// The location bar picked an open tab or workspace (`tab.jump`).
-    @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
+    /// The location bar picked an open tab or workspace (`tab.jump`), with the `NSEvent.timestamp` of the page's
+    /// click or Return that picked it (nil when the page sent none).
+    @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String, TimeInterval?) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
@@ -103,6 +105,9 @@ public final class AgentPaneModel {
     /// What this chat's last page held when it let go (hibernation); the next handshake
     /// carries it (`wake`) and clears it.
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
+    /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
+    @ObservationIgnored public var chatOpen: ChatOpenStages?
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
     @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
@@ -313,7 +318,7 @@ public final class AgentPaneModel {
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .runAction(let id): return runAction(id)
-        case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
+        case .jump(let target, let id, let inputAt): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id, inputAt.flatMap { AgentPaneRequest.uptime(ofPageInputAt: $0) }); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()

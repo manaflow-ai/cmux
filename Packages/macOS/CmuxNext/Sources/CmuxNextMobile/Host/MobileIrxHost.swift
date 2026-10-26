@@ -1,6 +1,6 @@
 public import CmuxIrxTransport
 import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 
 /// The cmux-next Mac's phone listener: one irx (Iroh, ALPN `cmux/irx/1`)
@@ -41,6 +41,8 @@ public actor MobileIrxHost {
     let onUsable: (@Sendable (MobileUsableSession) -> Void)?
     /// What phones may do here (Settings > Accounts > Phone Access), read per request.
     let access: PhoneAccessGate
+    /// The app's lanes: the device id and key files are read and written there (``MobileHostKeys``).
+    let work: BackgroundWork
 
     var backend: (any MobileCompatBackend)?
     var identity: IrxIdentity?
@@ -70,10 +72,11 @@ public actor MobileIrxHost {
     /// Thrown inside `provision` when a newer `start()`/`stop()` took over.
     struct Superseded: Error {}
 
-    public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth,
+    public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth, work: BackgroundWork,
                 makeBackend: @escaping @Sendable () async throws -> any MobileCompatBackend,
                 clock: any Clock<Duration> = ContinuousClock(), access: PhoneAccessGate = PhoneAccessGate(),
                 onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
+        self.work = work
         self.onUsable = onUsable
         self.access = access
         self.configuration = configuration
@@ -146,8 +149,8 @@ public actor MobileIrxHost {
     }
 
     private func provision(run: UInt64) async throws {
-        let keys = MobileHostKeys(configuration: configuration)
-        let deviceID = try keys.deviceID()
+        let keys = MobileHostKeys(configuration: configuration, work: work)
+        let deviceID = try await keys.deviceID()
         let tuple = V2Identity(appNamespace: configuration.namespace, buildTag: configuration.tag,
                                deviceID: deviceID, environment: configuration.environment,
                                projectID: auth.projectID, teamID: auth.teamID, userID: auth.userID)

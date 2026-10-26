@@ -16,6 +16,7 @@ public import QuartzCore
 public nonisolated struct SpinnerClock: Sendable {
     /// Now on the Core Animation clock (`CACurrentMediaTime`).
     public var mediaTime: @Sendable () -> CFTimeInterval
+    // wall-clock: Unix time is the one clock native and web spinners (`performance.timeOrigin`) share.
     /// Now as seconds since 1970 (`Date().timeIntervalSince1970`).
     public var unixTime: @Sendable () -> TimeInterval
 
@@ -23,6 +24,7 @@ public nonisolated struct SpinnerClock: Sendable {
     ///   - mediaTime: Now on the Core Animation clock.
     ///   - unixTime: Now as seconds since 1970; the phase is counted from it.
     public init(mediaTime: @escaping @Sendable () -> CFTimeInterval = { CACurrentMediaTime() },
+                // wall-clock: the spinner phase is counted from the Unix time web spinners also read.
                 unixTime: @escaping @Sendable () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         self.mediaTime = mediaTime
         self.unixTime = unixTime

@@ -666,7 +666,7 @@ def report(repo: Path) -> str:
     w("```")
     w("</details>")
     w("")
-    w("Example O(all) cause: `browserChildWindowPagesNeedUpdate` is posted per layout change by")
+    w("Example O(all) cause: the window's page update request (`NSWindow.updateBrowserPageGeometry`) is sent per layout change by")
     w("`WindowRootView+MainPane` and `WindowOverlayLayer`; every `CEFHostView` (one per page, moving or not)")
     w("observes it and posts geometry (perf-lead.md issue 2). Fix shape: notify only the hosts whose rect changed.")
     w("")

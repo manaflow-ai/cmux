@@ -1,4 +1,5 @@
-@preconcurrency import Sparkle
+import CmuxUpdater
+import Foundation
 
 /// Picks what a feed offers, with Sparkle's own version comparison
 /// (`SUStandardVersionComparator`) and its OS filter: an item is offered
@@ -20,6 +21,6 @@ nonisolated public enum AppcastSelector {
 
     /// Sparkle's ordering of `CFBundleVersion` strings.
     public static func isOlder(_ lhs: String, than rhs: String) -> Bool {
-        SUStandardVersionComparator.default.compareVersion(lhs, toVersion: rhs) == .orderedAscending
+        SparkleVersionComparator().compare(lhs, rhs) == .orderedAscending
     }
 }

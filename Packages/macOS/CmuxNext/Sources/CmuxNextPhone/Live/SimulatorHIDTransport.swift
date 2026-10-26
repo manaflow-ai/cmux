@@ -2,7 +2,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 import ObjectiveC.runtime
-@preconcurrency import XPC
+import XPC
 
 /// One booted simulator's input path. Xcode 27's `dtuhidd` XPC service
 /// (`com.apple.coredevice.feature.remote.hid.digitizer`) when the runtime has
@@ -181,10 +181,16 @@ final class SimulatorHIDTransport {
               let endpoint = unsafeBitCast(endpointSymbol, to: Endpoint.self)(port, 0, 0),
               let connection = unsafeBitCast(connectSymbol, to: Connect.self)(endpoint) else { return nil }
         unsafeBitCast(enableSymbol, to: Enable.self)(connection)
-        // Errors surface on the next send; the tab reconnects by opening a new transport.
+        resume(connection)
+        return connection
+    }
+
+    /// Starts the connection with an event handler that ignores events. XPC calls the handler on its own
+    /// queue, so it is formed here, outside the main actor. Errors surface on the next send; the tab
+    /// reconnects by opening a new transport.
+    nonisolated private static func resume(_ connection: xpc_connection_t) {
         xpc_connection_set_event_handler(connection) { _ in }
         xpc_connection_resume(connection)
-        return connection
     }
 
     private static func legacyClient(_ device: NSObject) -> NSObject? {

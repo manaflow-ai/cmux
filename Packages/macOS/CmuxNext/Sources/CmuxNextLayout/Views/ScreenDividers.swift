@@ -27,11 +27,52 @@ struct ScreenDividers {
         let point = screen.convert(windowPoint, from: nil)
         guard screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.stackedSubviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
-            // Where it shows its cursor: not the part under a dock or past its area's window.
-            !$0.isHidden && $0.alphaValue > 0.01 && shown($0.cursorRectInBounds, of: $0).contains(point)
+            // Where it shows its cursor: not the part under a dock or past its area's window. A handle on a
+            // render-server spring has its rest frame but shows elsewhere until it lands: its landing hovers it.
+            !$0.isHidden && !$0.isOnRenderSpring && $0.alphaValue > 0.01 && shown($0.cursorRectInBounds, of: $0).contains(point)
         }
         guard let hit, screen.context.hoverReachesWindow(window, windowPoint) else { return nil }
         return hit
+    }
+
+    /// Places every handle at the rect its spring presents with the strip camera at `strip`, on the pixel
+    /// grid (``place(_:_:at:alpha:uncovered:force:)``). Returns whether a handle changed. O(handles); a
+    /// handle whose frame, alpha and clips are as they were is not touched.
+    @discardableResult
+    func place(strip: CGFloat, scale: CGFloat, uncovered: CGRect, force: Bool) -> Bool { // perf-hot: 4ms motion-frame
+        var changed = force
+        for (kind, frame) in screen.dividerFrames {
+            guard let view = screen.dividerViews[kind] else { continue }
+            let placed = screen.shownRect(frame.rect, of: kind, strip: strip, scale: scale)
+            if place(view, kind, at: placed, alpha: frame.alpha.value, uncovered: uncovered, force: force) { changed = true }
+        }
+        return changed
+    }
+
+    /// Places `view` at `placed` with `alpha`, in the screen's coordinates; its hidden state and cursor
+    /// clip follow from the frame, the screen's `uncovered` rect (``ScreenContentView/uncoveredRect``)
+    /// and its scroll area's window. Every pass that places a handle comes here: each presentation, a
+    /// render-server spring's start (its rest frame) and its landing. Returns whether anything changed;
+    /// `force` re-places a handle that looks unchanged (a style or structural change).
+    @discardableResult
+    func place(_ view: DividerHandleView, _ kind: DividerHandleView.Kind, at placed: CGRect, alpha: CGFloat,
+               uncovered: CGRect, force: Bool) -> Bool {
+        let scrolls = screen.scrolls(kind)
+        let shownArea = screen.areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
+        guard force || view.frame != placed || view.alphaValue != alpha || view.placedClips != clips else { return false }
+        if view.frame != placed { view.frame = placed }
+        if view.alphaValue != alpha { view.alphaValue = alpha }
+        view.placedClips = clips
+        // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
+        let docked = scrolls && !screen.geometry.dock.isEmpty
+        let hidden = (docked && view.frame.intersection(uncovered).width < 0.5)
+            || shownArea.map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
+        if view.isHidden != hidden { view.isHidden = hidden }
+        // Shown, its cursor and click catcher still stop at a dock and at its area's window.
+        var pointerClip: CGRect? = docked ? uncovered : nil
+        if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
+        view.cursorClip = pointerClip
+        return true
     }
 
     /// Divider hit areas on screen, in the screen's coordinates. They take the

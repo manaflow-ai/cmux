@@ -196,6 +196,7 @@ public final class WebUpdater {
     public func noteActivation(stale: TimeInterval = 60) {
         foreground = true
         guard channel != .off, phase != .checking, phase != .downloading else { return }
+        // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         guard since > stale else {
             nextCheck.schedule(after: Self.delay(after: since, interval: interval)) { @MainActor [weak self] in await self?.check() }
@@ -210,6 +211,7 @@ public final class WebUpdater {
     public func noteBackground() {
         foreground = false
         guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
+        // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         nextCheck.schedule(after: Self.delay(after: since, interval: backgroundInterval)) { @MainActor [weak self] in await self?.check() }
     }

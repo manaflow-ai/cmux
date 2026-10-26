@@ -97,10 +97,6 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 # longer served only prints a note, so the task that schemas a name can land
 # before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
-    **dict.fromkeys(
-        ("agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"),
-        "p05-ipc-015",
-    ),
     "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
 }
 
@@ -108,6 +104,7 @@ sys.path.insert(0, str(BINDINGS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
+from generated_server_families import GeneratedFamiliesError, generated_commands  # noqa: E402
 from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 from sniffer_names import SniffedName, SnifferNameError, sniffer_names  # noqa: E402
 
@@ -311,6 +308,18 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             fail(f"command {name!r} is in the server Command enum and a module")
         commands[name] = fields
     return commands
+
+
+def generated_command_names() -> set[str]:
+    """Commands whose Command variants and params cmux-ipc build.rs makes
+    from the schema (crates/cmux-ipc/server-families.json): served, and their
+    request fields are the schema's by construction."""
+
+    try:
+        return generated_commands(TUI, load_json(SPEC / "sdk-schema.json"))
+    except GeneratedFamiliesError as error:
+        fail(str(error))
+    return set()
 
 
 def _without_reply_id(fields: dict[str, RuntimeField]) -> dict[str, RuntimeField]:
@@ -620,8 +629,15 @@ def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     # and may be null.
     if optional_type and any("required_nullable" in value for value in field.attributes):
         return "required", True
-    # An `Option<T>` with the `non_null` deserializer may be absent but never null.
-    if optional_type and any('deserialize_with = "non_null"' in value for value in field.attributes):
+    # An `Option<T>` with the `non_null` deserializer may be absent but never null;
+    # so may one with `default` and `present_non_null` (server/command_args.rs).
+    if optional_type and (
+        any('deserialize_with = "non_null"' in value for value in field.attributes)
+        or (
+            any("present_non_null" in value for value in field.attributes)
+            and any(re.search(r"\bdefault\b", value) for value in field.attributes)
+        )
+    ):
         return "optional", False
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
@@ -750,8 +766,12 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    generated = generated_command_names()
+    written = sorted(generated & set(runtime_commands))
+    if written:
+        fail(f"generated family commands also written by hand: {', '.join(written)}")
     for name, fields in handler_command_fields(set(ir.commands)).items():
-        if name in runtime_commands:
+        if name in runtime_commands or name in generated:
             fail(f"{name} is both a Command variant and a handler module command")
         runtime_commands[name] = fields
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
@@ -761,8 +781,10 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
             fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
         for name in refused:
             del fields[name]
-    compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
+    compare_names(set(ir.commands), set(runtime_commands) | generated, "runtime SDK command")
     for command_name, command in ir.commands.items():
+        if command_name in generated:
+            continue
         request = command["request"]
         assert isinstance(request, Mapping)
         _compare_request_fields(
@@ -774,7 +796,9 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
 def sniffed_commands() -> dict[str, SniffedName]:
     # A sniffer module may compare with a name it passes on to the Command
     # enum (client_hello.rs and identify) without its module table entry.
-    passed_on = set(runtime_command_fields()) - set(module_command_fields())
+    passed_on = (set(runtime_command_fields()) | generated_command_names()) - set(
+        module_command_fields()
+    )
     try:
         return sniffer_names(TUI, passed_on)
     except (SnifferNameError, HandlerCommandError, OSError, UnicodeError) as error:

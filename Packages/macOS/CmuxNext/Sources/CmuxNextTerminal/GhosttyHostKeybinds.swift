@@ -149,6 +149,7 @@ extension GhosttyRuntime {
     }
 }
 
+// memory: fixed two lists of at most one chord per `GhosttyHostKeybind.routable` action (43) per runtime.
 /// Memo of `GhosttyRuntime.hostKeybinds` (cleared on every config change)
 /// and of `defaultHostKeybinds` (kept: the defaults never change).
 final class HostKeybindCache {

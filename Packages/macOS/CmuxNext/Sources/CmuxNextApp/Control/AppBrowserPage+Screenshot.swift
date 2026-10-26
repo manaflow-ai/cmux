@@ -89,6 +89,7 @@ extension AppBrowserPage {
     static func save(_ png: Data, tabID: String) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // wall-clock: a file name stamp; pruning reads the files' dates.
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("\(tabID)-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)

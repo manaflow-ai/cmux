@@ -105,7 +105,7 @@ def options(tmp: Path, **overrides) -> oracle.RunOptions:
         product="daemon", suites=("all",), filters=(), shard=(0, 1), jobs=4, batch_limit=1, repeat=1,
         retry_limit=3, seed=None, platform="linux", build="debug", switch=None, arm=None, switches={},
         ref=None, tag=None, binary=None, corpus=tmp / "corpus", out=tmp / "out", state_base=Path("/tmp/o"),
-        run_id="test-run", expectations_root=tmp / "expectations",
+        run_id="test-run", expectations_root=tmp / "expectations", isolation="none",
     )
     base.update(overrides)
     return oracle.RunOptions(**base)
@@ -403,6 +403,88 @@ class RunTests(unittest.TestCase):
             self.assertEqual(row["sha256"], oracle.snapshot_sha256(row["snapshot"]))
 
 
+class EnvironmentDriver(FakeDriver):
+    """Reports `environment` the way driver_daemon.py does, and keeps every session context."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.contexts = []
+
+    def open_session(self, ctx):
+        self.contexts.append(ctx)
+        return super().open_session(ctx)
+
+    def run(self, case, ctx, session):
+        result = super().run(case, ctx, session)
+        result["environment"] = {"env": {"HOME": "$CASE_ROOT/home", "CMUX_TUI_ORACLE_SEED": ctx["case_id"]},
+                                 "isolation": self.contexts[0]["isolation"]}
+        return result
+
+
+class IsolationTests(unittest.TestCase):
+    NETNS = {"mode": "netns", "kind": "netns", "prefix": ["/usr/bin/unshare", "-rn"], "reason": "t", "uid": 1001,
+             "gid": 1002}
+
+    def test_isolation_is_resolved_once_and_every_session_and_receipt_gets_it(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=3)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            driver = EnvironmentDriver()
+            probes = []
+
+            def isolate(mode):
+                probes.append(mode)
+                return dict(self.NETNS)
+
+            receipt, code = oracle.perform_run(options(tmp, isolation="netns"), cases, driver.open_session, None, {},
+                                               isolate=isolate)
+            self.assertEqual(code, 0)
+            self.assertEqual(probes, ["netns"])
+            self.assertEqual(len(driver.contexts), 9)
+            self.assertTrue(all(ctx["isolation"] == self.NETNS for ctx in driver.contexts))
+            self.assertEqual(receipt["isolation"]["kind"], "netns")
+            environment = receipt["cases"]["alpha/case-001"]["environment"]
+            self.assertEqual(environment["env"]["CMUX_TUI_ORACLE_SEED"], "alpha/case-001")
+            self.assertEqual(environment["isolation"]["kind"], "netns")
+            written = json.loads((tmp / "out" / "receipt.json").read_text())
+            self.assertEqual(written["cases"]["beta/case-002"]["environment"]["isolation"]["uid"], 1001)
+
+    def test_a_refused_isolation_fails_the_run_before_any_session(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=2)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            driver = EnvironmentDriver()
+
+            def refuse(mode):
+                raise oracle.UsageError(f"--isolation {mode}: unshare -rn refused")
+
+            with self.assertRaises(oracle.UsageError):
+                oracle.perform_run(options(tmp, isolation="netns"), cases, driver.open_session, None, {}, isolate=refuse)
+            self.assertEqual(driver.sessions, 0)
+
+    def test_none_needs_no_probe(self):
+        resolved = oracle.resolve_isolation("none")
+        self.assertEqual((resolved["mode"], resolved["kind"]), ("none", "none"))
+
+    def test_merge_refuses_shards_with_different_isolation(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", per_suite=4)
+            cases, _ = oracle.load_corpus(tmp / "corpus")
+            outs = []
+            for i, kind in enumerate(("netns", "none")):
+                out = tmp / f"s{i}"
+                resolved = {**self.NETNS, "kind": kind}
+                oracle.perform_run(options(tmp, shard=(i, 2), out=out, run_id=f"s{i}"), cases,
+                                   EnvironmentDriver().open_session, None, {}, isolate=lambda _mode, r=resolved: r)
+                outs.append(out)
+            view, errors = oracle.merge_runs(outs, require_complete=True)
+            self.assertTrue(any("different case isolation" in e for e in errors), errors)
+            self.assertFalse(view.receipt["ok"])
+
+
 class CompareTests(unittest.TestCase):
     """`oracle.py diff` through the real diff.py (p15-oracle-014)."""
 
@@ -675,6 +757,25 @@ class CheckTests(unittest.TestCase):
         self.assertIn("https://example.com/x", text)
         self.assertNotIn("127.0.0.1", text)
         self.assertIn("telepathy", text)
+
+    def test_case_v1_checkpoint_arrays_and_allow_crash_objects(self):
+        """case-v1 writes checkpoint as an array and allow_crashes entries as objects (case-example-daemon.json)."""
+        case = oracle.Case("daemon-ops/x", "daemon-ops", Path("x"), {
+            "requires": ["resource_api", "restart"],
+            "allow_crashes": [{"kind": "daemon", "reason": "on purpose", "steps": ["kill"]}, {"kind": "comet"}],
+            "steps": [
+                {"id": "make", "op": "resource.call", "target": {"session": "current"}, "checkpoint": ["before", "settled"],
+                 "args": {"method": "workspace.create", "params": {}, "idempotencyKey": "x.make"}},
+                {"id": "bare", "op": "resource.call", "args": {"method": "workspace.create"}},
+                {"id": "odd", "op": "snapshot", "checkpoint": ["settled", "turnip"]},
+            ],
+        })
+        errors = oracle.check_case(case, frozenset({"workspace.create"}))
+        self.assertEqual(errors, [
+            "daemon-ops/x: unknown crash kind 'comet' in allow_crashes",
+            "daemon-ops/x: step 'bare' mutates (resource.call workspace.create) without a target",
+            "daemon-ops/x: step 'odd' has unknown checkpoint 'turnip'",
+        ])
 
     def test_mutation_classes_come_from_the_resource_spec(self):
         mutations = oracle.mutation_operations()

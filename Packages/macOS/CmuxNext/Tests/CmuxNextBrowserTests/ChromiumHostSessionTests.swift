@@ -120,11 +120,11 @@ import Testing
         var now = ContinuousClock.now
     }
 
-    private static let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/nonexistent"), arguments: [])
+    static let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/nonexistent"), arguments: [])
 
     /// Waits until `condition` holds; re-evaluated only when an observed
     /// property it read changes, bounded by `timeout`.
-    private func until(_ what: String, timeout: Duration = .seconds(10), _ condition: @escaping @MainActor () -> Bool) async throws {
+    func until(_ what: String, timeout: Duration = .seconds(10), _ condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while true {
             let (changed, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -155,17 +155,17 @@ import Testing
         }
     }
 
-    private func nextLaunch(_ launcher: FakeLauncher) async throws -> FakeHost {
+    func nextLaunch(_ launcher: FakeLauncher) async throws -> FakeHost {
         var iterator = launcher.launches.makeAsyncIterator()
         return try #require(await iterator.next())
     }
 
-    private func firstFrame(of host: FakeHost) async throws -> ChromiumHostFrame {
+    func firstFrame(of host: FakeHost) async throws -> ChromiumHostFrame {
         var iterator = host.wire.frames.makeAsyncIterator()
         return try #require(await iterator.next())
     }
 
-    private func answer(_ host: FakeHost, context: Int32, address: String) {
+    func answer(_ host: FakeHost, context: Int32, address: String) {
         host.wire.send(ChromiumHostFrame(.ready, v: [27, host.pid]))
         host.wire.send(ChromiumHostFrame(.context, v: [context]))
         host.wire.send(ChromiumHostFrame(.address, payload: Array(address.utf8)))
@@ -364,7 +364,7 @@ import Testing
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
     /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
     /// sequential calls continue where the last one stopped.
-    private func frame(_ kind: ChromiumHostFrame.Kind, in stream: AsyncStream<ChromiumHostFrame>) async -> ChromiumHostFrame? {
+    func frame(_ kind: ChromiumHostFrame.Kind, in stream: AsyncStream<ChromiumHostFrame>) async -> ChromiumHostFrame? {
         var frames = stream.makeAsyncIterator()
         while let frame = await frames.next() {
             if frame.kind == kind { return frame }

@@ -1154,7 +1154,7 @@ dependencies = [
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "cmux-trace",
 ]
 
 [[package]]
@@ -1170,8 +1170,9 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
 ]
 
 [[package]]
@@ -1196,6 +1197,7 @@ dependencies = [
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]
@@ -1375,6 +1377,7 @@ dependencies = [
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -1385,6 +1388,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1678,8 +1682,10 @@ dependencies = [
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",

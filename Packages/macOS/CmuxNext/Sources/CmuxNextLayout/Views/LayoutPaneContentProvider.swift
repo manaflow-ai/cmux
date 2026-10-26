@@ -78,6 +78,12 @@ final class LayoutViewContext {
     /// Presses the root's intercept handled while render-server springs ran on its active screen
     /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
     var pressesMidRenderSpring = 0
+    /// Scrolls the root's intercept sent through its full routing, with its pane hit tests and claim
+    /// queries (`LayoutRootView.routedScrolls`), cumulative; a page's plain scroll takes none.
+    var routedScrolls: UInt64 = 0
+    /// Scroll points the root's intercept converted from a child window into its own
+    /// (`LayoutRootView.scrollPointConversions`), cumulative; a page's plain scroll takes none.
+    var scrollPointConversions: UInt64 = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -99,6 +105,9 @@ final class LayoutViewContext {
     var dragFrameInput: FrameInputCoalescers?
     /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
     var dragResampler: () -> DragResampler? = { nil }
+    /// A strip pan on the motion container shows at each display frame's time, resampled
+    /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
+    var resamplesStripPan = false
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.

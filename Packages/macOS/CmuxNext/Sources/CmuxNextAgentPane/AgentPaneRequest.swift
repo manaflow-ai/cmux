@@ -76,8 +76,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
     /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
     case newTabWarm(String)
-    /// The location bar picked an open tab or workspace: go there.
-    case jump(AgentPaneJumpTarget, id: String)
+    /// The location bar picked an open tab or workspace: go there. `inputAt` is the page's click or Return that picked
+    /// it (`performance.timeOrigin + event.timeStamp`, Unix milliseconds), nil when the page sent none.
+    case jump(AgentPaneJumpTarget, id: String, inputAt: Double? = nil)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action.

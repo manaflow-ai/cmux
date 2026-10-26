@@ -21,7 +21,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
     private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self, input: services.inputTap,
-                                                       mainWork: services.mainWork)
+                                                       mainWork: services.mainWork, hiddenWork: services.hiddenLayoutWork)
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -49,6 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
+    // wall-clock: an id seed, not a time: Unix ms keeps ids from an earlier launch and the daemon's apart.
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
     /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
@@ -66,14 +67,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var drawsNothing = false
     /// Parked and on no screen (not a `sidebar.multiView` companion beside the shown workspace).
     /// Its tree changes then update the model only: no layout, no view sync, no topology
-    /// (CLAUDE.md "Go past Chrome where cmux is scripted").
-    private(set) var isOffScreen = false
+    /// (CLAUDE.md "Go past Chrome where cmux is scripted"). Its root counts the passes it still gets then.
+    private(set) var isOffScreen = false { didSet { layoutView.isOffScreen = isOffScreen } }
     /// The workspace's visibility node, under its window's, that its panes' nodes hang under
     /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
     /// node (an unmounted workspace has none); until then each pane's node is a root.
     var visibilityNode: VisibilityNode? { nil }
-    /// The latest mapping that came while off screen: applied once, at rest, when it shows.
-    private var deferredApply: LayoutMapping.Result?
+    /// The latest mapping that came while off screen: applied once, at rest, when it shows (each a hidden apply).
+    private var deferredApply: LayoutMapping.Result? { didSet { if deferredApply != nil { services.hiddenLayoutWork.noteApply() } } }
     /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
     /// observation and drives no repair or focus again, so a daemon reply or a repair that lands
     /// after the teardown leaves nothing behind (p07-memory-034). Chrome's WebContentsImpl stops
@@ -161,6 +162,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         _ = layoutView  // built here, then the bar and the content view, as before
         // Divider, column-edge and row-edge drags move the layout once per frame (`pointerFrameDrags`), drawn resampled (`resampledDrags`).
         layoutView.setDragInput(frames: services.dragFrameInput, resampler: services.dragResampler)
+        layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).

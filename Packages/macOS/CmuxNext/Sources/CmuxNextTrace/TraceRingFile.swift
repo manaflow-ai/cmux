@@ -91,36 +91,40 @@ public final class TraceRingFile: Sendable {
     public static func prepareSpare(directory: String, role: TraceRing.Role, sizes: TraceRing.Sizes) -> Bool {
         let byteCount = TraceRingLayout(sizes).totalBytes
         let path = directory + "/" + spareName(role: role)
-        var info = stat()
-        if stat(path, &info) == 0, Int(info.st_size) == byteCount { return true }
-        let building = path + ".\(getpid()).tmp"
-        let descriptor = open(building, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return false }
-        let allocated = allocate(descriptor, byteCount: byteCount)
-        close(descriptor)
-        guard allocated, rename(building, path) == 0 else {
-            unlink(building)
-            return false
+        return blockingCall(.fileIO) {
+            var info = stat()
+            if stat(path, &info) == 0, Int(info.st_size) == byteCount { return true }
+            let building = path + ".\(getpid()).tmp"
+            let descriptor = open(building, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { return false }
+            let allocated = allocate(descriptor, byteCount: byteCount)
+            close(descriptor)
+            guard allocated, rename(building, path) == 0 else {
+                unlink(building)
+                return false
+            }
+            return true
         }
-        return true
     }
 
     /// The whole records of the ring file at `path`, nil when it cannot be read or is not a v1 ring. The
     /// file is mapped read-only and decoded in place with the seqlock reads, so a ring whose process still
     /// writes decodes as safely as one whose process ended. Blocking file work.
     public static func records(atPath path: String) -> [TraceRecord]? {
-        let descriptor = open(path, O_RDONLY | O_CLOEXEC)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, Int(info.st_size) >= TraceRing.headerBytes else { return nil }
-        let byteCount = Int(info.st_size)
-        let mapping = mmap(nil, byteCount, PROT_READ, MAP_SHARED, descriptor, 0)
-        guard let mapping, mapping != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
-        // A reader's own mapping: unmapping it never affects the writer's.
-        defer { munmap(mapping, byteCount) }
-        // Loads only: the decoder never stores, so the read-only pages are never written.
-        return TraceRingStorage(validating: mapping, byteCount: byteCount)?.decode()
+        return blockingCall(.fileIO) {
+            let descriptor = open(path, O_RDONLY | O_CLOEXEC)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, Int(info.st_size) >= TraceRing.headerBytes else { return nil }
+            let byteCount = Int(info.st_size)
+            let mapping = mmap(nil, byteCount, PROT_READ, MAP_SHARED, descriptor, 0)
+            guard let mapping, mapping != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
+            // A reader's own mapping: unmapping it never affects the writer's.
+            defer { munmap(mapping, byteCount) }
+            // Loads only: the decoder never stores, so the read-only pages are never written.
+            return TraceRingStorage(validating: mapping, byteCount: byteCount)?.decode()
+        }
     }
 
     /// The decoded records of this file's mapping (the ring's records while it writes here).
@@ -135,30 +139,34 @@ public final class TraceRingFile: Sendable {
     /// created file is sized and allocated first. `path` is never one this process has mapped: adoption
     /// is one-shot. Returns the mapping, or nil after removing the file.
     private static func map(path: String, spare: String, directory: String, byteCount: Int) -> UnsafeMutableRawPointer? {
-        if mkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
-        if rename(spare, path) == 0, let mapping = mapSpare(path: path, byteCount: byteCount) {
+        return blockingCall(.fileIO) {
+            if mkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
+            if rename(spare, path) == 0, let mapping = mapSpare(path: path, byteCount: byteCount) {
+                return mapping
+            }
+            let descriptor = open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
+                unlink(path)
+                return nil
+            }
             return mapping
         }
-        let descriptor = open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
-            unlink(path)
-            return nil
-        }
-        return mapping
     }
 
     /// Maps a renamed spare of exactly `byteCount` bytes and zeroes it; nil for any other size.
     private static func mapSpare(path: String, byteCount: Int) -> UnsafeMutableRawPointer? {
-        let descriptor = open(path, O_RDWR | O_CLOEXEC)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, Int(info.st_size) == byteCount,
-              let mapping = mapShared(descriptor, byteCount: byteCount) else { return nil }
-        mapping.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
-        return mapping
+        return blockingCall(.fileIO) {
+            let descriptor = open(path, O_RDWR | O_CLOEXEC)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, Int(info.st_size) == byteCount,
+                  let mapping = mapShared(descriptor, byteCount: byteCount) else { return nil }
+            mapping.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+            return mapping
+        }
     }
 
     private static func mapShared(_ descriptor: Int32, byteCount: Int) -> UnsafeMutableRawPointer? {
@@ -171,15 +179,17 @@ public final class TraceRingFile: Sendable {
     /// file system without it, one written zero byte per 4 KiB block, as Chrome's `MemoryMappedFile` does
     /// on macOS.
     private static func allocate(_ descriptor: Int32, byteCount: Int) -> Bool {
-        var store = fstore_t(fst_flags: UInt32(F_ALLOCATEALL), fst_posmode: F_PEOFPOSMODE, fst_offset: 0,
-                             fst_length: off_t(byteCount), fst_bytesalloc: 0)
-        let preallocated = fcntl(descriptor, F_PREALLOCATE, &store) != -1
-        guard ftruncate(descriptor, off_t(byteCount)) == 0 else { return false }
-        if preallocated { return true }
-        var zero: UInt8 = 0
-        for offset in stride(from: 0, to: byteCount, by: 4096) where pwrite(descriptor, &zero, 1, off_t(offset)) != 1 {
-            return false
+        return blockingCall(.fileIO) {
+            var store = fstore_t(fst_flags: UInt32(F_ALLOCATEALL), fst_posmode: F_PEOFPOSMODE, fst_offset: 0,
+                                 fst_length: off_t(byteCount), fst_bytesalloc: 0)
+            let preallocated = fcntl(descriptor, F_PREALLOCATE, &store) != -1
+            guard ftruncate(descriptor, off_t(byteCount)) == 0 else { return false }
+            if preallocated { return true }
+            var zero: UInt8 = 0
+            for offset in stride(from: 0, to: byteCount, by: 4096) where pwrite(descriptor, &zero, 1, off_t(offset)) != 1 {
+                return false
+            }
+            return true
         }
-        return true
     }
 }

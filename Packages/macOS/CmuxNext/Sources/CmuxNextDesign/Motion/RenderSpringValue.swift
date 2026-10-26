@@ -2,7 +2,7 @@ public import AppKit
 
 /// A layer value a ``RenderSpring`` animates: a scalar, point, size or rect.
 public nonisolated protocol RenderSpringValue: Sendable {
-    /// The value from a layer's `value(forKeyPath:)`, or nil when it is another type.
+    /// The value from its layer form (``layerValue``), or nil when it is another type.
     init?(layerValue: Any?)
     /// The value as a layer stores it (`NSNumber` or `NSValue`).
     var layerValue: Any { get }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextEnergy
 import CmuxNextSettings
@@ -72,6 +73,8 @@ nonisolated enum AppProcesses {
     struct Sample {
         var kind: String
         var usage: ProcessUsage
+        /// A tab renderer's client id (``tabRendererClients()``); nil for every other process.
+        var rendererClientID: Int32?
 
         var json: JSONValue {
             [
@@ -94,13 +97,33 @@ nonisolated enum AppProcesses {
         return "cef-helper"
     }
 
-    /// Chromium helpers for the busy watchdog. Which tab a renderer serves
-    /// is not known here (Chromium assigns renderers per site), so the label
-    /// is the helper kind.
+    /// Chromium helpers for the busy watchdog, labeled with their kind; a tab renderer carries its client
+    /// id. Chromium assigns renderers per site, so the tabs a busy renderer serves come from the
+    /// watchdog's tab source (``TabContentCache/tabRenderers``).
     static func chromiumHelpers() -> [BusyWatchdog.Helper] {
-        ProcessUsage.children(of: getpid()).compactMap { pid in
+        let renderers = tabRendererClients()
+        return ProcessUsage.children(of: getpid()).compactMap { pid in
             guard let path = ProcessUsage.path(of: pid), let kind = helperKind(path) else { return nil }
-            return BusyWatchdog.Helper(pid: pid, label: kind)
+            return BusyWatchdog.Helper(pid: pid, label: kind, rendererClientID: renderers[pid])
+        }
+    }
+
+    /// The app's tab renderers by pid, with their `--renderer-client-id`, from ``ChromiumHelperProcess``
+    /// (argv cached per pid; extension renderers are not tab renderers).
+    static func tabRendererClients() -> [pid_t: Int32] {
+        var clients: [pid_t: Int32] = [:]
+        for helper in ChromiumHelperProcess.list() {
+            if case .renderer(let clientID) = helper.kind { clients[helper.pid] = clientID }
+        }
+        return clients
+    }
+
+    /// Every Chromium tab with what it reports about its renderers (p14-energy-124), read now: the pids
+    /// are matched to processes off the main actor.
+    @MainActor
+    static func tabRenderers(_ services: AppServices) -> [ProcessUsage.TabRenderers] {
+        services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry in
+            (entry.tab as? CEFTab)?.renderers(tab: id)
         }
     }
 
@@ -108,9 +131,10 @@ nonisolated enum AppProcesses {
         let me = getpid()
         var out: [Sample] = []
         if let usage = ProcessUsage.sample(me) { out.append(Sample(kind: "app", usage: usage)) }
+        let renderers = tabRendererClients()
         for child in ProcessUsage.children(of: me) {
             guard let usage = ProcessUsage.sample(child), let kind = helperKind(usage.path) else { continue }
-            out.append(Sample(kind: kind, usage: usage))
+            out.append(Sample(kind: kind, usage: usage, rendererClientID: renderers[child]))
         }
         let bin = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin").path + "/"
         let tui = ProcessUsage.processes(pathPrefix: bin).compactMap(ProcessUsage.sample)
@@ -130,7 +154,7 @@ extension EnergyReport {
     /// and one sample of the processes ``AppProcesses`` lists.
     init(services: AppServices) {
         self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
-            AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage) }
+            AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage, rendererClientID: $0.rendererClientID) }
         })
     }
 
@@ -152,9 +176,10 @@ extension EnergyReport {
                            setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
                            sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
-            // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
-            cef: CEF(saver: .unsupported, earlyPasses: nil),
-            idle: services.energy.idle.stats
+            // No early-pass count yet (p14-energy-018).
+            cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),
+            idle: services.energy.idle.stats,
+            tabs: AppProcesses.tabRenderers(services)
         )
     }
 }
