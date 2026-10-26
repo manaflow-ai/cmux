@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
@@ -50,7 +51,7 @@ protocol InternalPageProvider: AnyObject {
     var symbol: String { get }
     /// The tab's cmux icon. Default: nil.
     var icon: IconName? { get }
-    /// A new view for the tab `key` (called once per tab, on first show).
+    /// A new view for the tab `key` (called on first show, and again after a discard).
     /// `window` is the main window the tab opens in, for its theme scope.
     func makeView(for key: String, in window: WindowController?) -> NSView
     /// The tab `key` closed: its view is gone.
@@ -76,6 +77,28 @@ protocol InternalPageProvider: AnyObject {
     /// A native bar shown above tab `key`'s view (the Markdown omnibar),
     /// asked once right after ``makeView(for:in:)``. Default: none.
     func makeTopBar(for key: String) -> NSView?
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory.md 3.C)
+    //
+    // With the feature on, a hidden tab's view goes once its policy says so: the tab keeps its
+    // place, title, icon and route, and its next show calls ``makeView(for:in:)`` again for the
+    // same `key`, then ``restoreViewState(_:for:content:)``.
+
+    /// When tab `key`'s hidden view may go. Default: ``ContentDiscardPolicy/standard``.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy
+    /// Why tab `key`'s view must stay now (an edit not saved, a recording, a request in flight),
+    /// first reason first; empty when it may go. Asked right before a discard, and again one
+    /// policy time later while it keeps the view. Default: none.
+    func keepReasons(for key: String) -> [CannotDiscardReason]
+    /// What tab `key` shows besides its route, read right before its view `content` goes.
+    /// Default: the scroll position of the first scroll view in `content`.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState
+    /// Puts `state` back on tab `key`'s rebuilt view `content`, once it has its size. Default:
+    /// scrolls the first scroll view in `content` to the saved position.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView)
+    /// Tab `key`'s view went and the tab stays: drop what refers to the view, keep what its next
+    /// view needs. Default: nothing.
+    func viewDiscarded(_ key: String)
 }
 
 extension InternalPageProvider {
@@ -87,4 +110,31 @@ extension InternalPageProvider {
     func restore(_ route: String, for key: String) {}
     func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+    func keepReasons(for key: String) -> [CannotDiscardReason] { [] }
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
+    }
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let scroll = state.scroll, let view = content.firstScrollView else { return }
+        view.contentView.scroll(to: scroll)
+        view.reflectScrolledClipView(view.contentView)
+    }
+    func viewDiscarded(_ key: String) {}
+}
+
+extension NSView {
+    /// The first scroll view in this view's tree, breadth first (a page's main list or document):
+    /// the default view state of a discarded page tab.
+    var firstScrollView: NSScrollView? {
+        var queue: [NSView] = [self]
+        var index = 0
+        while index < queue.count {
+            let next = queue[index]
+            index += 1
+            if let scroll = next as? NSScrollView { return scroll }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
+    }
 }

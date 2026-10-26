@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -43,6 +44,11 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
+    /// What each discarded tab showed, by provider key, until its view is made again; `discards` says when
+    /// views go (`memoryDiscardInternalPages`, nil while off), on `cache`'s lifecycle (InternalPageTabStore+Show).
+    @ObservationIgnored private(set) var discarded: [String: ContentViewState] = [:]
+    @ObservationIgnored var discards: ContentDiscardScheduler?
+    @ObservationIgnored weak var cache: TabContentCache?
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -129,11 +135,34 @@ final class InternalPageTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let content = provider.makeView(for: key, in: windows[key])
+        return makeView(key, tab: key, page: page, provider: provider, window: windows[key])
+    }
+
+    /// Makes and keeps tab `tab`'s view under provider key `key`. A tab whose view was discarded
+    /// gets its saved state back once laid out, under its last picture until it paints.
+    private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider,
+                          window: WindowController?) -> InternalPageView {
+        let content = provider.makeView(for: key, in: window)
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
+        if let state = discarded.removeValue(forKey: key) {
+            if let picture = discardedPicture(of: tab) { view.showPicture(picture) }
+            view.whenLaidOut { [weak provider, weak content] in if let content { provider?.restoreViewState(state, for: key, content: content) } }
+        }
         return view
+    }
+
+    /// Lets `tab`'s view go and keeps the tab (strip place, title, icon, route) and `state`, given
+    /// back to the view made at its next show (InternalPageTabStore+Show). False with no view.
+    @discardableResult
+    func discardView(ofTab tab: String, state: ContentViewState) -> Bool {
+        let key = providerKey(ofTab: tab)
+        guard let view = views.removeValue(forKey: key) else { return false }
+        view.removeFromSuperview()
+        discarded[key] = state
+        if let page = LocalPageTab.page(of: key) { providers[page]?.viewDiscarded(key) }
+        return true
     }
 
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
@@ -179,11 +208,7 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
-        view.navigate = navigate
-        views[key] = view
-        return view
+        return makeView(key, tab: tab.id, page: page, provider: provider, window: windows[key])
     }
 
     /// Opens `page` as a store tab after `pane`'s selected tab. The tab and
@@ -340,6 +365,7 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperview()
+        discarded[key] = nil
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }

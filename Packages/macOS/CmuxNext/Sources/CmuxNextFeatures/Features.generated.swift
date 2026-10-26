@@ -36,9 +36,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A page tab hidden past its page's discard policy (10 minutes unless the page sets its own, sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, scroll and picture; showing it builds the page again.
+    public static let memoryDiscardInternalPages = Feature(
+        index: 2,
+        name: "memoryDiscardInternalPages",
+        owner: "PL-memory",
+        description: "A page tab hidden past its page's discard policy (10 minutes unless the page sets its own, sooner at critical memory pressure) lets its view and page renderer go and keeps its tab, scroll and picture; showing it builds the page again.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 2,
+        index: 3,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -55,7 +72,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 3,
+        index: 4,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -74,6 +91,7 @@ nonisolated extension Feature {
     public static let registered: [Feature] = [
         .energySaver,
         .frameRateClasses,
+        .memoryDiscardInternalPages,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]
