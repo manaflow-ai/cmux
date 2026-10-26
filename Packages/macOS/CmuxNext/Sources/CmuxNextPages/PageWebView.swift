@@ -312,12 +312,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
-        // A page that starts at its first show sends no script until then (``PageScriptTarget/hasDocument``).
-        let target = PageScriptTarget(webKitBridge, hasDocument: !(load && startsAtFirstShow))
+        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
+        let decided = pooled || !load ? decision.webKitOnly : decision
+        engineDecision = decided
+        // A Chromium page made while the launch runs waits for its show or startup's end (``PageChromiumOrigin``),
+        // as one that starts at its first show does; until it starts it sends no script (``PageScriptTarget/hasDocument``).
+        let launch = decided.engine == .cef ? chromium?.pendingLaunch : nil
+        let waits = load && (startsAtFirstShow || launch != nil)
+        let target = PageScriptTarget(webKitBridge, hasDocument: !waits)
         scriptTarget = target
         scripts = PageScriptPipeline { script in target.evaluate(script) }
-        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
         // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
         // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).
@@ -388,10 +392,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
-        let start = PageFirstShowStart(chromium: chromium, requested: constructionStart)
+        let start = PageFirstShowStart(chromium: chromium, requested: constructionStart, origin: .user)
         // A view is in no window while it is made: one opened to show starts at its pane's attach
-        // in this turn; one opened hidden makes no renderer until it shows.
-        if startsAtFirstShow { firstShowStart = start } else { startDocument(start) }
+        // in this turn; one opened hidden makes no renderer until it shows (at launch: or startup completed).
+        if waits { firstShowStart = start } else { startDocument(start) }
+        if let launch, !startsAtFirstShow { launch.whenComplete { [weak self] _ in self?.startAtFirstShow(shown: false) } }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).

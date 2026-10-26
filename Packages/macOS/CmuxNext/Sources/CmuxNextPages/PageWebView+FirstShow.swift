@@ -5,10 +5,19 @@ import Foundation
 import WebKit
 
 /// What a page view needs to start its document: the Chromium host the engine decision may use,
-/// and when the open was asked for (the start of its `webui.open` slice).
-struct PageFirstShowStart {
+/// when the open was asked for (the start of its `webui.open` slice), and why its Chromium page starts.
+@MainActor struct PageFirstShowStart {
     let chromium: (any PageChromiumHosting)?
     let requested: TimeInterval
+    let origin: PageChromiumOrigin
+
+    /// The start of a page that waited, now: it shows (`shown`), or startup completed while it did not
+    /// (``PageChromiumOrigin/restoreHidden``). A page that shows while the launch runs is
+    /// ``PageChromiumOrigin/restoreVisible``, one that shows after it ``PageChromiumOrigin/user``.
+    func now(shown: Bool) -> PageFirstShowStart {
+        let origin: PageChromiumOrigin = !shown ? .restoreHidden : chromium?.pendingLaunch != nil ? .restoreVisible : .user
+        return PageFirstShowStart(chromium: chromium, requested: ProcessInfo.processInfo.systemUptime, origin: origin)
+    }
 }
 
 /// The visibility node a page waiting for its first show follows, and its subscription to it.
@@ -30,8 +39,14 @@ struct PageFirstShowStart {
 // only when its node in the visibility tree (p06-scheduler.md B) says so: its tab's node once a pane
 // shows it (``followAppearance(_:node:)``: tab, pane, workspace, window, app), else its window's
 // ``WindowVisibilitySource`` node.
+//
+// At launch (p08-startup-041, feature `chromiumPagesLaunchOrigin`) a Chromium page waits the same
+// way: one that shows starts Chromium after the first frame (``PageChromiumOrigin/restoreVisible``),
+// one that does not starts once startup completed (``PageChromiumOrigin/restoreHidden``), and until
+// then shows its pane's theme background. Chrome's startup goal is the first visible WebContents;
+// restored tabs that do not show load after it (chrome/browser/sessions/tab_loader.cc).
 extension PageWebView {
-    /// True while the page waits for its first show to start its document.
+    /// True while the page waits for its first show (at launch: or startup's completion) to start its document.
     public var awaitsFirstShow: Bool { firstShowStart != nil }
 
     /// Whether a window in `visibility` shows its pages: visible, or, in an automation launch that
@@ -60,20 +75,20 @@ extension PageWebView {
         })
     }
 
-    /// The page shows: a page that waited for its first show starts its document.
-    func startAtFirstShow() {
+    /// The page shows (`shown`), or startup completed: a page that waited starts its document.
+    func startAtFirstShow(shown: Bool = true) {
         guard let start = firstShowStart else { return }
         firstShowStart = nil
         firstShowWatch = nil
         scriptTarget.hasDocument = true
-        startDocument(PageFirstShowStart(chromium: start.chromium, requested: ProcessInfo.processInfo.systemUptime))
+        startDocument(start.now(shown: shown))
     }
 
     /// Starts the document at ``route`` in the engine ``engineDecision`` picked.
     func startDocument(_ start: PageFirstShowStart) {
         traceOpenRequested(.newView, constructedSince: start.requested)
         if engineDecision.engine == .cef, let hosting = start.chromium {
-            startChromium(hosting: hosting)
+            startChromium(hosting: hosting, origin: start.origin)
         } else {
             traceMark(.navigationStart)
             webView.load(URLRequest(url: descriptor.url(route: route)))

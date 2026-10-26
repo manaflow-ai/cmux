@@ -85,8 +85,9 @@ extension PageWebView {
 
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
-    /// page does not reach the host in time.
-    func startChromium(hosting: any PageChromiumHosting) {
+    /// page does not reach the host in time. A page made at launch that shows (`origin`
+    /// ``PageChromiumOrigin/restoreVisible``) asks for it once the launch's first frame committed.
+    func startChromium(hosting: any PageChromiumHosting, origin: PageChromiumOrigin) {
         traceMark(.chromiumStart)
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
@@ -96,12 +97,14 @@ extension PageWebView {
         let traced = ChatOpenTrace.shared.isTraced(page: self)
         #endif
         chromiumStart = Task { [weak self] in
+            if origin == .restoreVisible { await hosting.launch?.afterFirstFrame() }
+            guard !Task.isCancelled else { return }
             let page: any PageChromiumPage
             do {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, origin: origin)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return

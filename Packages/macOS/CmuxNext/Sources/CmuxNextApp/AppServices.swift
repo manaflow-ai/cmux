@@ -390,7 +390,7 @@ final class AppServices {
             preference: { [weak self] in
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
-            keyRouter: keyRouter, work: work),
+            keyRouter: keyRouter, work: work, launch: features.isEnabled(.chromiumPagesLaunchOrigin) ? launchStartup : nil),
         openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)

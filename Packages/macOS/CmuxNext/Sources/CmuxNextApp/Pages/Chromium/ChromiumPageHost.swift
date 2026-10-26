@@ -13,7 +13,7 @@ import Foundation
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
 /// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
-/// a window in the turn that opened it.
+/// a window in the turn that opened it. A page's ``PageChromiumOrigin`` is its tab's origin (p08-startup-041).
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -26,6 +26,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private weak var keyRouter: KeyRouter?
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    let launch: StartupScheduler?  // while pages follow the launch origin rule (feature `chromiumPagesLaunchOrigin`)
 
     /// - Parameters:
     ///   - chromium: The app's Chromium engine slot: the engine is built when the first page opens in Chromium.
@@ -33,12 +34,14 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - launch: The launch's scheduler (``PageChromiumHosting/launch``); nil: every page starts Chromium at once.
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork) {
+         work: BackgroundWork, launch: StartupScheduler?) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.launch = launch
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -47,13 +50,14 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, origin: PageChromiumOrigin) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        let configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
+        var configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
+        configuration.origin = switch origin { case .user: .user; case .restoreVisible: .restoreVisible; case .restoreHidden: .restoreHidden }
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif

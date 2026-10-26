@@ -21,6 +21,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Parameter page: The page to show.
     /// - Returns: True when a Chromium page can load it.
     func serves(_ page: PageDescriptor) -> Bool
+    /// The launch's scheduler when cmux pages follow the launch origin rule (feature
+    /// `chromiumPagesLaunchOrigin`, ``PageChromiumOrigin``); nil: every page is a person's and starts at once.
+    var launch: StartupScheduler? { get }
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
     /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
@@ -30,9 +33,10 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - page: The page's descriptor (its origin and policy).
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
+    ///   - origin: Why the page starts now; the host passes it on as the engine's tab origin.
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, origin: PageChromiumOrigin) async throws -> any PageChromiumPage
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
