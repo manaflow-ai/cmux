@@ -333,18 +333,15 @@ export function IncomingMessageLine({
   const detailsRow = (
     <div className="cv-received__details">
       <button
-        ref={minimal ? undefined : envelope.headerRef}
+        ref={envelope.headerRef}
         type="button"
         className="cv-received__more"
         aria-expanded={details}
         aria-controls={details ? rawId : undefined}
         onClick={() => {
-          // Minimal Mode's Details opens and closes at once, as it did (#25002).
-          if (minimal) {
-            setDetails((value) => !value);
-            return;
-          }
-          played.current = true;
+          // The compact disclosure is instant, but still uses the anchored collapse header so
+          // opening Details at the transcript's end cannot move the clicked line.
+          if (!minimal) played.current = true;
           envelope.toggle();
         }}
       >
