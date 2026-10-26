@@ -67,36 +67,76 @@ public final class ChiefAvatarUploads {
     public private(set) var uploads: [String: Upload]
     /// Each upload's first frame, decoded off the main actor before the upload is published.
     @ObservationIgnored private var images: [URL: CGImage] = [:]
-    /// Each key's last file operation: the next one starts after it, so a removal never deletes a
-    /// newer upload and two uploads land in the order they were made.
-    @ObservationIgnored private var operations: [String: Task<Void, Never>] = [:]
-    /// Each key's count of uploads and removals begun, and the newest of them that took effect: an
-    /// upload that lands after a newer one took effect is dropped; a refused newer one drops nothing.
-    @ObservationIgnored private var generations: [String: Int] = [:]
-    @ObservationIgnored private var applied: [String: Int] = [:]
-    /// Each key's count of wear changes and the newest one: an upload that lands after a pick
-    /// follows that pick, not the character picked when it began.
-    @ObservationIgnored private var wears: [String: Int] = [:]
-    @ObservationIgnored private var lastWear: [String: String?] = [:]
-    /// Keys an upload or removal changed since launch: the launch listing never overwrites them
-    /// (a refused upload changes nothing, so it is not here).
-    @ObservationIgnored private var changed: Set<String> = []
+
+    // MARK: The one serial owner
+    //
+    // Every operation goes through one line of steps (``serially(_:)``), in the order it was asked
+    // for: the launch listing first, then each upload, removal and pick's file work and what it
+    // publishes. Each asks for a generation when it is called (``tick()``), so what lands later
+    // never undoes an intent asked for after it: a removal or a pick made during the listing or
+    // during an upload wins, and a refused upload changes nothing.
+
+    /// The last step of the line; the next starts after it.
+    @ObservationIgnored private var tail: Task<Void, Never>?
+    /// The generations handed out so far, one per upload, removal and pick.
+    @ObservationIgnored private var clock = 0
+    /// Each key's newest removal and newest pick, by generation.
+    @ObservationIgnored private var removedAt: [String: Int] = [:]
+    @ObservationIgnored private var woreAt: [String: (generation: Int, mascot: String?)] = [:]
+    /// Whether the launch listing is published; until it is, picks and removals wait for it in
+    /// order (``now(_:)``), and then apply over what the folder held.
+    @ObservationIgnored private var listed = false
+    @ObservationIgnored private var waiting: [@MainActor () -> Void] = []
 
     /// - Parameter folder: where uploads are kept; nil keeps nothing (a test, or no support folder).
     public init(folder: URL?) {
         self.folder = folder
         uploads = [:]
-        guard let folder else { return }
-        // task-owner: one listing (and first-frame decode) of the uploads folder off the main actor at launch; ends when it is applied
-        Task { [weak self] in
+        guard let folder else {
+            listed = true
+            return
+        }
+        // The line's first step: the folder as the last run left it (first frames decoded off the main actor).
+        _ = serially { [weak self] in
             let found = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.scan(folder) }.value
             guard let self else { return }
-            // A key changed meanwhile (an upload or removal) is newer than what the folder held when it was listed.
-            for (key, entry) in found where !changed.contains(key) {
+            for (key, entry) in found {
                 images[entry.upload.still] = entry.image
                 uploads[key] = entry.upload
             }
+            listed = true
+            let changes = waiting
+            waiting = []
+            for change in changes { change() }
         }
+    }
+
+    /// Runs `step` after every step asked for before it, on the main actor (its file work goes off it).
+    private func serially<T: Sendable>(_ step: @escaping @MainActor @Sendable () async -> T) -> Task<T, Never> {
+        let previous = tail
+        // task-owner: one step of the uploads' serial line; ends with it
+        let task = Task { @MainActor in
+            await previous?.value
+            return await step()
+        }
+        // task-owner: the line's tail; ends with `task`
+        tail = Task { _ = await task.value }
+        return task
+    }
+
+    private func tick() -> Int {
+        clock += 1
+        return clock
+    }
+
+    /// Applies `change` to what is published now, or, before the listing is, right after it.
+    private func now(_ change: @escaping @MainActor () -> Void) {
+        if listed { change() } else { waiting.append(change) }
+    }
+
+    /// Returns when every step asked for so far has run (tests).
+    func settled() async {
+        await tail?.value
     }
 
     /// `Application Support/<bundle id>/AvatarUploads`.
@@ -132,85 +172,86 @@ public final class ChiefAvatarUploads {
     /// The first frame of the upload whose still is `still`, already decoded; nil for any other file.
     public func image(at still: URL) -> CGImage? { images[still] }
 
-    /// Runs `work` on `key`'s files after the key's earlier operations, off the main actor.
-    private func enqueue<T: Sendable>(_ key: String, _ work: @escaping @Sendable () -> T) -> Task<T, Never> {
-        let previous = operations[key]
-        let task = Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> T in
-            await previous?.value
-            return work()
-        }
-        // task-owner: the key's queue entry; ends with `task`
-        operations[key] = Task { _ = await task.value }
-        return task
+    /// Makes `source` `key`'s upload and wears it over `mascot` (the character picked now), after
+    /// checking it against the limits. Reading, drawing down and writing run off the main actor, in
+    /// the serial line; a removal or a pick asked for meanwhile wins.
+    public func store(from source: URL, for key: String, over mascot: String) async throws(Refusal) {
+        try await storing(from: source, for: key, over: mascot).value.get()
     }
 
-    /// Makes `source` `key`'s upload and wears it over `mascot` (the character picked now), after
-    /// checking it against the limits. Reading, drawing down and writing run off the main actor; an
-    /// upload or removal made meanwhile wins.
-    public func store(from source: URL, for key: String, over mascot: String) async throws(Refusal) {
-        guard let folder, Self.isKey(key) else { throw .unsaved }
-        let generation = (generations[key] ?? 0) + 1
-        generations[key] = generation
-        let wearsAtStart = wears[key]
-        let result = await enqueue(key) { () -> Result<(upload: Upload, image: CGImage), Refusal> in
-            do throws(Refusal) {
-                let prepared = try Self.prepare(source)
-                // Decoded before it is kept: a still that cannot be drawn is never published.
-                guard let image = Self.decode(prepared.still) else { throw .unreadable }
-                let upload = try Self.write(prepared, over: mascot, in: folder.appendingPathComponent(key, isDirectory: true))
-                return .success((upload, image))
-            } catch {
-                return .failure(error)
+    /// ``store(from:for:over:)``'s step, asked for now (its generation and its place in the line).
+    func storing(from source: URL, for key: String, over mascot: String) -> Task<Result<Void, Refusal>, Never> {
+        guard let folder, Self.isKey(key) else { return Task { .failure(.unsaved) } }
+        let generation = tick()
+        return serially { [weak self] in
+            let result = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> Result<(upload: Upload, image: CGImage), Refusal> in
+                do throws(Refusal) {
+                    let prepared = try Self.prepare(source)
+                    // Decoded before it is kept: a still that cannot be drawn is never published.
+                    guard let image = Self.decode(prepared.still) else { throw .unreadable }
+                    let upload = try Self.write(prepared, over: mascot, in: folder.appendingPathComponent(key, isDirectory: true))
+                    return .success((upload, image))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard let self else { return .success(()) }
+            switch result {
+            case .failure(let refusal):
+                return .failure(refusal)
+            case .success(var stored):
+                // A removal asked for after this upload deletes it next in the line: it is not shown.
+                guard removedAt[key, default: 0] < generation else { return .success(()) }
+                // A pick asked for after it: its marker is written next in the line, and it shows now.
+                if let pick = woreAt[key], pick.generation > generation { stored.upload.wornOver = pick.mascot }
+                images[stored.upload.still] = stored.image
+                uploads[key] = stored.upload
+                return .success(())
             }
-        }.value
-        var stored = try result.get()
-        guard generation > applied[key, default: 0] else { return }
-        applied[key] = generation
-        changed.insert(key)
-        images[stored.upload.still] = stored.image
-        if wears[key] != wearsAtStart, let wear = lastWear[key], wear != stored.upload.wornOver {
-            stored.upload.wornOver = wear
-            mark(key, wear, in: folder)
         }
-        uploads[key] = stored.upload
     }
 
     /// Wears `key`'s upload over `mascot` (the character picked now), or, nil, keeps it unworn.
     public func wear(_ key: String, over mascot: String?) {
         guard Self.isKey(key) else { return }
-        wears[key, default: 0] += 1
-        lastWear.updateValue(mascot, forKey: key)
-        guard var upload = uploads[key], upload.wornOver != mascot, let folder else { return }
-        mark(key, mascot, in: folder)
-        upload.wornOver = mascot
-        uploads[key] = upload
-    }
-
-    /// Writes (or, nil, removes) `key`'s worn marker after the key's earlier file work, only in a
-    /// real folder (never through a link).
-    private func mark(_ key: String, _ mascot: String?, in folder: URL) {
-        let directory = folder.appendingPathComponent(key, isDirectory: true)
-        let marker = directory.appendingPathComponent(Self.wornMarker)
-        _ = enqueue(key) {
-            guard Self.isPlainFolder(folder), Self.isPlainFolder(directory) else { return }
-            if let mascot { try? Data(mascot.utf8).blockingWrite(to: marker, options: .atomic) } else {
-                try? FileManager.checked.removeItem(at: marker)
+        woreAt[key] = (tick(), mascot)
+        if let folder {
+            let directory = folder.appendingPathComponent(key, isDirectory: true)
+            let marker = directory.appendingPathComponent(Self.wornMarker)
+            _ = serially {
+                // Only in real folders (never through a link), and only beside an upload.
+                await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+                    guard Self.isPlainFolder(folder), Self.isPlainFolder(directory) else { return }
+                    if let mascot { try? Data(mascot.utf8).blockingWrite(to: marker, options: .atomic) } else {
+                        try? FileManager.checked.removeItem(at: marker)
+                    }
+                }.value
             }
+        }
+        now { [weak self] in
+            guard let self, var upload = uploads[key], upload.wornOver != mascot else { return }
+            upload.wornOver = mascot
+            uploads[key] = upload
         }
     }
 
     /// Deletes `key`'s upload: the character picked before it shows again.
     public func remove(_ key: String) {
         guard Self.isKey(key) else { return }
-        let generation = (generations[key] ?? 0) + 1
-        generations[key] = generation
-        applied[key] = generation
-        changed.insert(key)
-        guard let upload = uploads.removeValue(forKey: key), let folder else { return }
-        images[upload.still] = nil
-        let directory = folder.appendingPathComponent(key, isDirectory: true)
-        // Never through a linked uploads folder; a linked key folder loses only its link.
-        _ = enqueue(key) { if Self.isPlainFolder(folder) { try? FileManager.checked.removeItem(at: directory) } }
+        removedAt[key] = tick()
+        if let folder {
+            let directory = folder.appendingPathComponent(key, isDirectory: true)
+            _ = serially {
+                // Never through a linked uploads folder; a linked key folder loses only its link.
+                await Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
+                    if Self.isPlainFolder(folder) { try? FileManager.checked.removeItem(at: directory) }
+                }.value
+            }
+        }
+        now { [weak self] in
+            guard let self, let upload = uploads.removeValue(forKey: key) else { return }
+            images[upload.still] = nil
+        }
     }
 
     // MARK: Files

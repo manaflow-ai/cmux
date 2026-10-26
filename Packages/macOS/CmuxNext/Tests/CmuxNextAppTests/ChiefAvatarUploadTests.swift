@@ -124,6 +124,54 @@ import UniformTypeIdentifiers
         #expect(uploads.worn(of: key, over: "orb").flatMap { Self.pixels($0.still)?.0 } == 50)
     }
 
+    /// The four orders of (the launch listing, an upload, a removal, a pick) the person can make
+    /// in, every one: what shows, and what the next launch finds, is the newest intent's.
+    @Test func theNewestIntentWinsInEveryOrderAroundTheLaunchListing() async throws {
+        enum Step: CaseIterable { case listing, upload, removal, pick }
+        func orders(_ steps: [Step]) -> [[Step]] {
+            steps.count <= 1 ? [steps] : steps.indices.flatMap { index in
+                var rest = steps
+                let first = rest.remove(at: index)
+                return orders(rest).map { [first] + $0 }
+            }
+        }
+        let key = ChiefAvatarUploads.key(chief: Self.chief)
+        for order in orders(Step.allCases) {
+            let folder = try Self.folder()
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let root = folder.appending(path: "uploads")
+            try await ChiefAvatarUploads(folder: root).store(from: Self.picture(.png, width: 40, height: 40, in: folder), for: key, over: "orb")
+            let next = try Self.picture(.png, width: 60, height: 60, in: folder)
+            let uploads = ChiefAvatarUploads(folder: root)  // its listing starts now
+            // What the person asked for, in order: the last launch's upload, worn over orb, first.
+            var expected: (width: Int, wornOver: String?)? = (40, "orb")
+            var upload: Task<Result<Void, ChiefAvatarUploads.Refusal>, Never>?
+            for step in order {
+                switch step {
+                case .listing: await uploads.settled()
+                case .upload:
+                    upload = uploads.storing(from: next, for: key, over: "orb")
+                    expected = (60, "orb")
+                case .removal:
+                    uploads.remove(key)
+                    expected = nil
+                case .pick:
+                    uploads.wear(key, over: nil)
+                    expected?.wornOver = nil
+                }
+            }
+            try await upload?.value.get()
+            await uploads.settled()
+            let again = ChiefAvatarUploads(folder: root)
+            await again.settled()
+            for (store, moment) in [(uploads, "now"), (again, "next launch")] {
+                let found = store.uploads[key]
+                #expect(found.flatMap { Self.pixels($0.still)?.0 } == expected?.width, "\(order) \(moment)")
+                #expect(found?.wornOver == expected?.wornOver, "\(order) \(moment)")
+            }
+        }
+    }
+
     @Test func aPickAndTheNewestUploadAreWhatTheNextLaunchFinds() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
