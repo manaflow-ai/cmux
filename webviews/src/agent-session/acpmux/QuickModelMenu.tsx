@@ -480,7 +480,7 @@ export function QuickModelMenu({
                 0,
               ),
           ),
-        ) + (query ? 1 : 0),
+        ) + (families ? 1 : 0),
       separators: 0,
     },
   );
