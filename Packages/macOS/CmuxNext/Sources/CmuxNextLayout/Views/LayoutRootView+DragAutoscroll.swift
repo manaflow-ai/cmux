@@ -7,7 +7,7 @@ public import AppKit
 /// the speed holds until the pointer moves. Chromium's drag autoscroll works the same way: the
 /// target is set from the pointer event, a timer scrolls it
 /// (`third_party/blink/renderer/core/page/autoscroll_controller.cc`, `UpdateDragAndDrop`, `Animate`).
-public struct TabDragAutoscroll: Equatable, Sendable {
+public nonisolated struct TabDragAutoscroll: Equatable, Sendable {
     /// The columns screen that scrolls.
     public let screen: ScreenID
     /// Points per second; negative toward the leading edge.
