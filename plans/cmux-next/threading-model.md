@@ -123,13 +123,17 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
-  `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,
-  `com.cmuxterm.import-history-sync`
+  `com.cmuxterm.chromium-host.read` (user-initiated), `com.cmuxterm.chromium-host.exit` (utility),
+  `com.cmuxterm.app.next.cef-children`, `com.cmuxterm.import-history-sync`,
+  `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
+  `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+  `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
+  `com.cmuxterm.app.next.agent-pane.pull-request` (gh reads for the header chip, utility, 2 at once),
+  `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
@@ -137,11 +141,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,
   `cmux-trace-open`
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
-  `cmux.home.fixture.video`
-- Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
-  `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,
-  URLSessionChromiumRuntimeDownloader.swift and HomePromisedFiles.swift, and WebKitSetupGate.swift's
-  `Thread.detachNewThread`.
+  `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
+  waits for the dropped files)
+- Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
+  gets a named delegate queue. None is unnamed.
 
 ## Reviewed blocking allowances
 
