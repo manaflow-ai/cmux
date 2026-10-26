@@ -9,9 +9,10 @@ import Foundation
 final class DemoScene {
     let width: Int
     let height: Int
-    /// `0xAARRGGBB` words, bytes `B G R A` in memory; `output` draws here.
+    /// `0xAARRGGBB` words, bytes `B G R A` in memory; `output` draws here. Core Graphics
+    /// needs a fixed address to draw into, so this is the one raw allocation: `width * height`
+    /// initialized words from init to deinit, read only through ``pixel(at:)``.
     private let storage: UnsafeMutablePointer<UInt32>
-    var pixels: UnsafeBufferPointer<UInt32> { UnsafeBufferPointer(start: storage, count: width * height) }
     private var backdrop: CGImage?
     private let paint: CGContext
     private let output: CGContext
@@ -33,17 +34,26 @@ final class DemoScene {
         self.animate = animate
         let space = CGColorSpaceCreateDeviceRGB()
         let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        guard let paint = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                    space: space, bitmapInfo: info) else { return nil }
-        let storage = UnsafeMutablePointer<UInt32>.allocate(capacity: width * height)
-        storage.initialize(repeating: 0xFF00_0000, count: width * height)
-        guard let output = CGContext(data: storage, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                     space: space, bitmapInfo: info) else {
-            storage.deinitialize(count: width * height)
-            storage.deallocate()
+        // SAFETY: with no data pointer Core Graphics allocates and owns the bitmap.
+        guard let paint = unsafe CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                           space: space, bitmapInfo: info) else { return nil }
+        // SAFETY: width * height words, initialized on the next line and freed once: below
+        // when the context fails, else in deinit.
+        let storage = unsafe UnsafeMutablePointer<UInt32>.allocate(capacity: width * height)
+        // SAFETY: the allocation above, width * height words, not yet initialized.
+        unsafe storage.initialize(repeating: 0xFF00_0000, count: width * height)
+        // SAFETY: the context draws into width * 4 * height bytes at `storage`, exactly its
+        // width * height words. It draws only from this object's methods, all before deinit
+        // frees the words; releasing the context afterwards does not touch them.
+        guard let output = unsafe CGContext(data: storage, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                            space: space, bitmapInfo: info) else {
+            // SAFETY: the words initialized above, never handed out: deinitialized and freed once.
+            unsafe storage.deinitialize(count: width * height)
+            // SAFETY: as above.
+            unsafe storage.deallocate()
             return nil
         }
-        self.storage = storage
+        self.storage = unsafe storage
         self.paint = paint
         self.output = output
         // Flip both contexts so y grows downward like the framebuffer.
@@ -56,8 +66,20 @@ final class DemoScene {
     }
 
     deinit {
-        storage.deinitialize(count: width * height)
-        storage.deallocate()
+        // SAFETY: the width * height words init initialized; deinitialized and freed once, here.
+        unsafe storage.deinitialize(count: width * height)
+        // SAFETY: as above.
+        unsafe storage.deallocate()
+    }
+
+    /// The word at `index` (row-major, `width` per row); opaque black outside the
+    /// framebuffer (the server clips damage to it, so that is never sent), never a read
+    /// past the words.
+    func pixel(at index: Int) -> UInt32 {
+        guard index >= 0, index < width * height else { return 0xFF00_0000 }
+        // SAFETY: `storage` holds width * height initialized words until deinit, and the
+        // index is checked against that count above.
+        return unsafe storage[index]
     }
 
     var statusRect: CGRect { CGRect(x: 40, y: 40, width: min(560, CGFloat(width) - 80), height: 220) }
@@ -147,7 +169,9 @@ final class DemoScene {
     private func drawStatus() {
         let box = statusRect
         output.setFillColor(CGColor(red: 0.08, green: 0.09, blue: 0.12, alpha: 0.92))
-        output.addPath(CGPath(roundedRect: box, cornerWidth: 10, cornerHeight: 10, transform: nil))
+        let path = CGMutablePath()
+        path.addRoundedRect(in: box, cornerWidth: 10, cornerHeight: 10)
+        output.addPath(path)
         output.fillPath()
         let time = Date().formatted(date: .omitted, time: .standard)
         let tail = typed.split(separator: "\n", omittingEmptySubsequences: false).suffix(4).joined(separator: "\n")
@@ -167,7 +191,8 @@ final class DemoScene {
     }
 
     private func drawText(_ text: String, at point: CGPoint, size: CGFloat, bold: Bool) {
-        let font = CTFontCreateWithName((bold ? "Helvetica-Bold" : "Menlo-Regular") as CFString, size, nil)
+        // SAFETY: a nil matrix: CTFontCreateWithName reads no transform and keeps no pointer.
+        let font = unsafe CTFontCreateWithName((bold ? "Helvetica-Bold" : "Menlo-Regular") as CFString, size, nil)
         let attributes: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): font,
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 0.92, green: 0.94, blue: 1, alpha: 1),
@@ -183,10 +208,12 @@ final class DemoScene {
 
     private static func makeBackdrop(width: Int, height: Int) -> CGImage? {
         let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info) else { return nil }
+        // SAFETY: with no data pointer Core Graphics allocates and owns the bitmap.
+        guard let context = unsafe CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info) else { return nil }
         let colors = [CGColor(red: 0.10, green: 0.12, blue: 0.28, alpha: 1), CGColor(red: 0.42, green: 0.18, blue: 0.46, alpha: 1)]
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1]) {
+        // SAFETY: CGGradient reads one location per color (2), the array's count, during the call only.
+        if let gradient = unsafe CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1]) {
             context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: width, y: height), options: [])
         }
         context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.06))
