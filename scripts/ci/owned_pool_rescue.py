@@ -1005,10 +1005,13 @@ class GitHub:
             runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             for run in runs:
                 finished = parse_time(run.get("updated_at"))
-                if run.get("id") and run.get("path") in SIDE_WORKFLOW_PATHS and not (
+                entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
+                if entry[0] and entry not in found and run.get("path") in SIDE_WORKFLOW_PATHS and not (
                         since is not None and finished is not None and finished < since):
-                    found.append((int(run["id"]), int(run.get("run_attempt") or 0)))
-            if len(runs) < count:
+                    found.append(entry)
+            # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
+            # in_flight_runs()), so only an empty page ends the listing before `pages`.
+            if not runs:
                 break
         return found
 

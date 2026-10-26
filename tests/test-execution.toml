@@ -1165,6 +1165,10 @@ path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_cadence.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_runs_installed_app.py"
 lane = "linux-guard"
 
