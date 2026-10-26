@@ -338,6 +338,19 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(prune.github_api_json("GET", "repos/o/r/releases/1/assets"), {"ok": True})
         self.assertEqual(seen, [APP, FALLBACK, FALLBACK])
 
+    def test_another_failure_after_a_concurrent_switch_is_not_sent_again(self) -> None:
+        client = publisher.GitHub("o/r", APP, fallback=FALLBACK)
+        seen = []
+
+        def fake(method, url, **kwargs):
+            seen.append(client.token)
+            client.token, client.fallback = FALLBACK, ""  # another worker switched meanwhile
+            raise publisher.RequestError(f"{method} HTTP 422", status=422)
+        client._request = fake
+        with self.assertRaises(publisher.RequestError):
+            client.request("POST", "https://api.github.com/x", body=b"a")
+        self.assertEqual(seen, [APP])
+
     def test_another_failure_does_not_switch(self) -> None:
         client, seen = self.client({APP: [422]})
         with self.assertRaises(publisher.RequestError):

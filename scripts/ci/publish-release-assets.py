@@ -192,10 +192,12 @@ class GitHub:
 
     def _fall_back(self, used: str, status: int, error: Exception) -> bool:
         """After `used` was refused: whether to send the call again (now with the fallback)."""
+        if status not in (401, 403, 429):
+            return False  # only a refusal of the token is sent again
         with self._token_lock:
             if self.token != used:
                 return True  # another worker already switched to the fallback
-            if not self.fallback or status not in (401, 403, 429):
+            if not self.fallback:
                 return False
             print(f"GitHub refused the release App token ({error}); using github.token from here on",
                   file=sys.stderr, flush=True)
