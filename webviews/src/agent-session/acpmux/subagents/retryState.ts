@@ -62,9 +62,10 @@ export function applyRetry(
   }
 }
 
-/// A retry still waits only while the subagent has not finished.
+/// A retry waits only on a failed or lost one: a running, finished or stopped one's stale retry
+/// says nothing.
 export const retrying = (agent: Pick<Subagent, "retry" | "state">) =>
-  agent.retry && agent.state !== "completed" ? agent.retry : undefined;
+  agent.retry && (agent.state === "failed" || agent.state === "disconnected") ? agent.retry : undefined;
 
 const REASON: Record<string, StringKey> = {
   capacity: "retry.waiting.capacity",

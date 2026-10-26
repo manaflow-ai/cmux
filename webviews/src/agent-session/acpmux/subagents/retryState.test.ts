@@ -8,6 +8,7 @@ import {
   askPrompt,
   readRetry,
   retryActionOf,
+  retrying,
   retryLabel,
   RETRY_METHOD,
   runRetry,
@@ -45,6 +46,13 @@ describe("the adapter reads acpmux's retry", () => {
     expect(readRetry({ attempt: "2", of: 3 })).toBeUndefined();
     // An attempt past `of` never reads "5/4".
     expect(readRetry({ attempt: 5, of: 4 })).toEqual({ attempt: 5, of: 5 });
+  });
+
+  test("only a failed or lost one is retrying; a running, finished or stopped one's stale retry is not", () => {
+    const retry = { attempt: 1, of: 4 };
+    expect(retrying({ state: "failed", retry })).toBe(retry);
+    expect(retrying({ state: "disconnected", retry })).toBe(retry);
+    for (const state of ["running", "completed", "cancelled"]) expect(retrying({ state, retry })).toBeUndefined();
   });
 
   test("the label names the try, how many, and why", () => {

@@ -21,7 +21,14 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
-import { retryActionOf, retrying, retryLabel, type RetryAction, type RetryNote } from "./retryState";
+import {
+  retryActionOf,
+  retrying,
+  retryLabel,
+  type RetryAction,
+  type RetryNote,
+  type RetryState,
+} from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { useSubsessionInfo } from "./subsessions";
 import type { Subagent } from "./subagentFold";
@@ -41,19 +48,29 @@ export const RetryAffordanceContext = createContext<RetryAffordance>("button");
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
+  // Only a sub-session's line reads the session list (its retry is on its own session row): the
+  // other lines never subscribe to it, so a session update wakes no line but its own.
+  const child = row.subagents?.[0]?.child;
+  return child ? <SubsessionDoneLine row={row} child={child} /> : <DoneLine row={row} />;
+}
+
+function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
+  return <DoneLine row={row} childRetry={useSubsessionInfo(child)?.retry} />;
+}
+
+function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState }) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
   const { restartSubagent, retryAgent } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
-  // A sub-session's retry is on its own session row.
-  const child = useSubsessionInfo(agent?.child);
-  // A refusal's note, and the Retry in flight, last until the row changes.
+  // A refusal's note lasts until the row changes; `busy` only while the Retry is in flight (a
+  // second one of the same target is refused by runRetry's shared guard, retryState.ts).
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   const open = pane ?? nav;
   if (!agent) return null;
-  const live: Subagent = child?.retry && !agent.retry ? { ...agent, retry: child.retry } : agent;
+  const live: Subagent = childRetry && !agent.retry ? { ...agent, retry: childRetry } : agent;
   const waiting = retrying(live);
   const action = retryAgent ? retryActionOf(live) : undefined;
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
@@ -76,8 +93,7 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
     void retryAgent(live, how).then(
-      // A Retry that went stays busy until acpmux's next word on the row (a new version).
-      (key) => setNote({ version: row.version, ...(key ? { key } : { busy: true }) }),
+      (key) => setNote(key ? { version: row.version, key } : undefined),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };

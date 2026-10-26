@@ -83,8 +83,8 @@ function SessionCard({
     if (!retryAgent || !target || shown?.busy) return;
     setNote({ state, busy: true });
     void retryAgent(target).then(
-      // A Retry that went stays busy until the sub-session's state moves.
-      (key) => setNote({ state, ...(key ? { key } : { busy: true }) }),
+      // Busy only while in flight: runRetry's shared guard refuses a second Retry of it.
+      (key) => setNote(key ? { state, key } : undefined),
       () => setNote({ state, key: "retry.failed" }),
     );
   };
