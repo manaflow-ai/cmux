@@ -79,8 +79,6 @@
    "CmuxIrohTransport": 7,
    "CmuxIrxTransport": 14,
    "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
-   "CmuxMobileShellModel": 7,
    "CmuxMobileSupport": 4,
    "CmuxMobileTunnel": 4,
    "CmuxNextBrowser": 4,
