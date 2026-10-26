@@ -45,6 +45,16 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return fallbackValue
     }
 
+    /// Whether an empty read means no session is stored. Once this session
+    /// routes to the file store, the file is authoritative and always readable;
+    /// otherwise this is the Keychain's answer
+    /// (``KeychainStackTokenStore/isReadable()``). Pass it to
+    /// ``AuthCoordinator``'s `isTokenStorageAvailable`.
+    public func isTokenStorageAvailable() async -> Bool {
+        guard keychainWorks else { return true }
+        return await keychain.isReadable()
+    }
+
     public func setTokens(accessToken: String?, refreshToken: String?) async {
         if keychainWorks {
             let ok = await keychain.trySetTokens(
