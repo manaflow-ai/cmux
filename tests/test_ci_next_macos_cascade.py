@@ -862,6 +862,23 @@ class Rerun(unittest.TestCase):
         values = self.rerun(JOBS="cmux-scheme-compile", FRESH_JOBS="cmux-scheme-compile")
         placed = cascade.place(values, (), None, None)
         self.assertEqual(placed.jobs[SMALL], ("cmux-scheme-compile",))
+        # The workflow's own JOBS, through main(): idle_placement() names the first JOBS (here skipped ones)
+        # once per idle mini, so `owned` is the idle-mini count. With no idle mini the compile takes the last
+        # resort; with one, it stays on the side label, where that mini takes it.
+        jobs = self.placement_job()["steps"]
+        jobs = next(step for step in jobs if step.get("id") == "place")["env"]["JOBS"]
+        self.assertTrue(jobs.startswith("fast-tier swift-canary cmux-scheme-compile"))
+        idle = {"name": "side-mini", "status": "online", "busy": False,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        for runners, small, owned in (([], " cmux-scheme-compile ", ""),
+                                      ([idle], "", " fast-tier "),
+                                      ([idle, dict(idle, name="side-mini-2")], "", " fast-tier swift-canary ")):
+            with self.subTest(idle=len(runners)):
+                lines = self.rerun_outputs(runners, None, None, JOBS=jobs, CASCADE_RUNS=" cmux-scheme-compile ",
+                                           FRESH_JOBS="cmux-scheme-compile", GITHUB_EVENT_NAME="workflow_dispatch",
+                                           GITHUB_REF="refs/heads/feat-cmux-next")
+                self.assertEqual(lines["owned_jobs"], owned)
+                self.assertEqual(lines["blacksmith_6_jobs"], small)
 
     def test_an_older_trusted_placement_writes_nothing_on_the_rerun(self):
         # Review of #25707: the steps check out the base's script. One that predates rerun_main() would
