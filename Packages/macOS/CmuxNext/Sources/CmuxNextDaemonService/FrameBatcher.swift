@@ -24,6 +24,9 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The board of the budget this batcher draws on (control requests intern their methods and
     /// count queued input there); nil for a frame batcher.
     public nonisolated let mainTaskBoard: MainTaskBoard?
+    /// That budget's thread-safe clock (control requests read their enqueue time with it); nil for
+    /// a frame batcher.
+    public nonisolated let mainTaskClock: (@Sendable () -> UInt64)?
     /// The budget this batcher's work draws on (the control work queue charges its requests to it);
     /// nil for a frame batcher.
     public let mainFrameBudget: MainFrameBudget?
@@ -36,6 +39,7 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     public init(owner: String, scheduler: FrameScheduler = .app) {
         queue = FrameBatchQueue(owner: owner, scheduler: scheduler)
         mainTaskBoard = nil
+        mainTaskClock = nil
         mainFrameBudget = nil
     }
 
@@ -49,6 +53,7 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         queue = FrameBatchQueue(owner: owner, budgeted: budgeted, on: work)
         mainTaskBoard = work.budget.board
+        mainTaskClock = work.budget.postClock
         mainFrameBudget = work.budget
     }
 

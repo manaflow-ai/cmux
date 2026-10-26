@@ -42,12 +42,16 @@ public nonisolated struct HangReportBuilder: Sendable {
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
+    /// The schema every report is written in; ``HangReportService`` sends only queued reports in it.
+    public let wireSchema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
-    /// Makes the value from its parts.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving) {
+    /// - Parameter wireSchema: ``HangReport/WireSchema/v2`` (the default) until the server accepts
+    ///   schema 3; a schema-2 server answers 400 to a report with `launches`, and that drops it.
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .v2) {
         self.classifier = classifier
         self.resolver = resolver
+        self.wireSchema = wireSchema
     }
 
     /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
@@ -66,7 +70,18 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.stallHistogram = watchdog.histogram
         report.metrics = Self.metrics(metricKit.map(\.metrics))
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
+        report.schema = wireSchema.rawValue
+        report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         return report
+    }
+
+    /// The launches, rebuilt through ``LaunchAggregate/merge(_:)`` (closed-set temperatures and
+    /// reasons, bounded counts and buckets, at most one histogram per temperature), so a pending
+    /// file edited on disk sends nothing else; nil when no launch was recorded.
+    static func launches(_ recorded: LaunchAggregate) -> LaunchAggregate? {
+        var launches = LaunchAggregate()
+        launches.merge(recorded)
+        return launches.isEmpty ? nil : launches
     }
 
     /// Frames of a watchdog sample (return addresses, innermost first).

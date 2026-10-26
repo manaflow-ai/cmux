@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -116,14 +117,14 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
-        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
-        service.router.register(DebugHibernationControl.methods(services))
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { service.router.register([DaemonWireControl(stats: wireStats).method]) }
+        service.router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap)]).method])
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
@@ -137,11 +138,11 @@ final class AppControl {
             }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
-            // The main-thread scheduler's budget and turns; main only copies, the turn fields fold off it.
-            .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
-                let (fields, turns) = budget.reportParts
-                if call.params["reset"]?.boolValue == true { budget.resetStats() }
-                return .followUp { turns.report(merging: fields) }
+            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
+            // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
+            // owners fold off it.
+            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board] call in
+                await board.mainBudgetReport(budget, reset: call.params["reset"]?.boolValue == true)
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },

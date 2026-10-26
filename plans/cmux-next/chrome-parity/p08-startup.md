@@ -623,6 +623,7 @@ Size: S <= 150 lines, M <= 400, L = 400 split into commits. "Q" = machine queue.
 | 112 | Spike: ghostty_init off main | S | 026 | |
 | 113 | Q8 template: test file passes origin | S | 040 | Q8 |
 | 114 | Remove the origin-less init | S | 113 (queue empty) | Q8 |
+| 115 | Launch histograms wired, sent at schema 3 | S | 009, 007, 013, 108, p09-063, p09-064 | |
 
 ### Task details
 
@@ -1195,3 +1196,10 @@ warning from that file.
 
 **114 Remove the origin-less init.** Files: `CmuxNextBrowser/Engine/BrowserEngine.swift`. Change: delete the deprecated init.
 Acceptance: compiles; 0 warnings of that kind.
+
+**115 Launch histograms wired.** Files: `CmuxNextApp/HangReports/WatchdogReporting.swift`, `HangReportsController.swift`,
+`LaunchSettle.swift`, `hang-reports-DESIGN.md`. Change: at `startup_complete`, one `HangReportCollector.noteLaunch` per launch
+from the milestones, 007's temperature, 013's reason and 108's interrupted flag. 009 records launches but keeps the wire at
+schema 2 (the server refuses unknown keys and drops the report); this task turns on `HangReportBuilder(wireSchema: .v3)` behind
+p09-063's server-version flag, after p09-064 accepts a strict `launches` struct with a byte-identical fixture, and agrees the
+schema number with 063. Acceptance: flag off sends schema 2 with no `launches`; flag on meets done check 12.

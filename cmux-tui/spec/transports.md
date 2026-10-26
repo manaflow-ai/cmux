@@ -332,6 +332,66 @@ A reconnect creates a new transport generation. Old pending ids, event buffers, 
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
 
+## Framed IPC method attributes
+
+Status: schema only. No transport reads these attributes yet; JSON-line
+clients ignore them. The framed transport
+(`plans/cmux-next/chrome-parity/p05-ipc.md`, section 3) routes a frame by its
+method id and never parses the payload, so `sdk-schema.json` gives each
+command and event the facts that routing needs. This follows Mojo: ordinals are
+scoped to an interface (`mojo/public/tools/bindings/README.md`), and every
+message is validated before dispatch, so a field without a bound cannot appear
+in a binary layout.
+
+`families` (top level) maps a kebab-case family name to `{id, description}`.
+`id` is one byte: commands use `0x01`-`0x5F`, events `0xC0`-`0xFE`, and
+`0x60`-`0xBF` is reserved for `resource-operations-v2.json`. Families are
+append-only: an id is never reused or renumbered. When `families` is present,
+every command needs `method_id` and `priority`, and every event needs
+`event_id` and `priority`.
+
+Command attributes:
+
+| Attribute | Meaning |
+| --- | --- |
+| `method_id` | u16, `family << 8 \| ordinal`. Unique in its family; the family must be a declared command family. |
+| `priority` | `input`, `control`, `bulk` or `background`. The daemon uses its own table; a frame header hint that differs is `bad_message`. |
+| `priority_changed_reason` | Why `priority` changed. Not enforced yet: `api-compat-check` will require it when `priority` changes (p05-ipc-012). |
+| `ordering` | `sequence` (default) or `independent`. Only a `read_only` command that is not `stream_scoped` may be `independent`. |
+| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. A `spawns_terminal` command is never `read_only`. |
+| `payload` | `json` (default) or `binary`. A binary payload needs `layout_version`. |
+| `layout_version` | 1-255, the first byte of a binary layout; bumped on every layout change. |
+| `stream_scoped` | The command runs on the stream that names its surface, in that stream's FIFO. |
+| `crosses_stream_ok` | Why the command may pass items already queued on its target surface's stream. Excludes `stream_scoped`. |
+| `max_bytes` | Bound of the encoded request, 1 to 32 MiB (the frame length limit). |
+| `spawns_terminal` | The command starts a terminal host (the reply carries `starting:true` under F10). |
+| `coalesce` | `{key, additive}`: a queued unsent item with equal `key` fields is replaced; numeric `additive` fields are summed. |
+| `urgent` | Run first on the receiving sequence (Mojo `[SupportsUrgent]`). It never reorders the channel. Only `input` or `control`. |
+| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`. No generator reads it yet: the client generators will emit a method only for its clients (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
+
+Event attributes: `event_id` (u16 in a declared event family), `priority`,
+`priority_changed_reason` and `coalesce` (fields of the payload).
+
+Field attributes: `omit_nil` (an optional member is omitted instead of written
+as `null`; not allowed on a required member), `max_bytes` (UTF-8 bound of a
+string member, or of each item of an array of strings) and `default` (it must
+match the member type; `null` only on a `nullable` member).
+
+Stream barrier rule. A command whose request has a `surface`, `surfaces`,
+`terminal`, `terminal_id`, `terminal_ids` or `view` member can target a
+surface that has an open stream on the connection. Such a command must be
+`stream_scoped`, or give a `crosses_stream_ok` reason; otherwise it could pass
+input already queued on that stream.
+
+Binary layout rule. Every length-prefixed part of a binary request or result
+is bounded: a string member needs `max_bytes` (on an array of strings it
+bounds each item), an array needs `max_items`, an object cannot allow
+additional properties, and maps, `opaque_json`, untagged unions and recursive
+types have no binary layout.
+
+`bindings/codegen/validate.py` (through `ipc_meta.py`) enforces these rules
+whenever the SDK generator loads the schema.
+
 ## HTTP
 
 | Field | Value |

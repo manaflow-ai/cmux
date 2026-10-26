@@ -85,6 +85,14 @@ public final class InputLatencyReporter: Sendable {
         return snapshot
     }
 
+    /// Starts the report over (`debug.input reset`): every batch ``submit(_:)`` accepted before the
+    /// call is folded first, then the histograms, the counts and the hand-off losses go back to zero.
+    public func reset() async {
+        let target = accepted.load(ordering: .acquiring)
+        await store.reset(afterFolding: target)
+        _ = handOffDropped.exchange(0, ordering: .relaxed)
+    }
+
     /// The ledger and the reader's progress, on their own executor.
     private actor Store {
         private var ledger = InputLatencyLedger()
@@ -105,10 +113,19 @@ public final class InputLatencyReporter: Sendable {
         }
 
         func snapshot(afterFolding target: UInt64) async -> InputLatencySnapshot {
+            await waitFolded(target)
+            return ledger.snapshot
+        }
+
+        func reset(afterFolding target: UInt64) async {
+            await waitFolded(target)
+            ledger.reset()
+        }
+
+        private func waitFolded(_ target: UInt64) async {
             while reading, folded < target {
                 await withCheckedContinuation { continuation in waiters.append((target, continuation)) }
             }
-            return ledger.snapshot
         }
 
         private func resumeWaiters(where ready: (UInt64) -> Bool) {
