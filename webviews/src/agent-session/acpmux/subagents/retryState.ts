@@ -144,9 +144,7 @@ export const retrying = (agent: Parameters<typeof subagentRetry>[0]) => {
 /// change to any of them redraws its rows.
 export function retryKey(agent: Pick<Subagent, "retry" | "retriedOut" | "retryable" | "error">): string {
   const part = (r?: RetryState) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "");
-  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join(
-    "\u0001",
-  );
+  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join("\u0001");
 }
 
 const REASON: Record<string, StringKey> = {

@@ -95,7 +95,8 @@ describe("the adapter reads acpmux's retry", () => {
     expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
     // One owner says where it stands: retrying, settling (no Retry), failed with its Retry, or, on a
     // row that runs, nothing (a stale retry there says nothing).
-    const phase = (entry: Record<string, unknown>) => sessionRetry(subsessionInfo(sessionEntry({ ...failed, ...entry })));
+    const phase = (entry: Record<string, unknown>) =>
+      sessionRetry(subsessionInfo(sessionEntry({ ...failed, ...entry })));
     expect(phase({ retry: FIXTURE.sessionRetry }).kind).toBe("retrying");
     expect(phase({ retryDeciding: true })).toEqual({ kind: "settling" });
     expect(phase({})).toEqual({ kind: "failed" });
@@ -272,7 +273,7 @@ describe("Retry reaches acpmux, else the parent", () => {
     const CHAT = "c2";
     const d = deps({ code: -32601 });
     expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
-    expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']);    // A sub-session is never asked of the parent: only acpmux retries a chat's turn.
+    expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']); // A sub-session is never asked of the parent: only acpmux retries a chat's turn.
     const sub = deps({ code: -32601 });
     expect(await runRetry({ ...failed, child: "s2" }, CHAT, sub, translate)).toBe("retry.failed");
     expect(sub.calls).toHaveLength(1);
