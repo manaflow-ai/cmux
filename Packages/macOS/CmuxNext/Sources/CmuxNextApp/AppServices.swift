@@ -16,7 +16,6 @@ import CmuxNextDaemon
 import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
-import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
@@ -295,9 +294,11 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
-    /// The local memory histograms `debug.memory` shows (never uploaded); discards count per `ContentKind`.
-    private(set) lazy var memoryHistograms = MemoryHistograms(
-        pressure: memoryPressure, discardKinds: ContentKind.allCases.map(\.rawValue))
+    /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
+    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
+    /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
+    private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
+        histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } })
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The spare React page hosts for Settings, History and Cloud.

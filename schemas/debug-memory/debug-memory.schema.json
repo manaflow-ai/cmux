@@ -221,7 +221,7 @@
       }
     },
     "histograms": {
-      "description": "Local memory histograms (MemoryHistograms, p07-memory-016), never uploaded. Per-hour histograms hold one sample per completed hour on the suspend-aware clock; footprints are sampled at each applied level change and each debug.memory read.",
+      "description": "Local memory histograms (MemoryHistograms, p07-memory-016), never uploaded. Per-hour histograms hold one sample per completed hour on the suspend-aware clock; footprints are sampled once per hour of awake time (MemoryFootprintEmitter), never by a pressure change or a debug.memory read, which records nothing.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -234,7 +234,7 @@
         "renderer_pmf_mb": { "$ref": "#/$defs/histogram", "description": "The sum of the Chromium renderers' and WebKit WebContent processes' phys_footprint, MiB." },
         "wake_latency_ms": { "$ref": "#/$defs/histogram", "description": "From a hibernated page's wake to its page being back." },
         "discards_per_hour": {
-          "description": "Discards per completed hour, one histogram per content kind (ContentKind raw values).",
+          "description": "Discards per completed hour, one histogram per content kind whose discards are counted (ContentKind raw values: browser, agent_page). A kind that is not counted is absent, never 0.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/histogram" }
         },

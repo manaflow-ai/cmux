@@ -144,35 +144,32 @@ import Testing
         #expect(samples.onMain == [false])
     }
 
-    /// The sampled footprints go into the local histograms on the main actor, and the answer has
-    /// the histograms after that sample (p07-memory-016).
-    @Test func recordsTheSampleInTheHistograms() async throws {
+    /// The answer has the histograms the read copied, and a read adds no sample: three reads that
+    /// each sample the processes leave one footprint sample, the emitter's (p07-memory-016).
+    @Test func readsShowTheHistogramsAndRecordNothing() async throws {
         let pressure = MemoryPressureEvents(source: ManualMemoryPressureSource())
         let histograms = MemoryHistograms(pressure: pressure, discardKinds: ["browser"])
-        let threads = Threads()
+        histograms.recordFootprints(MemoryDiagnosticsProcesses(rows: [.init(kind: .app, pid: 501, physFootprintBytes: 300 << 20)]))
         let rows: [MemoryDiagnosticsProcesses.Row] = [
             .init(kind: .app, pid: 501, physFootprintBytes: 361 << 20),
             .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62 << 20),
         ]
-        let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test",
-                                                             tag: "test", processID: getpid()),
-                                   executor: Executor(),
-                                   configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: false))
         let snapshot = Self.snapshot()
-        router.register([DebugMemoryControl.memoryMethod(
-            read: { snapshot },
-            sample: { _ in MemoryDiagnosticsProcesses(rows: rows) },
-            record: { processes in
-                threads.note()
-                histograms.recordFootprints(processes)
-                return histograms.snapshot()
-            })])
-        let json = try await call(router)
-        #expect(threads.onMain == [true])
-        let recorded = try #require(json["histograms"]?.objectValue)
-        #expect(recorded["app_pmf_mb"]?.objectValue?["sum"] == 361)
-        #expect(recorded["renderer_pmf_mb"]?.objectValue?["sum"] == 62)
-        #expect(recorded["discards_per_hour"]?.objectValue?.keys.sorted() == ["browser"])
+        let memory = router(allowsDebug: false, rows: rows) {
+            var read = snapshot
+            read.histograms = histograms.snapshot()
+            return read
+        }
+        for id in ["1", "2", "3"] {
+            let json = try await call(memory, id: id)
+            #expect(json["processes"]?.arrayValue?.count == 2, "the answer lost the sampled processes")
+            let shown = try #require(json["histograms"]?.objectValue)
+            #expect(shown["app_pmf_mb"]?.objectValue?["count"] == 1)
+            #expect(shown["app_pmf_mb"]?.objectValue?["sum"] == 300)
+            #expect(shown["renderer_pmf_mb"]?.objectValue?["count"] == 0)
+            #expect(shown["discards_per_hour"]?.objectValue?.keys.sorted() == ["browser"])
+        }
+        #expect(histograms.snapshot().appFootprintMiB.count == 1, "a debug.memory read recorded a footprint")
     }
 
     @Test func answersNullOnceTheAppIsGone() async throws {

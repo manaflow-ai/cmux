@@ -138,10 +138,11 @@ public nonisolated struct MemoryHistogram: Sendable, Equatable, Encodable {
 /// upload lands after the push.
 ///
 /// Event-driven, as ``MemoryPressureHistory``: it records what the pressure source delivers, what the
-/// override sets and what its owners report, and no timer runs. An hour ends when the next event or
+/// override sets and what its owners report, and no timer runs here. An hour ends when the next event or
 /// read finds the clock past it; it then records that hour and any empty hours since in one step
-/// each. The clock is suspend-aware (Chrome's `LiveTicks`, as Memory Saver's timers): hours while
-/// the Mac sleeps are not hours.
+/// each, so a read changes no count. The clock is suspend-aware (Chrome's `LiveTicks`, as Memory
+/// Saver's timers): hours while the Mac sleeps are not hours. Footprints come from the owner's
+/// periodic sampler through ``recordFootprints(_:)``, never from a pressure change or a read.
 @MainActor
 public final class MemoryHistograms {
     /// One histogram hour.
@@ -188,12 +189,6 @@ public final class MemoryHistograms {
         }
     }
 
-    /// Reads the footprints, off the main actor in the app; nil when there is nothing to read. Each
-    /// applied level change (the override when one is set, else the kernel's) runs it once and records the result, one read at a time: a change during
-    /// a read is covered by that read. Unset, level changes record no footprints.
-    public var sampleFootprints: (@MainActor () async -> MemoryDiagnosticsProcesses?)?
-    private var footprintSample: Task<Void, Never>?
-
     private var histograms: Snapshot
     private let elapsed: () -> Duration
     /// The source it follows, kept while it follows it.
@@ -216,7 +211,7 @@ public final class MemoryHistograms {
     ///
     /// - Parameters:
     ///   - pressure: The app's one memory pressure source.
-    ///   - discardKinds: The content kinds that discard (`ContentKind` raw values); a discard of another kind is not counted.
+    ///   - discardKinds: The content kinds whose discards are counted (`ContentKind` raw values); another kind has no histogram.
     ///   - elapsed: Time since the start; the default counts from this init on the suspending clock.
     public init(pressure: MemoryPressureEvents, discardKinds: [String], elapsed: (() -> Duration)? = nil) {
         let start = SuspendingClock.now
@@ -246,7 +241,8 @@ public final class MemoryHistograms {
         histograms.wakeMilliseconds.record(Self.milliseconds(latency))
     }
 
-    /// Records the app's footprint and the renderers' total, each when at least one of its rows is known.
+    /// Records the app's footprint and the renderers' total, each when at least one of its rows is
+    /// known: one periodic sample (O(rows), two bucket records).
     public func recordFootprints(_ processes: MemoryDiagnosticsProcesses) {
         func mebibytes(_ kinds: Set<MemoryDiagnosticsProcesses.Kind>) -> Int? {
             let known = processes.rows.filter { kinds.contains($0.kind) }.compactMap(\.physFootprintBytes)
@@ -274,16 +270,7 @@ public final class MemoryHistograms {
     /// Counts the time at the old applied level, then takes the new one.
     private func apply() {
         advance()
-        let applied = override ?? kernelLevel
-        guard applied != level else { return }
-        level = applied
-        guard footprintSample == nil, let sampleFootprints else { return }
-        footprintSample = Task { [weak self] in
-            let processes = await sampleFootprints()
-            guard let self else { return }
-            footprintSample = nil
-            if let processes { recordFootprints(processes) }
-        }
+        level = override ?? kernelLevel
     }
 
     /// Counts the open hour's time at the applied level up to now, and closes the open hour and the

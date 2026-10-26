@@ -1,6 +1,5 @@
 import CmuxNextBridge
 import CmuxNextCompat
-import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
@@ -22,14 +21,12 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
-        let histograms = memoryHistograms
-        hibernation.onHibernate = { histograms.recordDiscard(kind: ContentKind.browser.rawValue) }
-        hibernation.onWakeMounted = { histograms.recordWake($0) }
         let agentPages = AgentPageHibernation(services: self)
-        agentPages.onRelease = { histograms.recordDiscard(kind: ContentKind.agentPage.rawValue) }
+        memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
+        memoryFootprints.start()
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {

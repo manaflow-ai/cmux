@@ -9,10 +9,9 @@ import CmuxNextSettings
 /// schemas/debug-memory/debug-memory.schema.json. The analog of Chrome's `chrome://memory-internals`
 /// (`chrome/browser/ui/webui/memory_internals/memory_internals_ui.cc`).
 ///
-/// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one,
-/// and it samples the footprints into the histograms at each applied level change and each read, as
-/// Chrome's `ProcessMemoryMetricsEmitter` (`chrome/browser/metrics/process_memory_metrics_emitter.cc`)
-/// samples on its owner's events, with no timer.
+/// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
+/// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
+/// `chrome://memory-internals` read adds no sample to Chrome's memory histograms.
 @MainActor
 final class DebugMemoryControl {
     /// Reads the footprints of a snapshot's processes, off the main actor.
@@ -38,21 +37,14 @@ final class DebugMemoryControl {
         self.sample = sample
         history = MemoryPressureHistory(pressure: services.memoryPressure)
         histograms = services.memoryHistograms
-        histograms.sampleFootprints = { [weak self] in
-            guard let snapshot = self?.snapshot() else { return nil }
-            return await sample(snapshot)
-        }
     }
 
     /// The `debug.memory` method over the app's services.
     var method: ControlMethod {
-        Self.memoryMethod(read: { [self] in snapshot() }, sample: sample, record: { [self] processes in
-            histograms.recordFootprints(processes)
-            return histograms.snapshot()
-        })
+        Self.memoryMethod(read: { [self] in snapshot() }, sample: sample)
     }
 
-    /// The app's memory state now; nil once the app's services are gone.
+    /// The app's memory state now, with a copy of the histograms; nil once the app's services are gone.
     func snapshot() -> MemoryDiagnosticsSnapshot? {
         guard let services else { return nil }
         var snapshot = AppMemoryModel(services: services, budget: budget).memorySnapshot(history: history.snapshot)
@@ -60,28 +52,22 @@ final class DebugMemoryControl {
         return snapshot
     }
 
-    /// `debug.memory`: `read` copies the model in one main-actor work item (the control queue's
-    /// automation class, after the person's input), then `sample` reads the process footprints off
-    /// the main actor, `record` adds them to the histograms back on it, and the report is encoded off
-    /// it. It changes nothing but the local histograms, and its answer has no URL, title or path
-    /// (``MemoryDiagnosticsReport``), so release builds serve it too.
+    /// `debug.memory`: `read` copies the model and the histograms in one main-actor work item (the
+    /// control queue's automation class, after the person's input), then `sample` reads the process
+    /// footprints and the report is encoded off the main actor. It changes nothing and its answer has
+    /// no URL, title or path (``MemoryDiagnosticsReport``), so release builds serve it too.
     ///
     /// - Parameters:
     ///   - read: The app's memory state; nil once the app's services are gone.
     ///   - sample: Reads the footprints of the snapshot's processes, off the main actor.
-    ///   - record: Records the footprints in the histograms and returns them; nil keeps the read's histograms.
     static func memoryMethod(
         read: @escaping @MainActor @Sendable () -> MemoryDiagnosticsSnapshot?,
-        sample: @escaping Sampler,
-        record: @escaping @MainActor @Sendable (MemoryDiagnosticsProcesses) -> MemoryHistograms.Snapshot? = { _ in nil }
+        sample: @escaping Sampler
     ) -> ControlMethod {
         ControlMethod.mainActor("debug.memory") { _ in
             guard let snapshot = read() else { return .value(.null) }
             return .followUp {
-                let processes = await sample(snapshot)
-                var recorded = snapshot
-                if let histograms = await record(processes) { recorded.histograms = histograms }
-                let report = MemoryDiagnosticsReport(snapshot: recorded, processes: processes)
+                let report = MemoryDiagnosticsReport(snapshot: snapshot, processes: await sample(snapshot))
                 return try JSONValue.parse(report.jsonData())
             }
         }.servingRelease()

@@ -12,10 +12,6 @@ import Testing
         var now: Duration = .zero
     }
 
-    final class Counter {
-        var value = 0
-    }
-
     private static let kinds = ["browser", "agent_page"]
 
     private func make(_ clock: Clock, source: ManualMemoryPressureSource = ManualMemoryPressureSource())
@@ -112,32 +108,40 @@ import Testing
     }
 
     /// The override is the applied level for the minutes; a kernel change under it does not change
-    /// the applied level, so footprints are sampled only at real changes. The sample runs in a main
-    /// actor task the change enqueues; a yield lets it run before the test goes on.
-    @Test func theOverrideIsTheAppliedLevel() async {
+    /// the applied level. No level change samples a footprint (the app's emitter does, once an hour).
+    @Test func theOverrideIsTheAppliedLevel() {
         let clock = Clock()
         let (histograms, _, source) = make(clock)
-        let samples = Counter()
-        histograms.sampleFootprints = {
-            samples.value += 1
-            return MemoryDiagnosticsProcesses(rows: [.init(kind: .app, pid: 1, physFootprintBytes: 100 << 20)])
-        }
         histograms.overrideDidChange(.critical)
-        await Task.yield()
         clock.now = .seconds(20 * 60)
         source.send(.warning)
         histograms.overrideDidChange(.critical)
         clock.now = .seconds(50 * 60)
         histograms.overrideDidChange(nil)
-        await Task.yield()
         clock.now = .seconds(60 * 60)
         let snapshot = histograms.snapshot()
 
-        #expect(samples.value == 2)
-        #expect(snapshot.appFootprintMiB.sum == 200)
+        #expect(snapshot.appFootprintMiB.count == 0, "a pressure change sampled a footprint")
         #expect(snapshot.criticalMinutesPerHour.buckets == [.init(min: 50, max: 55, count: 1)])
         #expect(snapshot.warningMinutesPerHour.buckets == [.init(min: 10, max: 15, count: 1)])
         #expect(snapshot.warnEventsPerHour.sum == 1)
+    }
+
+    /// A read closes the ended hours and records nothing else: reading every ten minutes and reading
+    /// once give the same histograms.
+    @Test func readsRecordNothing() {
+        let clock = Clock()
+        let (polled, _, _) = make(clock)
+        let (readOnce, _, _) = make(clock)
+        polled.recordDiscard(kind: "browser")
+        readOnce.recordDiscard(kind: "browser")
+        for minute in stride(from: 0, through: 150, by: 10) {
+            clock.now = .seconds(minute * 60)
+            _ = polled.snapshot()
+        }
+        #expect(polled.snapshot() == readOnce.snapshot())
+        #expect(polled.snapshot().appFootprintMiB.count == 0)
+        #expect(polled.snapshot().hours == 2)
     }
 
     @Test func footprintsAndWakes() {
