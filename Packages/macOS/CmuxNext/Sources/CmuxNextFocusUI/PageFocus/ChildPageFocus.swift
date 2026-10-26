@@ -25,6 +25,8 @@ public import AppKit
 public final class ChildPageFocus {
     /// The page this window gave focus to (blurred when focus leaves it), held weakly.
     public weak var page: AnyObject?
+    /// A grant is running (``focus(_:)``).
+    private var granting = false
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
@@ -50,7 +52,30 @@ public final class ChildPageFocus {
         guard page !== next else { return }
         blurPage()
         page = next
+        granting = true
+        defer { granting = false }
         setFocus(next, true)
+    }
+
+    /// `window` (the cmux window) took the keys back while a page has focus, and no click put them
+    /// there: the page's window lost them (a new tab's page moved from its provisional pane to its
+    /// real one, which presents its window again). The page loses focus with no key change, so the
+    /// next ``focus(_:)`` of it grants it again; until now that call found it focused and did nothing,
+    /// and typing went to the cmux window.
+    ///
+    /// Nothing happens inside a grant (AppKit's key changes there are the grant's own), when
+    /// `window` is not key (an inactive app has no key window), or during a click (the click
+    /// decides where the keys go).
+    ///
+    /// - Parameters:
+    ///   - window: The cmux window.
+    ///   - event: The event being handled (AppKit's current event in the app).
+    /// - Returns: Whether a page lost focus; the caller then re-applies its target.
+    public func keysReturned(to window: NSWindow, during event: NSEvent? = NSApplication.shared.currentEvent) -> Bool {
+        let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        guard !granting, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        blurPage()
+        return true
     }
 
     /// The focused page loses focus. The key window does not change.
