@@ -110,12 +110,17 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   }
 
   const requests: { method: string; params: Record<string, any>; sent: number }[] = [];
-  /// The pane's read of the prompt that opened the turn its tail starts in: user_message records only.
-  const isOpenerRead = (request: (typeof requests)[number]) =>
+  /// A read of prompt records, not the transcript: the prompt that opened the turn the tail starts in
+  /// (user_message records only, a few, direct.ts fetchTurnOpener), or the rail's earlier prompts
+  /// (the records that say where turns start, pages of at most 400 read in the background,
+  /// threadMinimap/earlierPrompts.ts). Neither pages the transcript.
+  const isPromptRead = (request: (typeof requests)[number]) =>
     request.method === "_acpmux/events" &&
     Array.isArray(request.params.kinds) &&
-    request.params.kinds.length === 1 &&
-    request.params.kinds[0] === "user_message";
+    request.params.kinds.includes("user_message") &&
+    !request.params.kinds.includes("transcript");
+  const isOpenerRead = (request: (typeof requests)[number]) =>
+    isPromptRead(request) && request.params.kinds.length === 1 && request.params.limit <= 16;
   let inflight = 0;
   /// Replies sent so far: a page that lands while the view looks still restarts the wait.
   let replies = 0;
@@ -229,9 +234,11 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect(openerReads.every((request) => request.params.limit <= 16)).toBe(true);
     expect(
       requests.filter(
-        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
+        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isPromptRead(request),
       ),
     ).toEqual([]);
+    for (const request of requests.filter((request) => isPromptRead(request) && !isOpenerRead(request)))
+      expect(request.params.limit).toBeLessThanOrEqual(400);
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
@@ -297,7 +304,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
         request.method === "_acpmux/events" &&
         request.params.beforeSeq &&
         request.params.limit > 1 &&
-        !isOpenerRead(request),
+        !isPromptRead(request),
     );
     expect(errors).toEqual([]);
     expect(reachedFirst).toBe(true);
