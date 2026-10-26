@@ -713,8 +713,9 @@ PREPARE = {
     "screen.moveToWorkspace": [("screen.new", {})],
 }
 # The per-family fixtures (oracle/action_fixtures/<family>.py): registry contexts CONTEXT_SETUP does not know
-# (Sweep.ready enters them, Sweep.restore leaves them) and more PREPARE steps. A family that does not load, or claims a
-# context or PREPARE id twice, stops the sweep here (FixtureError): its closed gaps never fall back silently. --merge
+# (Sweep.ready enters them, Sweep.restore leaves them), more PREPARE steps, argument values (launch_fixtures) and UNDO
+# inverses. A family that does not load, or claims one of them twice, stops the sweep here (FixtureError): its closed
+# gaps never fall back silently. --merge
 # joins shard JSON already collected and runs no action, so it loads none: a broken family never blocks a merge.
 FAMILIES = action_fixtures.Families() if MERGE else action_fixtures.load_families()
 FAMILIES.check_contexts(CONTEXT_SETUP)
@@ -724,8 +725,8 @@ PREPARE = FAMILIES.merged_prepare(PREPARE)
 class SweepDriver:
     """The narrow seam a family's ContextFixture drives the app through (action_fixtures.Driver)."""
 
-    def run(self, action, args=None):
-        return act(action, args=args, focus=True)
+    def run(self, action, args=None, target=None):
+        return act(action, target=target, args=args, focus=True)
 
     def rpc(self, method, params=None):
         return rpc(method, params)
@@ -741,8 +742,8 @@ class SweepDriver:
 # back (``swap_back``). Minimize leaves the launch's window in the Dock, which the reset's topology does not show;
 # Show cmux deminiaturizes it (WindowActivation.show), so later rows run on a window that is on screen.
 FIT_OFF = ("browserFit", {"fit": "off"})
-UNDO = {"browserFit": FIT_OFF, "browserFitDesktop": FIT_OFF, "browserFitDesktop1280": FIT_OFF,
-        "minimizeWindow": ("showMainWindow", {})}
+UNDO = FAMILIES.merged_undo({"browserFit": FIT_OFF, "browserFitDesktop": FIT_OFF, "browserFitDesktop1280": FIT_OFF,
+                             "minimizeWindow": ("showMainWindow", {})})
 # A pane frame's edge sits on its neighbor's within this many points (frames are rounded to points).
 EDGE_PT = 1.0
 TOGGLES = r"(?i)(toggle|Toggle|zoom(?!In|Out|Reset)|^show|^hide|Sidebar$|fullScreen|pin|mute)"
@@ -847,15 +848,24 @@ def skip(reason, kind):
     return {"skipped": reason, "skip_kind": kind}
 
 
+FAMILIES.check_arguments(ARGUMENT_FIXTURES)
+
+
+def launch_fixtures(driver):
+    """ARGUMENT_FIXTURES with the families' argument fixtures (FAMILIES.new_arguments), fresh for one launch: a value a
+    family fixture cannot give is a `gap`."""
+    return {**ARGUMENT_FIXTURES, **FAMILIES.new_arguments(driver, lambda why: skip(why, "gap"))}
+
+
 def argument_values(action, base, fixtures=ARGUMENT_FIXTURES):
-    """Values for required arguments, or (None, skip) with the typed skip (``skip``). `fixtures` is ARGUMENT_FIXTURES
-    (--plan-only passes placeholders that read no app)."""
+    """Values for required arguments and for optional ones a fixture fills, or (None, skip) with the typed skip
+    (``skip``). `fixtures` is a launch's launch_fixtures() (--plan-only passes placeholders that read no app)."""
     values = {}
     for argument in action.get("arguments") or []:
-        if not argument.get("required"):
-            continue
         kind, name = argument.get("kind"), argument.get("name")
         fixture = fixtures.get((action["id"], name))
+        if not argument.get("required") and not fixture:
+            continue
         if fixture:
             value, why = fixture(base)
             if value is None:
@@ -927,7 +937,6 @@ class Sweep:
         self.app, self.session, self.stress_module = app, session, stress_module
         self.rows, self.interactions = [], []
         self.base = {}
-        self.fixtures = ARGUMENT_FIXTURES  # argument_values()'s fixtures (plan_only() puts placeholders here)
         self.builder = None
         # The closed-history ids just before the measured input (mark_closed); restore() reopens only newer ones.
         self.closed_mark = None
@@ -947,6 +956,7 @@ class Sweep:
         self.driver = SweepDriver()
         # This launch's family context fixtures (FAMILIES), and the keys of those entered since the last restore.
         self.contexts, self.entered = FAMILIES.new_contexts(), []
+        self.fixtures = launch_fixtures(self.driver)  # argument_values()'s fixtures (plan_only() puts placeholders here)
         # Action id -> the input-to-commit ms of each sample whose handler ran and was not refused (result-v1's raw
         # samples; the row keeps only their summary).
         self.commit_samples = {}
@@ -2198,6 +2208,7 @@ class Sweep:
         self.notes, self.replaced = [], {}  # the old launch's notes and replaced tabs name its ids
         self.pending = None  # the new launch starts from the build: nothing of the old sample is left to undo
         self.contexts, self.entered = FAMILIES.new_contexts(), []  # the old launch's contexts went with it
+        self.fixtures = launch_fixtures(self.driver)  # and its argument fixtures' state
         self.build()
         validity = self.check_validity()
         validity["relaunch"] = why
@@ -2614,7 +2625,8 @@ def selected(actions):
 # What --plan-only binds an argument to that only a live app knows: a target names the base field the run fills
 # (BASE_TARGETS), an argument fixture names itself (ARGUMENT_FIXTURES may read the app, history.open does).
 PLAN_BASE = {field: f"<base.{field}>" for field in BASE_TARGETS.values()}
-PLAN_FIXTURES = {key: (lambda base, key=key: (f"<fixture {key[0]}.{key[1]}>", None)) for key in ARGUMENT_FIXTURES}
+PLAN_FIXTURES = {key: (lambda base, key=key: (f"<fixture {key[0]}.{key[1]}>", None))
+                 for key in (*ARGUMENT_FIXTURES, *FAMILIES.argument_keys())}
 
 
 def plan_row(sweep, action):
