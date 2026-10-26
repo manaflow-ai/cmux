@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -90,6 +90,8 @@ public final class WebUpdater {
     /// Whether cmux is in the front: checks come every ``interval`` there and every
     /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
     @ObservationIgnored public var foreground = true
+    /// Whether a cmux window shows: while none does, no check is booked (``noteShown(_:)``).
+    @ObservationIgnored public private(set) var shown = true
 
     let store: WebUpdateStore
     public let app: App
@@ -104,6 +106,8 @@ public final class WebUpdater {
     /// Between scheduled checks while cmux is behind other apps (a swap waits for it to come back
     /// anyway, and an idle app should not wake every minute).
     let backgroundInterval: Duration
+    /// The app's Energy Saver policy: each wait is stretched by its `pollStretch`.
+    let energy: EnergyPolicySource
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
@@ -123,7 +127,7 @@ public final class WebUpdater {
 
     public init(store: WebUpdateStore, app: App, keys: KeySource, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = .seconds(600),
-                clock: any Clock<Duration> = ContinuousClock(),
+                energy: EnergyPolicySource, clock: any Clock<Duration> = ContinuousClock(),
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
@@ -132,6 +136,7 @@ public final class WebUpdater {
         self.base = base
         self.interval = interval
         self.backgroundInterval = backgroundInterval
+        self.energy = energy
         self.fetch = fetch
         self.download = download
         nextCheck = DemandTimer(owner: "web-updates.check", clock: clock)
@@ -196,11 +201,11 @@ public final class WebUpdater {
     /// waited ``backgroundInterval``).
     public func noteActivation(stale: TimeInterval = 60) {
         foreground = true
-        guard channel != .off, phase != .checking, phase != .downloading else { return }
+        guard shown, channel != .off, phase != .checking, phase != .downloading else { return }
         // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         guard since > stale else {
-            nextCheck.schedule(after: Self.delay(after: since, interval: interval)) { @MainActor [weak self] in await self?.check() }
+            nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
             return
         }
         // task-owner: one check; it ends by itself
@@ -214,8 +219,25 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
         // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
-        nextCheck.schedule(after: Self.delay(after: since, interval: backgroundInterval)) { @MainActor [weak self] in await self?.check() }
+        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
     }
+
+    /// The last cmux window went away: the booked check goes (a running one books none). A window
+    /// showing again books the next one an interval after the last, at once when that has passed
+    /// (p14-energy-032; Chromium runs a hidden page's due work once it shows).
+    public func noteShown(_ shown: Bool) {
+        guard shown != self.shown else { return }
+        self.shown = shown
+        guard shown else { return nextCheck.cancel() }
+        guard channel != .off, phase != .checking, phase != .downloading, !nextCheck.isScheduled else { return }
+        // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
+        let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
+        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
+    }
+
+    /// The wait between two booked checks now: ``interval`` in the front, ``backgroundInterval``
+    /// behind other apps, stretched by the Energy Saver.
+    var nextInterval: Duration { (foreground ? interval : backgroundInterval) * energy.policy.pollStretch }
 
     /// The wait from now for a check `interval` after one `since` seconds ago (none when overdue).
     nonisolated static func delay(after since: TimeInterval, interval: Duration) -> Duration {
@@ -232,10 +254,10 @@ public final class WebUpdater {
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
         // channel changed during the check reads its own pointer at once.
+        // While no window shows, only a channel change books one.
         defer {
-            if self.channel != .off {
-                let next = foreground ? interval : backgroundInterval
-                nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
+            if self.channel != .off, shown || self.follows != follows {
+                nextCheck.schedule(after: self.follows == follows ? nextInterval : .zero) { @MainActor [weak self] in await self?.check() }
             }
         }
         do {
