@@ -7,11 +7,19 @@ import Testing
 @Suite struct ActionContractTests {
     let catalog = ActionCatalog.all
 
+    /// Top-level verbs, one word by design: `cmux open-remote <host>` (#25092,
+    /// OpenRemoteRequestTests). Every other action is `noun verb`.
+    static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            if let verb = Self.topLevelVerbs[descriptor.id] {
+                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            } else {
+                #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            }
             #expect(descriptor.cliName == descriptor.cliName.lowercased(), "\(descriptor.id)")
             if let other = seen[descriptor.cliName] {
                 Issue.record("cliName \(descriptor.cliName) used by \(other) and \(descriptor.id)")
