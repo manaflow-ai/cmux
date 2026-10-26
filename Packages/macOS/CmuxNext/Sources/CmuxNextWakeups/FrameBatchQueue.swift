@@ -84,9 +84,9 @@ public final class FrameBatchQueue {
     /// - Parameters:
     ///   - owner: The queue's name in the ledger and the watchdog's records (interned on the
     ///     budget's board here, once, so each task starts without a lock).
-    ///   - budgeted: `visible` for screen updates no action of the person caused,
-    ///     `automation` for work an agent, the CLI or another process asked for, `background` for
-    ///     work nobody sees this frame.
+    ///   - budgeted: `userBlocking` for the rest of a person's action, `visible` for screen updates
+    ///     no action of the person caused, `automation` for work an agent, the CLI or another process
+    ///     asked for, `background` for work nobody sees this frame.
     ///   - work: The app's one main-thread scheduler.
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         self.owner = owner

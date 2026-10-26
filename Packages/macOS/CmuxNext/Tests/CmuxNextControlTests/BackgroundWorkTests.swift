@@ -311,7 +311,7 @@ import Testing
     @Test(arguments: MainWorkClass.allCases)
     func everyMainWorkClassMapsToOneWorkPriority(workClass: MainWorkClass) {
         let expected: WorkPriority = switch workClass {
-        case .input, .frame: .userBlocking
+        case .input, .frame, .userBlocking: .userBlocking
         case .visible: .userVisible
         case .automation, .background: .bestEffort
         }

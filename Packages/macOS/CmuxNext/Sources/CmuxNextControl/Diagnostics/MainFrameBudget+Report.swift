@@ -20,7 +20,7 @@ extension MainFrameBudget {
     public var reportParts: (fields: [String: JSONValue], turns: MainTurnMeter.Snapshot) {
         let stats = stats
         var classes: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in Stats.classes.enumerated() {
             classes[workClass.description] = [
                 "budget_ms": .number(Double(Self.nanos(budgets.budget(workClass) ?? .zero)) / 1_000_000),
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
@@ -50,7 +50,7 @@ extension MainFrameBudget {
     private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
         let stats = starvation.stats
         var held: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in MainFrameBudget.Stats.classes.enumerated() {
             held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
         }
         return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),

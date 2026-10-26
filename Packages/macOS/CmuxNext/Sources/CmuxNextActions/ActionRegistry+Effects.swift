@@ -67,14 +67,29 @@ extension ActionRegistry {
 
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
     /// and, unless a capturing caller reports it itself, shows it.
+    ///
+    /// A person's run (its effective origin is the person's, ``ActionOrigin/observationCause``) is
+    /// the rest of the person's action (Chrome `base::TaskPriority::USER_BLOCKING`,
+    /// base/task/task_traits.h): its remote half runs at ``WorkPriority/userBlocking``, and its
+    /// completion runs as one ``MainWorkClass/userBlocking`` task on ``mainWork``, ahead of visible
+    /// work and not held by the input response it answers.
     private func start(_ id: ActionID, _ invocation: ActionInvocation, _ send: @escaping @MainActor () async -> ActionWorkFailure?,
                        rollback: (@MainActor (ActionWorkFailure) -> Void)?) {
         let reported = isCapturingWork
         let title = title(for: id) ?? id.rawValue
-        let task: ActionWork = Task { [weak self] in
+        let isPerson = (ActionRunScope.current?.origin ?? invocation.origin).observationCause == .person
+        let completions = isPerson ? mainWork : nil
+        let task: ActionWork = Task(priority: isPerson ? WorkPriority.userBlocking.taskPriority : nil) { [weak self] in
             guard let failure = await send() else { return nil }
-            rollback?(failure)
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            let complete: @MainActor () -> Void = {
+                rollback?(failure)
+                if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            }
+            if let completions {
+                await completions.apply(.userBlocking, owner: "ActionRegistry.completion") { complete() }
+            } else {
+                complete()
+            }
             return failure
         }
         track(task)

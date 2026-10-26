@@ -49,8 +49,8 @@ public final class RenderStarvationGuard {
     public struct Stats: Sendable, Equatable {
         /// Late periods reported (`stall.render_starved`).
         public var events = 0
-        /// Per budgeted class (``MainWorkClass/budgeted`` order): times a task was held for a late frame.
-        public var heldTasks: [Int] = [0, 0, 0]
+        /// Per budgeted class (``MainFrameBudget/Stats/classes`` order): times a task was held for a late frame.
+        public var heldTasks: [Int] = [0, 0, 0, 0]
         /// Slices of a source outside the budget (the CEF pump) held for a late frame.
         public var heldSlices = 0
         /// The longest gap a period had when it was reported, in seconds.
