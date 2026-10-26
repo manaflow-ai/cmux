@@ -5,6 +5,7 @@
 //! that keeps two updates of one host apart in `host_lock.rs`; `host
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
+use super::host_auto_update::take_auto_update_off;
 use super::{
     DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
     SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
@@ -255,6 +256,26 @@ fn build_commit(build: &str) -> Option<&str> {
     (hash.len() >= 7 && hash != "nogit").then_some(hash)
 }
 
+/// Whether the build `running` must not be replaced by `pushing` under
+/// `--keep-newer`: it has local changes (`+dirty`, someone's own build), or
+/// it was built on a later day than `pushing` (a host's self-update timer
+/// moved it past the build being pushed). An own build is kept whatever is
+/// pushed, also a binary that names no build (`pushing` is `None`); a build
+/// with no date, or a pushed binary with none, is not newer.
+fn keeps_over(running: &str, pushing: Option<&str>) -> Option<&'static str> {
+    let head = running.split_whitespace().next()?;
+    if head.contains("+dirty.") {
+        return Some("ownBuild");
+    }
+    fn date(build: &str) -> Option<&str> {
+        build.split_whitespace().nth(1).filter(|d| d.len() == 10)
+    }
+    match (date(running), pushing.and_then(date)) {
+        (Some(running), Some(pushing)) if running > pushing => Some("newer"),
+        _ => None,
+    }
+}
+
 /// Whether two build ids name one commit (short hashes of two lengths too).
 fn same_commit(a: &str, b: &str) -> bool {
     match (build_commit(a), build_commit(b)) {
@@ -359,6 +380,8 @@ struct PeerUpdate {
     reason: Option<String>,
     error: Option<String>,
     migrated_from: Option<String>,
+    /// Why the host is left without its self-update timer, when it is.
+    auto_update_off: Option<String>,
 }
 
 impl PeerUpdate {
@@ -372,6 +395,7 @@ impl PeerUpdate {
             reason: None,
             error: None,
             migrated_from: None,
+            auto_update_off: None,
         }
     }
 
@@ -397,6 +421,7 @@ impl PeerUpdate {
             ("reason", self.reason.clone()),
             ("error", self.error.clone()),
             ("migratedFrom", self.migrated_from.clone()),
+            ("autoUpdateOff", self.auto_update_off.clone()),
         ];
         for (key, value) in optional {
             if let Some(value) = value {
@@ -412,9 +437,13 @@ impl PeerUpdate {
         match self.outcome {
             Outcome::Updated => {
                 let version = self.version.as_deref().unwrap_or("updated");
-                match &self.migrated_from {
+                let line = match &self.migrated_from {
                     Some(unit) => format!("{version} (moved from {unit} to acpmux.service)"),
                     None => version.to_owned(),
+                };
+                match &self.auto_update_off {
+                    Some(why) => format!("{line}; auto-update off: {why}"),
+                    None => line,
                 }
             }
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
@@ -432,6 +461,9 @@ pub(crate) struct UpdateOptions {
     pub binary_dir: Option<PathBuf>,
     /// Leave a peer whose sessions run a turn or wait on a permission alone.
     pub if_idle: bool,
+    /// Leave a peer on a later day's build or on a build with local changes
+    /// alone (`current`, reason `newer` or `ownBuild`), checked under the lock.
+    pub keep_newer: bool,
     /// The session this command runs in, and its daemon.
     pub caller: Option<Caller>,
 }
@@ -533,6 +565,16 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         up.outcome = Outcome::Current;
         return up;
     }
+    // Read under the host's update lock, so a self-update that ran since the
+    // caller looked is seen here and never undone.
+    if opts.keep_newer
+        && let Some(running) = &probe.build
+        && let Some(reason) = keeps_over(running, binary_build.as_deref())
+    {
+        let pushing = binary_build.as_deref().unwrap_or("a binary with no build id");
+        let why = format!("{} runs {running}, kept over {pushing}", remote.host());
+        return up.end(Outcome::Current, reason, why);
+    }
     if opts.if_idle {
         match &probe.busy {
             Some(names) if names.is_empty() => {}
@@ -600,6 +642,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let restarted = restart_checked(remote, &restart, pushed.as_deref());
     let (reason, why) = match restarted.result {
         Ok(status) => {
+            up.auto_update_off = restarted.auto_update_off;
             up.build = answering_build(&status);
             up.status = Some(cut(status, 400));
             up.migrated_from = restarted.migrating;
@@ -664,6 +707,8 @@ struct Restarted {
     refused: bool,
     /// The daemon's status, or why it failed: a reason code and a message.
     result: std::result::Result<String, (String, String)>,
+    /// Why the script left the host without its self-update timer.
+    auto_update_off: Option<String>,
 }
 
 /// Run a restart script, then wait for the daemon to answer
@@ -673,6 +718,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         migrating,
         refused,
         result: Err((reason.to_owned(), why)),
+        auto_update_off: None,
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
@@ -703,7 +749,8 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         let why = format!("the restarted daemon runs build {build}, not the pushed {want}");
         return failed(migrating, false, "buildMismatch", why);
     }
-    Restarted { migrating, refused: false, result: Ok(status) }
+    let auto_update_off = take_auto_update_off(&out.stdout).1;
+    Restarted { migrating, refused: false, result: Ok(status), auto_update_off }
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.

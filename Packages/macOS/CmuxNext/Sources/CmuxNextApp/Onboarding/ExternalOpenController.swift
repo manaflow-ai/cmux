@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextOnboarding
+import CmuxNextSettings
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
 /// `x-man-page:` handler, a file's opener, Handoff or the Finder service: a tab in
@@ -13,6 +16,27 @@ final class ExternalOpenController {
     unowned let services: AppServices
     let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
+    /// The `ssh://` link question: acpmux peers and saved SSH machines are known hosts, and
+    /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
+    private(set) lazy var sshGate = makeSSHGate()
+
+    private func makeSSHGate() -> ExternalLinkGate {
+        let services = services
+        return ExternalLinkGate(
+            knownHosts: { @MainActor [weak services] in
+                let saved = services?.machines.ssh.map(\.host.destination.host) ?? []
+                guard let socket = AgentLaneStore.shared.socketPath,
+                      let peers = try? await AcpmuxPeerList(socketPath: socket).peers(deadline: .seconds(1)) else { return saved }
+                return saved + peers.map(\.name) + ExternalLinkGate.peerHosts(peers.compactMap(\.url))
+            },
+            allowedHosts: { @MainActor [weak services] in services?.settings.map { SSHLinkHostsSetting().hosts(in: $0.snapshot.root) } ?? [] },
+            rememberHost: { @MainActor [weak services] host in
+                do { try await services?.settings?.allowSSHLinkHost(host) } catch {
+                    services?.daemon.logger.error("always allow ssh link host failed: \(String(describing: error), privacy: .public)")
+                }
+            },
+            askSSH: { @MainActor target, window in await ExternalLinkGate.ask(target, in: window) })
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -137,6 +161,17 @@ final class ExternalOpenController {
         switch route {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
+        // Any page can open `ssh://host`: an unknown host asks first (ExternalLinkGate).
+        // The question shows in the pane's window, and Connect opens the terminal in that pane.
+        case .ssh(let target):
+            let window = pane.view.window
+            Task { [weak pane] in
+                await sshGate.openSSH(target, in: window) {
+                    guard let pane, pane.view.window != nil else { return false }
+                    pane.newTerminalTab(cwd: nil, typing: target.command + "\n")
+                    return true
+                }
+            }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .deepLink, .unsupported: return

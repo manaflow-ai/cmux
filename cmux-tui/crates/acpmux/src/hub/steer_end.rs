@@ -117,7 +117,7 @@ impl Hub {
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let author = crate::author::of_provenance(opts.provenance.as_ref());
             now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
-            now.step.remove(&prompt_id)
+            now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
             params["_meta"]["steerNow"] = json!(true);

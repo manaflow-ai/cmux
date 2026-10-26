@@ -123,6 +123,9 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
+    // A registry that lists no machine: this host is uncapped. A set
+    // FLEET_REGISTRY that is missing refuses every create (`hub/admission.rs`).
+    std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let hub = hub();
     let mut app = Client::new(&hub);
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
@@ -221,7 +224,7 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a})).await;
     assert_eq!(e["data"]["reason"], "retry.nothing_failed", "{e}");
     let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a, "subagentId": "x"})).await;
-    assert_eq!(e["data"]["reason"], "retry.subagent_unsupported", "{e}");
+    assert_eq!(e["data"]["reason"], "retry.unknown_subagent", "{e}");
     // Nor its own parent: a session retries only its own sub-sessions.
     let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": parent})).await;
     assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");

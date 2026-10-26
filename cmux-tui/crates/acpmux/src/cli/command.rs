@@ -426,6 +426,9 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        #[arg(long)]
+        force_admit: bool,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -468,10 +471,13 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
-    Status,
+    Status {
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32> },
+    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -710,6 +716,9 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        #[arg(long)]
+        force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
@@ -838,8 +847,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         dev: bool,
     },
-    /// Daemon status, hosts, and the web URL.
-    Status,
+    /// Daemon status, hosts, and the web URL (without its token).
+    Status {
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start {
         /// Read this launch's person key (64 hex characters, one line) from
@@ -848,6 +861,9 @@ pub enum DaemonCmd {
         /// or VM provisioning passes it; refused while a daemon runs.
         #[arg(long)]
         person_key_fd: Option<i32>,
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
     },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
@@ -969,6 +985,10 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Create the session even when its host refuses new ones (disk under its
+    /// floor, or at the fleet registry's max_lanes). The daemon logs it.
+    #[arg(long)]
+    pub force_admit: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -981,7 +1001,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session } => Command::ResumeQueue { session },
-            SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
+            SessionCmd::Fork { session, name, cwd, force_admit } => {
+                Command::Fork { session, name, cwd, force_admit }
+            }
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
@@ -1025,8 +1047,10 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
             },
-            DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
+            DaemonCmd::Status { show_token } => Command::Status { show_token },
+            DaemonCmd::Start { person_key_fd, show_token } => {
+                Command::DaemonStart { person_key_fd, show_token }
+            }
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }

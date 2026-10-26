@@ -10,7 +10,7 @@ use super::super::host_self_update::{
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
-    NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
+    AUTO_UPDATE_OFF, NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
 };
 use crate::cli::hosts::{Remote, lock_to_install, lock_updates};
 use futures::future::BoxFuture;
@@ -413,6 +413,7 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     let opts = UpdateOptions {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
+        keep_newer: false,
         caller: None,
     };
 
@@ -549,7 +550,7 @@ fn install_units(home: &Path) -> (Vec<String>, String) {
     assert!(out.status.success(), "{out:?}");
     let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
     let _ = std::fs::remove_file(home.join("calls"));
-    (calls.lines().map(str::to_owned).collect(), String::from_utf8_lossy(&out.stderr).into_owned())
+    (calls.lines().map(str::to_owned).collect(), String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[test]
@@ -607,6 +608,7 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, err) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
     assert!(err.contains("acpmux-update.timer is a unit acpmux did not write"), "{err}");
+    assert!(err.starts_with(AUTO_UPDATE_OFF), "the row's marker, on stdout: {err}");
     assert_eq!(read("acpmux-update.timer"), theirs);
     assert!(!units.join("acpmux-update.service").exists());
 
@@ -649,9 +651,15 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     // The opt-out stops the timer and writes nothing.
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
-    let (calls, _) = install_units(&home);
+    let (calls, off) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     assert!(!units.exists());
+    assert!(off.is_empty(), "an opt-out is no reason to report: {off}");
+    // Review: nor is one whose units could not be staged.
+    std::fs::write(home.join("cat-cut"), "").unwrap();
+    let (_, off) = install_units(&home);
+    assert!(off.is_empty(), "{off}");
+    std::fs::remove_file(home.join("cat-cut")).unwrap();
 
     // Review of #24232: the opt-out stops only acpmux's timer, never one
     // someone else wrote.
@@ -669,6 +677,79 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, _) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A host that does not update itself says why in `host update`'s row, not
+/// only on a stderr nobody reads.
+#[test]
+fn an_update_row_says_when_the_host_does_not_update_itself() {
+    let peer = FakePeer::new("update-auto-off");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!((up.outcome, up.auto_update_off.as_deref()), (Outcome::Updated, None), "{up:?}");
+    assert!(up.to_json("p", "fake").get("autoUpdateOff").is_none());
+
+    let peer = FakePeer::new("update-auto-off-theirs");
+    peer.write(&format!("{UNITS}/acpmux-update.timer"), "[Timer]\nOnCalendar=daily\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    let why = up.auto_update_off.clone().unwrap_or_default();
+    assert!(why.contains("acpmux-update.timer is a unit acpmux did not write"), "{up:?}");
+    assert!(!why.starts_with(AUTO_UPDATE_OFF), "{why}");
+    assert_eq!(up.to_json("p", "fake")["autoUpdateOff"], why.as_str());
+    assert!(up.line().ends_with(&format!("; auto-update off: {why}")), "{}", up.line());
+    assert!(!up.status.unwrap_or_default().contains(AUTO_UPDATE_OFF));
+}
+
+/// A [`FakePeer`] that takes a script's stdin, as `host setup` writes the
+/// daemon config (`host update` feeds none, which the peer itself checks).
+struct SetupPeer(FakePeer);
+
+impl Remote for SetupPeer {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        use std::io::Write as _;
+        use std::process::Stdio;
+        let Some(input) = stdin else { return self.0.exec(script, None) };
+        let mut sh = self.0.sh(script);
+        sh.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = sh.spawn()?;
+        child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?.write_all(input)?;
+        let out = child.wait_with_output()?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        self.0.spawn(script)
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        self.0.push(local, remote)
+    }
+}
+
+/// The same for `host setup` (and `host enroll --fix`): the install answers
+/// the reason beside the daemon's status.
+#[test]
+fn a_setup_says_when_the_host_does_not_update_itself() {
+    let peer = SetupPeer(FakePeer::new("setup-auto-off"));
+    let (_, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
+    assert_eq!(off, None);
+
+    let peer = SetupPeer(FakePeer::new("setup-auto-off-theirs"));
+    peer.0.write(&format!("{UNITS}/acpmux-update.service"), "[Service]\nExecStart=/bin/true\n");
+    let (status, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
+    let why = off.unwrap_or_default();
+    assert!(why.contains("acpmux-update.service is a unit acpmux did not write"), "{why}");
+    assert!(!status.contains(AUTO_UPDATE_OFF), "{status}");
 }
 
 #[test]

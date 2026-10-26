@@ -21,6 +21,7 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -162,8 +163,11 @@ enum CloudHandlers {
     /// The existing workspace and pane where a Cloud terminal should land.
     /// Keep the durable workspace key on the spawn request so terminals stay
     /// attached to the machine after daemon handle ids are recycled.
-    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+    /// `proceed` runs right before each workspace this creates: its throw creates nothing.
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
+                                          proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let hadWorkspace = !session.daemon.store.workspaces.isEmpty
+        if !hadWorkspace { try proceed() }
         let id = try await firstWorkspace(on: session, context)
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
@@ -171,6 +175,7 @@ enum CloudHandlers {
         // store was empty. Do not issue a second create if that mirror is
         // unexpectedly late.
         guard hadWorkspace else { throw ActionFailure(message: CloudStrings.notConnected) }
+        try proceed()
         guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
@@ -180,7 +185,7 @@ enum CloudHandlers {
         return anchor
     }
 
-    @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await waitForAnchor(id: id, on: session) }
@@ -195,7 +200,7 @@ enum CloudHandlers {
         return mirrored ? anchor(id: id, on: session) : nil
     }
 
-    @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }

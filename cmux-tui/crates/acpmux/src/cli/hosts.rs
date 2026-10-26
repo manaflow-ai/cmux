@@ -39,6 +39,13 @@ pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
 /// machine's own home comes from its resolver, `config.rs`).
 pub(crate) const REMOTE_HOME: &str = "~/.acpmux";
 
+/// Makes [`REMOTE_HOME`] when it is missing, owner-only whatever the host's
+/// umask: one made under umask 002 is group-writable, and the daemon refuses
+/// it (ergo-walk2, 2026-10-25). An existing home is left as it is.
+pub(crate) fn make_remote_home() -> String {
+    format!("mkdir -p -m 700 {REMOTE_HOME}")
+}
+
 /// What a remote command answered.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RemoteOut {
@@ -219,7 +226,7 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     }
     let exe = crate::self_command::SelfCommand::current()?.exe;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
-    run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
+    run(r, &format!("mkdir -p {dir} && {}", make_remote_home()))?;
     r.push(&exe, &format!("{bin}.new"))?;
     run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
 }
@@ -233,7 +240,10 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
 fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
     run(
         r,
-        "mkdir -p ~/.local/bin ~/.acpmux && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new",
+        &format!(
+            "mkdir -p ~/.local/bin && {} && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new",
+            make_remote_home()
+        ),
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
@@ -585,20 +595,25 @@ pub(crate) async fn setup(
         let mark = host_auto_update::NO_AUTO_UPDATE;
         run(&remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;
     }
-    let status = install_daemon(&remote, port, false)?;
+    let (status, auto_update_off) = install_daemon(&remote, port, false)?;
     drop(lock);
     // Register (or re-register) the peer.
     let url = ssh_peer_url(host, port);
     // Always with the url: a known peer takes the host and port given now.
     let peers = connect_peer(&client, &name, Some(url.as_str())).await?;
     if json_out {
-        print_json(
-            &json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}),
-        );
+        let mut row = json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")});
+        if let Some(why) = auto_update_off {
+            row["autoUpdateOff"] = json!(why);
+        }
+        print_json(&row);
     } else {
         println!("{host}: {version}");
         for l in status.lines() {
             println!("  {l}");
+        }
+        if let Some(why) = auto_update_off {
+            println!("  auto-update off: {why}");
         }
         let p = peers.get("peers").and_then(Value::as_array).and_then(|a| {
             a.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())).cloned()
@@ -673,7 +688,11 @@ fn write_config(r: &dyn Remote, cfg_text: &str) -> Result<()> {
 /// unit or a detached start on Linux ([`linux_restart`]). The daemon's
 /// status (JSON with `json`). The caller holds the host's update lock and
 /// passes `r` fenced for it ([`lock_updates`]).
-pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<String> {
+pub(crate) fn install_daemon(
+    r: &dyn Remote,
+    port: u16,
+    json: bool,
+) -> Result<(String, Option<String>)> {
     let existing = run(r, &format!("cat {REMOTE_HOME}/config.json 2>/dev/null || echo '{{}}'"))?;
     let mut fresh = [0u8; 24];
     getrandom_fill(&mut fresh)?;
@@ -683,7 +702,8 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
     let os = run(r, "uname -s")?;
     if os != "Darwin" {
         let out = run(r, &linux_restart(true, json))?;
-        return linux_status(r, out, json);
+        let (out, auto_update_off) = host_auto_update::take_auto_update_off(&out);
+        return Ok((linux_status(r, out, json)?, auto_update_off));
     }
     let home = run(r, "echo $HOME")?;
     let plist = PLIST.replace("__HOME__", &home);
@@ -694,7 +714,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
         ),
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
-    launchd_status(r, json)
+    Ok((launchd_status(r, json)?, None))
 }
 
 /// The ssh host of an `ssh://host[:port]` peer url. As in `Peer::ssh_parts`,

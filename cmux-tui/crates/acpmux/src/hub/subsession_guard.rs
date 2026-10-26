@@ -119,6 +119,12 @@ pub(super) fn is_family_prompt(provenance: Option<&Value>) -> bool {
         == Some(super::subsessions::PROVENANCE_KIND)
 }
 
+/// A retry a sub-session asked for (`retry_session`, `manual` and `from` it): checked at dispatch
+/// and counted against its parent's run slots as a family prompt is.
+pub(super) fn is_family_retry(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| p.get("manual").is_some() && p.get("from").is_some())
+}
+
 /// The refusal of a child that would ask less than its caller.
 pub(super) fn asks_less(why: &str) -> RpcError {
     refusal(
@@ -227,9 +233,8 @@ pub struct CheckedFolder {
     path: PathBuf,
     /// Its device and inode; None off unix.
     pin: Option<crate::cwd_pin::CwdPin>,
-    /// Keeps its inode from being reused while the start runs.
     #[cfg(unix)]
-    _held: Arc<std::fs::File>,
+    held: Arc<std::fs::File>,
 }
 
 impl std::ops::Deref for CheckedFolder {
@@ -276,7 +281,7 @@ impl CheckedFolder {
             path,
             pin,
             #[cfg(unix)]
-            _held: held,
+            held,
         })
     }
 
@@ -291,6 +296,15 @@ impl CheckedFolder {
         }
         Ok(())
     }
+
+    /// The open handle on it (unix): git runs in this very folder through it
+    /// (`subsession_worktree::Dir`).
+    pub(super) fn held(&self) -> Option<Arc<std::fs::File>> {
+        #[cfg(unix)]
+        return Some(self.held.clone());
+        #[cfg(not(unix))]
+        None
+    }
 }
 
 /// `subsessions.cwd_moved`: `cwd` no longer leads to the folder a sub-session's start checked.
@@ -303,6 +317,29 @@ fn moved_refusal(cwd: &Path) -> RpcError {
         ),
         json!({"cwd": cwd}),
     )
+}
+
+/// Ok when `start` (a sub-session's folder in the worktree just made from `source`) is in that
+/// very worktree (`subsession_worktree::verify_made`); else `subsessions.cwd_moved`.
+pub(super) async fn verify_worktree(
+    source: &CheckedFolder,
+    made: &crate::subsession_worktree::Worktree,
+    start: &CheckedFolder,
+) -> Result<(), RpcError> {
+    let (source_path, source_held) = (source.path.clone(), source.held());
+    let (start_path, start_held) = (start.path.clone(), start.held());
+    let made = made.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        use crate::subsession_worktree::{Dir, verify_made};
+        let source = Dir::held(&source_path, source_held.as_deref());
+        verify_made(source, &made, Dir::held(&start_path, start_held.as_deref()))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    checked.map_err(|why| {
+        tracing::warn!(cwd = %start.path.display(), %why, "sub-session worktree");
+        moved_refusal(&start.path)
+    })
 }
 
 impl CheckedFolder {
@@ -324,11 +361,12 @@ impl Hub {
         session: &Arc<Session>,
         spawn: &super::spawn::Spawn,
         checked: Option<&CheckedFolder>,
+        stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let Some(checked) = checked else { return self.ensure_child(session, spawn).await };
+        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
-        let pinned = self.ensure_child(session, spawn);
+        let pinned = self.ensure_child(session, spawn, stops);
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
@@ -540,8 +578,8 @@ impl Hub {
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let retry = |p: &Value| p.get("manual").is_some() && p.get("from").is_some();
-        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p)) || retry(p)) else {
+        let family = |p: &&Value| is_family_prompt(Some(p)) || is_family_retry(Some(p));
+        let Some(p) = provenance.filter(family) else {
             return Ok(());
         };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();

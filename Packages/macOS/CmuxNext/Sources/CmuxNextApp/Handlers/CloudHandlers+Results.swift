@@ -138,7 +138,7 @@ extension CloudHandlers {
     static let createdMachineWait: Duration = .seconds(30)
 
     /// The creation's first state that is not `pending`.
-    private static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
+    static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
         for await state in ObservationStream({ CreatedMachine(creation, in: creations) }) where state != .pending { return state }
         return nil
     }

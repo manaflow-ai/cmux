@@ -250,9 +250,9 @@ import Testing
     }
 
     /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
-    /// whose Get picks it and whose Remove goes back to Compact, and a workspace row's ⋮ menu
-    /// offers the densities that are not in effect.
-    @Test func theSidebarDensityCardsPickADensityAndTheRowMenuOffersThem() async throws {
+    /// whose Get picks it and whose Remove goes back to Compact, and the sidebar's own menu
+    /// offers the densities that are not in effect (the row's ⋮ menu is trimmed, Leo 2026-10-23).
+    @Test func theSidebarDensityCardsPickADensityAndTheSidebarMenuOffersThem() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
@@ -269,9 +269,9 @@ import Testing
         #expect(settings.fileRoot.value(at: comfortable.path) == nil)
 
         let catalog = ContextMenuCatalog.shared
-        let ids = Set(catalog.referencedIDs(catalog.entries(for: .workspaceRow)).map(\.rawValue))
+        let ids = Set(catalog.referencedIDs(catalog.entries(for: .sidebarBackground)).map(\.rawValue))
         #expect(ids.isSuperset(of: ["sidebar.density.compact", "sidebar.density.comfortable", "sidebar.density.expanded"]),
-                "a workspace row's ⋮ menu offers the sidebar densities")
+                "the sidebar's menu offers the sidebar densities")
     }
 
     /// Every sidebar item the tab lists is one the sidebar's side offers (the list comes from the

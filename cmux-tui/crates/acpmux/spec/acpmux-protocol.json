@@ -586,6 +586,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_ls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_rm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/ask",
       "params": true,
       "result": true
@@ -2844,6 +2862,23 @@
       ],
       "type": "object"
     },
+    "QueuedAuthor": {
+      "description": "The person who queued a prompt in a shared chat.",
+      "properties": {
+        "id": {
+          "description": "`tailnet:<login>` or `user_…`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedImage": {
       "description": "An image a queued prompt sends.",
       "properties": {
@@ -2872,6 +2907,17 @@
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueuedAuthor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
+        },
         "client": {
           "type": "string"
         },
@@ -2910,6 +2956,7 @@
         }
       },
       "required": [
+        "author",
         "client",
         "fromAgent",
         "held",
@@ -2961,7 +3008,7 @@
           "type": "string"
         },
         "subagentId": {
-          "description": "One of the chat's failed subagents to resume instead. Refused for now\n(`retry.subagent_unsupported`), never taken as the chat's own turn.",
+          "description": "One of the chat's failed subagents to resume instead, by its id or agent id\n(`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.",
           "type": [
             "string",
             "null"
@@ -2983,7 +3030,7 @@
       "type": "string"
     },
     "RetryResult": {
-      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the\nfailed prompt) and the turn it started.",
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next\nattempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn\nit started.",
       "properties": {
         "kind": {
           "$ref": "#/types/RetryKind"
@@ -3324,6 +3371,10 @@
             }
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "rules": {
           "description": "The session has its own permission rules.",
@@ -3771,6 +3822,10 @@
             }
           ],
           "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "rules": {
           "description": "The session has its own permission rules.",

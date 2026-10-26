@@ -161,7 +161,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host self-update` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
+| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -226,6 +226,17 @@ and the subscribe. `done` means a turn ended while no client was attached. `send
 `prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
 turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
 
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
+with no watches. Older cursor fields default safely. Peer replay uses eight workers.
+The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`
@@ -244,8 +255,17 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
 output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
-`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed,
-and `retry.subagent_unsupported` for a `subagentId` (never the chat's own turn instead). A
+`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
+`subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
+automatic retry fires now, else one more goes, as the prompt the automatic one sends
+(provenance `subagent_retry` with `manual: true`, prompt id `subagent-retry-...`); it answers
+once that turn started and never queues. It refuses `retry.busy` while a turn runs or is about to
+start (Claude Code's own too), a prompt waits, a continuation may fire, the chat moves, a
+sub-session's run slots are full, or that subagent's retry is under way;
+`retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
+`forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
+turn. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
@@ -855,6 +875,7 @@ acpmux host ls                         # connected/offline, remote build, and "o
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
+acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -1183,7 +1204,10 @@ carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_start
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band
 (`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
-Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed, and
+`--print` then prints that turn's error (`error` under `--json`), never the reply of the turn
+before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when
+it runs). When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 
