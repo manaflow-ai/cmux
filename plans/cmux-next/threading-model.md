@@ -565,7 +565,8 @@ its QoS and its target.
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`
+  `debug.window_record`, `com.cmuxterm.app.next.hang-reports.store` (the `HangReportStore` actor's executor,
+  utility: its small pending, outbox and send-log file reads and writes block this queue, never a pool thread)
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `mux-hang-watch`,
   `cmux-trace-open`
 - Daemon maintenance clock (Rust thread name, p14-energy-020): `mux-maintenance` (utility), one per process that

@@ -675,6 +675,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
     }
   ],
   "observer_wrappers": [
