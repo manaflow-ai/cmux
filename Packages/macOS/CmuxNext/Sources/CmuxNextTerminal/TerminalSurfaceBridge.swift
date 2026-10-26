@@ -52,9 +52,14 @@ nonisolated final class SurfaceBridge: Sendable {
         }
     }
 
+    /// `raw` must be a surface's userdata (TerminalSurfaceView.bridge) or nil.
     static func from(_ raw: UnsafeMutableRawPointer?) -> SurfaceBridge? {
-        guard let raw else { return nil }
-        return Unmanaged<SurfaceBridge>.fromOpaque(raw).takeUnretainedValue()
+        // SAFETY: the caller passes the bridge the view retained for its surface, which stays
+        // alive until after ghostty_surface_free returns (TerminalSurfaceView.deinit), so every
+        // callback that brings it back sees a live object; taken unretained, as it was passed.
+        guard let raw = unsafe raw else { return nil }
+        // SAFETY: as above.
+        return unsafe Unmanaged<SurfaceBridge>.fromOpaque(raw).takeUnretainedValue()
     }
 }
 
@@ -108,9 +113,12 @@ nonisolated struct TerminalInputSink: Sendable {
 /// Ghostty's manual backend writes inline; its IO thread otherwise). Copies the bytes and hands them
 /// to the session's input lane (``TerminalInputLane``).
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
-    guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
+    // SAFETY: a surface's userdata (SurfaceBridge.from); Ghostty passes `length` bytes, valid for
+    // this callback, which Data copies.
+    guard let bridge = unsafe SurfaceBridge.from(userdata), let bytes = unsafe bytes, length > 0 else { return }
     TypingLatencyProbe.shared.inputWritten(on: bridge.input.typingSurface)
-    let data = Data(bytes: bytes, count: Int(length))
+    // SAFETY: as above.
+    let data = unsafe Data(bytes: bytes, count: Int(length))
     bridge.wrote(data)
     bridge.input.send(data)
 }
