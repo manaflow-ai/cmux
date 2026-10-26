@@ -7,7 +7,10 @@
 //! against serde's own list of tags.
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "read by daemon request spans and hang-watch (p09 014, 073)")
+    expect(
+        dead_code,
+        reason = "the hang deadlines and wire names are read by hang-watch (p09 073)"
+    )
 )]
 
 use std::time::Duration;
@@ -135,6 +138,32 @@ macro_rules! command_table {
                     $(Self::$variant { .. } => MethodClass::$class,)*
                 }
             }
+
+            /// This command's row in [`COMMANDS`]: the method id its
+            /// `daemon.request` trace slice carries.
+            pub(super) fn method_id(&self) -> u16 {
+                match self {
+                    $(Self::$variant { .. } => MethodIndex::$variant as u16,)*
+                }
+            }
+        }
+
+        impl Command {
+            /// The method id and class of the command whose `cmd` tag (or
+            /// alias) is `name`; None for a name no command has.
+            pub(super) fn method_of_wire(name: &str) -> Option<(u16, MethodClass)> {
+                match name {
+                    $($wire $(| $alias)* => {
+                        Some((MethodIndex::$variant as u16, MethodClass::$class))
+                    })*
+                    _ => None,
+                }
+            }
+        }
+
+        /// Each variant's index in [`COMMANDS`], numbered by the compiler.
+        enum MethodIndex {
+            $($variant,)*
         }
 
         /// Every command, in the enum's order.
@@ -173,6 +202,9 @@ command_table! {
     TerminalClipboardReply => "terminal-clipboard-reply", TerminalIo;
     PasteImage => "paste-image", TerminalIo;
     ServerStats => "server-stats", Query;
+    TraceStart => "trace-start", Other;
+    TraceStop => "trace-stop", Other;
+    TraceStatus => "trace-status", Other;
     SetTerminalCommandHistory => "set-terminal-command-history", TerminalIo;
     ListTerminalCommands => "list-terminal-commands", Query;
     DeleteTerminalCommands => "delete-terminal-commands", TerminalIo;

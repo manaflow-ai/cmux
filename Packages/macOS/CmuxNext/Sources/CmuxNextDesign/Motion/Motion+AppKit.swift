@@ -268,10 +268,7 @@ extension MotionGate {
     /// rewrites, as a sidebar space page's translation).
     public func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let spring = self.spring(token)
-        let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 1
-        animation.stiffness = spring.stiffness
-        animation.damping = spring.damping
+        let animation = Motion.springAnimation(spring, keyPath)
         animation.duration = spring.settlingTime(within: 0.002)
         animation.fromValue = from
         animation.toValue = to

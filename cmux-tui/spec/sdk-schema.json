@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 14
+   "next_ordinal": 17
   },
   "clients": {
    "id": 2,
@@ -6161,6 +6161,22 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "request_latency_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRequestLatency"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "dispatch_queue_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6171,7 +6187,8 @@
     "resource_projection is present only when the request names it in include.",
     "write_path is present only when the request names it in include.",
     "request_path_io is present only when the request names it in include.",
-    "slow_requests is present only when the request names it in include."
+    "slow_requests is present only when the request names it in include.",
+    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6370,6 +6387,80 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsRequestLatency": {
+   "kind": "object",
+   "fields": {
+    "topology": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_io": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "create": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "query": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "browser": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "agent": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cloud": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "other": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Each histogram is one request class (the daemon's MethodClass): microseconds from a request line's arrival at its connection's reader to its reply entering the connection's outbound queue.",
+    "A request a worker answers later (url-open, chief-inspect, cloud commands) counts when the worker's reply is queued."
    ]
   },
   "ServerStatsRequestPathIo": {
@@ -9818,13 +9909,87 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "stack": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequestFrame"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stack_truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stack_error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
     }
    },
    "additional_properties": false,
    "constraints": [
     "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
     "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
-    "duration_ms is how long the request ran in total, null while it still runs."
+    "duration_ms is how long the request ran in total, null while it still runs.",
+    "stack is the stack of the thread running the request, captured while it was still busy, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
+    "stack_truncated is true when stack holds only the interrupted pc because the daemon was built without frame pointers.",
+    "stack_error is null, or one of run-ended, unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout."
+   ]
+  },
+  "ServerStatsSlowRequestFrame": {
+   "kind": "object",
+   "fields": {
+    "image": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "image_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "offset": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "symbol": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "image is the file name of the image that holds the frame, or null when no loaded image does.",
+    "image_id is that image's build id (Mach-O LC_UUID as dwarfdump --uuid prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex), or null when it has none.",
+    "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
+    "symbol is the nearest exported symbol, mangled, or null for a local function."
    ]
   }
  },
@@ -17963,6 +18128,104 @@
    "durability": "read_only",
    "clients": [
     "cli",
+    "sdk"
+   ]
+  },
+  "trace-start": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "categories": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "keys": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": true
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root.",
+    "The key category records per-key records and needs keys: true."
+   ],
+   "method_id": 270,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-stop": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 271,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "trace-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-process trace reports (daemon, holder, terminal hosts, acpmux) whose set depends on the live children; see spec/commands.md trace-start."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a remote client is refused before anything runs.",
+    "No parameter is a path or a command: each process records into its own directory under the daemon's state root."
+   ],
+   "method_id": 272,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
     "sdk"
    ]
   },

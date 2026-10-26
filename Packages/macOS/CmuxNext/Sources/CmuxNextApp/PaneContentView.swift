@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextLaunch
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -83,6 +85,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    /// `launchImageView`'s share of the launch's image hold: ended when the image goes, the pane leaves its window or its content detaches.
+    var launchImageShare: LaunchImageHold.Share?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
@@ -93,8 +97,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in): the app's
     ///   one (`AppServices.launchReveal`).
-    init(stripModel: TabStripModel, reveal: LaunchReveal) {
-        stripView = TabStripView(model: stripModel)
+    /// - Parameter input: The app's input tap, for the strip's mode subscriptions (`AppServices.inputTap`).
+    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap) {
+        stripView = TabStripView(model: stripModel, input: input)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder
@@ -337,6 +342,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
         endPaintHold()
+        endLaunchImageShare(.noVisiblePane) // a pane torn down with its launch image up no longer holds startup
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         content = nil
@@ -351,6 +357,12 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {
         stripScope.setEmphasis(emphasis, animated: animated)
+    }
+
+    /// A pane that leaves its window with its launch image up no longer holds startup (a closed pane, tab or window).
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil, window != nil { endLaunchImageShare(.noVisiblePane) }
     }
 
     /// The strip's scope follows the pane's (a workspace theme).

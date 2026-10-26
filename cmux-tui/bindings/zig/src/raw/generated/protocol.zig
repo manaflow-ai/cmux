@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103";
+pub const ir_sha256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,17 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestLatency = struct {
+    agent: ServerStatsHistogram,
+    browser: ServerStatsHistogram,
+    cloud: ServerStatsHistogram,
+    create: ServerStatsHistogram,
+    other: ServerStatsHistogram,
+    query: ServerStatsHistogram,
+    terminal_io: ServerStatsHistogram,
+    topology: ServerStatsHistogram,
+};
+
 pub const ServerStatsRequestPathIo = struct {
     child_process: u64,
     fs_write: u64,
@@ -1940,8 +1951,10 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    dispatch_queue_us: ?ServerStatsHistogram = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_latency_us: ?ServerStatsRequestLatency = null,
     request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
@@ -1950,6 +1963,8 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dispatch_queue_us",
+        "request_latency_us",
         "request_path_io",
         "resource_projection",
         "slow_requests",
@@ -1962,7 +1977,17 @@ pub const ServerStatsSlowRequest = struct {
     client: u64,
     duration_ms: wire.Nullable(u64),
     method: []const u8,
+    stack: []const ServerStatsSlowRequestFrame,
+    stack_error: wire.Nullable([]const u8),
+    stack_truncated: bool,
     started_ms: u64,
+};
+
+pub const ServerStatsSlowRequestFrame = struct {
+    image: wire.Nullable([]const u8),
+    image_id: wire.Nullable([]const u8),
+    offset: u64,
+    symbol: wire.Nullable([]const u8),
 };
 
 pub const ServerStatsSlowRequests = struct {
@@ -9456,6 +9481,64 @@ pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequ
     );
 }
 
+pub const TraceStartRequest = struct {
+    categories: wire.Field([]const []const u8) = .absent,
+    keys: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keys",
+    };
+};
+
+pub const TraceStartResult = wire.Value;
+
+pub fn traceStart(client: anytype, request: TraceStartRequest) !wire.Decoded(TraceStartResult) {
+    return client.callTyped(
+        TraceStartResult,
+        .{
+            .name = "trace-start",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TraceStatusRequest = struct {};
+
+pub const TraceStatusResult = wire.Value;
+
+pub fn traceStatus(client: anytype, request: TraceStatusRequest) !wire.Decoded(TraceStatusResult) {
+    return client.callTyped(
+        TraceStatusResult,
+        .{
+            .name = "trace-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TraceStopRequest = struct {};
+
+pub const TraceStopResult = wire.Value;
+
+pub fn traceStop(client: anytype, request: TraceStopRequest) !wire.Decoded(TraceStopResult) {
+    return client.callTyped(
+        TraceStopResult,
+        .{
+            .name = "trace-stop",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -11578,7 +11661,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 285;
+pub const command_count: usize = 288;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11841,6 +11924,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
+    .{ .name = "trace-start", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "trace-status", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "trace-stop", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

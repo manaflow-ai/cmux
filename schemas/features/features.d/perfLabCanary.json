@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "perfLabCanary",
+  "owner": "Performance Lead",
+  "description": "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": true
+}

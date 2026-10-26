@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103'
+IR_SHA256 = '5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617'
 
 
 @dataclass(frozen=True)
@@ -3543,6 +3543,38 @@ COMMANDS = {
             'command': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'trace-start': CommandMetadata(
+        'trace-start',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'categories': CommandFieldMetadata(None, None),
+            'keys': CommandFieldMetadata(None, None),
+        },
+    ),
+    'trace-status': CommandMetadata(
+        'trace-status',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'trace-stop': CommandMetadata(
+        'trace-stop',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'undo-layout': CommandMetadata(

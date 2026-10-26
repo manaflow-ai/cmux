@@ -420,17 +420,20 @@ fn handle_websocket_connection_with_permit(
         }
         match incoming {
             Ok(Message::Text(text)) => {
+                // The frame's arrival, for its request span (server/request_spans.rs).
+                let arrived = Instant::now();
                 let mut text = text.to_string();
                 let keep_open =
                     match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
                         Some(reply) => writer.send_control(&reply).is_ok(),
-                        None => handle_connection_frame(
+                        None => handle_connection_frame_at(
                             &mux,
                             client,
                             ClientTransport::WebSocket,
                             &text,
                             &writer,
                             &surface_scheduler,
+                            arrived,
                         ),
                     };
                 zeroize_string(&mut text);

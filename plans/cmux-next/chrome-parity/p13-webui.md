@@ -660,6 +660,12 @@ base; tagged build `debug.cef` shows 0 DevTools sessions for Settings and Histor
 CmuxNextPagesTestSupport/FakeChromiumPage.swift. Change: `evaluate(_:awaitPromise:) async throws -> String` on
 PageChromiumPage through tabEvaluate; move Runtime.evaluate sites. Acceptance: result JSON matches the old path
 (tests compare). Test: PageWebViewChromiumTests, PageWebViewEngineNeutralTests.
+As built: `evaluate(_:) async throws -> Any?`, no default witness; CEFPageChromiumPage implements it over
+`CEFTab.evaluate(_:world: .page, gesture: .cmux)` (tabEvaluate on fork >= 29). No `awaitPromise` parameter:
+tabEvaluate has none, and a value that is not a promise comes back as is, so the one sync site (the
+input-readiness edit) gets what it got before. The value comes back parsed, not as JSON text, so the DevTools
+fallback parses its reply once off main and the CEF path does not re-serialize. Test:
+PageWebViewChromiumEvaluateTests compares callPageScript, callPageFunction and the edit with the old parses.
 
 **015 WebKit groups.** Files: CmuxNextPages/WebUI/PageProcessGroups.swift (moved from CmuxNextAgentPane/WebProcessGroups.swift),
 PageWebView+Pooled.swift, AgentPaneView.swift. Change: hostConfiguration takes the group's data store (one per

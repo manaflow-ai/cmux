@@ -67,7 +67,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
-        "set-default-colors", "set-window-title", "clear-window-title",
+        "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
@@ -219,7 +219,7 @@ READ_ONLY = (
     "cloud-session-status", "cloud-host-replica-status", "cloud-inbox-list", "cloud-requests-list",
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
-    "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list",
+    "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -233,6 +233,8 @@ MEMORY = (
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
     "subscribe-activity",
+    # Start or stop a trace recording: process memory and ring files, never the journal.
+    "trace-start", "trace-stop",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.

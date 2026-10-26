@@ -50,18 +50,9 @@ public final class MadeAheadOpenPanel {
     /// Makes the panel once the person has paused (no input for a second), so its cost never
     /// lands on a keystroke or the click itself. Bounded: after ten busy checks it waits for the
     /// click. A view that offers the picker calls this when it reaches a window.
+    ///
+    /// The app also calls it once from an afterStartup post of its launch, so the first click on a picker is not
+    /// cold even before a view that offers it reached a window (Lead decision 2026-10-23: keep the system panel;
+    /// start its warm-up at launch idle).
     public func warmWhenIdle() { store.warmWhenIdle() }
-
-    /// Starts ``warmWhenIdle()`` when `schedule` runs its work: the app passes its launch's first idle moment
-    /// (`LaunchSettle.whenSettled`), so the first click on a picker is not cold even before a view that offers it
-    /// reached a window (Lead decision 2026-10-23: keep the system panel; start its warm-up at launch idle).
-    ///
-    /// - Parameter schedule: runs the work it is given once, later or at once (for example after the first frame).
-    ///
-    /// ```swift
-    /// services.openPanel.warmWhenIdle(after: launchSettle.whenSettled)
-    /// ```
-    public func warmWhenIdle(after schedule: (@escaping @MainActor () -> Void) -> Void) {
-        schedule { [weak self] in self?.warmWhenIdle() }
-    }
 }

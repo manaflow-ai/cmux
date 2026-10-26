@@ -1,11 +1,14 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
+import CmuxNextRemoteFetch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -66,6 +69,10 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
+        // video wallpapers list the windows above theirs on its system lane, never on main.
+        BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
+        BackdropVideoPlayers.shared.lanes = work
         let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
@@ -82,6 +89,10 @@ public struct CmuxNextApp {
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
         // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
         let inputTap = InputEventTap()
+        // The design kit's popups, overlay hosts and tooltip subscribe to it too, before the delegate
+        // and services make any: their owners in many packages make them with no tap (p04-input-013).
+        WindowOverlayHost.appInputTap = inputTap
+        TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap,

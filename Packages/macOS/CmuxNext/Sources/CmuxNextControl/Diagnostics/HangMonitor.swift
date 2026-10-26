@@ -1,6 +1,6 @@
 import CmuxNextCompat
 import CmuxNextSettings
-import CmuxNextTrace
+public import CmuxNextTrace
 import Darwin
 import os
 

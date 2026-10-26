@@ -17,6 +17,9 @@ public final class LayoutRootView: NSView {
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
     let highlight = DropHighlightView()
+    /// The root's render-server motion variants (screen switches, the drop highlight) and the
+    /// `motion.renderServer` switch (`LayoutRootView+Motion.swift`).
+    var motionBackends: MotionBackends<LayoutRootView>
     /// Non-interactive overlays (rings, dims, drop highlight). See
     /// `OverlayPlane`: the window may lift it above content child windows.
     public private(set) lazy var overlayPlane = OverlayPlane(home: self)
@@ -134,10 +137,13 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
-                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
+                rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.model = model
         self.scrollFocusSignals = scrollFocusSignals
-        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
+        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
+                                         rendersMotionOnServer: rendersMotionOnServer)
+        self.motionBackends = MotionBackends(LayoutRootView.renderServerMotions, renderServer: rendersMotionOnServer)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -341,6 +347,10 @@ public final class LayoutRootView: NSView {
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
+            // One change turn per screen: every motion this change starts on it (layout, chrome, scroll,
+            // center and reveal) starts before its render-server kinds take theirs and it lays out once.
+            view.beginMotionTurn()
+            var screenNeedsFrames = false
             let old = before[screen.id]
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
@@ -356,7 +366,7 @@ public final class LayoutRootView: NSView {
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
                                animated: (animated || reflows) && !view.isHidden) {
-                    needsFrames = true
+                    screenNeedsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
@@ -383,17 +393,18 @@ public final class LayoutRootView: NSView {
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
                                    animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
-                    needsFrames = true
+                    screenNeedsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
-                needsFrames = true
+                screenNeedsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
+                if view.center(request.pane, animated: animated, reveal: true) { screenNeedsFrames = true }
             }
+            if view.endMotionTurn(needsFrames: screenNeedsFrames) { needsFrames = true }
         }
 
         for (id, view) in leaving {
@@ -405,9 +416,10 @@ public final class LayoutRootView: NSView {
 
         // Screen switch.
         if previous?.activeScreen != snapshot.activeScreen {
-            if switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id), animated: animated) {
-                needsFrames = true
-            }
+            let switching = switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id),
+                                          animated: animated)
+            if endMotionTurn(needsFrames: switching) { needsFrames = true }
+            applyScreenFrames()
         }
 
         updateVisibility()

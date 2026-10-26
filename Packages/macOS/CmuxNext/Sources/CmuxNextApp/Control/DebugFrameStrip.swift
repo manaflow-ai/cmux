@@ -28,7 +28,10 @@ enum DebugFrameStrip {
         // then measures the strip alone.
         let cropsStrip = params["crop"]?.stringValue == "strip"
         let crop = cropsStrip ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
-        let recording = Task.detached { await WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }
+        // The window server reads run back to back on one system lane slot, never on main or the pool.
+        let recording = Task { [work = services.work] in
+            (try? await work.run(.userBlocking, mayBlock: .system) { WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }) ?? []
+        }
         // The key goes in once the recorder has frames from before it.
         let lead = DemandTimer(owner: "debug.frame_strip.lead")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in

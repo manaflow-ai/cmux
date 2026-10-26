@@ -664,6 +664,23 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                 }
+                MessageKind::TraceControl => {
+                    if !granted_rights.contains(CapabilityRights::ADMIN) || frame.request_id == 0 {
+                        break;
+                    }
+                    let Some(op) = super::host_trace::decode_request(&frame.payload) else {
+                        break;
+                    };
+                    if !super::host_trace::answer(
+                        command_host.clone(),
+                        command_sender.clone(),
+                        op,
+                        frame.request_id,
+                        selected_version,
+                    ) {
+                        break;
+                    }
+                }
                 MessageKind::ClipboardReadReply => {
                     if !command_host.apply_clipboard_read_reply(
                         client,

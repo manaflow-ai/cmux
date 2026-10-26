@@ -232,6 +232,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -788,6 +789,13 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Start a trace recording in the daemon, the holder, every terminal host
+    /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
+    TraceStart(trace_control::StartParams),
+    /// Stop it everywhere.
+    TraceStop,
+    /// Every process's trace state, ring paths and bytes.
+    TraceStatus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -2716,11 +2724,17 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_spans;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame, handle_request,
-    handle_request_with_cancellation, pairing_request, zeroize_string,
+    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
+    pairing_request, zeroize_string,
+};
+#[cfg(test)]
+use connection_frame::{handle_connection_frame, handle_request};
+use request_spans::{
+    AsyncReply, RequestArrival, RequestHead, RequestMethod, RequestSpan, request_id_hash,
 };
 
 /// One layout node. `split_ids`: the public ids of the splits

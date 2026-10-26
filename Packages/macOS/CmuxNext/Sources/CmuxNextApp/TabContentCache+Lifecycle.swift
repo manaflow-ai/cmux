@@ -27,6 +27,8 @@ extension TabContentCache {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
         apply(ledger.present(key, by: owner, presence: presence))
+        // A shown tab that moved to a pane of another window, with no show of its own.
+        if ledger.isRendering(key) { notePageScreen(key) }
     }
 
     /// `presenter` stopped showing `key`. Ignored when another presenter
@@ -45,6 +47,45 @@ extension TabContentCache {
         let owner = ObjectIdentifier(presenter)
         apply(ledger.removeOwner(owner))
         presenters[owner] = nil
+    }
+
+    // MARK: Off-screen windows
+
+    /// `window` went off screen (minimized, another Space, covered by the app's own window, the app
+    /// hidden or the displays asleep: `WindowOcclusionChecker`) or came back. As Chrome's
+    /// `Visibility::OCCLUDED`, the pages its panes show get a hidden clock but stay shown, and the
+    /// discarder keeps each as its window's active tab (`kActiveTab`, discard_eligibility_policy.cc);
+    /// the panes keep no neighbor tabs awake, so those sleep after the timeout. Hiding the shown
+    /// pages themselves at once is p07-memory-097's. Terminals are untouched: their drawing already
+    /// pauses (`WindowDrawPolicy`).
+    func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
+        guard offScreen ? offScreenWindows.insert(window).inserted : offScreenWindows.remove(window) != nil else { return }
+        var panes: [ObjectIdentifier] = []
+        var shown: [String] = []
+        for (owner, entry) in presenters {
+            guard let presenter = entry.value, presenter.presentingWindow.map({ ObjectIdentifier($0) }) == window else { continue }
+            panes.append(owner)
+            shown += ledger.keys(ownedBy: owner).filter { browsers[$0] != nil && ledger.isRendering($0) }
+        }
+        hibernation?.panesDidChangeScreen(panes, shownPages: shown, offScreen: offScreen)
+    }
+
+    /// A window reported off screen closed. It is forgotten without coming back on screen, so
+    /// nothing it shows is shown again and no neighbor of its panes wakes while they are torn down.
+    func offScreenWindowDidClose(_ window: ObjectIdentifier) {
+        offScreenWindows.remove(window)
+    }
+
+    /// Tells hibernation whether shown page `key` is in an off-screen window (a tab switch or move
+    /// there, or a show while its window is off screen).
+    private func notePageScreen(_ key: String) {
+        guard browsers[key] != nil, let hibernation else { return }
+        hibernation.pageDidChangeScreen(key, offScreen: isInOffScreenWindow(key))
+    }
+
+    private func isInOffScreenWindow(_ key: String) -> Bool {
+        guard !offScreenWindows.isEmpty, let window = presenter(of: key)?.presentingWindow else { return false }
+        return offScreenWindows.contains(ObjectIdentifier(window))
     }
 
     /// The pane presenting `key`, if any.
@@ -105,7 +146,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) {
+                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true { // a page tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -118,10 +159,10 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                hibernation?.release(key, token: token)
+                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                hibernation?.restore(key, token: token)
+                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
             }
         }
     }
@@ -147,7 +188,8 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        hibernation?.tabDidShow(key)
+        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
+        notePageScreen(key)
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
@@ -165,7 +207,7 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        hibernation?.tabDidHide(key)
+        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
     }
 
     func trace(_ key: String, _ event: String) {

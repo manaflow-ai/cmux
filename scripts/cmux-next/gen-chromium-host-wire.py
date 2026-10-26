@@ -86,11 +86,11 @@ argument named `reply` or `token` never collides with a generated local:
     Never blocking; each returns whether the op was accepted for sending (false: no channel):
       bool Post(uint16_t op, uint32_t token, const TlvWriter&)               control channel
       bool PostInput(uint16_t op, uint32_t token, const TlvWriter&)          input ring
-      bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter&)  registers the token
-        for the reply waiter (task 018) before it sends, and drops it when the op is not sent
+      bool PostForReply(uint16_t op, uint32_t token, const TlvWriter&)  registers the token
+        for the reply handler (task 018) before it sends, and drops it when the op is not sent
     int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter&)  queued until attach, a post
       after initialize; returns the client's check of the arguments (1 queued, 0 refused). A token
-      other than 0 is registered as PostAwaitingReply registers it, for the host's verdict
+      other than 0 is registered as PostForReply registers it, for the host's verdict
     uint32_t NextToken()   int32_t MintID(uint16_t op) (the op picks the id range)
     char* Dup(const std::string&)  (malloc)
     void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards)
@@ -1127,7 +1127,7 @@ def client_function(op: Op, model: Model) -> list[str]:
         return [sig + " {", *body, "}"]
     if cls == "async":
         clear_outputs(e, body)
-        send = f"PostAwaitingReply({const}, op_token, op_w)"
+        send = f"PostForReply({const}, op_token, op_w)"
         if e.ret_kind:
             body.append(f"  const bool op_sent = {send};")
             if e.ret_kind in ("s", "S"):
@@ -1162,6 +1162,18 @@ def op_enum(model: Model) -> list[str]:
     return lines
 
 
+def optional_exports_table(model: Model) -> list[str]:
+    """kOptionalExports: each optional op and its symbol, which a host lists in its HELLO when its
+    shim has it (the host's table in render_host has the same entries)."""
+    optional = [e for e in model.exports if e.optional]
+    out = ["// Exports the header does not declare yet (fork API symbols): the client sends one only to",
+           "// a host whose HELLO lists its symbol.",
+           "struct OptionalExport {", "  uint16_t op;", "  const char* name;", "};",
+           "inline constexpr OptionalExport kOptionalExports[] = {"]
+    out += [f'    {{{op_const(e)}, "{e.name}"}},' for e in optional] or ['    {0, ""},  // none']
+    return out + ["};"]
+
+
 def render_client(model: Model) -> str:
     out = [BANNER.format(gen=GENERATOR, shimh=SHIMH, ops=OPS),
            "// The remote shim (libcmux_cef_shim_remote.dylib): the same C ABI as the in-process shim,",
@@ -1170,7 +1182,8 @@ def render_client(model: Model) -> str:
            "// in HOST/client outside generated/. Optional exports (fork API symbols the header does not",
            "// declare yet) are defined here too, so CEFShimLibrary's r.optional finds them.",
            "",
-           "namespace cmux_remote {", *op_enum(model), "}  // namespace cmux_remote", "",
+           "namespace cmux_remote {", *op_enum(model), *optional_exports_table(model),
+           "}  // namespace cmux_remote", "",
            'extern "C" {', "using namespace cmux_remote;", "",
            "CMUX_SHIM_EXPORT const char* cmux_shim_abi_id(void) {", "  return kShimAbiID;", "}"]
     for op in model.ops.values():

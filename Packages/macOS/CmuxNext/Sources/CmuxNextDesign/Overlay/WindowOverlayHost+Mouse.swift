@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextInput
 
 extension WindowOverlayHost {
     // MARK: Mouse
@@ -15,21 +16,31 @@ extension WindowOverlayHost {
         let regions = interactiveRegions()
         guard !regions.isEmpty || showsAgentCursorTags else {
             panel.ignoresMouseEvents = true
-            removeMouseMonitor()
+            mouseRouting = nil
             return
         }
-        routeMouse(at: NSEvent.mouseLocation)
-        guard mouseMonitor == nil else { return }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged,
-                                                                   .otherMouseDragged, .mouseEntered, .mouseExited,
-                                                                   .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
-                self.clickDidLand(in: event.window, at: event.window === self.panel ? event.locationInWindow : .zero)
-            } else {
-                self.routeMouse(at: NSEvent.mouseLocation)
-            }
-            return event
+        routeMouse(at: pointerLocation())
+        guard mouseRouting == nil, let tap = requiredInputTap(inputTap, owner: "WindowOverlayHost.mouseRouting") else { return }
+        // An observer of the tap: it never stops the event (a move, a drag, a click or a tracking-area
+        // edge of any window). The parent window takes no mouse moves, so over it the pointer sends
+        // only tracking-area enters and exits (a page window's too); they route the mouse as a move does.
+        // A panel off screen has nothing to route.
+        mouseRouting = tap.subscribe(class: [.pointerMove, .drag, .button, .tracking],
+                                     while: { [weak self] in self?.panel.isVisible == true }) { [weak self] event in
+            self?.routingEvent(event)
+        }
+    }
+
+    /// One pointer event seen by `mouseRouting`: a click may give the panel the keyboard; a move, a
+    /// drag or a tracking-area enter or exit routes the mouse (button ups pass by).
+    func routingEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            clickDidLand(in: event.window, at: event.window === panel ? event.locationInWindow : .zero)
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .mouseEntered, .mouseExited:
+            routeMouse(at: pointerLocation())
+        default:
+            break
         }
     }
 
@@ -76,7 +87,7 @@ extension WindowOverlayHost {
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard forwardTarget != nil, Self.button(of: event) == forwardButton else {
-                if forwardTarget == nil { routeMouse(at: NSEvent.mouseLocation) }
+                if forwardTarget == nil { routeMouse(at: pointerLocation()) }
                 return false
             }
             forward(event)
@@ -87,7 +98,7 @@ extension WindowOverlayHost {
             forwardTarget = nil
             return true
         case .mouseMoved, .mouseEntered, .mouseExited:
-            routeMouse(at: NSEvent.mouseLocation)
+            routeMouse(at: pointerLocation())
             return false
         default:
             return false
@@ -130,7 +141,7 @@ extension WindowOverlayHost {
 
     /// Sends `event` to `forwardTarget` in that window's coordinates. It runs
     /// inside the panel's sendEvent, so NSApp.currentEvent is still the
-    /// panel's event and local monitors do not see the forwarded copy.
+    /// panel's event and the input tap does not see the forwarded copy.
     func forward(_ event: NSEvent) {
         guard let target = forwardTarget else { return }
         let screen = panel.convertPoint(toScreen: event.locationInWindow)
@@ -153,10 +164,5 @@ extension WindowOverlayHost {
                                   modifierFlags: event.modifierFlags, timestamp: event.timestamp,
                                   windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
                                   clickCount: event.clickCount, pressure: event.pressure)
-    }
-
-    func removeMouseMonitor() {
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        mouseMonitor = nil
     }
 }

@@ -373,7 +373,7 @@ impl Tracer {
         let identity = *self.full_identity();
         let path = self.config.dir.join(crate::blackbox_file_name(self.config.role, identity.pid));
         let layout = *self.heap.layout();
-        let mapped = std::fs::create_dir_all(&self.config.dir)
+        let mapped = map::create_private_dir(&self.config.dir)
             .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
         let mapping = mapped.inspect_err(|_| {
             self.map_failures.fetch_add(1, Ordering::Relaxed);
@@ -407,7 +407,7 @@ impl Tracer {
             let layout = RingLayout::of(self.config.recording);
             let path =
                 self.config.dir.join(crate::recording_file_name(self.config.role, identity.pid));
-            let mapped = std::fs::create_dir_all(&self.config.dir)
+            let mapped = map::create_private_dir(&self.config.dir)
                 .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
             let ring = match mapped {
                 Ok(mapping) => {
@@ -422,6 +422,12 @@ impl Tracer {
             ring.init(&self.header_fields(RingKind::Recording, &identity), self.catalog);
             ring
         })
+    }
+
+    /// Maps the recording ring now, so a later [`Tracer::start_recording`] does no disk I/O: its
+    /// size in bytes. Blocking: call it off any loop that serves input. Idempotent.
+    pub fn prepare_recording(&self) -> u64 {
+        self.recording_ring().layout().total_bytes as u64
     }
 
     /// `trace.start`: the black-box categories plus `categories`, written into the recording

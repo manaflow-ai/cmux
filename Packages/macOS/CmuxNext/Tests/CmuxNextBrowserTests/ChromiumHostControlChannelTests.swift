@@ -175,7 +175,8 @@ import Testing
         #expect(!replaced, "a partly written state op is never replaced")
         #expect(outbox.messages == 2)
         #expect(outbox.count(key: page1) == 1, "the partly written one is in flight, not waiting")
-        #expect(outbox.push([UInt8](repeating: 4, count: 16), fds: [], key: page1), "a newer one replaces the waiting one")
+        let replacedWaiting = outbox.push([UInt8](repeating: 4, count: 16), fds: [], key: page1)
+        #expect(replacedWaiting, "a newer one replaces the waiting one")
         #expect(outbox.count(key: page1) == 1 && outbox.messages == 2, "one in flight and one waiting per page")
         outbox.removeAll()
     }

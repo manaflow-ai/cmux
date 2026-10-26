@@ -587,7 +587,7 @@ fn the_catalog_is_swifts_signpost_name_table() {
     let rust: Vec<(u16, String)> =
         CATALOG.iter().map(|name| (name.id, name.text.to_owned())).collect();
     assert_eq!(rust, swift_catalog(), "names.rs differs from SignpostName.swift");
-    let categories: [(&str, u64); 21] = [
+    let categories: [(&str, u64); 22] = [
         ("action", category::ACTION),
         ("key", category::KEY),
         ("switch", category::SWITCH),
@@ -609,6 +609,7 @@ fn the_catalog_is_swifts_signpost_name_table() {
         ("ghostty", category::GHOSTTY),
         ("resize", category::RESIZE),
         ("webui", category::WEBUI),
+        ("log", category::LOG),
     ];
     assert_eq!(category::NAMES.len(), categories.len());
     for (text, mask) in categories {

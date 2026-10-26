@@ -46,7 +46,7 @@ struct DebugWebUITests {
     private func census(_ host: WebUIHost, newTabSpare: WKWebView? = nil, spareClients: [Int32] = [],
                         browserTabs: [WebUICensus.Host] = []) -> WebUICensus {
         WebUICensus(pages: host.registry.pages(), registry: host.registry, newTabSpare: newTabSpare,
-                    spareWindow: WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients),
+                    spareWindows: [WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients)],
                     browserTabs: browserTabs,
                     rendererProcess: { _ in (browserID: 7, clients: [3]) }, webKitPID: { _ in 4242 })
     }

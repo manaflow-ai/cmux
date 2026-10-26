@@ -1,24 +1,25 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextSettings
 import ImageIO
 import Observation
 import UniformTypeIdentifiers
 
-/// Debug/Labs picker for cmux NEXT's own window. A local monitor observes the
-/// real event before AppKit dispatches it; the overlay is click-through, so
-/// hover never changes the product's hit-testing path.
+/// Debug/Labs picker for cmux NEXT's own window. While it picks, an intercept on
+/// the app's input tap (p04-input.md 3 (A)) sees the real event before AppKit
+/// dispatches it; the overlay is click-through, so hover never changes the
+/// product's hit-testing path. With the picker closed it has no subscription:
+/// Inspect Element reads the click that opened its menu from the tap's last
+/// pointer event.
 @MainActor
 final class UIInspectorController {
     private weak var services: AppServices?
-    private var monitor: Any?
-    /// Records the gesture that opened a native or app-owned webview menu. The
-    /// menu action then starts the picker at that exact screen point.
-    private var contextMonitor: Any?
-    private var lastContextPoint: NSPoint?
-    private weak var lastContextWindow: NSWindow?
+    private let tap: InputEventTap
+    /// The picker's intercept: moves, clicks and keys while it picks.
+    private var picking: InputSubscription?
     private var inspectNotification: NSObjectProtocol?
     private var activeWindow: NSWindow?
     private var highlighted: NSView?
@@ -29,30 +30,29 @@ final class UIInspectorController {
 
     private enum SelectionAction { case send, copy }
 
-    init(services: AppServices) {
+    /// - Parameter tap: The app's input tap.
+    init(services: AppServices, tap: InputEventTap) {
         self.services = services
+        self.tap = tap
         inspectNotification = NotificationCenter.default.addObserver(
             forName: .cmuxNextInspectUIElement, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
-        if AgentPaneTunables.pointerInspector.value { installContextMonitor() }
         observeToggle()
     }
 
-    // AppKit monitor removal is main-thread-only. The controller can be
-    // released from an action task, so keep deinit nonisolated and perform the
-    // cleanup only when the runtime is already on the main thread.
+    // The tap subscriptions end when they are released, on any thread. The controller can be
+    // released from an action task, so keep deinit nonisolated and remove the notification
+    // observer only when the runtime is already on the main thread.
     nonisolated deinit {
         guard Thread.isMainThread else { return }
         MainActor.assumeIsolated { // main-proof: the guard above returns unless Thread.isMainThread.
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
             if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
         }
     }
 
-    var isPicking: Bool { monitor != nil }
+    var isPicking: Bool { picking != nil }
 
     func toggle() {
         guard AgentPaneTunables.pointerInspector.value else { return }
@@ -61,62 +61,59 @@ final class UIInspectorController {
     }
 
     /// Starts the picker and immediately highlights the element that opened the
-    /// most recent app-owned context menu. This is the native equivalent of
-    /// browser DevTools' Inspect Element command.
+    /// app-owned context menu: the right click or control-click that is the tap's
+    /// last pointer event (menu tracking dispatches none after it; a move that
+    /// replaced it starts the picker with no highlight). This is the
+    /// native equivalent of browser DevTools' Inspect Element command.
     func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        guard let point = lastContextPoint,
-              let window = lastContextWindow,
+        guard let click = Self.contextClick(tap.lastPointer),
+              let clicked = NSApp.window(withWindowNumber: click.windowNumber),
+              let window = shellWindow(for: clicked),
               window.isVisible else { return }
-        highlight(at: point, in: window)
+        highlight(at: click.point, in: window)
+    }
+
+    /// The screen point and window number of `record` when it is a click that opens a context menu.
+    static func contextClick(_ record: InputEventRecord?) -> (point: NSPoint, windowNumber: Int)? {
+        guard let record, record.windowNumber > 0,
+              record.type == .rightMouseDown || (record.type == .leftMouseDown && record.modifierFlags.contains(.control))
+        else { return nil }
+        return (NSPoint(x: record.screenLocation.x, y: record.screenLocation.y), record.windowNumber)
     }
 
     private func observeToggle() {
         withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if AgentPaneTunables.pointerInspector.value {
-                    self.installContextMonitor()
-                } else {
-                    self.stop()
-                    self.removeContextMonitor()
-                }
+                if !AgentPaneTunables.pointerInspector.value { self.stop() }
                 self.observeToggle()
             }
         }
     }
 
-    private func installContextMonitor() {
-        guard contextMonitor == nil else { return }
-        contextMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) { [weak self] event in
-            guard let self, let window = self.shellWindow(for: event.window), let point = self.screenPoint(of: event) else { return event }
-            self.lastContextPoint = point
-            self.lastContextWindow = window
-            return event
+    /// The events the picker handles (the old local monitor's mask); the others of its classes pass.
+    static func picks(_ type: NSEvent.EventType) -> Bool {
+        switch type {
+        case .mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown: true
+        default: false
         }
     }
 
-    private func removeContextMonitor() {
-        if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
-        contextMonitor = nil
-        lastContextPoint = nil
-        lastContextWindow = nil
-    }
-
     private func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
-            guard let self else { return event }
-            guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread
-            return self.handle(event)
+        guard picking == nil else { return }
+        // Modal order: while it picks, the picker takes Escape and clicks before any popup or drag.
+        picking = tap.subscribe(class: [.pointerMove, .button, .key], phase: .intercept(order: .modal)) { [weak self] event in
+            guard let self, Self.picks(event.type) else { return .pass }
+            return self.handle(event) == nil ? .consume : .pass
         }
     }
 
     private func stop() {
         selectionGeneration &+= 1
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        picking?.cancel()
+        picking = nil
         deactivatePage()
         highlight?.dismiss()
         highlight = nil
