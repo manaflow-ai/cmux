@@ -94,7 +94,6 @@ describe("the adapter reads acpmux's retry", () => {
     expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retry");
     expect(subsessionInfo(sessionEntry(working))).not.toHaveProperty("retryDeciding");
   });
-
 });
 
 describe("the fold keeps a subagent's retry", () => {

@@ -294,9 +294,7 @@ export const SubagentTray = memo(function SubagentTray({
         icon="agent.chat"
         status={item.session.retry ? "running" : SESSION_STATUS[item.session.state]}
         state={
-          item.session.retry
-            ? retryLabel(t, item.session.retry)
-            : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
+          item.session.retry ? retryLabel(t, item.session.retry) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
         }
         working={item.session.retry !== undefined}
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}

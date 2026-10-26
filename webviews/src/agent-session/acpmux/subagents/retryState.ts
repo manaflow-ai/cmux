@@ -66,10 +66,7 @@ export function applyRetry(
 /// attempt's prompt went to the chat's agent (acpmux cleared `retry` just before), so it is retrying
 /// until its next step or the chat's turn ends (``endRetryTurn``); `scheduled` waits again and
 /// `skipped` ends it. Returns whether the subagent changed.
-export function applyRetryStep(
-  agent: Pick<Subagent, "retriedOut" | "firing">,
-  step: Record<string, unknown>,
-): boolean {
+export function applyRetryStep(agent: Pick<Subagent, "retriedOut" | "firing">, step: Record<string, unknown>): boolean {
   const before = [agent.retriedOut, agent.firing];
   const tries = readRetry({ attempt: step.attempt ?? step.of, of: step.of, reason: step.reason }) ?? undefined;
   delete agent.firing;

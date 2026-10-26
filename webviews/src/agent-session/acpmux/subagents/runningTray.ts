@@ -147,7 +147,9 @@ function versionOf(key: string): number {
 
 function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const retry = [agent.retry, agent.firing, agent.retriedOut].map((r) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : ""));
+  const retry = [agent.retry, agent.firing, agent.retriedOut].map((r) =>
+    r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "",
+  );
   const key = [
     agent.state,
     agent.name,

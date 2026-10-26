@@ -5801,7 +5801,9 @@ function AcpmuxPane() {
         agent.action ?? "",
         agent.endedAt ?? "",
         agent.agentId ?? "",
-        ...[agent.retry, agent.firing, agent.retriedOut].map((r) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "")),
+        ...[agent.retry, agent.firing, agent.retriedOut].map((r) =>
+          r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "",
+        ),
         agent.retryable ?? "",
         agent.error ?? "",
       ].join("\u0000"),
