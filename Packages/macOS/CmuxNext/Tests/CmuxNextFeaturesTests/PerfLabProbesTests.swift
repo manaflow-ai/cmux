@@ -45,6 +45,23 @@ struct PerfLabProbesTests {
         #expect(calls[1].2 >= .milliseconds(4))
     }
 
+    @Test func keyDownRouterSpinsOnlyWithTheCanaryOnAndKeepsTheRoutersAnswer() {
+        let clock = ContinuousClock()
+        var features: FeatureList?
+        var routed: [Int] = []
+        let route = PerfLabCanaryKeyDown(features: { features }).wrap { (key: Int, _: String) -> Bool in
+            routed.append(key)
+            return key == 1
+        }
+        #expect(route(1, "no feature list yet") == true)
+        features = FeatureList(registry: FeatureRegistry(), channel: .dev,
+                               overrides: FeatureOverrides(environment: ["CMUX_ENABLE_FEATURES": "perfLabCanary"]))
+        let start = clock.now
+        #expect(route(2, "on") == false)
+        #expect(clock.now - start >= .milliseconds(2))
+        #expect(routed == [1, 2])
+    }
+
     @Test func delayingDoesNotReadTheClockWhileTheCanaryIsOff() {
         let clock = SteppingClock()
         var isOn = false
