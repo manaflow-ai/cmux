@@ -11,10 +11,19 @@ final class SidebarObservation {
     init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
          _ handler: @escaping @MainActor () -> Void) {
         self.center = center
-        token = center.addObserver(forName: name, object: object, queue: .main) { _ in
-            MainActor.assumeIsolated { handler() } // main-proof: the observer is registered on the main queue (queue: .main)
-        }
+        let delivery = MainQueueDelivery(handler: handler)
+        token = center.addObserver(forName: name, object: object, queue: .main) { _ in delivery.run() }
     }
 
     deinit { center.removeObserver(token) }
+}
+
+/// The main-actor handler of an observer registered on the main queue: the one main-thread proof of
+/// ``SidebarObservation``.
+private struct MainQueueDelivery: Sendable {
+    let handler: @MainActor () -> Void
+
+    func run() {
+        MainActor.assumeIsolated { handler() } // main-proof: SidebarObservation registers on queue: .main, which runs its blocks on the main thread
+    }
 }
