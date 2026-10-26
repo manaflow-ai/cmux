@@ -1168,10 +1168,9 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                let hang = cmux_panic_log::hang::watch_scope(
-                    &crate::workspace_registry::session_journal::JOURNAL_WRITER_HANG,
-                    crate::workspace_registry::session_journal::JOURNAL_WRITER_COMMIT,
-                );
+                // A commit busy past its hang tier is written to the hang
+                // log with this thread's stack (request_watchdog.rs).
+                let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,

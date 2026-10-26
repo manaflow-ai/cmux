@@ -13,7 +13,6 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use cmux_holder::link::{FrameWatch, HolderLink, LinkEnd, SPAWN_TIMEOUT, TerminalSink};
 use cmux_holder::wire::{Kind, TraceStart};
 use cmux_holder::{Listed, SpawnRequest};
-use cmux_panic_log::hang::{self, HangKind, HangToken};
 
 use super::{HolderSink, HolderTerminal};
 
@@ -41,13 +40,12 @@ struct LinkSlot {
 
 /// The holder link's hang tier: a frame its reader thread routes (a
 /// terminal's output into its parser's queue, a spawn's answer) busy this
-/// long is written to the owner's hang log with the reader's stack
-/// (cmux-panic-log `hang`). Every terminal's output waits behind it.
-pub(crate) static HOLDER_LINK_HANG: HangKind =
-    HangKind::new("holder-link", None, std::time::Duration::from_secs(1), holder_frame_name);
+/// long is written to the hang log with the reader's stack (the request
+/// watchdog's `holder-link` scope). Every terminal's output waits behind it.
+pub(crate) const HOLDER_LINK_HANG: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The frame kinds the holder sends, by wire value.
-fn holder_frame_name(kind: u32) -> &'static str {
+pub(crate) fn holder_frame_name(kind: u32) -> &'static str {
     match u16::try_from(kind).ok().and_then(Kind::from_u16) {
         Some(Kind::Spawned) => "spawned",
         Some(Kind::Adopted) => "adopted",
@@ -61,10 +59,13 @@ fn holder_frame_name(kind: u32) -> &'static str {
     }
 }
 
-/// Every frame the link's reader routes is a [`HOLDER_LINK_HANG`] scope.
+/// Every frame the link's reader routes is a `holder-link` scope of the
+/// process's request watchdog.
 const HOLDER_FRAME_WATCH: FrameWatch = FrameWatch {
-    enter: |kind| hang::enter(&HOLDER_LINK_HANG, u32::from(kind)).raw(),
-    exit: |token| hang::exit(HangToken::from_raw(token)),
+    enter: |kind| {
+        crate::server::process_enter(crate::server::WatchKind::HolderLink, u32::from(kind))
+    },
+    exit: crate::server::process_exit,
 };
 
 /// The holder of one terminal host root (one daemon session).

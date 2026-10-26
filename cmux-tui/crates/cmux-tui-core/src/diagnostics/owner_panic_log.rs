@@ -1,7 +1,8 @@
 //! Where the session owner's panic log lives (cx-urd.59). The owner's panic
 //! hook appends to it (cmux-tui `owner_start/owner_panic.rs`) and
 //! `oracle-state` reports it, so both read the one path rule here. The
-//! owner's hang log lives beside it, with the stack sampler its watcher uses.
+//! owner's hang log lives beside it; the request watchdog writes it
+//! (server/request_watchdog.rs).
 
 use std::path::PathBuf;
 
@@ -38,31 +39,10 @@ fn owner_log_path(prefix: &str, session: &str) -> Option<PathBuf> {
     Some(root.join(format!("{prefix}-{name}.jsonl")))
 }
 
-/// The hung thread's stack for the hang watcher: cmux-tui-platform
-/// `thread_backtrace` (`thread_suspend` and a frame-pointer walk on macOS,
-/// a signal handler filling a preallocated buffer on Linux), symbolicated
-/// after the thread runs again.
-pub fn hang_stack_sampler() -> cmux_panic_log::hang::StackSampler {
-    use cmux_panic_log::hang::{HangFrame, HangStack, StackSampler};
-    use cmux_tui_platform::thread_backtrace::{self, BacktraceError, ThreadHandle};
-    StackSampler {
-        current_thread: || ThreadHandle::current().map_or(0, ThreadHandle::raw),
-        capture: Box::new(|raw| {
-            let thread = ThreadHandle::from_raw(raw).ok_or(BacktraceError::Unsupported.as_str())?;
-            let backtrace = thread_backtrace::capture(thread).map_err(BacktraceError::as_str)?;
-            Ok(HangStack {
-                frames: backtrace
-                    .symbolicate()
-                    .into_iter()
-                    .map(|frame| HangFrame {
-                        image: frame.image,
-                        image_id: frame.image_id,
-                        offset: frame.offset as u64,
-                        symbol: frame.symbol,
-                    })
-                    .collect(),
-                truncated: backtrace.truncated(),
-            })
-        }),
-    }
+/// Debug builds only: block a thread in a scope of the process's request
+/// watchdog past its 500 ms hang tier, so its hang is written to the hang
+/// log (cmux-tui tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub fn spawn_owner_hang_test() {
+    crate::server::spawn_owner_hang_test();
 }

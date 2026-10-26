@@ -177,7 +177,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,
   `cmux-trace-open`
-- Daemon request watchdog (Rust thread name, p05-ipc-006): `mux-request-watchdog` (utility)
+- Daemon request watchdog (Rust thread name, p05-ipc-006): `mux-request-watchdog` (utility). The process's
+  one hang watcher (p10-stability-032; no second watcher thread): it owns the scope slots of requests, journal
+  writer commits and holder-link frames. It wakes only when a scope opens on a disarmed watchdog and then on
+  250 ms grid ticks (at most 4/s plus one, 0 while idle: it parks with no timeout). It blocks only on a stack
+  capture of a scope past a tier (`thread_backtrace`, shares its capture mutex; under 1 ms), the
+  `slow_requests` ring's short lock, and one append to `owner-hangs-<session>.jsonl` per hang (each scope is
+  written once, at its 2 s or 1 s hang tier).
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
   `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
   waits for the dropped files)

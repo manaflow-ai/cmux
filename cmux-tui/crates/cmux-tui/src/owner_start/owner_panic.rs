@@ -12,10 +12,11 @@
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
 //!
-//! The owner's hang watcher (cmux-panic-log `hang`) writes beside it, to
-//! `owner-hangs-<session>.jsonl` with the same fields: one line per watched
-//! scope (a request, a journal commit, a holder-link frame) busy past its
-//! hang tier, with the method and the hung thread's stack.
+//! The owner's hang log (cmux-panic-log `hang`) is beside it,
+//! `owner-hangs-<session>.jsonl` with the same fields: the request watchdog
+//! writes one line per watched scope (a request, a journal commit, a
+//! holder-link frame) busy past its hang tier, with the method and the
+//! hung thread's stack.
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook is
 /// installed (tests/owner_panic.rs). Its line carries `"test": true`.
@@ -28,13 +29,14 @@ const TEST_PANIC_THREAD: &str = "owner-panic-test";
 /// the same path).
 pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
-/// Install the owner's panic hook and hang watcher. Call once, in the
-/// headless owner only.
+/// Install the owner's panic hook and hang log. Call once, in the headless
+/// owner only, before its mux is built (the mux watches holder links only
+/// in a process with a hang log).
 pub(super) fn install(session: &str) {
     if let Some(path) = log_path(session) {
         cmux_panic_log::install(path, fields(session), is_test_thread);
     }
-    install_hang_watcher(session);
+    install_hang_log(session);
     #[cfg(debug_assertions)]
     panic_for_test();
 }
@@ -53,22 +55,22 @@ fn fields(session: &str) -> cmux_panic_log::Fields {
     fields
 }
 
-/// Start the process's hang watcher on the owner's hang log. Its thread
-/// parks with no timeout until a watched scope opens.
-fn install_hang_watcher(session: &str) {
+/// Make the owner's hang log the process's: the request watchdog writes
+/// each hung scope there.
+fn install_hang_log(session: &str) {
     use cmux_panic_log::hang;
     let Some(path) = cmux_tui_core::diagnostics::owner_hang_log_path(session) else { return };
-    let sink = hang::file_sink(path, fields(session));
-    match hang::HangWatcher::start(sink, cmux_tui_core::diagnostics::hang_stack_sampler()) {
-        Ok(watcher) => {
-            // A second install keeps the first watcher (one per process).
-            let _ = hang::install(watcher);
-        }
-        Err(error) => crate::client_log::stderr_log!(
-            "startup",
-            "{}: cannot start the hang watcher: {error}",
-            crate::cli::BIN
-        ),
+    // A second install keeps the first log (one per process).
+    let _ = hang::install(hang::file_sink(path, fields(session)));
+}
+
+/// Debug builds only: with `CMUX_TUI_TEST_OWNER_PANIC=hang`, block a thread
+/// in a watched scope once the owner's mux exists, so one line reaches the
+/// hang log (tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub(super) fn hang_for_test() {
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("hang") {
+        cmux_tui_core::diagnostics::spawn_owner_hang_test();
     }
 }
 

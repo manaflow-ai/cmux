@@ -18,10 +18,9 @@ mod service;
 mod sink;
 mod terminal;
 
-#[cfg(test)]
-pub(crate) use service::HOLDER_LINK_HANG;
 #[cfg(not(test))]
 pub(crate) use service::prepare_in_background;
+pub(crate) use service::{HOLDER_LINK_HANG, holder_frame_name};
 pub(crate) use service::{HolderService, HolderTrace};
 pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
