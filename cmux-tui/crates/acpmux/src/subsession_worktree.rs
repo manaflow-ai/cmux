@@ -248,7 +248,9 @@ pub(crate) fn add_without_config(
         .and_then(|actual| {
             (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
         })
-        .and_then(|()| check_out_without_config(&objects, &format, &staged, commit, Some(by)))
+        .and_then(|()| {
+            check_out_without_config(&objects, &format, staged.as_path().into(), commit, Some(by))
+        })
         .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
         .and_then(|()| git_by(&staged, &["rev-parse", "HEAD"], by))
         .and_then(|actual| {
@@ -284,7 +286,7 @@ pub(crate) fn add_without_config(
 fn check_out_without_config(
     objects: &Path,
     format: &str,
-    root: &Path,
+    root: Dir<'_>,
     commit: &str,
     by: Option<Instant>,
 ) -> Result<(), String> {
@@ -306,10 +308,15 @@ fn check_out_without_config(
         std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
         fetch_missing(objects, &scratch, root, commit, by)?;
+        // A held folder is the work tree itself (git runs in it, `-C .`), never its path.
+        #[cfg(unix)]
+        let work_tree = if root.held.is_some() { Path::new(".") } else { root.path };
+        #[cfg(not(unix))]
+        let work_tree = root.path;
         let isolated = || {
-            let mut cmd = hardened(root.into());
+            let mut cmd = hardened(root);
             cmd.env("GIT_DIR", &scratch)
-                .env("GIT_WORK_TREE", root)
+                .env("GIT_WORK_TREE", work_tree)
                 .env("GIT_INDEX_FILE", scratch.join("index"))
                 .env("GIT_CONFIG_GLOBAL", "/dev/null");
             cmd
@@ -326,11 +333,11 @@ fn check_out_without_config(
 /// (`objects`) lacks, as a partial clone can.
 fn missing_objects(
     scratch: &Path,
-    root: &Path,
+    root: Dir<'_>,
     commit: &str,
     by: Option<Instant>,
 ) -> Result<Vec<String>, String> {
-    let mut cmd = hardened(root.into());
+    let mut cmd = hardened(root);
     cmd.env("GIT_DIR", scratch).env("GIT_CONFIG_GLOBAL", "/dev/null");
     let tree = format!("{commit}^{{tree}}");
     let listed =
@@ -340,8 +347,8 @@ fn missing_objects(
 
 /// The URL of the promisor remote of the partial clone whose worktree
 /// `root` is, as its config names it (read, never run).
-fn promisor_url(root: &Path, by: Option<Instant>) -> Option<String> {
-    let git = |dir: &Path, args: &[&str]| run_by(hardened(dir.into()), args, by);
+fn promisor_url(root: Dir<'_>, by: Option<Instant>) -> Option<String> {
+    let git = |dir: Dir<'_>, args: &[&str]| run_by(hardened(dir), args, by);
     let listed =
         git(root, &["config", "--get-regexp", r"^remote\..*\.promisor$"]).unwrap_or_default();
     let named = listed.lines().find_map(|l| {
@@ -363,7 +370,7 @@ fn promisor_url(root: &Path, by: Option<Instant>) -> Option<String> {
 fn fetch_missing(
     objects: &Path,
     scratch: &Path,
-    root: &Path,
+    root: Dir<'_>,
     commit: &str,
     by: Option<Instant>,
 ) -> Result<(), String> {
@@ -683,8 +690,11 @@ fn fill(
     // Its files without the repository's config; then its index, which
     // `read-tree` (no `-u`) writes from the objects alone.
     let root = made.root.clone();
-    let filled = check_out_without_config(&layout.objects, &layout.format, &root, commit, None)
-        .and_then(|()| git(&root, &["read-tree", commit]).map(drop))
+    // Through the folder made (held), never its path: a link put there writes nothing elsewhere.
+    let held = made.root_held.clone();
+    let at = Dir::held(&root, held.as_deref());
+    let filled = check_out_without_config(&layout.objects, &layout.format, at, commit, None)
+        .and_then(|()| git(at, &["read-tree", commit]).map(drop))
         .and_then(|()| {
             git(folder, &["config", &format!("branch.{}.cmuxBase", made.branch), &made.base])
                 .map(drop)
