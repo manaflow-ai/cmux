@@ -1,5 +1,5 @@
-//! `cmux_ipc::fds` leaks no descriptor: taken, still queued, and truncated
-//! ones all close. One test in its own binary, so no other test opens or
+//! `cmux_ipc::fds` leaks no descriptor: taken, still queued, and (on Linux)
+//! truncated ones all close. One test in its own binary, so no other test opens or
 //! closes descriptors while it counts.
 
 #![cfg(unix)]
@@ -41,10 +41,19 @@ mod cmux_ipc_fds {
             // Three stay queued: dropping the receiver closes them.
             drop(receiver);
 
-            fds::send_all(sender.as_raw_fd(), b"x", &[a.as_raw_fd(), b.as_raw_fd(), c.as_raw_fd()])
+            // Linux closes the descriptors a truncated read dropped; XNU
+            // leaves them installed (FdReceiver::recv), so only Linux counts them.
+            #[cfg(target_os = "linux")]
+            {
+                fds::send_all(
+                    sender.as_raw_fd(),
+                    b"x",
+                    &[a.as_raw_fd(), b.as_raw_fd(), c.as_raw_fd()],
+                )
                 .unwrap();
-            let mut small = FdReceiver::with_capacity(1);
-            assert!(small.recv(receiver_end.as_raw_fd(), &mut Vec::new(), 16, |_| {}).is_err());
+                let mut small = FdReceiver::with_capacity(1);
+                assert!(small.recv(receiver_end.as_raw_fd(), &mut Vec::new(), 16, |_| {}).is_err());
+            }
         }
         assert_eq!(open_descriptors(), before, "a descriptor stayed open");
     }

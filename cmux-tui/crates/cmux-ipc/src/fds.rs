@@ -190,7 +190,9 @@ impl FdReceiver {
     /// [`FdBadMessage::ControlTruncated`], as does a descriptor that cannot
     /// be made close-on-exec: the descriptors of that read are closed then
     /// and the stream is lost, rather than handing a later frame the wrong
-    /// descriptor or keeping one every later child inherits.
+    /// descriptor or keeping one every later child inherits. Linux closes
+    /// the descriptors it truncated; XNU has already installed them before it
+    /// truncates the control data, so on macOS those stay open in this process.
     pub fn recv(
         &mut self,
         fd: RawFd,
