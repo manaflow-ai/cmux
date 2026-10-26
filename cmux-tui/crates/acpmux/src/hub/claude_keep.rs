@@ -120,15 +120,25 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
     let kept = match kept_file(session_dir, sid) {
         Some(kept) => kept,
         None => {
-            let kept = session_dir.join(KEPT_DIR).join(project).join(file_name(sid));
-            fs::create_dir_all(kept.parent().unwrap_or(session_dir))?;
-            return share(&live, &kept);
+            // One level at a time below the chat's own folder: a chat deleted
+            // since the check above fails here instead of getting its folder back.
+            let kept_dir = session_dir.join(KEPT_DIR);
+            match make_dir(&kept_dir).and_then(|()| make_dir(&kept_dir.join(project))) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                other => other?,
+            }
+            return share(&live, &kept_dir.join(project).join(file_name(sid)));
         }
     };
     if same_file(&live, &kept) {
         return Ok(());
     }
     let first = first_record(&live)?;
+    if !first.ends_with(b"\n") && (first.len() as u64) < FIRST_RECORD_BYTES {
+        // Claude is still writing its file's first line: what is there so far
+        // could match any kept line. The next turn's keep sees all of it.
+        return Ok(());
+    }
     if first == first_record(&kept)? {
         // The same conversation: Claude's file is the whole of it (a copy
         // kept on another volume is only as new as the last turn).
@@ -145,22 +155,35 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
     if !ends_with_newline(&kept)? {
         io::Write::write_all(&mut whole, b"\n")?;
     }
-    // Read to the end again after each copy: Claude may still append while
-    // this runs, and a line written before the rename would be lost with it.
-    let mut copied = 0;
+    // Claude may still append while this runs. The file stays open across the
+    // rename, so a line written to it after the last read is still read after
+    // the rename and joins the kept transcript instead of being lost with it.
+    let mut from = File::open(&live)?;
+    append_rest(&mut from, &mut whole)?;
+    drop(whole);
+    replace(&kept, &live)?;
+    let mut whole = OpenOptions::new().append(true).open(&kept)?;
+    append_rest(&mut from, &mut whole)
+}
+
+/// Appends what `from` holds past its position to `to`, reading again until nothing more comes.
+fn append_rest(from: &mut File, to: &mut File) -> io::Result<()> {
     loop {
-        let mut from = File::open(&live)?;
-        from.seek(SeekFrom::Start(copied))?;
         let mut more = Vec::new();
         from.read_to_end(&mut more)?;
         if more.is_empty() {
-            break;
+            return Ok(());
         }
-        copied += more.len() as u64;
-        io::Write::write_all(&mut whole, &more)?;
+        io::Write::write_all(to, &more)?;
     }
-    drop(whole);
-    replace(&kept, &live)
+}
+
+/// Makes one folder whose parent must exist; one already there is fine.
+fn make_dir(dir: &Path) -> io::Result<()> {
+    match fs::create_dir(dir) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        other => other,
+    }
 }
 
 /// Puts session `sid`'s kept transcript back in the store `store` when Claude
@@ -371,6 +394,35 @@ mod tests {
             fs::read_to_string(dirs.live()).unwrap(),
             "{\"uuid\":\"a\"}\n{\"uuid\":\"b\"}\n"
         );
+    }
+
+    /// Claude's recreated file caught halfway through its first line: the bytes
+    /// so far match a kept line, and taking them for one would drop Claude's file.
+    #[test]
+    fn a_first_line_still_being_written_is_left_alone() {
+        let dirs = Dirs::new();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        fs::remove_file(dirs.live()).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        append(&dirs.live(), "b\"}\n");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dirs.live()).unwrap(),
+            "{\"uuid\":\"a\"}\n{\"uuid\":\"b\"}\n"
+        );
+    }
+
+    /// A chat deleted while its last keep waited: the kept folder is not made again.
+    #[test]
+    fn a_chat_deleted_before_its_keep_gets_no_folder_back() {
+        let dirs = Dirs::new();
+        let gone = dirs.session().join("missing-chat");
+        let kept_dir = gone.join(KEPT_DIR);
+        assert!(make_dir(&kept_dir).is_err_and(|e| e.kind() == io::ErrorKind::NotFound));
+        assert!(!gone.exists());
     }
 
     /// An app update in the middle of a chat's first long turn: the turn never
