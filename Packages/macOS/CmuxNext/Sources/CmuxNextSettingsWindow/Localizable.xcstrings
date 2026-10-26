@@ -7088,6 +7088,270 @@
         }
       }
     },
+    "settingsWindow.vmHost": {
+      "comment": "Settings > Machines: a Cloud machine's switch (acpmux vmHost).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dedicated agent machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェント専用マシン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز مخصص للوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Namjenski računar za agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dedikeret agentmaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dedizierter Agenten-Rechner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dedicada a agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine dédiée aux agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina dedicata agli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនសម្រាប់ភ្នាក់ងារតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 전용 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dedikert agentmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna dedykowana agentom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dedicada a agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выделенная машина для агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องสำหรับเอเจนต์โดยเฉพาะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlara ayrılmış makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виділена машина для агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy dành riêng cho tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体专用机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理專用機器"
+          }
+        }
+      }
+    },
+    "settingsWindow.vmHostHelp": {
+      "comment": "Settings > Machines: what the dedicated agent machine switch does.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents here run without the sandbox and don't ask first. The machine is the boundary."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここではエージェントがサンドボックスなしで動作し、事前に確認しません。マシン自体が境界になります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل الوكلاء هنا بلا بيئة معزولة ولا يسألون أولًا. الجهاز هو الحد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti ovdje rade bez sandboxa i ne pitaju prije. Granica je sam računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter her kører uden sandkasse og spørger ikke først. Maskinen er grænsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten laufen hier ohne Sandbox und fragen nicht vorher. Der Rechner ist die Grenze."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aquí los agentes se ejecutan sin sandbox y no preguntan antes. La máquina es el límite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ici, les agents s’exécutent sans bac à sable et ne demandent pas avant. La machine est la limite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qui gli agenti funzionano senza sandbox e non chiedono prima. Il confine è la macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនៅទីនេះដំណើរការដោយគ្មាន sandbox ហើយមិនសួរមុនទេ។ ម៉ាស៊ីនគឺជាព្រំដែន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기서는 에이전트가 샌드박스 없이 실행되며 먼저 묻지 않습니다. 머신 자체가 경계입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter her kjører uten sandkasse og spør ikke først. Maskinen er grensen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenci działają tu bez piaskownicy i nie pytają najpierw. Granicą jest sama maszyna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aqui os agentes rodam sem sandbox e não perguntam antes. A máquina é o limite."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь агенты работают без песочницы и не спрашивают заранее. Граница — сама машина."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ที่นี่ทำงานโดยไม่มีแซนด์บ็อกซ์และไม่ถามก่อน เครื่องนี้คือขอบเขต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada ajanlar korumalı alan olmadan çalışır ve önce sormaz. Sınır makinenin kendisidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут агенти працюють без пісочниці й не питають заздалегідь. Межа — сама машина."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác nhân ở đây chạy không có sandbox và không hỏi trước. Ranh giới là chính máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这里的智能体不使用沙盒运行，也不会事先询问。机器本身就是边界。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這裡的代理不使用沙盒執行，也不會事先詢問。機器本身就是邊界。"
+          }
+        }
+      }
+    },
     "settingsWindow.minutes": {
       "extractionState": "manual",
       "localizations": {

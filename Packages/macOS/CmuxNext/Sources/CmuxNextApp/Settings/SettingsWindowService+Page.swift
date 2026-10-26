@@ -20,7 +20,7 @@ extension SettingsWindowService {
             // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
             "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
-            "machines": .array(machines.map(Self.machineRow)),
+            "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
             "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
@@ -123,6 +123,27 @@ extension SettingsWindowService {
         let color = MachineColor(name: row.title)
         members["color"] = .string(hex(color.color))
         members["color_key"] = .string(color.key)
+        return .object(members)
+    }
+
+    /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
+    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
+    /// API can exec on, and only one cmux made for its owner (or one already on). Personal and
+    /// SSH machines never get the switch.
+    func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
+        guard case .object(var members) = row, let session = services.machines.session(id),
+              session.appLink == nil, session.machine.allows(.exec) else { return row }
+        let readable = if case .connected = session.daemon.store.connectionState { true } else { false }
+        let store = services.cloudVmHost
+        let state: CloudVmHost.State?, error: String?
+        switch store.state(id, readable: readable) {
+        case .known(let known): (state, error) = (known, nil)
+        case .failed(let why, _, let last): (state, error) = (last, why)
+        case nil: return row
+        }
+        guard let state, state.cmuxVM || state.on else { return row }
+        members["vm_host"] = ["on": .bool(state.on), "busy": .bool(store.setting.contains(id)),
+                              "error": error.map(JSONValue.string) ?? .null]
         return .object(members)
     }
 

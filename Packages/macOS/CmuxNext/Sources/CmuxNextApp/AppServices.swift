@@ -105,6 +105,8 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
+    /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).

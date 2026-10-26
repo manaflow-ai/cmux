@@ -77,6 +77,11 @@ export type HostListRow = {
   color?: string;
   /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
   color_key?: string;
+  /**
+   * A Cloud machine cmux made: its "Dedicated agent machine" switch (acpmux vmHost), once the machine
+   * answered. Absent on every other machine (personal and SSH machines never have it).
+   */
+  vm_host?: { on: boolean; busy: boolean; error: string | null };
 };
 
 /** One browser profile row. */
@@ -768,6 +773,8 @@ export type SettingsOps = {
   "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
   /** Native: Settings > Devices' Full access switch on a paired client machine (the person's gesture only). */
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
+  "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
