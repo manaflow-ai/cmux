@@ -32,6 +32,11 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The app's one preloaded page (p13-webui.md 3.D); this host's pressure subscription drops it
+    /// at any level but normal.
+    public let preload: PagePreloadSlot
+    /// The host's one memory pressure subscription (p13-webui-047 moves the page lifecycle onto it).
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -51,15 +56,22 @@ public final class WebUIHost {
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - preload: The preload slot (a test passes one with its own park state).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups()) {
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                preload: PagePreloadSlot = PagePreloadSlot()) {
         self.chromium = chromium
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
+        self.preload = preload
+        preload.memoryPressureDidChange(memoryPressure.currentLevel)
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            self?.preload.memoryPressureDidChange(level)
+        }
     }
 
     /// Makes and starts loading the page `request` asks for, in the engine ``PageEnginePolicy``
