@@ -153,7 +153,7 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
     }
 
     /// The app's: its daemon's status, its bundled acpmux, the policy's directory.
-    static func live(_ acpmux: AcpmuxEnvironment, directory: URL,
+    static func live(_ acpmux: AcpmuxEnvironment, directory: URL, versionBound: Duration = .seconds(10),
                      download: @escaping @Sendable (_ artifact: String, _ executable: URL) async throws -> (file: URL, commit: String))
         -> AcpmuxPeerUpdateSource {
         var environment = ProcessInfo.processInfo.environment
@@ -177,6 +177,11 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
 extension DaemonUpdatePolicy {
     /// carve-out: a once flag for the synchronous ``startOnce(build:environment:download:)``; no await under the lock.
     private nonisolated static let started = OSAllocatedUnfairLock(initialState: false)
+
+    /// Whether this app updates its daemon's ssh peers. Not yet decided by anything.
+    nonisolated static func updatesPeers(build: BuildIdentity?, environment: [String: String]) -> Bool {
+        true
+    }
 
     /// Once per launch, in the background, after the app's acpmux is up (``AcpmuxHost/prewarm()``):
     /// offers the acpmux ssh peers of the app's daemon to ``shared``, and arms

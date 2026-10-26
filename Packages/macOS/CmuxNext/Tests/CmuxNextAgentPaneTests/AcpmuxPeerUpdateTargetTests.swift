@@ -289,6 +289,37 @@ import Testing
     /// Review of #24070: a peer that connects with no session sends no change on the app's watch,
     /// so only the next launch updated it. The sweep offers it at its next read; turning
     /// `agent.updatePeers` off ends the sweep.
+    /// Review of #25389: a DEV build attached to another app's daemon (`CMUX_NEXT_ACPMUX_ATTACH`)
+    /// updates no peers; that daemon's owner does. Builds that ignore the variable still update.
+    @Test func anAppAttachedToAnotherDaemonUpdatesNoPeers() {
+        let dev = BuildIdentity(bundleID: "com.cmuxterm.app.debug.peers", bundledTag: nil)
+        let attached = [AcpmuxEnvironment.attachKey: "/tmp/another-app/.acpmux"]
+        #expect(!DaemonUpdatePolicy.updatesPeers(build: dev, environment: attached))
+        #expect(DaemonUpdatePolicy.updatesPeers(build: dev, environment: [:]))
+        let nightly = BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil)
+        #expect(DaemonUpdatePolicy.updatesPeers(build: nightly, environment: attached), "only DEV builds attach")
+    }
+
+    /// Review of #25389: the live source's bundled `--version` probe is bounded, so the launch
+    /// offer, a reconnect check and the sweep never wait on a CLI that does not answer.
+    @Test(.timeLimit(.minutes(1))) func theLiveSourcesBundledVersionEndsAtItsBound() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-peer-live-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("acpmux")
+        try "#!/bin/sh\nexec sleep 30\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let acpmux = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: nil, environment: ["ACPMUX_HOME": root.path],
+                                                            executableOverride: script, teamIdentifier: nil))
+        let source = AcpmuxPeerUpdateSource.live(acpmux, directory: root, versionBound: .milliseconds(500)) { _, _ in
+            throw CancellationError()
+        }
+
+        let started = ContinuousClock.now
+        #expect(await source.bundledBuild() == nil)
+        #expect(ContinuousClock.now - started < .seconds(20), "the probe ended at its bound")
+    }
+
     @Test @MainActor func aPeerThatConnectsWithNoSessionIsUpdatedByTheSweep() async throws {
         let fixture = try StandInAcpmux()
         defer { fixture.remove() }
