@@ -2,6 +2,9 @@
 //! Activation also requires F: all sandbox path mutations must use this same
 //! serial supervisor, so directories cannot be renamed during a checked open.
 //! Bwrap supplies read-only mounts and masks; this is not a standalone sandbox.
+//! Activation requires A2 to reject mounts under writable roots that are not
+//! whole filesystems, and G1 to reject group/world-writable roots. Shared-root
+//! resolve/check/perform serialization across daemon processes belongs to E1b/F.
 //! Stricter: non-UTF-8 paths and anonymous/deleted proc-fd targets are refused.
 //! Opens use O_NONBLOCK while acquiring the fd (a FIFO without a reader fails
 //! ENXIO); the requested blocking mode is restored before handing it over.
@@ -83,6 +86,7 @@ struct Resolved {
     name: String,
     logical: String,
     object: Option<OwnedFd>,
+    directory_required: bool,
 }
 
 /// Consumes components; symlink expansion is capped at 40. `..` pops only
@@ -90,6 +94,18 @@ struct Resolved {
 /// including mounts reached through aliases. Symlinks are read through their
 /// pinned O_PATH fd, never through a mutable directory entry a second time.
 fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result<Resolved> {
+    resolve_with_flags(task, dir, path, flags, nspid, &|_| Ok(0))
+}
+
+// Red-test seam: directory flag checks are implemented after runner confirmation.
+fn resolve_with_flags(
+    task: RawFd,
+    dir: i32,
+    path: &str,
+    flags: i32,
+    nspid: &str,
+    _read_flags: &dyn Fn(RawFd) -> Result<c_long>,
+) -> Result<Resolved> {
     if path.is_empty() {
         return Err(ENOENT);
     }
@@ -130,6 +146,7 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
                     name,
                     logical: target.to_str().ok_or(EACCES)?.into(),
                     object: None,
+                    directory_required: false,
                 });
             }
             Err(e) => return Err(e),
@@ -200,6 +217,7 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
                     name,
                     logical: logical.to_str().ok_or(EACCES)?.into(),
                     object: Some(pin),
+                    directory_required: false,
                 });
             }
             return Ok(Resolved {
@@ -207,6 +225,7 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
                 name,
                 logical: logical.to_str().ok_or(EACCES)?.into(),
                 object: None,
+                directory_required: false,
             });
         }
         if metadata.st_mode & S_IFMT != S_IFDIR {
@@ -222,6 +241,7 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
         name: ".".into(),
         logical: logical.to_str().ok_or(EACCES)?.into(),
         object: None,
+        directory_required: false,
     })
 }
 
@@ -276,6 +296,160 @@ mod tests {
             .find_map(|line| line.strip_prefix("NSpid:").and_then(|p| p.split_whitespace().last()))
             .expect("NSpid")
             .to_owned()
+    }
+
+    #[test]
+    fn review_casefold_directory_checks_cover_entire_walk() {
+        let fixture = Fixture::new();
+        let target = format!("{}/a/b/new", fixture.0.display());
+        // Every finite case marks a different directory, including root and
+        // final parent; the injected reader identifies objects by inode.
+        for directory in
+            [Path::new("/"), fixture.0.as_path(), &fixture.0.join("a"), &fixture.0.join("a/b")]
+        {
+            let marked =
+                open_at(AT_FDCWD, directory.to_str().unwrap(), O_PATH | O_DIRECTORY, 0).unwrap();
+            let marked = stat(marked.as_raw_fd()).unwrap();
+            let reader = |fd| {
+                let current = stat(fd)?;
+                Ok(if (current.st_dev, current.st_ino) == (marked.st_dev, marked.st_ino) {
+                    0x4000_0000 // FS_CASEFOLD_FL
+                } else {
+                    0
+                })
+            };
+            assert!(
+                matches!(
+                    resolve_with_flags(
+                        task().as_raw_fd(),
+                        AT_FDCWD,
+                        &target,
+                        O_CREAT | O_WRONLY,
+                        &nspid(),
+                        &reader
+                    ),
+                    Err(EACCES)
+                ),
+                "casefold directory: {}",
+                directory.display()
+            );
+        }
+        let directory = format!("{}/a/b", fixture.0.display());
+        assert!(matches!(
+            resolve_with_flags(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &directory,
+                O_RDONLY,
+                &nspid(),
+                &|_| Ok(0x4000_0000)
+            ),
+            Err(EACCES)
+        ));
+    }
+
+    #[test]
+    fn review_casefold_real_directory_refused() {
+        let fixture = Fixture::new();
+        let directory = fixture.0.join("folded");
+        fs::create_dir(&directory).unwrap();
+        let fd = open_at(AT_FDCWD, directory.to_str().unwrap(), O_RDONLY | O_DIRECTORY, 0).unwrap();
+        let mut flags: c_long = 0;
+        if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } < 0 {
+            assert!(matches!(error(), EOPNOTSUPP | ENOTTY | EINVAL | EPERM | EACCES));
+            eprintln!(
+                "skipped: filesystem cannot read directory flags: {}",
+                io::Error::last_os_error()
+            );
+            return;
+        }
+        flags |= 0x4000_0000;
+        if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_SETFLAGS, &flags) } < 0 {
+            let errno = error();
+            assert!(
+                matches!(errno, EOPNOTSUPP | ENOTTY | EINVAL | EPERM | EACCES),
+                "unexpected casefold setup errno: {errno}"
+            );
+            eprintln!(
+                "skipped: cannot enable casefold on fixture filesystem: {}",
+                io::Error::from_raw_os_error(errno)
+            );
+            return;
+        }
+        fs::write(directory.join("CLAUDE.md"), b"protected").unwrap();
+        let target = format!("{}/claude.md", directory.display());
+        assert!(matches!(
+            resolve(task().as_raw_fd(), AT_FDCWD, &target, O_WRONLY | O_TRUNC, &nspid()),
+            Err(EACCES)
+        ));
+    }
+
+    #[test]
+    fn review_trailing_slash_regular_file_is_not_write_opened() {
+        let fixture = Fixture::new();
+        symlink(".git/config/", fixture.0.join("slash-link")).unwrap();
+        // The kernel rejects both original and symlink-target trailing slash.
+        for suffix in [".git/config/", "slash-link"] {
+            let path = format!("{}/{suffix}", fixture.0.display());
+            assert!(matches!(open_at(AT_FDCWD, &path, O_WRONLY | O_TRUNC, 0), Err(ENOTDIR)));
+            assert!(matches!(
+                resolve(task().as_raw_fd(), AT_FDCWD, &path, O_WRONLY | O_TRUNC, &nspid()),
+                Err(ENOTDIR)
+            ));
+        }
+        assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), b"protected");
+    }
+
+    #[test]
+    fn review_trailing_slash_requirement_survives_resolution() {
+        let fixture = Fixture::new();
+        symlink("missing/", fixture.0.join("missing-link")).unwrap();
+        symlink("a/b/", fixture.0.join("directory-link")).unwrap();
+        for suffix in ["missing/", "missing-link", "a/b/", "directory-link"] {
+            let path = format!("{}/{suffix}", fixture.0.display());
+            let resolved = resolve(task().as_raw_fd(), AT_FDCWD, &path, 0, &nspid()).unwrap();
+            assert!(resolved.directory_required, "lost trailing slash: {suffix}");
+        }
+    }
+
+    #[test]
+    fn review_dirfd_must_be_an_actual_directory() {
+        let fixture = Fixture::new();
+        symlink("a", fixture.0.join("directory-link")).unwrap();
+        for suffix in ["directory-link", ".git/config"] {
+            let path = format!("{}/{suffix}", fixture.0.display());
+            let fd = open_at(AT_FDCWD, &path, O_PATH | O_NOFOLLOW, 0).unwrap();
+            assert!(matches!(
+                open_at(fd.as_raw_fd(), "new", O_CREAT | O_WRONLY, 0o600),
+                Err(ENOTDIR)
+            ));
+            assert!(matches!(
+                resolve(task().as_raw_fd(), fd.as_raw_fd(), "new", O_CREAT | O_WRONLY, &nspid()),
+                Err(ENOTDIR)
+            ));
+        }
+        assert!(!fixture.0.join("a/new").exists());
+    }
+
+    #[test]
+    fn review_cwd_and_dirfd_identity_must_match_rooted_walk() {
+        let fixture = Fixture::new();
+        let fake = fixture.0.join("task");
+        let root = fixture.0.join("root-view");
+        fs::create_dir_all(fake.join("fd")).unwrap();
+        let actual = fixture.0.join("a/b");
+        fs::create_dir_all(root.join(actual.strip_prefix("/").unwrap())).unwrap();
+        symlink(&root, fake.join("root")).unwrap();
+        symlink(&actual, fake.join("cwd")).unwrap();
+        symlink(&actual, fake.join("fd/42")).unwrap();
+        let task = open_at(AT_FDCWD, fake.to_str().unwrap(), O_PATH | O_DIRECTORY, 0).unwrap();
+        // Both logical start paths exist under root, but address different inodes.
+        for dir in [AT_FDCWD, 42] {
+            assert!(matches!(
+                resolve(task.as_raw_fd(), dir, "new", O_CREAT | O_WRONLY, &nspid()),
+                Err(EACCES)
+            ));
+        }
     }
 
     #[test]
