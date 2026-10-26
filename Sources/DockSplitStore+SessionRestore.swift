@@ -472,7 +472,7 @@ extension DockSplitStore {
                 ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
                     restorableAgent: restorableAgent,
                     agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
-                        agentRestoreStartupInput != nil,
+                        SurfaceResumeRunPromptBatch.isConcreteAgentRestoreInput(agentRestoreStartupInput),
                     resumeBinding: resumeBinding,
                     bindingWillLaunch: unresolvedBindingLaunch != nil ||
                         deferredAgentResumeCandidateInput != nil

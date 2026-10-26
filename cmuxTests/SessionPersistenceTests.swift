@@ -6440,6 +6440,16 @@ extension SessionPersistenceTests {
             restorableAgent: nil, agentMayAutoResume: false,
             resumeBinding: tmuxBinding, bindingWillLaunch: true
         ))
+        var legacyCodex = hookBinding
+        legacyCodex.kind = nil
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: legacyCodex, bindingWillLaunch: true
+            )?.kind,
+            "codex"
+        )
+        XCTAssertFalse(SurfaceResumeRunPromptBatch.isConcreteAgentRestoreInput(" cmux restore --surface\n"))
     }
 
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
