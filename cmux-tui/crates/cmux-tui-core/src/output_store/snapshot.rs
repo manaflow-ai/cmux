@@ -61,7 +61,7 @@ impl Writer {
         let state = self.state.clone();
         let thread = cmux_threads::spawn(
             "mux-output-store-writer",
-            cmux_threads::ThreadQos::Utility,
+            crate::request_qos::UPKEEP_THREAD_QOS,
             move || run(&mux, &state),
         )?;
         *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
@@ -151,6 +151,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         }
         let Some(mux) = mux.upgrade() else { return };
+        let _pass = mux.request_qos().enter_upkeep_pass();
         write_pass(&mux, &mux.output_store);
     }
 }

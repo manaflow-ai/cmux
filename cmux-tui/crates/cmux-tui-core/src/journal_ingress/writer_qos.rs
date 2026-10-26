@@ -17,6 +17,7 @@
 //! root or an `RLIMIT_NICE` that allows nice 0): the writer then stays at
 //! its declared class.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cmux_threads::ThreadQos;
@@ -32,17 +33,22 @@ pub(super) const WRITER_QOS: ThreadQos = ThreadQos::UserInitiated;
 pub(super) const IDLE_WRITER_QOS: ThreadQos = ThreadQos::Utility;
 
 /// Receipt waits in progress: requests that queued an event with a
-/// completion and have not taken its result yet.
-#[derive(Debug, Default)]
-pub(super) struct RequestWaits(AtomicUsize);
+/// completion and have not taken its result yet, an indeterminate receipt
+/// a registry commit keeps for later (`PendingRegistryReceipt`), and a
+/// producer that waits for space in a full lane.
+#[derive(Clone, Debug, Default)]
+pub(super) struct RequestWaits(Arc<AtomicUsize>);
 
 impl RequestWaits {
     /// Counts a receipt wait until the guard drops. Take it before the event
     /// is queued: the queue's send and receive order the count before the
-    /// writer's read, so the attempt that commits the event sees it.
-    pub(super) fn enter(&self) -> RequestWait<'_> {
+    /// writer's read, so the attempt that commits the event sees it. The
+    /// guard is owned, so a receipt that outlives its request (an
+    /// indeterminate registry commit) keeps the wait counted until its
+    /// answer is taken.
+    pub(super) fn enter(&self) -> RequestWait {
         self.0.fetch_add(1, Ordering::Relaxed);
-        RequestWait(self)
+        RequestWait(self.0.clone())
     }
 
     fn any(&self) -> bool {
@@ -51,12 +57,13 @@ impl RequestWaits {
 }
 
 /// One counted receipt wait; see [`RequestWaits::enter`].
+#[derive(Debug)]
 #[must_use = "the wait is counted only while the guard lives"]
-pub(super) struct RequestWait<'a>(&'a RequestWaits);
+pub(super) struct RequestWait(Arc<AtomicUsize>);
 
-impl Drop for RequestWait<'_> {
+impl Drop for RequestWait {
     fn drop(&mut self) {
-        self.0.0.fetch_sub(1, Ordering::Relaxed);
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 

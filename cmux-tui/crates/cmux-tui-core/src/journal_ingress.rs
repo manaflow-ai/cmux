@@ -893,7 +893,9 @@ impl JournalIngressSender {
     ) -> Result<(), String> {
         let lane = event.event.lane();
         let mut pending = event;
-        let mut waited = false;
+        // A producer waiting for space waits on the writer: counted until
+        // its event is queued, so the writer drains the lane at its class.
+        let mut space_wait = None;
         loop {
             let space_epoch = self.state.queue_space_epoch();
             let result = {
@@ -925,11 +927,12 @@ impl JournalIngressSender {
                     return Err(self.writer_error());
                 }
             }
-            #[cfg(test)]
-            self.state.notify_enqueue_full_for_test();
-            if !std::mem::replace(&mut waited, true) {
+            if space_wait.is_none() {
+                space_wait = Some(self.state.request_waits.enter());
                 crate::request_path::note(crate::request_path::BlockingKind::JournalWait);
             }
+            #[cfg(test)]
+            self.state.notify_enqueue_full_for_test();
             self.state.wait_for_queue_space_change(space_epoch)?;
         }
     }

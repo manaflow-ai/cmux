@@ -74,7 +74,25 @@ impl RequestQos {
     pub(crate) fn enter_class(self, class: cmux_threads::ThreadQos) -> Option<WorkQos> {
         self.enabled.then(|| WorkQos::enter(class))
     }
+
+    /// One pass of a daemon upkeep thread (output store writer, journal
+    /// retention and maintenance) at [`UPKEEP_PASS_QOS`], with the feature
+    /// on. The thread is declared at [`UPKEEP_THREAD_QOS`] and lowered per
+    /// pass as a [`WorkQos`], so a ranked lock the pass holds (a terminal
+    /// slot a PTY reader waits for, the workspace registry a request waits
+    /// for) raises it to `LOCK_HOLDER_QOS` until it is released
+    /// (`crate::lock_rank`). A thread declared utility is never raised.
+    pub(crate) fn enter_upkeep_pass(self) -> Option<WorkQos> {
+        self.enter_class(UPKEEP_PASS_QOS)
+    }
 }
+
+/// The class a daemon upkeep thread is started at
+/// ([`RequestQos::enter_upkeep_pass`]).
+pub(crate) const UPKEEP_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+
+/// The class of one upkeep pass with the feature on.
+pub(crate) const UPKEEP_PASS_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
 
 /// A request's cause and class on this thread. The class drops first, then
 /// the cause.

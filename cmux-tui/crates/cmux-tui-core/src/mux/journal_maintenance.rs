@@ -91,7 +91,7 @@ impl JournalMaintenance {
         let interval = journal_maintenance_interval();
         let thread = cmux_threads::spawn(
             "cmux-journal-maintenance",
-            cmux_threads::ThreadQos::Utility,
+            crate::request_qos::UPKEEP_THREAD_QOS,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
                 loop {
@@ -115,6 +115,7 @@ impl JournalMaintenance {
                     }
                     drop(stopped);
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    let _pass = mux.request_qos().enter_upkeep_pass();
                     mux.run_journal_maintenance(&mut ledgers);
                 }
             },
