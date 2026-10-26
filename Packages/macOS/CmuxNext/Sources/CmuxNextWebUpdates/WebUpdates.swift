@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -46,6 +46,10 @@ public final class WebUpdates {
     @ObservationIgnored var unseenNote: String?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
+    /// The app's Energy Saver policy and its shown windows (nil: checks whether or not one shows),
+    /// from ``prepare(_:bundle:energy:shown:)``; web updates start only once they are known.
+    @ObservationIgnored private var inputs: (energy: EnergyPolicySource, shown: ShownWindows?)?
+    @ObservationIgnored private var shownObservation: ShownWindowsObservation?
 
     /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
     static func isAvailable(_ bundle: Bundle) -> Bool {
@@ -54,15 +58,17 @@ public final class WebUpdates {
 
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
-    /// bundled web even while the settings observer is still starting.
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+    /// bundled web even while the settings observer is still starting. Checks wait `energy`'s poll
+    /// stretch, and with `shown`, none is booked while no cmux window shows (p14-energy-032).
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, energy: EnergyPolicySource, shown: ShownWindows?) {
+        inputs = (energy, shown)
         start(bundle: bundle, settings: settings)
     }
 
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
-        guard !started else { return }
+        guard !started, let inputs else { return }
         started = true
         guard Self.isAvailable(bundle),
               let pages = WebBundleOverlay.bundledPages,
@@ -76,7 +82,7 @@ public final class WebUpdates {
         if let resources = bundle.resourceURL {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
-        let updater = WebUpdater(store: store, app: app)
+        let updater = WebUpdater(store: store, app: app, energy: inputs.energy)
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
             self?.ready(tree, version: pointer)
@@ -84,6 +90,10 @@ public final class WebUpdates {
         updater.served = { WebBundleOverlay.shared.activeTree }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
+        if let shown = inputs.shown {
+            updater.noteShown(shown.anyShown)
+            shownObservation = shown.observe { [weak updater] anyShown in updater?.noteShown(anyShown) }
+        }
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
