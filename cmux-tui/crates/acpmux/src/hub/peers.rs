@@ -400,6 +400,8 @@ impl Hub {
                     if !changed.is_empty() {
                         self.save_peer_cache(&peer, generation, true);
                     }
+                    // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).
+                    self.peer_snapshots.flush_now(Some(&peer));
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -434,7 +436,20 @@ impl Hub {
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
+                    let listed: Vec<(String, Option<u64>)> = {
+                        let map = self.remote_sessions.lock().unwrap();
+                        let rows = map.values().filter(|r| r.peer == peer);
+                        let created =
+                            |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
+                        rows.map(|r| (r.receipt.mux_session_id.clone(), created(r))).collect()
+                    };
+                    let listed = listed.iter().map(|(id, g)| (id.as_str(), *g)).collect();
+                    self.peer_snapshots.retain_peer(&peer, &listed);
                     for summary in gone {
+                        if let Some(mux) = summary.get("sessionId").and_then(Value::as_str) {
+                            let created = summary.get("createdAt").and_then(Value::as_u64);
+                            self.peer_snapshots.forget(&peer, mux, created);
+                        }
                         self.announce_remote(&peer, summary, "purged");
                     }
                 }
@@ -457,6 +472,9 @@ impl Hub {
                             key.and_then(|key| map.remove(&key).map(|r| r.summary))
                         };
                         self.save_peer_cache(&peer, generation, false);
+                        let created = removed.as_ref().unwrap_or(&session).get("createdAt");
+                        let created = created.and_then(Value::as_u64);
+                        self.peer_snapshots.forget(&peer, &mux_id, created);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
                             record: Arc::new(EventRecord {
@@ -509,12 +527,12 @@ impl Hub {
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
-                PeerNotice::Notification { method: m, params }
+                PeerNotice::Notification { method: m, params, .. }
                     if m == method::MUX_PROMPT_ACCEPTED =>
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
-                PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
+                PeerNotice::Notification { method: m, params, .. } if m == "_acpmux/lagged" => {
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
@@ -538,7 +556,7 @@ impl Hub {
                         });
                     }
                 }
-                PeerNotice::Notification { method: m, params } => {
+                PeerNotice::Notification { method: m, params, link } => {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
@@ -620,6 +638,7 @@ impl Hub {
                         },
                         _ => return,
                     };
+                    self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
                     let _ = self.events.send(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
@@ -741,14 +760,19 @@ impl Hub {
     /// A remote session was deleted through us: drop it now rather than at
     /// the next reconnect.
     pub fn forget_remote(&self, id: &str) {
-        let mut map = self.remote_sessions.lock().unwrap();
-        if map.remove(id).is_some() {
-            return;
-        }
-        let key =
-            map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone());
-        if let Some(key) = key {
-            map.remove(&key);
+        let removed = {
+            let mut map = self.remote_sessions.lock().unwrap();
+            let key = if map.contains_key(id) {
+                Some(id.to_owned())
+            } else {
+                map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone())
+            };
+            key.and_then(|key| map.remove(&key))
+        };
+        // Its event snapshot goes with it (`peer_snapshot.rs`).
+        if let Some(r) = removed {
+            let created = r.summary.get("createdAt").and_then(Value::as_u64);
+            self.peer_snapshots.forget(&r.peer, &r.receipt.mux_session_id, created);
         }
     }
 
