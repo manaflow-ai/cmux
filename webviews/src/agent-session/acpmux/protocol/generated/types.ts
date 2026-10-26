@@ -458,8 +458,8 @@ export interface RetryParams {
 export type RetryReason = "capacity" | "transport" | "agent_exited";
 
 /**
- * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, run once however often it
- * is asked), and its turn once one started (none when a waiting retry was fired now).
+ * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
+ * failed prompt) and the turn it started.
  */
 export type RetryResult = {
   kind: RetryKind;

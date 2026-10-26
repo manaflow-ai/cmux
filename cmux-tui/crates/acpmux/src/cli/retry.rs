@@ -1,8 +1,8 @@
 //! `acpmux retry SESSION [--subagent ID]`: retry a session's failed last turn now, in the same
-//! session, through `_acpmux/retry` (`hub/auto_resume/retry_turn.rs`). A retry that waits fires
-//! at once; else the failed prompt goes again (a continuation when the turn had output). Refused
-//! with `retry.busy` while a turn runs and `retry.nothing_failed` when the last turn did not
-//! fail. `--subagent` asks for that subagent; until subagents retry the daemon refuses it
+//! session, through `_acpmux/retry` (`hub/auto_resume/retry_turn.rs`), taking over a retry that
+//! waits: the failed prompt goes again (a continuation when the turn had output). Refused with
+//! `retry.busy` while a turn runs, `retry.stopped` when Stop comes first and
+//! `retry.nothing_failed` when the last turn did not fail. `--subagent` asks for that subagent; until subagents retry the daemon refuses it
 //! (`retry.subagent_unsupported`).
 
 use crate::cli::output::print_json;

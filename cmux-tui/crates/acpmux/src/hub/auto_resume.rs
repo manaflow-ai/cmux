@@ -43,7 +43,7 @@
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
-//! - `_acpmux/retry` fires a waiting continuation now, or retries a failed turn on demand
+//! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -125,7 +125,7 @@ impl Drop for Wake {
 /// What a chat's continuation state is.
 enum Mark {
     /// A continuation waits to answer for this cut turn; `retry` once its wait is set.
-    Waiting { turn: String, retry: Option<RetrySummary>, wake: Wake },
+    Waiting { turn: String, retry: Option<RetrySummary>, _wake: Wake },
     /// The continuation of this cut turn fired and has not started its turn yet; Stop or
     /// close now still counts for it.
     Firing(String),
@@ -283,7 +283,7 @@ impl Hub {
         };
         let wake = Arc::new(Notify::new());
         let mark =
-            Mark::Waiting { turn: turn_id.to_owned(), retry: None, wake: Wake(wake.clone()) };
+            Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
         pending.insert(session.id.clone(), mark);
         drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);

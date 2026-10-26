@@ -3,25 +3,29 @@
 //! Retry button calls it (subsession-card's ask, from Leo's "this needs to retry :(",
 //! 2026-10-26).
 //!
-//! - A retry that waits (the session row's `retry`, `auto_resume.rs`) fires now: its wait ends
-//!   at once, and the answer names its prompt id (no turn yet).
-//! - Else, when the last turn failed, it is sent again as the next attempt of its prompt
-//!   (`P~resume-n` after the failed `P` or `P~resume-(n-1)`, as an automatic continuation's):
-//!   the same prompt (its text and the images acpmux kept) when the turn produced nothing, and
-//!   the continuation an automatic retry sends (`continue_text`) when the model had started on
-//!   it, a message was steered into it, or the prompt cannot be rebuilt (a document, an image
-//!   not kept). One id runs once (`Hub::prompt_with`), so a double click sends one prompt.
+//! - When the last turn failed, it is sent again now as the next attempt of its prompt
+//!   (`P~resume-n` after the failed `P` or `P~resume-(n-1)`, the id an automatic retry uses): the
+//!   same prompt (its text and the images acpmux kept) when the turn produced nothing, and the
+//!   continuation an automatic retry sends (`continue_text`) when the model had started on it, a
+//!   message was steered into it, it was a turn of agent messages, it carried hidden context, or
+//!   it cannot be rebuilt (a document, an image not kept). A retry that waits (the session row's
+//!   `retry`, `auto_resume.rs`) is taken over: it is this attempt, sent now, and its timer records
+//!   the skip `superseded`. A second click while the first is under way is `retry.busy`.
 //! - Refused with `retry.busy` while a turn runs, a prompt waits to run or a continuation is
 //!   about to start, and with `retry.nothing_failed` when the last turn did not fail.
 //! - A retry that names a subagent (`subagentId`) asks for that subagent, never the chat's own
 //!   turn: refused with `retry.subagent_unsupported` until subagents retry (`Hub::retry`).
-//! - It runs under the caller's rules (`control`, the trust gate), checked again as any
-//!   prompt's are. Its `user_message` carries `_meta.provenance = {kind: "auto_resume",
+//! - It runs under the caller's rules (`control`, the trust gate, a paired machine's Full
+//!   access), checked before it claims the chat and at dispatch as any prompt's are; a sub-session's retry also as its
+//!   messages are (`receiver_check`, and `family_dispatch_check` at dispatch).
+//! - From the claim to its turn's start the chat's mark is firing: Stop or close then refuses it
+//!   (`retry.stopped`). Its `user_message` carries `_meta.provenance = {kind: "auto_resume",
 //!   promptId, attempt, turnId, manual: true}`, and once its turn completes the prompts the
 //!   failed turn held go on (`held_by`).
 //! - A Stop the failed turn got does not hold a retry the caller asks for after it.
 
 use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
+use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
 use crate::rpc::RpcError;
@@ -29,11 +33,13 @@ use crate::store::EventRecord;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-/// The rules a retry's prompt runs under: the caller's, as for a prompt it sent.
+/// The rules a retry's prompt runs under: the caller's, as for a prompt it sent, and the
+/// sub-session that asked for it (`from`), if one did.
 pub struct RetryBy {
     pub control: Control,
     pub trust_gate: bool,
     pub full_access_device: Option<String>,
+    pub from: Option<String>,
 }
 
 fn refused(reason: &str, why: &str) -> RpcError {
@@ -49,6 +55,10 @@ fn subagent_unsupported() -> RpcError {
         "retry.subagent_unsupported",
         "this daemon does not retry a subagent yet; retry the chat's turn without subagentId",
     )
+}
+
+fn stopped() -> RpcError {
+    refused("retry.stopped", "Stop or close came before the retry's turn started")
 }
 
 fn nothing_failed() -> RpcError {
@@ -112,25 +122,16 @@ impl Hub {
         self.retry_turn(session, by).await
     }
 
-    /// Fires the chat's waiting retry now, or sends its failed last turn again (the module
-    /// doc). Answers once the prompt is accepted: `{promptId, turnId?, kind}`.
+    /// Sends the chat's failed last turn again now, under the caller's rules (the module doc),
+    /// taking over a retry that waits. Answers once the prompt is accepted:
+    /// `{promptId, turnId, kind}`.
     pub async fn retry_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
         by: RetryBy,
     ) -> Result<Value, RpcError> {
-        if let Some(fired) = self.fire_waiting_retry(session)? {
-            return Ok(fired);
-        }
-        let last = session.meta().last_turn.unwrap_or(Value::Null);
-        let field = |k: &str| last.get(k).and_then(Value::as_str).map(str::to_owned);
-        let status = field("status");
-        let (Some("failed"), Some(cut_turn), Some(failed)) =
-            (status.as_deref(), field("turnId"), field("promptId"))
-        else {
-            return Err(nothing_failed());
-        };
-        let error = field("errorText").unwrap_or_default();
+        self.retry_allowed(session, &by).await?;
+        let (cut_turn, failed, error) = self.claim_failed_turn(session)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
         let blocks = self.resend_of(session, &cut_turn, &failed).unwrap_or_else(|| {
@@ -138,7 +139,12 @@ impl Hub {
             vec![json!({"type": "text", "text": continue_text(&error, reason)})]
         });
         let held = self.held_by(session, &root, &cut_turn);
-        let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn, "manual": true});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn, "manual": true});
+        // A sub-session's retry names its sender: checked again at dispatch as its messages are
+        // (`subsession_guard.rs` `family_dispatch_check`).
+        if let Some(from) = by.from {
+            provenance["from"] = json!(from);
+        }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
             prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
@@ -150,13 +156,15 @@ impl Hub {
             trust_gate: by.trust_gate,
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
-            after_turn: Some(cut_turn),
+            after_turn: Some(cut_turn.clone()),
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
+            // What is left of the claim when the prompt never started its turn.
+            hub.clear_fired(&s, &cut_turn);
             if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
             {
                 hub.resume_held(&s, &held);
@@ -170,11 +178,12 @@ impl Hub {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
                     let reason = e.data.as_ref().and_then(|d| d.get("reason"));
-                    // Something else took the chat between the check and the turn lock.
-                    if reason.and_then(Value::as_str) == Some("auto_resume.superseded") {
-                        return Err(busy());
-                    }
-                    return Err(e);
+                    return Err(match reason.and_then(Value::as_str) {
+                        // Something else took the chat between the claim and the turn lock.
+                        Some("auto_resume.superseded") => busy(),
+                        Some("auto_resume.stopped") => stopped(),
+                        _ => e,
+                    });
                 }
                 Err(e) => return Err(RpcError::internal(e.to_string())),
             },
@@ -185,7 +194,8 @@ impl Hub {
     }
 
     /// The sub-session tool `retry_session`: `caller` retries its descendant `target`'s failed
-    /// turn, under the remote floor when either drove a Web turn, as a family prompt does
+    /// turn. Never to a session that asks less than the caller (`receiver_check`, again at
+    /// dispatch), and under the remote floor when either drove a Web turn, as a family prompt
     /// (`subsessions.rs` `send_family_prompt`).
     pub async fn subsession_retry(
         self: &Arc<Self>,
@@ -193,41 +203,63 @@ impl Hub {
         target: &Arc<Session>,
         subagent: Option<&str>,
     ) -> Result<Value, RpcError> {
+        self.receiver_check(caller, target).await?;
         let web = Self::web_turn(caller) || Self::web_turn(target);
         let control = if web { Control::Web } else { Control::Local };
-        let by = RetryBy { control, trust_gate: false, full_access_device: None };
+        let from = Some(caller.id.clone());
+        let by = RetryBy { control, trust_gate: false, full_access_device: None, from };
         self.retry(target, subagent, by).await
     }
 
-    /// The chat's waiting retry, fired now: its answer, None when none waits. `retry.busy`
+    /// The caller's rules, checked before the retry claims the chat, so a refused caller leaves
+    /// a retry that waits as it was, and again at dispatch (`check_dispatch`).
+    async fn retry_allowed(self: &Arc<Self>, session: &Arc<Session>, by: &RetryBy) -> Result<(), RpcError> {
+        {
+            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let device = by.full_access_device.as_deref();
+            self.web_control_verdict(session, &m, by.control)
+                .and_then(|()| self.full_access_hold(&m, by.control, device))?;
+        }
+        let web = by.control == Control::Web;
+        crate::server::trust_gate::check_dispatch(self, by.trust_gate, web, session).await
+    }
+
+    /// Claims the chat's failed last turn for a retry: `(turn id, prompt id, error)`, its mark
+    /// now firing, so Stop or close until its turn starts still counts (`start_turn`). A retry
+    /// that waits is taken over (its timer wakes and records the skip `superseded`). `retry.busy`
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
-    fn fire_waiting_retry(&self, session: &Session) -> Result<Option<Value>, RpcError> {
+    fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
+        let mut pending = self.auto_resumes.lock();
         if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
             return Err(busy());
         }
-        let mut pending = self.auto_resumes.lock();
+        let last = session.meta().last_turn.unwrap_or(Value::Null);
+        let field = |k: &str| last.get(k).and_then(Value::as_str).map(str::to_owned);
+        let status = field("status");
+        let (Some("failed"), Some(cut_turn), Some(failed)) =
+            (status.as_deref(), field("turnId"), field("promptId"))
+        else {
+            return Err(nothing_failed());
+        };
         match pending.get(&session.id) {
-            Some(Mark::Waiting { turn, retry: Some(retry), wake }) if still_cut(session, turn) => {
-                // Its timer ends now; asked twice, it still fires once (`fire_pending`).
-                wake.0.notify_one();
-                let prompt_id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
-                Ok(Some(answer(prompt_id, None)))
-            }
-            // One the chat moved on from is skipped when its wait ends.
-            Some(Mark::Waiting { retry: Some(_), .. }) => Ok(None),
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => Err(busy()),
+            // A retry of this turn that waits gives way to this one.
+            Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => return Err(busy()),
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
-            Some(Mark::Stopped(_)) => {
-                pending.remove(&session.id);
-                Ok(None)
-            }
-            None => Ok(None),
+            Some(Mark::Stopped(_)) | None => {}
         }
+        if !still_cut(session, &cut_turn) {
+            return Err(busy());
+        }
+        pending.insert(session.id.clone(), Mark::Firing(cut_turn.clone()));
+        Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 
     /// The failed turn `cut_turn`'s prompt `prompt_id`, to send again as it was: when the model
-    /// produced nothing in it, nothing was steered into it, and its blocks can be rebuilt.
-    /// The log is read from its end back to that prompt.
+    /// produced nothing in it, nothing was steered into it, it was no turn of agent messages
+    /// (whose joined messages went back to the queue, `digest.rs`), it carried no hidden context
+    /// (`prompt_context.rs`, never recorded), and its blocks can be rebuilt. The log is read from
+    /// its end back to that prompt.
     fn resend_of(&self, session: &Session, cut_turn: &str, prompt_id: &str) -> Option<Vec<Value>> {
         let mut prompt = None;
         let skip = |_: &[u8], _: &[u8]| false;
@@ -240,7 +272,9 @@ impl Hub {
                 // Its own prompt; a steered one (or another prompt of the turn) ends the read.
                 "user_message" if turn == Some(cut_turn) => {
                     let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
-                    if own && e.msg.get("steer").is_none() {
+                    let kind = e.msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
+                    let whole = e.msg.get("hiddenContext").is_none();
+                    if own && whole && e.msg.get("steer").is_none() && kind != Some(DIGEST_KIND) {
                         prompt = Some(e.msg);
                     }
                     false

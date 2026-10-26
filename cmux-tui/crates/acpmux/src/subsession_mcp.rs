@@ -129,7 +129,7 @@ fn tools() -> Value {
         },
         {
             "name": "retry_session",
-            "description": "Retry a sub-session's failed last turn now, in the same session: a retry that waits after a transient error (a 503, an overload, a dropped connection) fires at once; otherwise its failed prompt is sent again, or a continuation when the turn had already done some work. Refused while a turn runs (retry.busy) or when its last turn did not fail (retry.nothing_failed). Returns the retry's promptId; use wait_for_sessions to read the result.",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. Refused while a turn runs (retry.busy), when its last turn did not fail (retry.nothing_failed), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId; use wait_for_sessions to read the result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -269,14 +269,8 @@ fn retry_params(args: &Value) -> Value {
 /// `retry_session`'s one line.
 fn retried_text(r: &Value) -> String {
     let prompt = r["promptId"].as_str().unwrap_or_default();
-    match r["turnId"].as_str() {
-        Some(turn) => format!(
-            "Retrying: prompt {prompt} started turn {turn}. Use wait_for_sessions to get its result."
-        ),
-        None => format!(
-            "Retrying: its waiting retry (prompt {prompt}) fires now. Use wait_for_sessions to get its result."
-        ),
-    }
+    let turn = r["turnId"].as_str().map(|t| format!(" started turn {t}")).unwrap_or_default();
+    format!("Retrying: prompt {prompt}{turn}. Use wait_for_sessions to get its result.")
 }
 
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
@@ -440,8 +434,8 @@ mod tests {
             json!({"sessionId": "s1", "subagentId": "a1"})
         );
         assert_eq!(retry_params(&json!({"sessionId": "s2"})), json!({"sessionId": "s2"}));
-        let fired = retried_text(&json!({"promptId": "p~resume-1", "kind": "turn"}));
-        assert!(fired.contains("fires now"), "{fired}");
+        let text = retried_text(&json!({"promptId": "p~resume-1", "turnId": "t2", "kind": "turn"}));
+        assert!(text.starts_with("Retrying: prompt p~resume-1 started turn t2."), "{text}");
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why

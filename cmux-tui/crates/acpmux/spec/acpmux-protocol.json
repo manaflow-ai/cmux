@@ -2728,7 +2728,7 @@
       "type": "string"
     },
     "RetryResult": {
-      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, run once however often it\nis asked), and its turn once one started (none when a waiting retry was fired now).",
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the\nfailed prompt) and the turn it started.",
       "properties": {
         "kind": {
           "$ref": "#/types/RetryKind"
