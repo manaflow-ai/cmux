@@ -205,6 +205,12 @@ public final class MainThreadWatchdog: Sendable {
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
     /// Times the watchdog thread returned from a wait (tests count its idle wakeups).
     let watchdogWakes = Atomic<UInt64>(0)
+    /// Tests: the run-loop observers still on the main run loop. Its own object, so a test reads it
+    /// after the watchdog is gone.
+    let observersForTesting = ObserverCountForTesting()
+    final class ObserverCountForTesting: Sendable {
+        let live = Atomic<Int>(0)
+    }
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
@@ -285,9 +291,16 @@ public final class MainThreadWatchdog: Sendable {
         // in before-waiting observers, count as main-thread work.
         // Each observer removes itself on the main thread at its first call after ``stop()`` (or after the
         // watchdog is gone), so no other thread ever holds or invalidates it.
+        #if DEBUG
+        let observerCount = observersForTesting
+        #endif
         let beat: (CFRunLoopObserver?, CFRunLoopActivity) -> Void = { [weak self] observer, activity in
             guard let self, running.load(ordering: .acquiring) else {
-                if let observer { CFRunLoopObserverInvalidate(observer) }
+                guard let observer, CFRunLoopObserverIsValid(observer) else { return }
+                CFRunLoopObserverInvalidate(observer)
+                #if DEBUG
+                observerCount.live.subtract(1, ordering: .relaxed)
+                #endif
                 return
             }
             heartbeat(activity)
@@ -298,6 +311,9 @@ public final class MainThreadWatchdog: Sendable {
                                                               MainRunLoopObserver.lastOrder, beat)
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
+        #if DEBUG
+        observerCount.live.add(2, ordering: .relaxed)
+        #endif
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
         // Without its kqueue the thread could not wait: stalls are still measured on the main thread.

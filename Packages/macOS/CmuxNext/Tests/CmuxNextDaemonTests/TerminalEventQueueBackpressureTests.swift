@@ -65,6 +65,45 @@ import Testing
         #expect(reader.returned)
     }
 
+    /// The reader parks, reads again at the low water, and parks a second time on its next pushes: one release
+    /// signal per park, so the second park holds until the consumer drains to the low water again. Bytes queued
+    /// without waiting (a history snapshot) while it is parked count toward that low water too.
+    @Test func aReleasedReaderParksAgainAndHoldsUntilTheNextLowWater() async {
+        let (blocks, blocked) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let queue = Self.armedQueue { blocked.yield() }
+        let chunks = (1...6).map { Self.chunk(UInt8($0)) }
+        let reader = Reader(queue, pushing: chunks)
+        var blockEvents = blocks.makeAsyncIterator()
+
+        // First park on the third chunk; draining to 0 bytes lets it go.
+        #expect(await blockEvents.next() != nil)
+        #expect(await queue.next() == chunks[0])
+        #expect(await queue.next() == chunks[1])
+        #expect(await queue.next() == chunks[2])
+
+        // Second park on the sixth chunk: the reader did not return, and only what it pushed after the release is queued.
+        #expect(await blockEvents.next() != nil)
+        #expect(!reader.returned)
+        #expect(queue.bufferedOutputBytes == 15)
+        let history = TerminalChannelEvent.snapshot(TerminalSnapshotFrame(phase: .history, generation: 1, offset: 0, version: 1,
+                                                                          data: Data(repeating: 9, count: 100)))
+        queue.pushWithoutWaiting(history)
+        #expect(queue.bufferedOutputBytes == 115)
+
+        // 110, 105, then 100 bytes left: all above the low water, so the second park holds.
+        #expect(await queue.next() == chunks[3])
+        #expect(!reader.returned)
+        #expect(await queue.next() == chunks[4])
+        #expect(!reader.returned)
+        #expect(await queue.next() == chunks[5])
+        #expect(!reader.returned)
+        // 0 bytes left: the reader goes on and returns from its last push.
+        #expect(await queue.next() == history)
+        await reader.waitUntilReturned()
+        #expect(reader.returned)
+        #expect(queue.bufferedOutputBytes == 0)
+    }
+
     @Test func finishReleasesAParkedReaderAndKeepsWhatIsQueued() async {
         let (blocks, blocked) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let queue = Self.armedQueue { blocked.yield() }
