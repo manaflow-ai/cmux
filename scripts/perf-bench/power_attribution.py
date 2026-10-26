@@ -11,8 +11,10 @@ Per process (procs.usage, proc_pid_rusage RUSAGE_INFO_V6, same user, no root):
 Per thread: the process's own energy split by each thread's CPU time in the window (PROC_PIDTHREADID64INFO), as
 Chromium's resource attribution splits a process's measured CPU over the contexts it hosts
 (components/performance_manager/resource_attribution/cpu_measurement_monitor.cc). Energy per CPU second differs
-between P and E cores, so a thread's mW is an estimate; the process's is measured. CPU of threads that exited
-inside the window is the unnamed `exited threads` owner.
+between P and E cores, so a thread's mW is an estimate; the process's is measured. Unnamed owners are one row
+per kind, so energy spread over many threads is seen whole: `unnamed threads` (live threads with no pthread name,
+until a stack sample names them), `exited threads` (CPU of threads that exited inside the window) and `process`
+(energy with no thread split).
 
 Total: the main process's resource coalition (procs.coalition_rates, what components/power_metrics/
 resource_coalition_mac.mm reads), less the coalition's members outside the instance, plus the instance's
@@ -24,7 +26,9 @@ Mac's, so it compares two browsers measured the same way on one host, not one br
 the instance is already each process's `billed`.
 
 FrameClients: the wakeup ledger's `frame` entries (FrameScheduler records each client's frame under its owner)
-that grew in the window, and each FrameScheduler's frames per second (debug.wakeups).
+that grew in the window, and each FrameScheduler's frames per second (debug.wakeups); and the frame sources no
+FrameScheduler sees, the infinite Core Animation loops and playing video layers at each end (debug.layers
+`frame_sources`).
 
 Every reader goes through `Reader`, so the pure parts and PowerWindow test anywhere.
 `python3 -I power_attribution.py rusage PID` prints one process's procs.Usage as JSON (the root read).
@@ -118,15 +122,24 @@ def window_server_pid(table) -> int | None:
 
 
 class PowerWindow:
-    """The reads of one attributed window around the caller's idle sleep: `begin()` just before it, `end()` just
-    after. Subprocesses (ps, sudo) run outside the counter bracket, so a bench in the instance's coalition adds
-    no exited task to its total."""
+    """The reads of one attributed window around the caller's idle sleep, in four steps so that a caller with its
+    own counter bracket keeps both brackets clean:
+
+      prepare()  the subprocesses (ps, `sudo -n` for WindowServer) and the coalition ids: before the caller's
+                 first counter reads
+      begin()    the counter burst (libproc and coalition reads, no subprocess): just before the sleep
+      end()      the counter burst: just after it
+      finish()   processes that started in the window and WindowServer's end read: after the caller's last
+                 counter reads; returns the raw reads attribute() takes
+
+    No subprocess runs between begin() and end(), so a bench in the instance's coalition adds no exited task to
+    its total, and none runs inside the caller's bracket."""
 
     def __init__(self, main_pid: int, pids, classify, reader: Reader | None = None):
         self.main_pid, self.pids, self.classify = main_pid, pids, classify  # pids(): {pid: command} now
         self.reader = reader or Reader()
 
-    def begin(self):
+    def prepare(self):
         table = self.reader.process_table()
         self.ws_pid = window_server_pid(table)
         self.ws0 = (self.reader.clock(), self.reader.root_usage(self.ws_pid))
@@ -135,7 +148,12 @@ class PowerWindow:
         self.foreign = {pid for pid in self.commands if self.cid is None or self.reader.coalition_id(pid) != self.cid}
         self.outside = [pid for pid, _ppid, _cmd in table
                         if self.cid is not None and pid not in self.commands and self.reader.coalition_id(pid) == self.cid]
+
+    def begin(self):
         self.first = self._read()
+
+    def end(self):
+        self.last = self._read()
 
     def _read(self):
         """Counters of the instance, the coalition and its outside members, in one burst with no subprocess."""
@@ -145,9 +163,9 @@ class PowerWindow:
         threads = {pid: self.reader.threads(pid) for pid in self.commands}
         return {"at": at, "coalition": coalition, "usage": usage, "threads": threads}
 
-    def end(self) -> dict:
+    def finish(self) -> dict:
         """The window's raw reads (attribute() turns them into owners)."""
-        last = self._read()
+        last = self.last
         # Processes that started inside the window count from zero (read after the burst: ps is a subprocess).
         for pid, cmd in self.pids().items():
             if pid not in self.commands:
@@ -223,17 +241,20 @@ def owners(processes: list[dict]) -> list[dict]:
 
     `processes`: [{pid, kind, power (process_power), threads (thread_split)}]. An owner is `<kind>/<thread>`
     summed over the processes of one kind (a role's main threads are one owner), `<kind>/billed` (what other
-    processes spent for it) and `<kind>/serviced` (negative: what it spent for others, inside its threads). An
-    unnamed thread is its own owner `<kind>/thread <tid>` (`named` false) until name_threads names it."""
+    processes spent for it) and `<kind>/serviced` (negative: what it spent for others, inside its threads).
+    Unnamed (`named` false) owners, each one row per kind so that energy spread thin is still seen whole:
+    `<kind>/unnamed threads` (live threads with no pthread name, GCD and Swift concurrency workers; `threads`
+    lists each one's pid, tid and mW, for name_threads), `<kind>/exited threads` and `<kind>/process` (energy
+    with no thread read, or no CPU to split it by)."""
     merged: dict[str, dict] = {}
 
-    def add(key: str, mw: float, pid: int, named: bool = True, tid: int | None = None):
+    def add(key: str, mw: float, pid: int, named: bool = True, thread: dict | None = None):
         entry = merged.setdefault(key, {"owner": key, "mw": 0.0, "named": named, "pids": []})
         entry["mw"] = round(entry["mw"] + mw, 3)
         entry["named"] = entry["named"] and named
         entry["pids"] = sorted(set(entry["pids"]) | {pid})
-        if tid is not None:
-            entry["tid"] = tid
+        if thread is not None:
+            entry.setdefault("threads", []).append(thread)
 
     for process in processes:
         power, kind, pid = process["power"], process["kind"], process["pid"]
@@ -244,10 +265,11 @@ def owners(processes: list[dict]) -> list[dict]:
             elif thread["tid"] is None:
                 add(f"{kind}/exited threads", thread["mw"], pid, named=False)
             else:
-                add(f"{kind}/thread {thread['tid']}", thread["mw"], pid, named=False, tid=thread["tid"])
+                add(f"{kind}/unnamed threads", thread["mw"], pid, named=False,
+                    thread={"pid": pid, "tid": thread["tid"], "mw": thread["mw"]})
         unsplit = power["own_mw"] - sum(thread["mw"] for thread in threads)
         if abs(unsplit) >= 0.01:  # no thread read, or no CPU to split the energy by
-            add(f"{kind}/process", unsplit, pid)
+            add(f"{kind}/process", unsplit, pid, named=False)
         if power["billed_mw"]:
             add(f"{kind}/billed", power["billed_mw"], pid)
         if power["serviced_mw"]:
@@ -256,12 +278,32 @@ def owners(processes: list[dict]) -> list[dict]:
 
 
 def name_threads(entries: list[dict], pid: int, labels: dict[int, str]) -> list[dict]:
-    """Names `pid`'s unnamed thread owners from a stack sample's {tid: label}; returns the entries."""
-    for entry in entries:
-        label = labels.get(entry.get("tid")) if not entry["named"] and entry["pids"] == [pid] else None
-        if label:
-            entry["owner"] = f"{entry['owner']} ({label})"
-            entry["named"] = True
+    """Moves each of `pid`'s unnamed threads that a stack sample labels ({tid: label}) out of its kind's
+    `unnamed threads` owner into the named owner `<kind>/<label>` (threads with one label are one owner); an
+    unnamed owner left with no thread goes. Returns the entries, most mW first."""
+    by_owner = {entry["owner"]: entry for entry in entries}
+    for entry in [e for e in entries if e.get("threads") and not e["named"]]:
+        kind = entry["owner"].rsplit("/", 1)[0]
+        keep = []
+        for thread in entry["threads"]:
+            label = labels.get(thread["tid"]) if thread["pid"] == pid else None
+            if not label:
+                keep.append(thread)
+                continue
+            key = f"{kind}/{label}"
+            named = by_owner.get(key)
+            if named is None:
+                named = by_owner[key] = {"owner": key, "mw": 0.0, "named": True, "pids": [], "sampled": True}
+                entries.append(named)
+            named["mw"] = round(named["mw"] + thread["mw"], 3)
+            named["pids"] = sorted(set(named["pids"]) | {pid})
+            named.setdefault("tids", []).append(thread["tid"])
+            entry["mw"] = round(entry["mw"] - thread["mw"], 3)
+        entry["threads"] = keep
+        entry["pids"] = sorted({thread["pid"] for thread in keep})
+        if not keep:
+            entries.remove(entry)
+    entries.sort(key=lambda entry: -entry["mw"])
     return entries
 
 
@@ -270,39 +312,73 @@ def unnamed(entries: list[dict], floor: float = FLOOR_MW) -> list[dict]:
     return [entry for entry in entries if entry["mw"] >= floor and not entry["named"]]
 
 
+# Blocking calls: a sample under one is a thread asleep, not work.
 _WAITS = ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait", "__select", "__ulock_wait",
-          "start_wqthread", "thread_start", "_pthread_start", "_pthread_wqthread", "_dispatch_worker_thread",
-          "_dispatch_workloop_worker_thread", "__CFRunLoopServiceMachPort", "__CFRunLoopRun", "CFRunLoopRunSpecific")
+          "__CFRunLoopServiceMachPort")
+# Thread entry and run-loop frames: on every stack of a thread, so never its label (the work under them counts).
+_ENTRIES = ("start_wqthread", "thread_start", "_pthread_start", "_pthread_wqthread", "_dispatch_worker_thread",
+            "_dispatch_workloop_worker_thread", "__CFRunLoopRun", "CFRunLoopRunSpecific")
 
 
 def sample_labels(text: str) -> dict[int, str]:
     """{thread id: label} from `/usr/bin/sample` output (its Thread_<id> is the PROC_PIDLISTTHREADIDS id): the
-    thread's dispatch queue or pthread name from its header, else `top <frame>`, the deepest frame among those
-    with the most samples outside a wait."""
+    thread's dispatch queue or pthread name from its header, else `top <frame>`: the deepest frame that holds the
+    most of the thread's work, its samples whose stack runs under no wait (_WAITS). A wait under the run-loop
+    frame (RunLoop::Run > kevent64) adds nothing to the run loop's work, so the frame that does the work wins."""
     graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
     labels: dict[int, str] = {}
-    current, best = None, None
+    current, roots, stack = None, [], []  # stack: the open frames [(indent, node)]
 
     def close():
+        best = _busiest(roots)
         if current is not None and current not in labels and best:
-            labels[current] = f"top {best[2]}"
+            labels[current] = f"top {best}"
 
     for line in graph.splitlines():
         head = re.match(r"\s{4}\d+ Thread_(\d+)(.*)", line)
         if head:
             close()
-            current, best = int(head.group(1)), None
+            current, roots, stack = int(head.group(1)), [], []
             name = re.sub(r"\s+", " ", head.group(2).strip(" :")).replace(" (serial)", "").replace(" (concurrent)", "")
             name = re.sub(r"^DispatchQueue_\d+: ", "", name).strip()
             if name:
                 labels[current] = name
             continue
-        frame = re.match(r"([\s+!:|]*)(\d+) (.+?)\s+\(in ([^)]+)\)", line)
-        if current is not None and frame and not any(wait in frame.group(3) for wait in _WAITS):
-            key = (int(frame.group(2)), len(frame.group(1)), f"{frame.group(3)} ({frame.group(4)})")
-            best = key if best is None or key[:2] > best[:2] else best
+        frame = re.match(r"([\s+!:|]*)(\d+) (.+?)(?:\s+\(in ([^)]+)\).*)?$", line)
+        if current is None or not frame:
+            continue
+        indent, symbol = len(frame.group(1)), frame.group(3).strip()
+        node = {"name": f"{symbol} ({frame.group(4)})" if frame.group(4) else symbol, "count": int(frame.group(2)),
+                "wait": any(wait in symbol for wait in _WAITS), "entry": any(entry in symbol for entry in _ENTRIES),
+                "children": []}
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        (stack[-1][1]["children"] if stack else roots).append(node)
+        stack.append((indent, node))
     close()
     return labels
+
+
+def _busiest(roots: list[dict]) -> str | None:
+    """The deepest frame with the most work (samples under no wait) of one thread's call tree, entry frames
+    excluded; None when the thread did no work."""
+    def work(node: dict, waiting: bool) -> int:
+        waiting = waiting or node["wait"]  # every sample under a wait is asleep
+        inner = sum(work(child, waiting) for child in node["children"])
+        own = max(0, node["count"] - sum(child["count"] for child in node["children"]))
+        node["work"] = 0 if waiting else own + inner
+        return node["work"]
+
+    for root in roots:
+        work(root, False)
+    best = None  # (work, depth, name)
+    pending = [(root, 0) for root in roots]
+    while pending:
+        node, depth = pending.pop()
+        if node["work"] > 0 and not node["entry"] and (best is None or (node["work"], depth) > best[:2]):
+            best = (node["work"], depth, node["name"])
+        pending += [(child, depth + 1) for child in node["children"]]
+    return best[2] if best else None
 
 
 def breakdown(owned_mw: float, coalition: dict | None, outside_mw: float, foreign_mw: float) -> dict:
@@ -382,10 +458,15 @@ def power_over(entries: list[dict], reference: list[dict] | None, floor: float =
     return sorted(out, key=lambda row: -row["mw"])
 
 
-def frame_clients(before: dict, after: dict, elapsed: float) -> dict:
-    """The FrameClients that ticked in an idle window (debug.wakeups at its two ends): every ledger owner with
-    reason `frame` that grew, per second; each FrameScheduler that made frames, with its active clients; and
-    the clients active at the two ends."""
+def frame_clients(before: dict, after: dict, elapsed: float, sources: tuple | None = None) -> dict:
+    """What can tick in an idle window, from reads at its two ends.
+
+    FrameScheduler clients (debug.wakeups `before`/`after`): every ledger owner with reason `frame` that grew,
+    per second; each FrameScheduler that made frames, with its active clients; the clients active at the two
+    ends. Frame sources no FrameScheduler sees (`sources`: debug.layers `frame_sources` at the two ends):
+    infinite Core Animation loops (NightSky, Motion's spinners) and playing video layers (BackdropVideoView),
+    per owner view with their count at each end (None `sources`: not asked, no rows). A source asked for but not
+    read is named in `not_covered`."""
     counts = {e.get("owner"): e.get("count", 0) for e in (before.get("ledger") or []) if e.get("reason") == "frame"}
     ticked = []
     for entry in after.get("ledger") or []:
@@ -401,8 +482,23 @@ def frame_clients(before: dict, after: dict, elapsed: float) -> dict:
         if delta > 0 and elapsed > 0:
             schedulers.append({"name": scheduler.get("name"), "frames_per_s": round(delta / elapsed, 3),
                                "active_clients": scheduler.get("active_clients", [])})
-    return {"ticked": sorted(ticked, key=lambda e: -e["per_s"]), "schedulers": schedulers,
-            "active_start": before.get("active_frame_clients", []), "active_end": after.get("active_frame_clients", [])}
+    out = {"ticked": sorted(ticked, key=lambda e: -e["per_s"]), "schedulers": schedulers,
+           "active_start": before.get("active_frame_clients", []), "active_end": after.get("active_frame_clients", [])}
+    not_covered = []
+    if not before.get("ledger") and not after.get("ledger"):
+        not_covered.append("FrameScheduler clients: the build has no debug.wakeups ledger")
+    start, end = sources or (None, None)
+    asked = (("looping_animations", "infinite Core Animation loops"), ("playing_videos", "playing video layers"))
+    for key, what in asked if sources is not None else ():
+        if not isinstance((start or {}).get(key), dict) or not isinstance((end or {}).get(key), dict):
+            out[key] = None
+            not_covered.append(f"{what}: the build's debug.layers has no frame_sources")
+            continue
+        names = sorted(set(start[key]) | set(end[key]))
+        rows = [{"owner": owner, "start": start[key].get(owner, 0), "end": end[key].get(owner, 0)} for owner in names]
+        out[key] = sorted(rows, key=lambda row: (-row["end"], row["owner"]))
+    out["not_covered"] = not_covered
+    return out
 
 
 def report_lines(session: str, power: dict, floor: float = FLOOR_MW) -> list[str]:

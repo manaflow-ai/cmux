@@ -152,8 +152,11 @@ def power_window(app_pid: int, bundle: str):
 def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False,
             attribute: bool = False):
     """Energy, CPU and wakeups of every owned process over `seconds`; with `attribute`, its power owners."""
-    start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
+    # PowerWindow's subprocesses (ps, sudo) run before `start` and after the end counters, outside both brackets.
     window = power_window(app_pid, bundle) if attribute else None
+    if window:
+        window.prepare()
+    start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
     if window:
         window.begin()
     started = time.monotonic()
@@ -177,13 +180,16 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(seconds / 2)  # test script: second half of the measured window
-    raw = window.end() if window else None
+    if window:
+        window.end()
     if pm:
         pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
+    ends = {pid: counters(pid) for pid in start}
+    raw = window.finish() if window else None
     kinds: dict[str, dict] = {}
     for pid, (kind, first) in start.items():
-        last = counters(pid)
+        last = ends[pid]
         if first is None or last is None:
             continue
         entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0})

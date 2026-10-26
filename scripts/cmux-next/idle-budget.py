@@ -57,8 +57,11 @@ Sessions (--sessions):
                 attributed (scripts/perf-bench/power_attribution.py, p14-energy-096): per process own + billed -
                 serviced energy, split per thread by CPU time, summed into owners `<kind>/<thread>`, `<kind>/billed`
                 and `<kind>/serviced` that must sum to within 10% of the app's coalition total; WindowServer's own
-                energy (with `sudo -n`); each unnamed owner >= 2 mW named from a stack sample of its process; the
-                FrameClients that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames)
+                energy (with `sudo -n`); unnamed threads summed per kind (`<kind>/unnamed threads`), and while that
+                is >= 2 mW a stack sample of the process with the most of it names its threads; the FrameClients
+                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames) and the infinite Core
+                Animation loops and playing video layers at both ends (debug.layers `frame_sources`). Reported, not
+                judged: no budget row.
   chrome-power-visible  the same 1 tab in the chrome-static browser, attributed the same way. With both sessions
                 measured, POWER-OVER lines list each owner group >= 2 mW (Chrome's kinds: the app and cef-host are
                 `browser`) that spends more than Chrome's same group, or that Chrome does not have: reported, not
@@ -221,17 +224,20 @@ def saver_state(reply):
 def measure(app, instance, seconds, read_anim=None, attribute=False):
     """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
     outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
-    `attribute`, `power` has the window's power owners (power_attribution.PowerWindow: its subprocesses run
-    outside the coalition bracket, its counter reads inside it)."""
+    `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
+    run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside."""
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
+    window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
+    if window:
+        window.prepare()
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
+    sources0 = frame_sources(app) if attribute else None
     counters0 = app_counters(app)
     first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
-    window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
     if window:
         window.begin()
     coalition0 = procs.coalition_of(instance.pid)
@@ -239,12 +245,15 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
     coalition1 = procs.coalition_of(instance.pid)
-    power = window.end() if window else None
+    if window:
+        window.end()
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
     last = snapshot(last_pids)
+    power = window.finish() if window else None
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
+    sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
     end = window_end(app, last_pids, read_anim)
     rows = process_rows(first, last, elapsed, gpu0, gpu1, kind)
@@ -255,7 +264,9 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     owners = ledger_rates(ledger0, ledger1, elapsed)
     if owners is not None:
         result["ledger"] = owners
-        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed)
+    if owners is not None or attribute:
+        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
+                                                                  (sources0, sources1) if attribute else None)
     if power is not None:
         result["power"] = power_attribution.attribute(power)
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
@@ -265,6 +276,13 @@ def measure(app, instance, seconds, read_anim=None, attribute=False):
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
     return result
+
+
+def frame_sources(app):
+    """The app's frame sources no FrameScheduler sees (debug.layers `frame_sources`: infinite Core Animation loops
+    and playing video layers per owner view), or None when the build does not report them."""
+    got = read_rpc(app, "debug.layers", {"frame_sources": True}).get("frame_sources")
+    return got if isinstance(got, dict) else None
 
 
 def snapshot(commands):
@@ -506,6 +524,10 @@ def summarize(session, result, budget):
              "thermal": {"start": start.get("thermal"), "end": end.get("thermal"), "worst": thermal, "marked": marked}}
     if spec.get("anim"):
         entry["anim"] = anim_rate(start.get("anim"), end.get("anim"))
+    if spec.get("power"):
+        # A power session is reported, never judged: it has no budget row, and the default kinds are not its budget.
+        entry["over"], entry["not_judged"] = [], []
+        return entry
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["not_judged"] = sum_notes(session, kinds, budget)
     return entry
@@ -1335,18 +1357,23 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
         browser.activate(browser.tabs[-1])
         settle = settle_seconds(session, opts.settle)
         time.sleep(settle)  # bench: the pages settle and hidden tabs pass Chrome's background throttling
-        first = snapshot(browser.instance.pids())
-        gpu0 = procs.gpu_ns_by_pid()
+        # As measure: PowerWindow's subprocesses before `first` and after `last`, its libproc reads around the sleep.
         window = (power_attribution.PowerWindow(browser.instance.pid, browser.instance.pids, chrome_kind)
                   if spec.get("power") else None)
+        if window:
+            window.prepare()
+        first = snapshot(browser.instance.pids())
+        gpu0 = procs.gpu_ns_by_pid()
         if window:
             window.begin()
         began = time.monotonic()
         time.sleep(opts.measure)  # bench: the idle window itself (nothing is sent to Chrome in it)
         elapsed = time.monotonic() - began
-        power = window.end() if window else None
+        if window:
+            window.end()
         gpu1 = procs.gpu_ns_by_pid()
         last = snapshot(browser.instance.pids())
+        power = window.finish() if window else None
         targets = browser.extension_targets()
         page_targets = len(browser.pages())
         result = {"seconds": round(elapsed, 1), "processes": process_rows(first, last, elapsed, gpu0, gpu1, chrome_kind)}
@@ -1397,17 +1424,26 @@ def chrome_static_entry(opts, out, session, markdown):
 def name_power_owners(power, sample_seconds, folder, samples=None, sampler=None):
     """Names the unnamed thread owners at or above the floor from one stack sample of each process that has one
     (`samples`: {pid: text} already taken, as the app's after its window; `sampler` defaults to /usr/bin/sample);
-    returns `power`. No new sample with `sample_seconds` 0."""
+    returns `power`. No new sample with `sample_seconds` 0. The process with the most unnamed thread mW goes
+    first, and sampling stops once no `unnamed threads` owner at or above the floor is left."""
     sampler = sampler or power_attribution.sample_text
-    pids = sorted({entry["pids"][0] for entry in power_attribution.unnamed(power["owners"]) if entry.get("tid") is not None})
-    for pid in pids:
+    tried = set()
+    while True:
+        weight = {}
+        for entry in power_attribution.unnamed(power["owners"]):
+            for thread in entry.get("threads") or []:
+                if thread["pid"] not in tried:
+                    weight[thread["pid"]] = weight.get(thread["pid"], 0.0) + thread["mw"]
+        if not weight:
+            return power
+        pid = max(sorted(weight), key=weight.get)
+        tried.add(pid)
         text = (samples or {}).get(pid)
         if text is None and sample_seconds:
             os.makedirs(folder, exist_ok=True)
             text = sampler(pid, sample_seconds, os.path.join(folder, f"sample-power-{pid}.txt"))
         if text:
             power_attribution.name_threads(power["owners"], pid, power_attribution.sample_labels(text))
-    return power
 
 
 def power_table(power, floor=power_attribution.FLOOR_MW):

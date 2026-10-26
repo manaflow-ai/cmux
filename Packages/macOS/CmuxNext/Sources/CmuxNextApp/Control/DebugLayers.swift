@@ -16,6 +16,7 @@ import CmuxNextSettings
 /// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
 /// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
 /// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
+/// `frame_sources: true` adds the frame sources no FrameScheduler sees (``frameSources(services:)``).
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -23,11 +24,31 @@ enum DebugLayers {
             return report(controller: controller, window: window)
         }
         let band = params["titlebar_band"]?.boolValue == true ? services.windows.controllers.first?.window?.titlebarBandMap() : nil
-        return .object([
+        var fields: [String: JSONValue] = [
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
             "layout_passes": layoutPasses(),
-        ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
+        ]
+        if let band = band.flatMap({ JSONValue(foundation: $0) }) { fields["titlebar_band"] = band }
+        if params["frame_sources"]?.boolValue == true { fields["frame_sources"] = frameSources(services: services) }
+        return .object(fields)
+    }
+
+    /// `frame_sources: true`: what ticks with no FrameScheduler client in the
+    /// app's windows and their child windows, per owner view: infinite Core
+    /// Animation loops and playing video layers (``RenderStats/loopingAnimations(in:)``).
+    static func frameSources(services: AppServices) -> JSONValue {
+        var windows: [NSWindow] = []
+        var pending = services.windows.controllers.compactMap(\.window)
+        while let window = pending.popLast() {
+            windows.append(window)
+            pending += window.childWindows ?? []
+        }
+        let counts: ([String: Int]) -> JSONValue = { owners in .object(owners.mapValues { .number(Double($0)) }) }
+        return .object([
+            "looping_animations": counts(RenderStats.loopingAnimations(in: windows)),
+            "playing_videos": counts(RenderStats.playingVideoLayers(in: windows)),
+        ])
     }
 
     /// `LayoutPassGuard`: the most layout calls one view had in one
