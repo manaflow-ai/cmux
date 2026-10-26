@@ -34,6 +34,14 @@ package protocol PageLifecycleTarget {
     /// - Returns: False when the page refused (it shows after all): it keeps its state, and a later
     ///   pass tries again.
     func discard() -> Bool
+    /// The page holds an engine page now (its document ran and was not discarded): only then does a
+    /// discard free memory, so only then does the app's urgent pass rank it (``PageLifecycle/urgentCandidates()``).
+    var holdsEnginePage: Bool { get }
+}
+
+extension PageLifecycleTarget {
+    /// A target with no engine of its own to ask (a test page) counts as holding one.
+    package var holdsEnginePage: Bool { true }
 }
 
 /// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
@@ -89,6 +97,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
         view?.restoreDiscardedPage()
     }
     package func discard() -> Bool { view?.discardPage(decoder: encoder) ?? false }
+    /// A page still waiting for its first show has no document yet, and a discarded one has none left.
+    package var holdsEnginePage: Bool { view.map { !$0.awaitsFirstShow && !$0.isDiscarded } ?? false }
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each
@@ -142,6 +152,13 @@ package final class PageLifecycle {
     package private(set) var nextPassAt: Duration?
     /// Runs after each pass (debug trace and tests).
     package var didRunPass: (@MainActor () -> Void)?
+    /// The app's one urgent pass over tabs, chats and pages takes the critical memory event's discard
+    /// (feature `memoryUrgentDiscardRanking`, set by the browser hibernation): this lifecycle then
+    /// discards nothing until one urgent pace interval after the pressure turns critical, and after
+    /// each urgent pass (``urgentPassDidRun()``). Freezes and thaws go on as before.
+    package var leavesCriticalEventToUrgentPass = false
+    /// Until when (the scheduler's uptime) a pass discards nothing (``leavesCriticalEventToUrgentPass``).
+    package private(set) var noDiscardBefore: Duration?
     /// The page that tab `key` shows, nil for a tab with no cmux page; the composition root sets it
     /// (page tabs now, agent chats in p13-webui-038). Read by ``tabDidShow(_:)`` and ``tabDidHide(_:)``.
     package var pageOfTab: @MainActor (String) -> (any PageLifecycleTarget)? = { _ in nil }
@@ -266,37 +283,22 @@ package final class PageLifecycle {
 
     /// The memory pressure, Energy Saver, or `browser.hibernation` and its companions changed (the
     /// app's browser hibernation passes on what it follows): a pass looks again. When pressure turns
-    /// critical, the event's discard is the app's one urgent pass over tabs, chats and pages
-    /// (``urgentCandidates()``, ``discardNow(_:)``), so this pass waits one urgent pace interval and
-    /// then discards at that pace.
+    /// critical and ``leavesCriticalEventToUrgentPass`` is set, that pass discards nothing: the event's
+    /// discard is the app's urgent pass (``urgentCandidates()``, ``urgentDiscard(_:)``).
     package func setConditions(_ conditions: PageLifecyclePlanner.Conditions) {
         guard conditions != self.conditions else { return }
         let turnsCritical = conditions.pressure == .critical && self.conditions.pressure != .critical
         self.conditions = conditions
-        guard !hiddenKeys.isEmpty else { return }
-        let wait: Duration = turnsCritical ? .seconds(planner.timing.urgentPace.interval) : .zero
-        arm(at: uptime() + wait)
+        if turnsCritical, leavesCriticalEventToUrgentPass { holdDiscards() }
+        if conditions.pressure != .critical { noDiscardBefore = nil }
+        if !hiddenKeys.isEmpty { arm(at: uptime()) }
     }
 
     // MARK: Urgent pass (the app's critical memory event, O(hidden pages))
 
-    /// The hidden pages the app's one urgent pass may discard (``PageLifecyclePlanner/urgentCandidates(_:conditions:)``),
-    /// ranked there with the browser tabs (``UrgentDiscardRanker``).
-    package func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
-        planner.urgentCandidates(hiddenPages(at: uptime()), conditions: conditions)
-    }
-
-    /// The urgent pass chose hidden page `key`: it is discarded now, from the hide-time picture and
-    /// state, with no call into the page. Returns false for a page that is shown, already discarded or
-    /// unknown.
-    @discardableResult
-    package func discardNow(_ key: String) -> Bool {
-        guard var entry = entries[key], hiddenKeys.contains(key), entry.target.object != nil,
-              entry.state == .hidden || entry.state == .frozen else { return false }
-        entry.target.discard()
-        entry.state = .discarded
-        entries[key] = entry
-        return true
+    /// Discards wait one urgent pace interval from now.
+    private func holdDiscards() {
+        noDiscardBefore = uptime() + .seconds(planner.timing.urgentPace.interval)
     }
 
     // MARK: Pass (at a deadline, O(hidden pages))
@@ -309,12 +311,20 @@ package final class PageLifecycle {
         let now = uptime()
         let plan = planner.plan(hiddenPages(at: now), conditions: conditions)
         mostRecentlyHidden = nil
+        if let hold = noDiscardBefore, now >= hold { noDiscardBefore = nil }
         var refused = false
+        var held = false
         for decision in plan.decisions.values {
-            if !perform(decision) { refused = true }
             if decision.keptBy.contains(.mostRecentlyUsed) { mostRecentlyHidden = decision.key }
+            // The urgent pass took the critical event's discard: this one waits (freezes go on).
+            if noDiscardBefore != nil, decision.state == .discarded, entries[decision.key]?.state != .discarded {
+                held = true
+                continue
+            }
+            if !perform(decision) { refused = true }
         }
         if let next = plan.nextCheck { arm(at: now + .seconds(next)) }
+        if held, let hold = noDiscardBefore { arm(at: hold) }
         // A refused discard is due still: the next pass tries again at the discard pace, as Chrome's
         // discarder takes a tab it could not discard on its next pass.
         if refused { arm(at: now + .seconds(planner.timing.pace(at: conditions.pressure).interval)) }
@@ -402,5 +412,33 @@ package final class PageLifecycle {
     private static func seconds(_ duration: Duration) -> Double {
         let parts = duration.components
         return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+}
+
+// The app's one urgent pass over tabs, chats and pages (``UrgentDiscardRanker/run(_:)``) ranks this
+// lifecycle's hidden pages with the others, O(hidden pages).
+extension PageLifecycle: UrgentDiscardOwner {
+    /// The hidden pages the urgent pass may discard (``PageLifecyclePlanner/urgentCandidates(_:conditions:)``)
+    /// whose discard frees an engine page (``PageLifecycleTarget/holdsEnginePage``).
+    package func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
+        planner.urgentCandidates(hiddenPages(at: uptime()), conditions: conditions)
+            .filter { entries[$0.key]?.target.holdsEnginePage == true }
+    }
+
+    /// The urgent pass chose hidden page `key`: it is discarded now, from the hide-time picture and
+    /// state, with no call into the page and no lifecycle pass. False for a page that is shown, already
+    /// discarded or unknown, or that refused.
+    package func urgentDiscard(_ key: String) -> Bool {
+        guard var entry = entries[key], hiddenKeys.contains(key), entry.target.object != nil,
+              entry.state == .hidden || entry.state == .frozen, entry.target.discard() else { return false }
+        entry.state = .discarded
+        entries[key] = entry
+        return true
+    }
+
+    /// The urgent pass ran: this lifecycle's own discards wait one urgent pace interval from now.
+    package func urgentPassDidRun() {
+        holdDiscards()
+        if !hiddenKeys.isEmpty, let hold = noDiscardBefore { arm(at: hold) }
     }
 }

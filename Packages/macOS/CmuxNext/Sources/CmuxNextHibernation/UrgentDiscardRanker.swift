@@ -1,8 +1,8 @@
 /// The one urgent discard pass over every kind of hidden page: browser tabs, agent chats and cmux pages
-/// (p13-webui.md section 3.C, task 092; agreed with p07-memory.md section 3.C). Pure: each owner turns
-/// its hidden pages into ``Candidate``s with its own eligibility (``HibernationPlanner/urgentCandidates(_:candidates:)``,
-/// ``PageLifecyclePlanner/urgentCandidates(_:conditions:)``), the app's critical memory event ranks them
-/// together once, and each owner discards its own keys from the ``Pass``.
+/// (p13-webui.md section 3.C, task 092; agreed with p07-memory.md section 3.C). The ranking is pure: each
+/// owner turns its hidden pages into ``Candidate``s with its own eligibility (``HibernationPlanner/urgentCandidates(_:candidates:)``,
+/// ``PageLifecyclePlanner/urgentCandidates(_:conditions:)``, the agent chats'), the app's critical memory
+/// event ranks them together once (``run(_:)``), and the owner of the first discards it.
 ///
 /// The order is Chrome's `PageDiscardingHelper::DiscardMultiplePages`
 /// (components/performance_manager/policies/page_discarding_helper.cc, `PageNodeSortProxy`): protected
@@ -13,8 +13,7 @@
 /// it takes one page, as Chrome's `UrgentPageDiscardingPolicy` discards one page per critical event.
 ///
 /// ```swift
-/// let pass = UrgentDiscardRanker().pass(tabs + pages, reclaimTarget: nil)
-/// for candidate in pass.discards { owner(of: candidate).discard(candidate.key) }
+/// let pass = UrgentDiscardRanker().run([browserTabs, agentChats, pageLifecycle])
 /// ```
 package nonisolated struct UrgentDiscardRanker: Sendable {
     /// One hidden page an urgent pass may discard: its owner found nothing that keeps it.
@@ -47,6 +46,8 @@ package nonisolated struct UrgentDiscardRanker: Sendable {
         package var estimatedBytes: UInt64 = 0
         /// The estimates reached the reclaim target (false with no target).
         package var reachedTarget = false
+        /// Pages ranked before the discarded one whose owner could not discard them (``run(_:)``).
+        package var refused: [String] = []
 
         package init() {}
 
@@ -106,4 +107,51 @@ package nonisolated struct UrgentDiscardRanker: Sendable {
         if let reclaimTarget { pass.reachedTarget = pass.estimatedBytes >= reclaimTarget }
         return pass
     }
+
+    /// The critical memory event's one urgent pass over every owner's hidden pages: they are ranked
+    /// together and the first one its owner discards goes, so one page goes per critical event. A page
+    /// its owner cannot discard now (shown since, or refused) passes the turn to the next one. Then
+    /// every owner hears that the pass ran, so its own paced passes start one pace interval later.
+    /// O(candidates log candidates).
+    ///
+    /// - Parameter owners: The owners of hidden pages; a key two owners list belongs to the first.
+    /// - Returns: The page that went (at most one), and the ones refused before it.
+    @MainActor
+    package func run(_ owners: [any UrgentDiscardOwner]) -> Pass {
+        var ownerOf: [String: any UrgentDiscardOwner] = [:]
+        var candidates: [Candidate] = []
+        for owner in owners {
+            for candidate in owner.urgentCandidates() where ownerOf[candidate.key] == nil {
+                ownerOf[candidate.key] = owner
+                candidates.append(candidate)
+            }
+        }
+        var pass = Pass()
+        for candidate in ranked(candidates) {
+            guard let owner = ownerOf[candidate.key], owner.urgentDiscard(candidate.key) else {
+                pass.refused.append(candidate.key)
+                continue
+            }
+            pass.discards = [candidate]
+            pass.estimatedBytes = candidate.estimatedBytes ?? 0
+            break
+        }
+        for owner in owners { owner.urgentPassDidRun() }
+        return pass
+    }
+}
+
+/// An owner of hidden pages the critical memory event's urgent pass ranks with every other owner's
+/// (``UrgentDiscardRanker/run(_:)``): the browser hibernation for its tabs, the agent chats' hibernation,
+/// the cmux page lifecycle. Each keeps its own eligibility and its own discard; the pass only picks.
+@MainActor
+package protocol UrgentDiscardOwner: AnyObject {
+    /// The hidden pages this owner would let go now, each with what it knows of it. O(its hidden pages).
+    func urgentCandidates() -> [UrgentDiscardRanker.Candidate]
+    /// The pass chose `key`: it goes now (a browser tab after its probe). False when the owner cannot
+    /// discard it now (it showed since, or its discard frees nothing): the pass takes the next page.
+    func urgentDiscard(_ key: String) -> Bool
+    /// The pass ran, whoever's page went: the owner's own discards wait one of its urgent pace
+    /// intervals from now, so the critical event takes one page in all.
+    func urgentPassDidRun()
 }
