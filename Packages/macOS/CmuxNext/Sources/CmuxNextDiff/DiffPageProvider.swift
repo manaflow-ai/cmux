@@ -23,7 +23,8 @@ public final class DiffPageProvider: PageProvider {
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
     static let eventsStream = "cmux.diff.events"
-    /// Sidecar `DiffEvent`s answer the page's own requests and cannot be read again: `.ordered`.
+    /// The stream sends nothing yet (the stdio sidecar has no events): `.ordered`, which drops
+    /// nothing, until sidecar `DiffEvent`s exist; their author names the policy they need and tests it.
     static let eventsFrozenDelivery: PageFrozenDelivery = .ordered
     /// The language pack and the prefs streams send the whole value each time: `.latest`.
     static let snapshotFrozenDelivery: PageFrozenDelivery = .latest
