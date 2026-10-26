@@ -31,7 +31,9 @@ import Foundation
 /// when the fire date changes, earlier or later (`ScheduleDelayedWorkImpl` skips only an equal date); an
 /// insert behind the top costs nothing. A fire runs due entries (``fire()`` says which) on the main actor
 /// in latest-time order, with one ledger record per owner that ran (reason `deadline`, or the entry's own
-/// ``LedgerReason``) and one `MainWakeUpQueue` `fire` record per wake. No Task and no pool thread take part.
+/// ``LedgerReason``) and one `MainWakeUpQueue` `fire` record per wake. A fire that stops at ``fireBudget``
+/// goes on in the next run-loop pass as the same wake: that continuation adds no `fire` record and no
+/// second record for an owner that already ran. No Task and no pool thread take part.
 public final class MainWakeUpQueue: Sendable {
     /// Names one pending entry for ``cancel(_:)``.
     public struct Token: Hashable, Sendable {
@@ -43,6 +45,12 @@ public final class MainWakeUpQueue: Sendable {
 
     /// The `WakeupLedger` owner of the queue's own wakes (reason `fire`).
     public static let ledgerOwner = "MainWakeUpQueue"
+    /// The longest one fire runs entries. The entries still due run in a continuation armed for now with
+    /// no tolerance, after the run loop's pending sources (an NSEvent): Chrome's UI thread runs one `DoWork`
+    /// batch per `MessagePumpCFRunLoopBase::RunWork` and signals its work source again when work is left
+    /// (base/message_loop/message_pump_apple.mm). The batch is 2 ms here, not the 8 ms of Chrome's
+    /// `kRunTasksByBatches` (base/task/task_features.cc): a quarter of a 120 Hz frame, as the CEF pump's slice.
+    public static let fireBudget = Duration.milliseconds(2)
 
     /// What a fire records for an entry's owner when the entry runs.
     public enum LedgerReason: Sendable, Equatable {
@@ -60,6 +68,14 @@ public final class MainWakeUpQueue: Sendable {
         let action: Action
     }
 
+    /// One wake's progress across the fires it takes (``fireBudget``).
+    private struct Wake {
+        /// Owners that have a `deadline` record in this wake.
+        var owners = Set<String>()
+        /// Entries run in this wake.
+        var ran = 0
+    }
+
     private struct State {
         var heap = MainWakeUpHeap<Queued>()
         /// Hidden entries, all in ``WakeLeeway/hidden(delay:)`` windows.
@@ -72,8 +88,11 @@ public final class MainWakeUpQueue: Sendable {
         /// The sub-second leeway of new entries (the energy policy's `wakeAlignment`; the heap holds the grid).
         var alignment: Duration
         var energyObservation: EnergyPolicyObservation?
-        /// Fires that ran more than one entry (``coalescedFires``).
+        /// Wakes that ran more than one entry (``coalescedFires``).
         var coalescedFires: UInt64 = 0
+        /// Set while the timer is armed for the rest of a fire that stopped at ``fireBudget``. That arm is
+        /// for now with no tolerance; no insert, cancel or realign moves it while an entry is left.
+        var continuation: Wake?
     }
 
     /// The timer is armed with the lock held, so two inserts on different threads can not arm in the
@@ -137,9 +156,9 @@ public final class MainWakeUpQueue: Sendable {
     /// thread's `NextScheduledRunTime`).
     var armedDate: UInt64? { state.withLock { $0.armed?.date } }
 
-    /// Fires that ran more than one entry since launch: the wakes alignment saved (`debug.energy`). A
+    /// Wakes that ran more than one entry since launch: the wakes alignment saved (`debug.energy`). A
     /// queue count, not a ledger record: it is not a wake, and the ledger's `fire` record already counts
-    /// each wake once.
+    /// each wake once. A wake split by ``fireBudget`` counts once.
     public var coalescedFires: UInt64 { state.withLock { $0.coalescedFires } }
 
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
@@ -264,40 +283,70 @@ public final class MainWakeUpQueue: Sendable {
     /// Before each entry runs, the timer is armed for what is left, so an entry that spins a nested run
     /// loop (menu tracking, a modal panel) does not stop later deadlines: the nested loop fires the timer
     /// and calls this again. The due entries left share one arm, at the fire's start.
+    /// Past ``fireBudget`` the fire stops after the running entry (so at least one runs). When entries due
+    /// at its start are left, it arms for now with no tolerance (``State/continuation``): they run in the
+    /// next run-loop pass, after its sources. The continuation is the same wake: no new `fire` record, and
+    /// one `deadline` record per owner for the whole wake.
     @MainActor
     func fire() {
-        let now = state.withLock { state in
+        let (now, resumed) = state.withLock { state in
             // CFRunLoop parks a repeating timer after its callout unless something arms it again.
             state.armed = nil
-            return uptime()
+            let resumed = state.continuation
+            state.continuation = nil
+            return (uptime(), resumed)
         }
-        ledger.record(Self.ledgerOwner, reason: "fire")
-        var owners = Set<String>()
-        var ran = 0
+        if resumed == nil { ledger.record(Self.ledgerOwner, reason: "fire") }
+        var wake = resumed ?? Wake()
+        var stoppedAtBudget = false
         while let entry = popDue(at: now) {
-            if entry.payload.reason == .deadline, owners.insert(entry.owner).inserted {
+            if entry.payload.reason == .deadline, wake.owners.insert(entry.owner).inserted {
                 ledger.record(entry.owner, reason: "deadline")
             }
-            ran += 1
+            wake.ran += 1
             entry.payload.action()
+            if uptime() &- now >= Self.fireBudget.nanosecondCount {
+                stoppedAtBudget = true
+                break
+            }
         }
         state.withLock { state in
-            if ran > 1 { state.coalescedFires &+= 1 }
-            rearm(&state)
+            guard stoppedAtBudget, Self.dueHeap(state, at: now) != nil, let timer = state.timer else {
+                if wake.ran > 1 { state.coalescedFires &+= 1 }
+                rearm(&state)
+                return
+            }
+            let continueAt = uptime()
+            timer.arm(at: continueAt, tolerance: 0, now: continueAt)
+            state.armed = (continueAt, continueAt)
+            state.continuation = wake
+        }
+    }
+
+    /// The heap whose top runs next.
+    private enum DueHeap { case visible, hidden }
+
+    /// Which heap's top is due at `now`, as ``fire()`` judges it (merged in latest-time order); nil when
+    /// neither is.
+    private static func dueHeap(_ state: State, at now: UInt64) -> DueHeap? {
+        let visible: UInt64? = state.heap.top.flatMap { $0.earliest <= now ? $0.latest : nil }
+        let hidden: UInt64? = state.hidden.top.flatMap { $0.fireTime <= now ? $0.latest : nil }
+        switch (visible, hidden) {
+        case let (visible?, hidden?) where hidden < visible: return .hidden
+        case (_?, _): return .visible
+        case (nil, _?): return .hidden
+        case (nil, nil): return nil
         }
     }
 
     /// Pops the next entry due at `now` and arms the timer for what is left.
     private func popDue(at now: UInt64) -> MainWakeUpHeap<Queued>.Entry? {
         state.withLock { state in
-            let visible: UInt64? = state.heap.top.flatMap { $0.earliest <= now ? $0.latest : nil }
-            let hidden: UInt64? = state.hidden.top.flatMap { $0.fireTime <= now ? $0.latest : nil }
             let entry: MainWakeUpHeap<Queued>.Entry?
-            switch (visible, hidden) {
-            case let (visible?, hidden?) where hidden < visible: entry = state.hidden.popReleased(now: now)
-            case (_?, _): entry = state.heap.popDue(now: now)
-            case (nil, _?): entry = state.hidden.popReleased(now: now)
-            case (nil, nil): entry = nil
+            switch Self.dueHeap(state, at: now) {
+            case .hidden: entry = state.hidden.popReleased(now: now)
+            case .visible: entry = state.heap.popDue(now: now)
+            case nil: entry = nil
             }
             guard let entry else { return nil }
             rearm(&state, floor: now)
@@ -320,16 +369,19 @@ public final class MainWakeUpQueue: Sendable {
     /// (default: now) arms for `floor`, so the due entries of one fire share one arm. The tolerance runs
     /// from the instant the timer can fire, the later of the date and now, to the top's latest time
     /// (zero once that has passed): CFRunLoop adds it after that instant. A re-arm to the armed date is
-    /// skipped unless the new top needs a shorter tolerance.
+    /// skipped unless the new top needs a shorter tolerance. A continuation's arm (``State/continuation``)
+    /// is already the earliest fire there can be, so it stays while an entry is left.
     private func rearm(_ state: inout State, floor: UInt64? = nil) {
         guard let timer = state.timer else { return }
         guard let wakeUp = Self.wakeUp(state) else {
+            state.continuation = nil
             if state.armed != nil {
                 timer.park()
                 state.armed = nil
             }
             return
         }
+        if state.continuation != nil, state.armed != nil { return }
         let now = uptime()
         let date = max(wakeUp.date, floor ?? now)
         let fireInstant = max(date, now)
@@ -337,64 +389,5 @@ public final class MainWakeUpQueue: Sendable {
         if let armed = state.armed, armed.date == date, armed.end <= end { return }
         timer.arm(at: date, tolerance: end - fireInstant, now: now)
         state.armed = (date, end)
-    }
-}
-
-/// The timer seam of ``MainWakeUpQueue``. It lives in the queue's `Mutex` and is called only with that
-/// lock held (from any thread), so it needs no synchronization of its own and is not `Sendable`.
-protocol MainWakeUpTimer: AnyObject {
-    /// Fires once at `date` (uptime ns; `now` is the uptime read just before), with `tolerance` ns of
-    /// slack after it.
-    func arm(at date: UInt64, tolerance: UInt64, now: UInt64)
-    /// Cancels the pending fire.
-    func park()
-}
-
-/// The production timer: one repeating `CFRunLoopTimer` on the main run loop in common modes (it also
-/// fires during menu tracking, live resize and modal panels), parked at a far fire date between arms.
-///
-/// The callout does not run the fire itself; it queues it as a common-modes run-loop block, which
-/// CFRunLoop runs right after its timers in the same pass. CFRunLoop never fires a timer whose callout
-/// is still running, so a fire inside the callout that spins a nested run loop would stop every later
-/// deadline. Chromium's `MessagePumpCFRunLoopBase::RunDelayedWorkTimer` (message_pump_mac.mm, before
-/// the rename to message_pump_apple.mm) likewise signalled its work source "rather than running work
-/// directly".
-final class MainRunLoopWakeUpTimer: MainWakeUpTimer {
-    /// Longer than any real wait: the timer repeats at this interval only so that it stays valid after a
-    /// fire; every real fire date is set by `arm`.
-    private static let parkedInterval: CFTimeInterval = 1.0e10
-    private let timer: CFRunLoopTimer
-
-    init(fire: @escaping MainWakeUpQueue.Action) {
-        // wakeup-allow: deadline MainWakeUpQueue, the one main-thread deadline timer (parked between arms)
-        timer = CFRunLoopTimerCreateWithHandler(
-            kCFAllocatorDefault, Self.fireDate(after: Self.parkedInterval), Self.parkedInterval, 0, 0
-        ) { _ in
-            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-                // main-proof: the block is queued on CFRunLoopGetMain(), whose blocks run on the main thread.
-                MainActor.assumeIsolated { fire() }
-            }
-        }
-        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .commonModes)
-    }
-
-    deinit {
-        CFRunLoopTimerInvalidate(timer)
-    }
-
-    func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {
-        let delay = date > now ? Double(date - now) / 1e9 : 0
-        CFRunLoopTimerSetTolerance(timer, Double(tolerance) / 1e9)
-        // wakeup-allow: deadline MainWakeUpQueue, the earliest pending main-thread deadline
-        CFRunLoopTimerSetNextFireDate(timer, Self.fireDate(after: delay))
-    }
-
-    func park() {
-        CFRunLoopTimerSetNextFireDate(timer, Self.fireDate(after: Self.parkedInterval))
-    }
-
-    /// `delay` s from now as a fire date: CF keeps only the delay, on uptime (CFRunLoop.c, message_pump_apple.mm).
-    private static func fireDate(after delay: CFTimeInterval) -> CFAbsoluteTime {
-        CFAbsoluteTimeGetCurrent() + delay // wall-clock: CFRunLoopTimer fire dates are CFAbsoluteTime
     }
 }

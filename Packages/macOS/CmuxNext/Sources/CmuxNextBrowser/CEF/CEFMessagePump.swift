@@ -71,6 +71,8 @@ final class CEFMessagePump {
     }
 
     private let work: () -> Void
+    /// The fork's longest pass (``CEFPumpSchedule/timeSlice(forkAPI:)``): a pass this long may have left work.
+    private let timeSlice: TimeInterval
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
@@ -109,9 +111,11 @@ final class CEFMessagePump {
     /// category's (tests pass one on their own trace runtime). `absoluteRunTimes`: CEF sends delayed work
     /// as the fork's absolute run times (``request(runTimeNanos:leewayNanos:precise:fromChromiumThread:)``),
     /// which decides how ``CEFPumpStats/earlyPasses`` tells an early pass.
+    /// `timeSlice`: the loaded fork's (``CEFPumpSchedule/timeSlice(forkAPI:)``).
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
+        timeSlice: TimeInterval = CEFPumpSchedule.timeSlice,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
@@ -122,6 +126,7 @@ final class CEFMessagePump {
         earlyPassWatch = CEFPumpStats.EarlyPassWatch(absoluteRunTimes: absoluteRunTimes)
         self.work = work
         self.signposter = signposter
+        self.timeSlice = timeSlice
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -308,7 +313,7 @@ final class CEFMessagePump {
         let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
         work()
         let elapsed = clock() - started
-        let longRun = counters.recordWorkRun(elapsed: elapsed)
+        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: timeSlice)
         signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
         if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
