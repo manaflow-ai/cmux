@@ -14,12 +14,18 @@ correct with R2's conditional requests instead.
         Exits 3 when another writer changed it first.
 
     r2_cas.py lock --key KEY --owner ID --ttl SECONDS --wait SECONDS
-        Takes the lease at KEY: creates it only while absent, or replaces an
-        expired lease only while it still holds the bytes read. Exits 3 when
-        the wait runs out.
+        Takes the lease at KEY: creates it only while absent, or replaces a
+        released or expired lease only while it still holds the bytes read.
+        Expiry is judged on R2's clock (the response Date against the lease's
+        Last-Modified), never a runner's, so runners' clock skew cannot end a
+        live lease early. Exits 3 when the wait runs out.
+
+    r2_cas.py holds --key KEY --owner ID
+        Exits 0 while ID holds the lease, 3 when it does not.
 
     r2_cas.py unlock --key KEY --owner ID
-        Removes the lease while it still names ID and holds the bytes read.
+        Marks the lease released (a conditional PUT; R2 does not document
+        conditional DELETE) while it still names ID and holds the bytes read.
 
 Every call reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, R2_ENDPOINT and
 R2_BUCKET from the environment.
@@ -29,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import email.utils
 import importlib.util
 import json
 import os
@@ -55,16 +62,25 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def get(key: str) -> tuple[str | None, bytes]:
-    """The object's ETag and bytes, or (None, b"") when it does not exist."""
+def read(key: str) -> tuple[str | None, bytes, float]:
+    """The object's ETag, bytes and age in seconds on R2's clock; (None, b"", 0) when absent."""
     request = r2._build_signed_request(_target(key), b"", _now(), method="GET")
     try:
         with r2._open_signed_request(request, timeout=120) as response:
-            return response.headers.get("ETag"), response.read()
+            body = response.read()
+            now = email.utils.parsedate_to_datetime(response.headers["Date"])
+            modified = email.utils.parsedate_to_datetime(response.headers["Last-Modified"])
+            return response.headers.get("ETag"), body, (now - modified).total_seconds()
     except urllib.error.HTTPError as error:
         if error.code == 404:
-            return None, b""
+            return None, b"", 0.0
         raise
+
+
+def get(key: str) -> tuple[str | None, bytes]:
+    """The object's ETag and bytes, or (None, b"") when it does not exist."""
+    etag, body, _ = read(key)
+    return etag, body
 
 
 def put(key: str, body: bytes, *, etag: str | None, cache_control: str, content_type: str) -> bool:
@@ -81,47 +97,43 @@ def put(key: str, body: bytes, *, etag: str | None, cache_control: str, content_
         raise
 
 
-def delete(key: str, etag: str) -> bool:
-    request = r2._build_signed_request(_target(key), b"", _now(), method="DELETE", extra_headers={"if-match": etag})
+def _lease(body: bytes) -> dict:
     try:
-        with r2._open_signed_request(request, timeout=60) as response:
-            response.read()
-        return True
-    except urllib.error.HTTPError as error:
-        if error.code in (404, 412):
-            return False
-        raise
+        lease = json.loads(body or b"{}")
+    except ValueError:
+        return {}
+    return lease if isinstance(lease, dict) else {}
 
 
-def lock(key: str, owner: str, ttl: int, wait: int, clock=time.time, sleep=time.sleep) -> bool:
+def _store(key: str, lease: dict, etag: str | None) -> bool:
+    return put(key, json.dumps(lease).encode(), etag=etag, cache_control="no-store", content_type="application/json")
+
+
+def lock(key: str, owner: str, ttl: int, wait: int, clock=time.monotonic, sleep=time.sleep) -> bool:
     deadline = clock() + wait
     while True:
-        lease = json.dumps({"owner": owner, "expires": clock() + ttl}).encode()
-        etag, body = get(key)
-        if etag is None:
-            if put(key, lease, etag=None, cache_control="no-store", content_type="application/json"):
-                return True
-        else:
-            try:
-                expires = float(json.loads(body or b"{}").get("expires", 0))
-            except (ValueError, AttributeError):
-                expires = 0
-            if expires < clock() and put(key, lease, etag=etag, cache_control="no-store", content_type="application/json"):
-                return True
+        etag, body, age = read(key)
+        lease = _lease(body)
+        free = etag is None or lease.get("released") or age > ttl
+        if free and _store(key, {"owner": owner}, etag):
+            return True
         if clock() >= deadline:
             return False
         sleep(10)
 
 
+def holds(key: str, owner: str) -> bool:
+    etag, body, _ = read(key)
+    lease = _lease(body)
+    return etag is not None and lease.get("owner") == owner and not lease.get("released")
+
+
 def unlock(key: str, owner: str) -> bool:
-    etag, body = get(key)
-    if etag is None:
+    etag, body, _ = read(key)
+    lease = _lease(body)
+    if etag is None or lease.get("owner") != owner or lease.get("released"):
         return False
-    try:
-        held_by = json.loads(body or b"{}").get("owner")
-    except (ValueError, AttributeError):
-        held_by = None
-    return held_by == owner and delete(key, etag)
+    return _store(key, {"owner": owner, "released": True}, etag)
 
 
 def main(argv: list[str]) -> int:
@@ -143,6 +155,9 @@ def main(argv: list[str]) -> int:
     lk.add_argument("--owner", required=True)
     lk.add_argument("--ttl", type=int, required=True)
     lk.add_argument("--wait", type=int, required=True)
+    hd = sub.add_parser("holds")
+    hd.add_argument("--key", required=True)
+    hd.add_argument("--owner", required=True)
     ul = sub.add_parser("unlock")
     ul.add_argument("--key", required=True)
     ul.add_argument("--owner", required=True)
@@ -159,6 +174,8 @@ def main(argv: list[str]) -> int:
         return 0 if written else CONFLICT
     if args.command == "lock":
         return 0 if lock(args.key, args.owner, args.ttl, args.wait) else CONFLICT
+    if args.command == "holds":
+        return 0 if holds(args.key, args.owner) else CONFLICT
     unlock(args.key, args.owner)
     return 0
 

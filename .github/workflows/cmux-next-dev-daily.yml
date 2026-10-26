@@ -378,10 +378,10 @@ jobs:
     if: needs.sign.outputs.signed == 'true'
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): runs publish side by side, and the newest source commit
-    # wins. The check and the write happen inside a lease on R2 (a conditional
-    # create, If-None-Match), so no run writes between another's check and its
-    # write. The lease outlives the job's timeout, so a lease is never taken
-    # from a run that is still writing.
+    # wins. The check and the write happen inside a lease on R2 (conditional
+    # writes), so no run writes between another's check and its write. The
+    # lease outlives the job's timeout on R2's clock, so it is never taken from
+    # a run that is still writing.
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -423,6 +423,9 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           R2_BUCKET: cmux-binaries
           LEASE_KEY: nightly-next/locks/cmux-next-dev-publish.json
+          # The commit the channel publishes, recorded before the release
+          # changes: a write that fails halfway still blocks older commits.
+          RECORD_KEY: nightly-next/locks/cmux-next-dev-published.json
           LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -433,27 +436,59 @@ jobs:
           This channel is Developer ID signed and intentionally not notarized; download with curl or gh so macOS does not add quarantine.
           EOF
           )"
-          # Never roll the channel back: skip when the release already holds this
-          # commit or a newer one (the commit its notes name). feat-cmux-next
-          # usually moves while a source run builds, so requiring the current
-          # tip would publish almost nothing. Any error other than "no release
-          # yet" fails the run rather than publishing over a newer build.
-          not_newer() {
-            local body status
+          # Never roll the channel back. The record names the newest commit any
+          # run started publishing (before the record existed, the release
+          # notes did). This run writes when its commit is newer, or is that
+          # commit (a run repairing its own failed write). Two commits that
+          # diverged mean feat-cmux-next was rewritten: the one still on the
+          # branch wins. Any read or compare error fails the run.
+          compare() {
+            local status
+            status="$(gh api "repos/$GH_REPO/compare/$1...$2" --jq '.status')" || exit 1
+            case "$status" in
+              ahead|behind|identical|diverged) echo "$status" ;;
+              *) echo "compare $1...$2 gave '$status'" >&2; exit 1 ;;
+            esac
+          }
+          on_branch() {
+            local status
+            status="$(compare "$1" feat-cmux-next)" || exit 1
+            [[ "$status" == ahead || "$status" == identical ]]
+          }
+          published_commit() {
+            local body
+            record_etag="$(python3 scripts/ci/r2_cas.py get --key "$RECORD_KEY" --out "$RUNNER_TEMP/record.json")" || exit 1
+            if [[ "$record_etag" != absent ]]; then
+              published="$(jq -r '.commit // empty' "$RUNNER_TEMP/record.json")" || exit 1
+              [[ "$published" =~ ^[0-9a-f]{40}$ ]] || { echo "the publish record names no commit" >&2; exit 1; }
+              return
+            fi
             if ! body="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body' 2>"$RUNNER_TEMP/release.err")"; then
-              grep -q 'HTTP 404' "$RUNNER_TEMP/release.err" && return 1
-              cat "$RUNNER_TEMP/release.err" >&2; exit 1
+              grep -q 'HTTP 404' "$RUNNER_TEMP/release.err" || { cat "$RUNNER_TEMP/release.err" >&2; exit 1; }
+              body=""
             fi
             published="$(grep -oE 'commit [0-9a-f]{40}' <<<"$body" | head -n 1 | cut -d' ' -f2)" || published=""
+          }
+          not_newer() {
+            published_commit
             [[ -n "$published" ]] || return 1
-            status="$(gh api "repos/$GH_REPO/compare/$SOURCE_SHA...$published" --jq '.status')" || exit 1
+            local status
+            status="$(compare "$SOURCE_SHA" "$published")" || exit 1
             case "$status" in
-              ahead|identical)
-                echo "::notice::cmux NEXT DEV already publishes $published, which is not older than $SOURCE_SHA; skipping"
-                return 0 ;;
-              behind|diverged) return 1 ;;
-              *) echo "compare $SOURCE_SHA...$published gave '$status'" >&2; exit 1 ;;
+              behind|identical) return 1 ;;
+              diverged)
+                if ! on_branch "$published" && on_branch "$SOURCE_SHA"; then return 1; fi ;;
             esac
+            echo "::notice::cmux NEXT DEV already publishes $published, which is not older than $SOURCE_SHA; skipping"
+            return 0
+          }
+          record() {
+            local condition=(--if-absent)
+            [[ "$record_etag" == absent ]] || condition=(--if-match "$record_etag")
+            jq -n --arg commit "$SOURCE_SHA" --arg run "$LEASE_OWNER" '{commit: $commit, run: $run}' > "$RUNNER_TEMP/record-new.json"
+            python3 scripts/ci/r2_cas.py put --key "$RECORD_KEY" --file "$RUNNER_TEMP/record-new.json" \
+              --content-type application/json --cache-control no-store "${condition[@]}" \
+              || { echo "the publish record changed outside the lease" >&2; exit 1; }
           }
           # The tag sits on this workflow's main commit: a tag at a feat-cmux-next
           # commit needs the workflows permission (HTTP 403). The notes name
@@ -470,11 +505,14 @@ jobs:
             fi
           }
           # The job's timeout (30 minutes) ends every holder before its lease
-          # (35 minutes) runs out.
+          # (35 minutes on R2's clock) runs out.
           python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 2100 --wait 1500 \
             || { echo "another publisher held the lease for 25 minutes" >&2; exit 1; }
           trap 'python3 scripts/ci/r2_cas.py unlock --key "$LEASE_KEY" --owner "$LEASE_OWNER" || true' EXIT
           not_newer && exit 0
+          record
+          python3 scripts/ci/r2_cas.py holds --key "$LEASE_KEY" --owner "$LEASE_OWNER" \
+            || { echo "lost the publish lease before writing" >&2; exit 1; }
           write
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
 
@@ -637,10 +675,13 @@ jobs:
           R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          # Archives and deltas are write-once: a second run of the same build
+          # (its DMG signed separately) can never replace the bytes a feed
+          # already signed. That run fails here, before it touches the feed.
           upload() {
             python3 scripts/ci/upload-r2-object.py --file "$1" --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries --key "$TIP_R2_PREFIX/$(basename "$1")" \
-              --content-type "$2" --cache-control "$3"
+              --content-type "$2" --cache-control "$3" --write-once
           }
           upload "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" application/x-apple-diskimage "public, max-age=31536000, immutable"
           for delta in tip-out/*.delta; do

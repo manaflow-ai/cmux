@@ -109,7 +109,7 @@ check(lease < publish.index("not_newer && exit 0") < publish.index("\n          
       "publish checks and writes the release inside the R2 lease")
 check("timeout-minutes: 30" in publish and "--ttl 2100" in publish,
       "the publish lease outlives the job, so it is never taken from a run still writing")
-check("|| exit 1" in publish and "exit 1 ;;" in publish, "an unreadable release or compare fails publish instead of writing")
+check("--write-once" in tip, "tip archives and deltas are write-once, so a feed's signature always matches its bytes")
 check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
 
@@ -133,26 +133,112 @@ check(not r2_cas.put("k", b"x", etag=None, cache_control="no-store", content_typ
       and sent[-1].get("if-none-match") == "*", "a first write sends If-None-Match: *")
 r2_cas.r2._open_signed_request = real_open
 
-store, version = {}, [0]
-def fake_get(key):
-    return store.get(key, (None, b""))
+# The lease against an in-memory R2 whose clock is not the runner's.
+store, version, r2_now = {}, [0], [1000.0]
+def fake_read(key):
+    if key not in store:
+        return None, b"", 0.0
+    etag, body, written = store[key]
+    return etag, body, r2_now[0] - written
 def fake_put(key, body, *, etag, cache_control, content_type):
     if store.get(key, (None,))[0] != etag:
         return False
     version[0] += 1
-    store[key] = (f'"{version[0]}"', body)
+    store[key] = (f'"{version[0]}"', body, r2_now[0])
     return True
-def fake_delete(key, etag):
-    return store.get(key, (None,))[0] == etag and store.pop(key) is not None
-r2_cas.get, r2_cas.put, r2_cas.delete = fake_get, fake_put, fake_delete
-now = [1000.0]
-clock, sleep = (lambda: now[0]), (lambda seconds: now.__setitem__(0, now[0] + seconds))
-check(r2_cas.lock("l", "a", 60, 0, clock, sleep), "the first publisher takes the free lease")
-check(not r2_cas.lock("l", "b", 30, 30, clock, sleep), "a second publisher waits while the lease is live")
-check(not r2_cas.unlock("l", "b") and "l" in store, "only the holder releases the lease")
-now[0] += 60
-check(r2_cas.lock("l", "b", 60, 0, clock, sleep), "an expired lease is taken over")
-check(not r2_cas.unlock("l", "a") and r2_cas.unlock("l", "b") and "l" not in store, "the holder releases its own lease")
+r2_cas.read, r2_cas.put = fake_read, fake_put
+runner = [0.0]  # a runner clock far from R2's: expiry must not read it
+clock, sleep = (lambda: runner[0]), (lambda seconds: runner.__setitem__(0, runner[0] + seconds))
+check(r2_cas.lock("l", "a", 60, 0, clock, sleep) and r2_cas.holds("l", "a"), "the first publisher takes the free lease")
+runner[0] += 10_000
+check(not r2_cas.lock("l", "b", 60, 30, clock, sleep), "a runner clock running ahead never ends a live lease")
+check(not r2_cas.unlock("l", "b") and r2_cas.holds("l", "a"), "only the holder releases the lease")
+r2_now[0] += 61
+check(r2_cas.lock("l", "b", 60, 0, clock, sleep) and not r2_cas.holds("l", "a"), "a lease expired on R2's clock is taken over")
+check(not r2_cas.unlock("l", "a") and r2_cas.unlock("l", "b") and not r2_cas.holds("l", "b"), "the holder releases its own lease")
+check(r2_cas.lock("l", "c", 60, 0, clock, sleep), "a released lease is free at once")
+check("def delete" not in (ROOT / "scripts/ci/r2_cas.py").read_text(), "release is a conditional PUT, not an undocumented conditional DELETE")
+
+# The publish step's decision, run in bash with gh and the R2 helper stubbed.
+import subprocess
+import textwrap
+
+lines = publish[publish.index("- name: Publish the rolling GitHub prerelease"):].split("run: |\n", 1)[1].splitlines()
+body = []
+for line in lines:
+    if line.strip() and len(line) - len(line.lstrip()) < 10:
+        break
+    body.append(line)
+publish_script = textwrap.dedent("\n".join(body))
+
+STUB_GH = r"""#!/bin/bash
+echo "gh $*" >> "$STUB_LOG"
+case "$1 $2" in
+  "api repos/o/r/releases/tags/cmux-next-dev")
+    [[ -n "$NOTES_SHA" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    echo "Rolling build from feat-cmux-next commit $NOTES_SHA."; exit 0 ;;
+  api\ repos/o/r/compare/*)
+    pair="${2#repos/o/r/compare/}"; key="${pair//./_}"; var="CMP_${key}"
+    [[ -n "${!var:-}" ]] || { echo "gh: compare failed (HTTP 502)" >&2; exit 1; }
+    echo "${!var}"; exit 0 ;;
+  "release view") exit 0 ;;
+  "release upload"|"release edit"|"release create") echo WRITE >> "$STUB_LOG"; exit 0 ;;
+esac
+exit 1
+"""
+STUB_PY = r"""#!/bin/bash
+if [[ "$1" == scripts/ci/r2_cas.py ]]; then
+  echo "r2 ${*:2}" >> "$STUB_LOG"
+  case "$2" in
+    lock|unlock) exit 0 ;;
+    holds) [[ "$HOLDS" == yes ]] && exit 0 || exit 3 ;;
+    get) out="${@: -1}"; if [[ -n "$RECORD_SHA" ]]; then printf '{"commit":"%s"}' "$RECORD_SHA" > "$out"; echo '"9"'; else : > "$out"; echo absent; fi; exit 0 ;;
+    put) exit 0 ;;
+  esac
+fi
+exec /usr/bin/env python3 "$@"
+"""
+A, B, C = "a" * 40, "b" * 40, "c" * 40
+def run_publish(source, *, notes="", record="", holds="yes", cmp=None):
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "bin").mkdir()
+        for name, text in (("gh", STUB_GH), ("python3", STUB_PY)):
+            (tmp / "bin" / name).write_text(text)
+            (tmp / "bin" / name).chmod(0o755)
+        (tmp / "zip").write_text("app")
+        (tmp / "zip.sha256").write_text("x  zip\n")
+        env = {
+            "PATH": f"{tmp / 'bin'}:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "STUB_LOG": str(tmp / "log"),
+            "RUNNER_TEMP": str(tmp), "APP_ARCHIVE_NAME": "zip", "RELEASE_TAG": "cmux-next-dev", "GH_REPO": "o/r",
+            "SOURCE_SHA": source, "GITHUB_SHA": "f" * 40, "LEASE_KEY": "lease", "RECORD_KEY": "record",
+            "LEASE_OWNER": "run-1", "NOTES_SHA": notes, "RECORD_SHA": record, "HOLDS": holds,
+        }
+        for pair, status in (cmp or {}).items():
+            env["CMP_" + pair.replace(".", "_")] = status
+        result = subprocess.run(["bash", "-e", "-c", publish_script], env=env, capture_output=True, text=True, timeout=60)
+        log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
+        return result.returncode, log
+def wrote(log):
+    return "WRITE" in log
+def recorded(log):
+    return any(line.startswith("r2 put --key record") for line in log.splitlines())
+
+rc, log = run_publish(B, notes=A, cmp={f"{B}...{A}": "behind"})
+check(rc == 0 and recorded(log) and wrote(log) and log.index("r2 put --key record") < log.index("WRITE"),
+      "a newer commit records itself, then writes the release")
+rc, log = run_publish(B, notes=A, record=C, cmp={f"{B}...{C}": "ahead"})
+check(rc == 0 and not wrote(log) and not recorded(log), "the record outranks stale notes: a half-finished newer write still blocks older commits")
+rc, log = run_publish(C, record=C, cmp={f"{C}...{C}": "identical"})
+check(rc == 0 and wrote(log), "a run for the recorded commit repairs its own half-finished write")
+rc, log = run_publish(B, record=A)
+check(rc != 0 and not wrote(log), "a compare error fails publish instead of writing")
+rc, log = run_publish(B, record=A, cmp={f"{B}...{A}": "diverged", f"{A}...feat-cmux-next": "diverged", f"{B}...feat-cmux-next": "ahead"})
+check(rc == 0 and wrote(log), "after a rewrite, the commit still on feat-cmux-next replaces one that left it")
+rc, log = run_publish(A, record=B, cmp={f"{A}...{B}": "diverged", f"{B}...feat-cmux-next": "ahead"})
+check(rc == 0 and not wrote(log), "a commit that left feat-cmux-next never replaces one still on it")
+rc, log = run_publish(B, record=A, holds="no", cmp={f"{B}...{A}": "behind"})
+check(rc != 0 and not wrote(log), "a run that lost the lease never writes")
 
 if failures:
     for failure in failures:
