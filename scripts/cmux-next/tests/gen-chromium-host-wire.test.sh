@@ -835,9 +835,14 @@ expect 0 "" "an optional export" -- --root "$parity" --check-view-parity
 edit_ops "$parity" 'd.setdefault("optional_events", []).append({"kind": "CMUX_SHIM_WIDGET_CONTEXT", "value": 52, "refreshes": []})'
 show_row '{"event": "CMUX_SHIM_WIDGET_CONTEXT"}'
 expect 0 "" "an optional event" -- --root "$parity" --check-view-parity
+# A pending row names who builds the carrier, not a carrier: the method stays unmapped.
 show_row '{"pending": "p01-process-054", "note": "TOOLTIP {text}"}'
-expect 0 "" "a pending row" -- --root "$parity" --check-view-parity
+expect 1 "RenderWidgetHostNSView.Show: unmapped, pending on p01-process-054" "a pending row is unmapped" \
+  -- --root "$parity" --check-view-parity
+expect 0 "RenderWidgetHostNSView.Show" "list-unmapped lists a pending row" -- --root "$parity" --list-unmapped
 expect 0 $'RenderWidgetHostNSView.Show\tp01-process-054' "list-pending" -- --root "$parity" --list-pending
+python3 "$gen" --root "$parity" --list-pending 2>/dev/null | grep -q SyncIsKeyWindow &&
+  fail "--list-pending lists a mapped row"
 show_row '{"pending": "p01-process-054"}'
 expect 1 "a pending row needs a note" "a pending row without its carrier" -- --root "$parity" --check-view-parity
 show_row '{"pending": "p01-process-999", "note": "x"}'
@@ -882,8 +887,21 @@ if [[ -f "$repo/$ops" ]]; then
     compile_inc "$scratch" "the real header"
   fi
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
-  # Every vendored remote_cocoa mojom method is mapped (task p01-process-055).
-  expect 0 "" "the real view parity" -- --root "$repo" --check-view-parity
+  # Every vendored remote_cocoa mojom method is mapped (task p01-process-055), except pending rows,
+  # which the check counts unmapped until their task names the carrier: no other problem, and the
+  # unmapped list is exactly the pending list.
+  real_parity_code=0
+  real_parity="$(python3 "$gen" --root "$repo" --check-view-parity 2>&1)" || real_parity_code=$?
+  other="$(grep -vE ': unmapped, pending on p[0-9]{2}-[a-z0-9-]+$' <<<"$real_parity" || true)"
+  [[ -z "$other" ]] || fail "the real view parity has problems besides pending rows:"$'\n'"$other"
+  real_unmapped="$(python3 "$gen" --root "$repo" --list-unmapped 2>/dev/null | sort)"
+  real_pending="$(python3 "$gen" --root "$repo" --list-pending 2>/dev/null | cut -f1 | sort)"
+  [[ "$real_unmapped" == "$real_pending" ]] ||
+    fail "the real view parity's unmapped methods are not its pending rows:"$'\n'"$real_unmapped"
+  want_code=0
+  [[ -n "$real_pending" ]] && want_code=1
+  [[ "$real_parity_code" == "$want_code" ]] ||
+    fail "the real view parity exits $real_parity_code, expected $want_code (pending: ${real_pending:-none})"
 else
   echo "note: $ops is not in this checkout (task p01-process-010); real-header ops check skipped" >&2
 fi

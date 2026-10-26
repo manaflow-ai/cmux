@@ -147,11 +147,14 @@ Commands:
   ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
       [--list-pending]                      (plans/cmux-next/remote_cocoa_mojom/) maps to one of:
                                             op (a header or optional export), event (a header or
-                                            optional event kind), wire (a Kind of chromium_host_wire.h),
-                                            not_needed (the reason) or pending (the design task that
-                                            builds its carrier, with a note naming it) in
-                                            plans/cmux-next/chromium-host-view-parity.json;
-                                            --list-pending prints the pending rows and their tasks
+                                            optional event kind), wire (a Kind of chromium_host_wire.h)
+                                            or not_needed (the reason) in
+                                            plans/cmux-next/chromium-host-view-parity.json. A pending
+                                            row (the design task that builds its carrier, with a note
+                                            naming it) is not a mapping: it stays unmapped, so the
+                                            check fails and --list-unmapped lists it until the row
+                                            names the carrier; --list-pending prints those rows and
+                                            their tasks
   ... --dump-header                         the parsed header as JSON (counts, exports, events)
 
 No CI job runs this (p01-process section 4, rule 4); scripts/cmux-next/tests/
@@ -2415,7 +2418,8 @@ class ParityCarriers:
 
 
 def view_parity(root: Path, header: Header) -> tuple[list[str], list[str], list[str]]:
-    """(problems, unmapped methods, pending methods with their tasks)."""
+    """(problems, unmapped methods, pending methods with their tasks). A pending row is unmapped:
+    it only names the task that will build the carrier."""
     parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
     problems: list[str] = []
     if not parity_path.exists():
@@ -2443,24 +2447,31 @@ def view_parity(root: Path, header: Header) -> tuple[list[str], list[str], list[
         for interface, method in mojom_methods(raw.decode("utf-8")):
             methods[(name, interface, method)] = False
     carriers = ParityCarriers(root, header)
-    pending: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    pending: dict[tuple[str, str, str], str] = {}
     for row in data.get("methods", []):
         key = (row.get("mojom"), row.get("interface"), row.get("method"))
         label = f"{key[0]} {key[1]}.{key[2]}"
         if key not in methods:
             problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
             continue
-        if methods[key]:
+        if key in seen:
             problems.append(f"{label}: mapped twice")
+        seen.add(key)
         problem = carriers.row_problem(row, label)
         if problem:
             problems.append(problem)
         elif "pending" in row:
-            pending.append(f"{label}\t{row['pending']}")
+            pending[key] = row["pending"]
+            continue  # no carrier yet: the method stays unmapped
         methods[key] = True
-    unmapped = [f"{m} {i}.{n}" for (m, i, n), done in sorted(methods.items()) if not done]
-    problems += [f"{u}: unmapped" for u in unmapped]
-    return problems, unmapped, sorted(pending)
+    unmapped = [key for key, done in sorted(methods.items()) if not done]
+    for key in unmapped:
+        label = f"{key[0]} {key[1]}.{key[2]}"
+        task = pending.get(key)
+        problems.append(f"{label}: unmapped, pending on {task}" if task else f"{label}: unmapped")
+    return (problems, [f"{m} {i}.{n}" for m, i, n in unmapped],
+            [f"{m} {i}.{n}\t{task}" for (m, i, n), task in sorted(pending.items())])
 
 
 # ---------------------------------------------------------------------------------------------
