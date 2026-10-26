@@ -74,3 +74,19 @@ extension LayoutRootView: PaneCardSource {
 
     public func observePaneCards(_ block: @escaping () -> Void) -> AnyObject { observeOverlaySync(block) }
 }
+
+extension LayoutViewContext {
+    /// The screens' two ways to move `root`'s overlay: once before this turn's frame commits, after whatever
+    /// moved hosts (`setNeedsOverlaySync`), or now. Now is a render-server spring's start
+    /// (`SplitMotion.placeAtRest`): its hosts are at rest, and the plane places every ring and dim there so
+    /// each host's springs carry its chrome from that rest in one group (`PaneHostView.springToRest`); the
+    /// springs then run with no sync until they land, and the sync this turn scheduled finds every ring placed.
+    func wireOverlaySync(to root: LayoutRootView) {
+        overlayNeedsSync = { [weak root] in root?.setNeedsOverlaySync() }
+        overlaySyncNow = { [weak root] in
+            guard let root else { return }
+            root.overlayIsStale = true
+            root.flushOverlaySync()
+        }
+    }
+}

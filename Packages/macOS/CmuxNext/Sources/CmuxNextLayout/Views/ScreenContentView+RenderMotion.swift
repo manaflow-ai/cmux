@@ -56,7 +56,7 @@ extension ScreenContentView {
         let now = renderClockTime
         for (pane, track) in renderTracks.panes {
             if let frame = paneFrames[pane] { paneFrames[pane] = track.presenting(frame, at: now) }
-            if let layer = context.hosts[pane]?.layer { Self.stopMoveSprings(layer) }
+            context.hosts[pane]?.stopRenderMoves()
         }
         for (kind, track) in renderTracks.dividers {
             if let frame = dividerFrames[kind] { dividerFrames[kind] = track.presenting(frame, at: now) }
@@ -172,9 +172,9 @@ extension ScreenContentView {
         return moved
     }
 
-    /// Springs `panes` and `dividers` from where they show to their rest frames on the change's frame
-    /// spring token, and records each spring (``renderTracks``); the layout motion ends when the last one
-    /// lands (``renderSpringLanded()``).
+    /// Springs `panes` (their chrome in their groups, ``SplitMotion/placeAtRest(_:dividers:views:laysOut:context:)``)
+    /// and `dividers` from where they show to their rest frames on the change's frame spring token, and records
+    /// each spring (``renderTracks``); the layout motion ends when the last one lands (``renderSpringLanded()``).
     private func springMoves(panes: [PaneID: SplitMotion.RenderMove], dividers: [DividerHandleView.Kind: SplitMotion.RenderMove]) {
         let spring = Motion.panes.renderSpring(motionState.frameSpring)
         let laysOut = window != nil && bounds.width >= 1 && bounds.height >= 1
@@ -185,14 +185,14 @@ extension ScreenContentView {
         renderSpringsInFlight += 1
         userMotionActive = true
         context.userMotionStepped()
-        for (pane, move) in panes {
-            guard let host = context.hosts[pane] else { continue }
+        let placed = SplitMotion.placeAtRest(panes, dividers: dividers, views: dividerViews, laysOut: laysOut, context: context)
+        for (pane, host, move) in placed {
             renderSpringsInFlight += 1
             let landedHost: @MainActor @Sendable () -> Void = { [weak self, weak host] in
                 if let host { self?.hostLanded(host) }
                 self?.renderSpringLanded()
             }
-            host.springOnRenderServer(move, spring: spring, laysOut: laysOut && move.to.width >= 1 && move.to.height >= 1, landed: landedHost)
+            host.springToRest(move, spring: spring, landed: landedHost)
             renderTracks.panes[pane] = Self.tracking(renderTracks.panes[pane], move, animates: spring.animates("position", in: host),
                                                   begin: begin, parameters: parameters)
         }
@@ -256,6 +256,30 @@ extension ScreenContentView {
 }
 
 extension SplitMotion {
+    /// A render-server spring's start: every host of `panes` (with `laysOut`, when its rest has room) and
+    /// every divider of `dividers` goes to its rest frame, then the overlay plane places their rings and
+    /// dims there in one sync (the change's apply sync), so each host's springs carry its chrome from
+    /// that rest in one group (`PaneHostView.springToRest`) and nothing syncs the overlay again until
+    /// they land. Returns the placed hosts with their moves.
+    @MainActor
+    static func placeAtRest(_ panes: [PaneID: RenderMove], dividers: [DividerHandleView.Kind: RenderMove],
+                            views: [DividerHandleView.Kind: DividerHandleView], laysOut: Bool,
+                            context: LayoutViewContext) -> [(PaneID, PaneHostView, RenderMove)] {
+        let placed: [(PaneID, PaneHostView, RenderMove)] = panes.compactMap { entry in
+            context.hosts[entry.key].map { (entry.key, $0, entry.value) }
+        }
+        for (_, host, move) in placed {
+            host.placeAtRest(move, laysOut: laysOut && move.to.width >= 1 && move.to.height >= 1)
+        }
+        for (kind, move) in dividers {
+            guard let view = views[kind] else { continue }
+            view.frame = move.to
+            view.alphaValue = move.toAlpha
+        }
+        context.overlaySyncNow()
+        return placed
+    }
+
     /// Where a pane or divider shows in the screen and how fast it moves there, in points per second.
     struct Shown {
         var rect: CGRect
