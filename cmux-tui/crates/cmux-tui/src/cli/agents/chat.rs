@@ -53,6 +53,7 @@ pub(in crate::cli) enum ChatCommand {
         target: String,
         after: u64,
         limit: usize,
+        code_block: bool,
     },
     /// Start a GUI agent chat (chat_control.rs).
     New(super::chat_control::NewChat),
@@ -67,7 +68,7 @@ pub(in crate::cli) enum ChatCommand {
 }
 
 /// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
-/// [--limit N]`, `chat new ...`, `chat state <chat>`, `chat interrupt
+/// [--limit N] [--last-code-block]`, `chat new ...`, `chat state <chat>`, `chat interrupt
 /// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
@@ -111,12 +112,23 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             let target = chat_word(target)?;
             let mut after = 0;
             let mut limit = DEFAULT_READ_LIMIT;
+            let mut code_block = false;
             let mut index = 0;
             while index < rest.len() {
                 let (flag, inline) = match rest[index].split_once('=') {
                     Some((flag, value)) => (flag, Some(value)),
                     None => (rest[index], None),
                 };
+                if flag == "--last-code-block" {
+                    if inline.is_some() {
+                        return Err(UsageError::new(
+                            "agents chat read: --last-code-block does not take a value",
+                        ));
+                    }
+                    code_block = true;
+                    index += 1;
+                    continue;
+                }
                 let value = match inline {
                     Some(value) => value,
                     None => {
@@ -151,11 +163,11 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
                 }
                 index += 1;
             }
-            Ok(ChatCommand::Read { target, after, limit })
+            Ok(ChatCommand::Read { target, after, limit, code_block })
         }
         _ => Err(UsageError::new(
             "agents chat: use `chat new [flags] [<prompt>]`, `chat send <chat> <text>`, \
-             `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
+             `chat read <chat> [--after N] [--limit N] [--last-code-block]`, `chat state <chat>`, \
              `chat interrupt <chat>` or `chat continue <chat> [<text>]`",
         )),
     }
@@ -178,7 +190,9 @@ pub(in crate::cli) fn run(
 ) -> Result<Value, CallFailure> {
     match command {
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
-        ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
+        ChatCommand::Read { target, after, limit, code_block } => {
+            read(global, target, *after, *limit, *code_block)
+        }
         ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
         ChatCommand::State { target } => super::chat_control::state(global, target),
         ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
@@ -382,15 +396,29 @@ pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
         || (receipt["action"] == "chat.new" && receipt["result"]["prompt"]["state"] == "failed")
 }
 
-fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
+fn read(
+    global: &GlobalArgs,
+    target: &str,
+    after: u64,
+    limit: usize,
+    code_block: bool,
+) -> Result<Value, CallFailure> {
     let found = scoped_chat(global, target)?;
     let chat = &found.id;
+    // Code-block lookup is intentionally independent of the requested page:
+    // `copyLastCodeBlock` means the latest answer, even when a caller is
+    // paging forward from a saved cursor.
+    let (load_after, load_limit) = if code_block { (0, MAX_READ_LIMIT) } else { (after, limit) };
     let (transcript, more, cursor) =
-        load(after, limit, |cursor| acp::events(chat, cursor, EVENT_PAGE, found.socket()))
+        load(load_after, load_limit, |cursor| acp::events(chat, cursor, EVENT_PAGE, found.socket()))
             .map_err(|error| {
                 not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
             })?;
-    Ok(transcript.page(chat, after, limit, more, cursor))
+    let mut page = transcript.page(chat, after, limit, more, cursor);
+    if code_block {
+        page["last_code_block"] = transcript.last_code_block().unwrap_or(Value::Null);
+    }
+    Ok(page)
 }
 
 /// The transcript of the events after `after`, read a page at a time from
@@ -493,6 +521,17 @@ struct Transcript {
 }
 
 impl Transcript {
+    /// The latest complete fenced code block in an assistant answer. The
+    /// returned text goes through the same secret masker as `chat read`, so
+    /// `--last-code-block` cannot become a way to bypass transcript redaction.
+    fn last_code_block(&self) -> Option<Value> {
+        self.items
+            .iter()
+            .rev()
+            .filter(|item| item.role == "assistant")
+            .find_map(|item| extract_last_code_block(&visible_text(&item.text, false)))
+    }
+
     fn apply(&mut self, event: &Value) {
         let seq = event["seq"].as_u64().unwrap_or(0);
         let msg = &event["msg"];
@@ -675,6 +714,45 @@ impl Transcript {
             "has_more": returned < candidates || more_events,
         })
     }
+}
+
+/// Finds the last complete Markdown fenced block in `text`. Both backtick
+/// and tilde fences are accepted; an unfinished final fence is ignored so a
+/// live answer never exposes a partial block as if it were complete.
+fn extract_last_code_block(text: &str) -> Option<Value> {
+    let mut open: Option<(char, usize, String, String)> = None;
+    let mut latest = None;
+    for line in text.split_inclusive('\n') {
+        let without_newline = line.strip_suffix('\n').unwrap_or(line);
+        let trimmed = without_newline.trim_start();
+        let mut chars = trimmed.chars();
+        let marker = chars.next();
+        let Some(marker @ ('`' | '~')) = marker else {
+            if let Some((_, _, _, code)) = open.as_mut() {
+                code.push_str(line);
+            }
+            continue;
+        };
+        let width = trimmed.chars().take_while(|character| *character == marker).count();
+        if width < 3 {
+            if let Some((_, _, _, code)) = open.as_mut() {
+                code.push_str(line);
+            }
+            continue;
+        }
+        let rest = &trimmed[marker.len_utf8() * width..];
+        if let Some((open_marker, open_width, language, code)) = open.as_mut() {
+            if *open_marker == marker && width >= *open_width && rest.trim().is_empty() {
+                latest = Some(json!({"language": language, "code": std::mem::take(code)}));
+                open = None;
+            } else {
+                code.push_str(line);
+            }
+        } else {
+            open = Some((marker, width, rest.trim().to_owned(), String::new()));
+        }
+    }
+    latest
 }
 
 #[cfg(unix)]
@@ -1096,7 +1174,7 @@ mod tests {
             Ok(ChatCommand::Read {
                 target: "chat-1".into(),
                 after: 0,
-                limit: super::super::super::agents::chat::DEFAULT_READ_LIMIT,
+                limit: super::DEFAULT_READ_LIMIT,
                 code_block: true,
             })
         );
