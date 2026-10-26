@@ -1,25 +1,36 @@
-import CmuxNextWakeups
-
-/// Why a cmux page starts its Chromium page now: the page side of the engine's tab origin
-/// (`BrowserTabConfiguration.origin`, plans/cmux-next/chrome-parity/p08-startup.md, section 3D).
+/// Why a cmux page's Chromium page is made: the page side of the engine's tab origin (`BrowserTabOrigin`,
+/// plans/cmux-next/chrome-parity/p08-startup.md section 3D). The host passes it on as
+/// `BrowserTabConfiguration.origin`. The engine's one launch order (`CEFLaunchDeferral`) does every launch wait:
+/// `CEFEngine.makeTab` for a page that starts, ``PageChromiumHosting/startHidden(when:_:)`` for one that does not show.
 ///
-/// Chrome loads the visible tab of a session restore at once and the other restored tabs only later,
-/// through `TabLoader` (chrome/browser/sessions/session_restore.cc, chrome/browser/sessions/tab_loader.cc),
-/// and its startup goal is the first visible WebContents. A cmux page made while the launch runs (Home,
-/// New Tab, an agent page in Chromium) follows the same rule in ``PageWebView`` (task p08-startup-041).
-public enum PageChromiumOrigin: Sendable, Equatable {
-    /// Opened after startup completed (a person's or a script's open): Chromium starts at once.
+/// Chrome loads the visible tab of a session restore at once and the other restored tabs only later
+/// (chrome/browser/sessions/session_restore.cc, chrome/browser/sessions/tab_loader.cc); its startup goal is the
+/// first visible WebContents.
+public nonisolated enum PageChromiumOrigin: Sendable, Equatable, CaseIterable {
+    /// A person's open: Chromium starts at once (input first).
     case user
-    /// Made at launch and shown in a visible window: Chromium starts after the first frame.
+    /// A command's, a script's or an agent's open: Chromium starts at once.
+    case automation
+    /// The launch restored the page and it shows: the engine starts Chromium in an afterFirstFrame post.
     case restoreVisible
-    /// Made at launch and not shown before startup completed: Chromium starts then.
+    /// The launch restored the page and it does not show: the engine starts Chromium in an afterStartup post.
     case restoreHidden
 }
 
+/// Who asked for a page view (``PageOpenRequest/origin``). Only the launch's restore of a tab it restored says
+/// ``launchRestore``; every other open is a person's or automation's and starts at once, also while the launch runs.
+public nonisolated enum PageOpenOrigin: Sendable, Equatable {
+    /// A person's open (a click, a shortcut, a tab they show).
+    case user
+    /// A command's, a script's or an agent's open.
+    case automation
+    /// The launch made the page for a tab it restored: its Chromium page follows the launch order
+    /// (``PageChromiumHosting/restoredOrigin(isShown:)``), by whether the page shows when it starts.
+    case launchRestore
+}
+
 extension PageChromiumHosting {
-    /// ``launch`` while startup has not completed; nil once it has, or with no launch.
-    var pendingLaunch: StartupScheduler? {
-        guard let launch, launch.completion == nil else { return nil }
-        return launch
-    }
+    /// Whether a page the launch restores waits for its launch turn now: the host has a launch order and startup
+    /// has not completed.
+    var holdsRestoredPages: Bool { restoredOrigin(isShown: false) == .restoreHidden }
 }

@@ -21,9 +21,15 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Parameter page: The page to show.
     /// - Returns: True when a Chromium page can load it.
     func serves(_ page: PageDescriptor) -> Bool
-    /// The launch's scheduler when cmux pages follow the launch origin rule (feature
-    /// `chromiumPagesLaunchOrigin`, ``PageChromiumOrigin``); nil: every page is a person's and starts at once.
-    var launch: StartupScheduler? { get }
+    /// The origin of a page the launch restored (``PageOpenOrigin/launchRestore``) that starts now: the engine's
+    /// launch order's, ``PageChromiumOrigin/restoreVisible`` when it shows (`isShown`), else
+    /// ``PageChromiumOrigin/restoreHidden``; ``PageChromiumOrigin/user`` once startup completed, or with no launch
+    /// order (feature `cefLaunchOrigin` off).
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin
+    /// Runs `start` for a restored page that does not show, at the first of: `node` shows, or startup completes
+    /// (the launch order's afterStartup post); at once when no launch runs. `start` may run twice and must start
+    /// the page once.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void)
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
     /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
@@ -33,7 +39,8 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - page: The page's descriptor (its origin and policy).
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
-    ///   - origin: Why the page starts now; the host passes it on as the engine's tab origin.
+    ///   - origin: Why the page starts now; the host passes it on as the engine's tab origin, whose launch order
+    ///     is the only wait (a restored page's start waits there, never in the page).
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, origin: PageChromiumOrigin) async throws -> any PageChromiumPage

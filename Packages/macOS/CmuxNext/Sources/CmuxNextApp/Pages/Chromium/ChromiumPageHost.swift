@@ -13,7 +13,8 @@ import Foundation
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
 /// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
-/// a window in the turn that opened it. A page's ``PageChromiumOrigin`` is its tab's origin (p08-startup-041).
+/// a window in the turn that opened it. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
+/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start (p08-startup-041).
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -26,7 +27,6 @@ final class ChromiumPageHost: PageChromiumHosting {
     private weak var keyRouter: KeyRouter?
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
-    let launch: StartupScheduler?  // while pages follow the launch origin rule (feature `chromiumPagesLaunchOrigin`)
 
     /// - Parameters:
     ///   - chromium: The app's Chromium engine slot: the engine is built when the first page opens in Chromium.
@@ -34,14 +34,22 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
-    ///   - launch: The launch's scheduler (``PageChromiumHosting/launch``); nil: every page starts Chromium at once.
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork, launch: StartupScheduler?) {
+         work: BackgroundWork) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
-        self.launch = launch
+    }
+
+    /// The slot's launch order's origin (``CEFLaunchDeferral/restoredOrigin(isShown:wasStarted:)``): a page view starts once.
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin {
+        PageChromiumOrigin(chromium.launchOrder.restoredOrigin(isShown: isShown, wasStarted: false))
+    }
+
+    /// The slot's launch order's hidden start, the path a hidden restored browser tab takes too.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void) {
+        chromium.launchOrder.startHidden(when: node, start)
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
@@ -57,7 +65,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         let cef = chromium.engine
         var configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
-        configuration.origin = switch origin { case .user: .user; case .restoreVisible: .restoreVisible; case .restoreHidden: .restoreHidden }
+        configuration.origin = BrowserTabOrigin(origin)  // CEFEngine.makeTab's launch order is the only wait
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
@@ -71,5 +79,29 @@ final class ChromiumPageHost: PageChromiumHosting {
             throw Failure.browserNotCreated
         }
         return chromiumPage
+    }
+}
+
+extension BrowserTabOrigin {
+    /// The engine's origin of a cmux page made with `origin` (``ChromiumPageHost/makePage(_:chatOpen:origin:)``).
+    nonisolated init(_ origin: PageChromiumOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
+    }
+}
+
+extension PageChromiumOrigin {
+    /// The page side of the engine's `origin` (``ChromiumPageHost/restoredOrigin(isShown:)``).
+    nonisolated init(_ origin: BrowserTabOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
     }
 }

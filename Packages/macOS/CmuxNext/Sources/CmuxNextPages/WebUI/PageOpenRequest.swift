@@ -26,11 +26,14 @@ public struct PageOpenRequest {
     public var dynamicResources: (any PageDynamicResourceSource)?
     /// The agent chat open the page shows (``PageWebView/chatOpen``), known before its document starts.
     public var chatOpen: ChatOpenStages?
+    /// Who asks for the page: a person (the default) or automation start its Chromium page at once; the launch's
+    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order (p08-startup-041).
+    public var origin: PageOpenOrigin
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                chatOpen: ChatOpenStages? = nil) {
+                chatOpen: ChatOpenStages? = nil, origin: PageOpenOrigin = .user) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -40,6 +43,7 @@ public struct PageOpenRequest {
         self.surface = surface
         self.dynamicResources = dynamicResources
         self.chatOpen = chatOpen
+        self.origin = origin
     }
 }
 
@@ -78,6 +82,6 @@ extension PageWebView {
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
                   openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow,
-                  chatOpen: request.chatOpen)
+                  chatOpen: request.chatOpen, origin: request.origin)
     }
 }
