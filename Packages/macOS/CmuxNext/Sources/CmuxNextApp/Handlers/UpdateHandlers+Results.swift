@@ -46,7 +46,7 @@ extension UpdateHandlers {
 
     /// Follows the install the action started until it installs (the relaunch follows), ends
     /// with nothing to install or a failure (the run's error), or `limit` passes (the state it
-    /// reached, `pending: true`). `baseline` is ``UpdaterService/flowMoves`` before the request:
+    /// reached, `pending: true`, while it is still in progress). `baseline` is ``UpdaterService/flowMoves`` before the request:
     /// a phase counts only once the gate moved after it, so an earlier check's note is not the
     /// answer, and a failure Sparkle reported inside the request is.
     static func installResult(_ updater: UpdaterService, after baseline: Int, limit: Duration = installAnswerLimit) -> ActionResultWork {
@@ -65,7 +65,11 @@ extension UpdateHandlers {
         return Task { @MainActor in
             let settled = await follow.value
             timer.cancel()
-            return settled ?? .success(state(updater.indicatorPhase, pending: true))
+            if let settled { return settled }
+            // At the limit, only work in progress is pending. A note or the idle phase is final
+            // even when the gate never moved (Sparkle failed the same way again inside the request).
+            let phase = updater.indicatorPhase
+            return installSettled(phase, moved: true, updater: updater) ?? .success(state(phase, pending: true))
         }
     }
 

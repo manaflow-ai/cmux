@@ -95,12 +95,36 @@ import Testing
         #expect(ended.refusal == .unavailable)
     }
 
-    /// An install that has not started by the limit answers the state it reached, never silence.
+    /// An install still in progress at the limit answers the state it reached, never silence.
     @Test func anInstallStillRunningAnswersItsState() async throws {
         let updater = Self.updater(Self.newer)
+        updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.25))
         let fields = try await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value.get()
         #expect(fields["pending"] == .bool(true))
-        #expect(fields["state"] == .string("idle"))
+        #expect(fields["state"] == .string("downloading"))
+    }
+
+    /// A request that failed the same way again (the gate never moved off its note) is the run's
+    /// error at the limit, not a pending success.
+    @Test func aRepeatedFailureIsTheRunsErrorAtTheLimit() async throws {
+        let updater = Self.updater(Self.newer)
+        updater.debugIndicatorPhase = .note(.checkFailed)
+        let result = await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value
+        guard case .failure(let failure) = result else {
+            Issue.record("a repeated failure answered \(result)")
+            return
+        }
+        #expect(failure.refusal == .unavailable)
+    }
+
+    /// Nothing happened by the limit (idle, never moved): the run's error, not a pending success.
+    @Test func anInstallThatNeverStartedIsTheRunsError() async throws {
+        let updater = Self.updater(Self.newer)
+        let result = await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value
+        guard case .failure = result else {
+            Issue.record("an install that never started answered \(result)")
+            return
+        }
     }
 
     /// Through the gate's real moves: an earlier check's note is not the answer; the install is.
