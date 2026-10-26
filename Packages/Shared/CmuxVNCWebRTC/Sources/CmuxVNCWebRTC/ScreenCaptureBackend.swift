@@ -6,7 +6,8 @@ import Foundation
 import ScreenCaptureKit
 
 /// V2's frame source and input sink: ScreenCaptureKit captures one display
-/// at its native pixel size, 60 fps, only when it changes (NV12, straight to
+/// at its native pixel size, at 60 fps or the rate the stream agreed on (up
+/// to 120 on ProMotion), only when it changes (NV12, straight to
 /// the hardware encoder), and CGEvent posts the viewer's input as if from
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
@@ -19,6 +20,12 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var displays: [SCDisplay] = []
     private var current = 0
     private var stream: SCStream?
+    /// The display `stream` captures (a frame rate change reconfigures it for that display).
+    private var streamDisplay: SCDisplay?
+    /// Each display's most frames per second (`NSScreen.maximumFramesPerSecond`), by display ID.
+    private var frameRates: [CGDirectDisplayID: Int] = [:]
+    /// The capture rate (``setFrameRate(_:)``).
+    private var frameRate = ScreenQuality.baselineFrameRate
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
@@ -39,9 +46,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         // No shareable display (all asleep, or capture refused): fail the session, never index an empty list.
         guard !found.isEmpty else { throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "no display to capture"]) }
         let main = found.firstIndex { $0.displayID == CGMainDisplayID() } ?? 0
+        let rates = await Self.displayFrameRates()
         lock.withLock {
             self.displays = found
             current = main
+            frameRates = rates
             onFrame = frame
             onDisplays = displays
         }
@@ -76,8 +85,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
             let found = content.displays.sorted { $0.frame.minX < $1.frame.minX }
             guard !found.isEmpty else { return }
+            // A mode change can change the refresh rate too (ProMotion off, another display).
+            let rates = await Self.displayFrameRates()
             let (display, sizes, index, notify) = lock.withLock { () -> (SCDisplay, [CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?) in
                 let previous = displays.indices.contains(current) ? displays[current].displayID : CGMainDisplayID()
+                frameRates = rates
                 displays = found
                 current = found.firstIndex { $0.displayID == previous } ?? (found.firstIndex { $0.displayID == CGMainDisplayID() } ?? 0)
                 return (found[current], found.map { pixelSize($0) }, current, onDisplays)
@@ -98,25 +110,112 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         return CGSize(width: mode?.pixelWidth ?? display.width, height: mode?.pixelHeight ?? display.height)
     }
 
-    private func capture(_ display: SCDisplay) async throws {
+    /// Every display's most frames per second, by display ID (AppKit reads screens on the main thread).
+    private static func displayFrameRates() async -> [CGDirectDisplayID: Int] {
+        await MainActor.run {
+            var rates: [CGDirectDisplayID: Int] = [:]
+            for screen in NSScreen.screens {
+                guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { continue }
+                rates[number.uint32Value] = screen.maximumFramesPerSecond
+            }
+            return rates
+        }
+    }
+
+    public var maximumFrameRate: Int? {
+        lock.withLock { displays.indices.contains(current) ? frameRates[displays[current].displayID] : nil }
+    }
+
+    /// The capture rate for a stream at `fps`: the agreed rate, never below
+    /// the 60 every preset captured at before (a fixed preset's encoder
+    /// takes 30 of them, as it always did).
+    static func captureFrameRate(for fps: Int) -> Int {
+        min(max(fps, ScreenQuality.baselineFrameRate), ScreenQuality.maximumFrameRate)
+    }
+
+    /// Surfaces ScreenCaptureKit may have in flight. A frame stays out until
+    /// the encoder lets it go; at 120 fps each one comes back in half the
+    /// time, so two more keep capture from waiting on the encoder (8 is
+    /// ScreenCaptureKit's limit).
+    static func queueDepth(for fps: Int) -> Int {
+        fps > ScreenQuality.baselineFrameRate ? 6 : 4
+    }
+
+    public func setFrameRate(_ fps: Int) {
+        let rate = Self.captureFrameRate(for: fps)
+        let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+            guard rate != frameRate else { return nil }
+            frameRate = rate
+            guard let stream, let streamDisplay else { return nil }
+            return (stream, streamDisplay)
+        }
+        guard let running else { return }
+        reconfigure(running.0, display: running.1, frameRate: rate)
+    }
+
+    /// A running capture and the display it captures, handed to the task that reconfigures it.
+    // crash-allow: two immutable lets of ScreenCaptureKit objects, which are thread-safe; the task only reads the display and calls updateConfiguration.
+    private struct RunningCapture: @unchecked Sendable {
+        // @unchecked: SCStream and SCDisplay are not marked Sendable; both are immutable here.
+        let stream: SCStream
+        let display: SCDisplay
+    }
+
+    /// Brings a running capture to the current ``setFrameRate(_:)`` rate
+    /// without restarting it. Changes in quick succession each start one of
+    /// these; each reads the rate again after applying, so the capture
+    /// always ends at the latest one whatever order they finish in.
+    private func reconfigure(_ stream: SCStream, display: SCDisplay, frameRate: Int) {
+        let log = self.log
+        let running = RunningCapture(stream: stream, display: display)
+        Task {
+            var applied: Int?
+            while true {
+                let rate = lock.withLock { self.stream === running.stream && !stopped ? self.frameRate : nil }
+                guard let rate, rate != applied else { return }
+                do {
+                    try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
+                    log("capturing display \(running.display.displayID) at \(rate) fps")
+                } catch {
+                    log("capture frame rate \(rate) not applied: \(error.localizedDescription)")
+                    return
+                }
+                applied = rate
+            }
+        }
+    }
+
+    /// The pointer stays in the picture (`showsCursor`): the viewer shows the
+    /// Mac's own cursor, never one drawn locally.
+    private func configuration(for display: SCDisplay, frameRate: Int) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         let size = pixelSize(display)
         configuration.width = Int(size.width)
         configuration.height = Int(size.height)
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         configuration.colorSpaceName = CGColorSpace.sRGB
-        configuration.queueDepth = 4
+        configuration.queueDepth = Self.queueDepth(for: frameRate)
         configuration.showsCursor = true
+        return configuration
+    }
+
+    private func capture(_ display: SCDisplay) async throws {
+        let rate = lock.withLock { frameRate }
+        let configuration = configuration(for: display, frameRate: rate)
+        let size = pixelSize(display)
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
-        let (previous, late) = lock.withLock { () -> (SCStream?, Bool) in
-            if stopped { return (nil, true) }
-            defer { self.stream = stream }
-            return (self.stream, false)
+        let (previous, late, latest) = lock.withLock { () -> (SCStream?, Bool, Int) in
+            if stopped { return (nil, true, rate) }
+            defer {
+                self.stream = stream
+                streamDisplay = display
+            }
+            return (self.stream, false, frameRate)
         }
         if late {
             try? await stream.stopCapture()
@@ -124,7 +223,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
         if let previous { try? await previous.stopCapture() }
         input.display = display.frame
-        log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), 60 fps")
+        log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
+        // The rate changed while this capture started (setFrameRate found no stream to update).
+        if latest != rate { reconfigure(stream, display: display, frameRate: latest) }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -155,6 +256,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
                 self.stream = nil
+                streamDisplay = nil
                 stopped = true
                 self.reconfiguration = nil
             }
