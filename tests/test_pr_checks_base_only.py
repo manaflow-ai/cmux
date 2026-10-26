@@ -137,7 +137,9 @@ class BaseOnlyStepTests(unittest.TestCase):
         return outputs.get("base_only", ""), result.stdout
 
     def gh_calls(self) -> list[str]:
-        return self.gh_log.read_text().splitlines() if self.gh_log.exists() else []
+        # API calls only: a host's git may use gh as its credential helper.
+        calls = self.gh_log.read_text().splitlines() if self.gh_log.exists() else []
+        return [call for call in calls if call.startswith("api ")]
 
     def test_a_clean_merge_of_the_base_is_base_only(self):
         answer, why = self.decide(self.merge_base())
