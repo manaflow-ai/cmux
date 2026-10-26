@@ -259,6 +259,21 @@ class HostRootTests(unittest.TestCase):
         elsewhere = str(self.root / "job-temp/acpmux")
         self.assertEqual(self.compile(ws, CMUX_NEXT_ACPMUX_BIN=elsewhere)["acpmux"], elsewhere)
 
+    def test_the_report_names_the_commit_the_host_tree_held(self):
+        report = self.root / "report.txt"
+        first = self.workspace("runner-2")
+        self.compile(first, CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertIn("mode=host\n", report.read_text())
+        self.assertIn("previous_sha=\n", report.read_text(), "a fresh host holds no earlier build")
+        first_head = subprocess.run(["git", "-C", str(first), "rev-parse", "HEAD"],
+                                    capture_output=True, text=True).stdout.strip()
+        seen = self.compile(self.workspace("runner-5", extra="next"), "cmux14-glaeda-5", CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertIn(f"previous_sha={first_head}\n", report.read_text(), "the landing log names the cache's commit")
+        self.assertIn(f"compilation cache source sha: {first_head}\n", seen["out"], "the per-landing harness reads this line")
+        self.compile(first, CMUX_NEXT_RUNNER="blacksmith-6vcpu-macos-26", CMUX_NEXT_DEV_COMPILE_REPORT=str(report))
+        self.assertIn("mode=instance\n", report.read_text())
+        self.assertIn("previous_sha=\n", report.read_text())
+
     def test_a_failed_compile_fails_and_releases_the_lock(self):
         proc, job = self.start(self.workspace("runner-2"), STUB_COMPILE_STATUS="65")
         self.finish(proc, job, status=65)
