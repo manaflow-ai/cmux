@@ -193,7 +193,8 @@ final class CEFDevToolsController {
         // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
         // at the next open).
         if docked {
-            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
+            let fork = CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion, fences: tab.runtime.resizeFences)
+            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: fork)
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }

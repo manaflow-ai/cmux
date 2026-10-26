@@ -49,6 +49,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// `cmux_shim_browser_set_resize_fence(browser, fence, deadline_frames)` (fork API
+    /// ``CEFLayerHosting/resizeFenceForkAPI``, p03-rendering-042): 1 when the fork took its own send
+    /// right to `fence` for the page's next GPU commit at its new size. Nil when the shim lacks the
+    /// export, and in host mode: a Mach port name means nothing in the Chromium Host's process.
+    let browserSetResizeFence: (@convention(c) (Int32, UInt32, UInt32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -317,6 +322,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
             guard hostExports?.contains(name) ?? true else { return nil }
             return symbol(name).map { unsafeBitCast($0, to: T.self) }
         }
+
+        /// A function only newer shims export that passes this process's Mach ports: nil in host
+        /// mode, where a port name would reach the Chromium Host's process as a bare number.
+        func inProcess<T>(_ name: String) -> T? {
+            hostExports == nil ? optional(name) : nil
+        }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
@@ -348,6 +359,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetResizeFence = r.inProcess("cmux_shim_browser_set_resize_fence")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

@@ -143,7 +143,7 @@ import Testing
         off.trackerDidRead()
         #expect(fake.calls.isEmpty)
 
-        #expect(CEFLayerHosting.Fork(shim: nil, apiVersion: 30) == nil)
+        #expect(CEFLayerHosting.Fork(shim: nil, apiVersion: 30, fences: CEFResizeFences()) == nil)
         let old = makeHosting()
         old.pageWindowCreated(browser: 3, fork: nil)
         old.pageShown(browser: 3)

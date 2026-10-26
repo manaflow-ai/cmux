@@ -131,6 +131,8 @@ final class CEFRuntime {
     /// The one app-wide observer of display changes: each Chromium host view's resize wait is capped
     /// by the displays' frames (`CEFLayerHosting.displaysChanged`). Made when CEF is ready.
     private(set) var displayObservation: MainActorObservation?
+    /// The geometry transactions that resize Chromium pages, one fence each (`CEFResizeFences`).
+    let resizeFences = CEFResizeFences()
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).

@@ -17,10 +17,18 @@ import AppKit
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
 ///
-/// While hosted (fork API 27), a resize of the page window may hold the
-/// process's commit for Chromium's frame at the new size, up to
-/// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
-/// half the shortest frame of all displays. During the window's live resize
+/// With the fork's resize fence (``resizeFenceForkAPI``), each resize of the view
+/// (``viewDidResize()``: a divider drag, a step of the window's live resize, a
+/// spring start) puts a hosted page's next frame at the new size into the
+/// transaction's one fence (``CEFResizeFences``, deadline 2 frames), so the page
+/// and the pane show the new size together; during the window's live resize a
+/// page in its own window joins too. The render server waits, the main thread
+/// never does, and no deadline reaches the fork.
+///
+/// Older forks keep the API 27 behavior: while hosted, a resize of the page
+/// window may hold the process's commit for Chromium's frame at the new size, up
+/// to ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped
+/// at half the shortest frame of all displays. During the window's live resize
 /// every page over the view, hosted or not, gets `browserResize.liveResizeDeadline`
 /// under the same cap. A change (a tunable edit, a display added or changed)
 /// reaches the fork at the next show or display change, only when the deadline
@@ -41,23 +49,41 @@ final class CEFLayerHosting {
         /// resize of the page window may hold the commit for Chromium's frame
         /// at the new size, in ms; 0 never holds it. True when the fork took it
         /// (false for a closed browser's id). Nil below API 27, where Chromium
-        /// holds it up to 500 ms on every resize.
+        /// holds it up to 500 ms on every resize. Nil too with ``resizeFence``:
+        /// a fence never needs the commit to wait.
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// `cmux_shim_browser_set_resize_fence` (``resizeFenceForkAPI``) and the
+        /// runtime's transactions; nil on older forks and in host mode.
+        let resizeFence: ResizeFence?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
-             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil) {
+             setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             resizeFence: ResizeFence? = nil) {
             self.setLayerHosting = setLayerHosting
-            self.setResizeSync = setResizeSync
+            self.setResizeSync = resizeFence == nil ? setResizeSync : nil
+            self.resizeFence = resizeFence
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
-        /// nothing changes and showing a tab costs nothing here.
-        init?(shim: CEFShimLibrary?, apiVersion: Int32) {
+        /// nothing changes and showing a tab costs nothing here. `fences` is
+        /// the runtime's one set of resize transactions, shared by every page.
+        init?(shim: CEFShimLibrary?, apiVersion: Int32, fences: CEFResizeFences) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
-            setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
-            setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
-                ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            let setFence = apiVersion >= CEFLayerHosting.resizeFenceForkAPI ? shim.browserSetResizeFence : nil
+            self.init(
+                setLayerHosting: { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) },
+                setResizeSync: apiVersion >= CEFLayerHosting.resizeSyncForkAPI
+                    ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil,
+                resizeFence: setFence.map { call in
+                    ResizeFence(fences: fences, set: { browser, fence, frames in call(browser, fence, frames) == 1 })
+                })
         }
+    }
+
+    /// A page's way into a geometry transaction's fence.
+    struct ResizeFence {
+        let fences: CEFResizeFences
+        let set: CEFResizeFences.SetFence
     }
 
     private enum Pending: Equatable {
@@ -73,6 +99,10 @@ final class CEFLayerHosting {
     static let forkAPI: Int32 = 26
     /// The first fork API with `cmux_browser_set_resize_sync`.
     static let resizeSyncForkAPI: Int32 = 27
+    /// The first fork API with `cmux_browser_set_resize_fence` (p03-rendering-042, the API 31
+    /// release train). Its pin makes `CEFResizeSyncDeadline` and the deadline tunables dead code
+    /// for every supported fork; they go then, not before (the API 27 forks still use them).
+    static let resizeFenceForkAPI: Int32 = 31
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -201,6 +231,17 @@ final class CEFLayerHosting {
         guard active != inLiveResize else { return }
         inLiveResize = active
         syncDeadline()
+    }
+
+    /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
+    /// live resize, a spring start). With the fork's resize fence the page window's next frame at
+    /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A hidden page
+    /// draws no frame to wait for.
+    func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
+        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
+              !view.isHiddenOrHasHiddenAncestor else { return }
+        resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
