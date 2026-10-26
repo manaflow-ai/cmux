@@ -35,6 +35,7 @@ extension AppServices: OracleHost {
                     OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
                 }
             },
+            OracleIntentsFacet(store: daemon.store, turns: oracleTurns),
             OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
             // The settings the controller applied (no file read) and the motion arm as the gates compute it from
             // the design settings the controller applied them to.
@@ -52,9 +53,8 @@ extension AppServices: OracleHost {
         ])
     }
 
-    /// Every `debug.oracle.*` method over the app's one facet list, the router's topology (`snapshots`) and
-    /// the app's one turn recorder, ``oracleTurns``, the registry's perform-turn observer. `AppControl`
-    /// registers these.
+    /// Every `debug.oracle.*` method over the app's one facet list, the router's topology (`snapshots`) and the
+    /// app's one turn recorder, ``oracleTurns`` (the registry's perform-turn observer); `AppControl` registers them.
     @MainActor
     func oracleControlMethods(snapshots: ControlSnapshotStore) -> [ControlMethod] {
         OracleControl.methods(host: self, snapshots: snapshots, turns: oracleTurns)

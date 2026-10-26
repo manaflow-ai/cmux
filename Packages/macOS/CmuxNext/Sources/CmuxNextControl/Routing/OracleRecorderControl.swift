@@ -1,20 +1,50 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextActions
 public import CmuxNextOracle
+public import Observation
 import CmuxNextSettings
 
 /// The turn recorder as the action registry's perform-turn observer: the App's composition root makes
 /// one and passes it to `ActionRegistry.standard(runTiming:turnObserver:)` and to
 /// ``OracleControl/methods(host:turns:)``, in DEV and bench builds only.
-@MainActor
+///
+/// It also counts the refused turns since launch for the `intents` facet (``OracleIntentsFacet``): a turn
+/// whose action did not run (`ran` false: a disabled feature, an unavailable or disabled action, a refused
+/// target) or whose handler refused (``noteRefusal()``). Observed, so `debug.oracle.wait_for` hears one.
+@MainActor @Observable
 public final class OracleActionTurns: ActionRunObserver {
-    public let recorder: OracleTurnRecorder
+    @ObservationIgnored public let recorder: OracleTurnRecorder
+    /// Refused perform turns since launch; only grows (the runner diffs two checkpoints).
+    public private(set) var refusedTurns = 0
+    /// The canonical action id of the last refused turn: the action the person or script ran, never the
+    /// reason, which is localized and can hold a name.
+    public private(set) var lastRefusedAction: String?
+    /// A handler of the turn in progress has started (``runStarted()``), so a refusal now is that turn's.
+    @ObservationIgnored private var inRun = false
+    @ObservationIgnored private var refusedInRun = false
 
     public init(recorder: OracleTurnRecorder = OracleTurnRecorder()) {
         self.recorder = recorder
     }
 
+    /// The registry is about to run a handler (its `willRunObservers`).
+    public func runStarted() {
+        inRun = true
+    }
+
+    /// The registry reported a refusal (its `refusalObserver`). Outside a handler run, after its turn
+    /// ended (a task the handler started), it belongs to no turn and is not counted.
+    public func noteRefusal() {
+        if inRun { refusedInRun = true }
+    }
+
     public func performTurnEnded(_ turn: ActionTurn) {
+        if !turn.ran || refusedInRun {
+            refusedTurns += 1
+            lastRefusedAction = turn.id.rawValue
+        }
+        inRun = false
+        refusedInRun = false
         recorder.turnEnded(action: turn.id.rawValue, origin: turn.origin.rawValue, ran: turn.ran)
     }
 }
