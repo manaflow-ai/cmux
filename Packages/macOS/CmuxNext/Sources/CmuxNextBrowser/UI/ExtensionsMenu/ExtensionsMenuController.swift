@@ -139,7 +139,7 @@ final class ExtensionsMenuController {
         // node-free: the bubble is open only over its shown page, and closes when the page hides
         mainWork.post(.userBlocking, owner: "browser.extensions.menu.refresh") { [weak self] in
             guard let self, epoch == openEpoch, isShown else { return }
-            host?.extensionStore.refresh()
+            self.host?.extensionStore.refresh()
         }
     }
 
