@@ -12,7 +12,7 @@ import IOSurface
 import Testing
 
 /// Critical memory pressure reaches evicted terminals' last frames on two paths in one turn (the
-/// warm set's budget and the memory coordinator's limit, `AppServices.memoryPressureDidChange`).
+/// warm set's budget, `WarmSetRelease`, and the memory coordinator's limit).
 /// Only the coordinator's release slice drops the stored frames, on a later frame: the warm set's
 /// smaller budget bounds the frames kept from then on and frees nothing in the event's turn
 /// (p07-memory-035).
@@ -49,9 +49,10 @@ struct TerminalLastFramesPressureTests {
         }
         #expect(frames.count == 3)
 
-        // AppServices.memoryPressureDidChange's turn: the coordinator and the warm set see critical.
+        // The pressure event's turn: the coordinator sees critical, and `WarmSetRelease.updateMemoryLimit`
+        // brings the warm set's budget to the critical limit's 0.
         kernel.send(.critical)
-        cache.setWarmBudget(.forMemory(physicalBytes: ProcessInfo.processInfo.physicalMemory, pressure: .critical))
+        cache.warmBudgetDidChange(to: 0)
         #expect(frames.capacity == 0)
         #expect(frames.count == 3, "frames were dropped in the pressure event's turn")
         #expect(frames.report["dropped"] == nil)

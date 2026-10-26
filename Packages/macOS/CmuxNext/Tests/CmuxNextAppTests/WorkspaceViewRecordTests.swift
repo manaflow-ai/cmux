@@ -326,11 +326,11 @@ import Testing
         let pane = try #require(first.panes.keys.first)
         let offset = try Self.scrollHalfway(try #require(first.panes[pane]).view.stripView)
 
-        // Another workspace shows: k0 parks, then critical memory pressure releases it.
+        // Another workspace shows: k0 parks, then a critical-pressure release slice tears it down.
         state.showWorkspace("k1")
         controller.showWorkspace(requested: state.workspaceID)
         #expect(controller.parked["k0"] === first)
-        controller.releaseParked()
+        #expect(controller.discardParkedWorkspace("k0"))
         #expect(controller.parked["k0"] == nil, "the parked workspace stayed mounted")
         #expect(controller.unmountedViews["k0"]?.tabStrips[pane] == offset, "the release kept no record of k0's strip")
 
