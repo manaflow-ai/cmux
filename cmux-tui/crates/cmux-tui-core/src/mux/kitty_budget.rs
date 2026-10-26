@@ -28,15 +28,8 @@ impl Mux {
             !budget.entries.contains_key(&surface),
             "Kitty image budget already reserved for surface {surface}"
         );
-        budget.entries.insert(
-            surface,
-            KittyImageBudgetEntry {
-                surface: None,
-                applied: KittyGraphicsLimits::disabled(),
-                owns_quota: false,
-                removing: false,
-            },
-        );
+        let shown_at = budget.stamp_shown();
+        budget.entries.insert(surface, KittyImageBudgetEntry::reserved(false, shown_at));
         Ok(KittyImageBudgetReservation {
             mux: Arc::downgrade(self),
             surface,
@@ -121,7 +114,7 @@ impl Mux {
     ) -> anyhow::Result<KittyGraphicsLimits> {
         let mut budget = self.kitty_image_budget.lock().unwrap();
         Self::prune_dead_kitty_image_surfaces(&mut budget);
-        let target = kitty_image_limits_for_capacity(budget.capacity);
+        let plan = budget.plan();
         let entry = budget
             .entries
             .get(&surface.id)
@@ -134,11 +127,7 @@ impl Mux {
                 .is_some_and(|registered| Arc::ptr_eq(&registered, surface)),
             "Kitty image budget entry changed ownership on reconnect"
         );
-        Ok(if entry.removing || !entry.owns_quota {
-            KittyGraphicsLimits::disabled()
-        } else {
-            target
-        })
+        Ok(plan.desired(surface.id, entry))
     }
 
     /// Record the Kitty limits a reconnected host applied in its handshake.
@@ -225,17 +214,13 @@ impl Mux {
         let should_start = {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
-            let target = kitty_image_limits_for_capacity(budget.capacity);
-            let has_work = budget.entries.values().any(|entry| {
+            let plan = budget.plan();
+            let has_work = budget.entries.iter().any(|(&id, entry)| {
                 entry.surface.as_ref().is_some_and(|surface| surface.strong_count() > 0)
-                    && entry.applied
-                        != if entry.removing || !entry.owns_quota {
-                            KittyGraphicsLimits::disabled()
-                        } else {
-                            target
-                        }
+                    && entry.applied != plan.desired(id, entry)
             });
-            if budget.worker_running || !budget.blocked_surfaces.is_empty() || !has_work {
+            let limits_work = budget.blocked_surfaces.is_empty() && has_work;
+            if budget.worker_running || !(limits_work || budget.pixel_release_due) {
                 false
             } else {
                 budget.worker_running = true;
@@ -268,8 +253,14 @@ impl Mux {
         // replaced): treat it as a failure so the retry is spaced instead of
         // re-running the same wave in a hot loop.
         let mut previous_wave = Vec::<(SurfaceId, KittyGraphicsLimits)>::new();
+        if let Some(mux) = mux.upgrade() {
+            mux.refresh_kitty_viewers();
+        }
         loop {
             let Some(mux) = mux.upgrade() else { return };
+            if !mux.release_kitty_pixels_if_due() {
+                return;
+            }
             if mux.shutting_down.load(Ordering::Acquire) {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
                 budget.expansion_in_flight = false;
@@ -327,7 +318,7 @@ impl Mux {
             let (tasks, deferred_expansion) = {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
                 Self::prune_dead_kitty_image_surfaces(&mut budget);
-                let target = kitty_image_limits_for_capacity(budget.capacity);
+                let plan = budget.plan();
                 let mut tasks = Vec::new();
                 for (&id, entry) in &budget.entries {
                     if pending_ids.contains(&id) || failed_operations.contains(&id) {
@@ -336,11 +327,7 @@ impl Mux {
                     let Some(surface) = entry.surface.as_ref().and_then(Weak::upgrade) else {
                         continue;
                     };
-                    let desired = if entry.removing || !entry.owns_quota {
-                        KittyGraphicsLimits::disabled()
-                    } else {
-                        target
-                    };
+                    let desired = plan.desired(id, entry);
                     if entry.applied != desired
                         && (entry.removing
                             || !entry.owns_quota
@@ -361,7 +348,7 @@ impl Mux {
                     if budget.capacity != previous_capacity {
                         continue;
                     }
-                    let target = kitty_image_limits_for_capacity(budget.capacity);
+                    let plan = budget.plan();
                     for (&id, entry) in &budget.entries {
                         if pending_ids.contains(&id) || failed_operations.contains(&id) {
                             continue;
@@ -369,6 +356,7 @@ impl Mux {
                         let Some(surface) = entry.surface.as_ref().and_then(Weak::upgrade) else {
                             continue;
                         };
+                        let target = plan.desired(id, entry);
                         if entry.owns_quota && !entry.removing && entry.applied != target {
                             tasks.push((
                                 id,
@@ -382,7 +370,10 @@ impl Mux {
                 budget.expansion_in_flight =
                     pending_operations.iter().any(|pending| pending.expanding)
                         || tasks.iter().any(|task| task.3);
-                if tasks.is_empty() && pending_operations.is_empty() && failed_operations.is_empty()
+                if tasks.is_empty()
+                    && pending_operations.is_empty()
+                    && failed_operations.is_empty()
+                    && !budget.pixel_release_due
                 {
                     budget.expansion_in_flight = false;
                     budget.worker_running = false;
@@ -536,17 +527,12 @@ impl Mux {
         let deadline = Instant::now() + timeout;
         let mut budget = self.kitty_image_budget.lock().unwrap();
         loop {
-            let target = kitty_image_limits_for_capacity(budget.capacity);
+            let plan = budget.plan();
             let idle = !budget.worker_running
-                && budget.entries.values().all(|entry| {
+                && budget.entries.iter().all(|(&id, entry)| {
                     entry.surface.is_some()
                         && !entry.removing
-                        && entry.applied
-                            == if entry.owns_quota {
-                                target
-                            } else {
-                                KittyGraphicsLimits::disabled()
-                            }
+                        && entry.applied == plan.desired(id, entry)
                 });
             if idle {
                 return true;

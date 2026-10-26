@@ -29,15 +29,10 @@ impl Mux {
             if owns_quota {
                 budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
             }
-            budget.entries.insert(
-                surface,
-                KittyImageBudgetEntry {
-                    surface: None,
-                    applied: KittyGraphicsLimits::disabled(),
-                    owns_quota,
-                    removing: false,
-                },
-            );
+            // A new terminal is about to be shown: it ranks as the most
+            // recently shown one.
+            let shown_at = budget.stamp_shown();
+            budget.entries.insert(surface, KittyImageBudgetEntry::reserved(owns_quota, shown_at));
         }
         self.start_kitty_image_budget_worker();
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
@@ -53,19 +48,23 @@ impl Mux {
                     Self::rebalance_kitty_image_budget_owners(&mut budget);
                     break KittyGraphicsLimits::disabled();
                 }
-                let owns_quota = budget
+                let entry = budget
                     .entries
                     .get(&surface)
-                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
-                    .owns_quota;
-                if !owns_quota {
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
+                if !entry.owns_quota {
                     break KittyGraphicsLimits::disabled();
                 }
-                let target = kitty_image_limits_for_capacity(budget.capacity);
+                let plan = budget.plan();
+                let target = plan.desired(surface, entry);
                 if !budget.expansion_in_flight
                     && kitty_image_limits_enabled(target)
                     && budget.entries.iter().all(|(&id, entry)| {
-                        id == surface || kitty_image_limits_within(entry.applied, target)
+                        id == surface
+                            || kitty_image_limits_within(
+                                entry.applied,
+                                plan.admission_ceiling(id, entry),
+                            )
                     })
                 {
                     let entry = budget.entries.get_mut(&surface).ok_or_else(|| {

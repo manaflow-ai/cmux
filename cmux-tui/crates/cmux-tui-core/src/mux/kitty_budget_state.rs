@@ -1,5 +1,6 @@
 //! Kitty graphics budget state: process budget constants, per-surface capacity math, budget entries and pending operations, surface reservations, and render attachment permits.
 
+use super::kitty_share::{KittyBudgetPlan, KittyShare};
 use super::*;
 
 pub(super) const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
@@ -9,8 +10,6 @@ pub(super) const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1)
 pub(super) const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
 
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
-
-pub(super) const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 
 // libghostty owns independent primary and alternate screen stores. cmux also
 // keeps one replay pixel cache and one render pixel cache per PTY surface.
@@ -66,12 +65,17 @@ pub(super) fn kitty_image_bytes_for_process_share(process_share: u64) -> u64 {
     lower
 }
 
-pub(super) fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
+/// The limits of each of `capacity` equal shares of the `total_bytes` process
+/// budget.
+pub(super) fn kitty_image_limits_for_capacity_in(
+    total_bytes: u64,
+    capacity: usize,
+) -> KittyGraphicsLimits {
     if capacity == 0 {
         return KittyGraphicsLimits::disabled();
     }
     let surface_count = u64::try_from(capacity).unwrap_or(u64::MAX);
-    let process_share = KITTY_IMAGE_PROCESS_BUDGET_BYTES.checked_div(surface_count).unwrap_or(0);
+    let process_share = total_bytes.checked_div(surface_count).unwrap_or(0);
     let image_bytes = kitty_image_bytes_for_process_share(process_share);
     let inflight_bytes = ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes);
     let object_owners = surface_count.saturating_mul(KITTY_OBJECT_OWNERS_PER_SURFACE);
@@ -86,12 +90,37 @@ pub(super) fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsL
     KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
 }
 
+/// [`kitty_image_limits_for_capacity_in`] of the fixed process total.
+#[cfg(test)]
+pub(super) fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
+    kitty_image_limits_for_capacity_in(KittyShare::default().total_bytes, capacity)
+}
+
 #[derive(Clone)]
 pub(super) struct KittyImageBudgetEntry {
     pub(super) surface: Option<Weak<Surface>>,
     pub(super) applied: KittyGraphicsLimits,
     pub(super) owns_quota: bool,
     pub(super) removing: bool,
+    /// [`KittyImageBudgetState::shown_clock`] when a client last showed the
+    /// terminal (or it was reserved, or a viewer was last seen on it).
+    pub(super) shown_at: u64,
+    /// A client viewed the terminal when the budget last looked.
+    pub(super) viewed: bool,
+}
+
+impl KittyImageBudgetEntry {
+    /// A reservation that no surface has committed yet.
+    pub(super) fn reserved(owns_quota: bool, shown_at: u64) -> Self {
+        Self {
+            surface: None,
+            applied: KittyGraphicsLimits::disabled(),
+            owns_quota,
+            removing: false,
+            shown_at,
+            viewed: false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -101,6 +130,30 @@ pub(super) struct KittyImageBudgetState {
     pub(super) capacity: usize,
     pub(super) worker_running: bool,
     pub(super) expansion_in_flight: bool,
+    /// The process total and how it is shared.
+    pub(super) share: KittyShare,
+    /// Counts shows; [`KittyImageBudgetEntry::shown_at`] reads it.
+    pub(super) shown_clock: u64,
+    /// Critical memory pressure asked the worker to clear every terminal's
+    /// decoded pixel copies.
+    pub(super) pixel_release_due: bool,
+}
+
+impl KittyImageBudgetState {
+    pub(super) fn with_share(share: KittyShare) -> Self {
+        Self { share, ..Self::default() }
+    }
+
+    /// The next show's stamp.
+    pub(super) fn stamp_shown(&mut self) -> u64 {
+        self.shown_clock += 1;
+        self.shown_clock
+    }
+
+    /// The limits every entry should have now.
+    pub(super) fn plan(&self) -> KittyBudgetPlan {
+        KittyBudgetPlan::new(self.share, self.capacity, &self.entries)
+    }
 }
 
 pub(super) struct PendingKittyImageBudgetOperation {

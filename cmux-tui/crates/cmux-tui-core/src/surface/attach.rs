@@ -16,6 +16,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
+        self.note_kitty_shown();
         let mut term = pty.term.lock().unwrap();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
@@ -69,6 +70,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
+        self.note_kitty_shown();
         let mut term = pty.term.lock().unwrap();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
