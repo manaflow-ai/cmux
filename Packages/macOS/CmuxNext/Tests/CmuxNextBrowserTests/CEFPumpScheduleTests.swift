@@ -152,8 +152,9 @@ import Testing
         #expect(schedule.nextWake == nil, "no delayed work replaces the 50 ms request")
     }
 
-    /// The truncated re-ask that made a delayed pass early is gone: a pass answered with Chromium's
-    /// next absolute run time is not early, and a re-ask under 2 ms away still counts.
+    /// On absolute run times an on-time pass is not early, however close Chromium's next task is: a pass
+    /// at its 7.9 ms run time answered with a task 0.5 ms later, or with "now" (work it posted), ran the
+    /// task it was for. The 2 ms re-ask rule is the whole-millisecond path's only.
     @MainActor
     @Test func aPassAnsweredWithTheNextRunTimeIsNotEarly() {
         let rig = AbsoluteRig()
@@ -163,7 +164,31 @@ import Testing
         #expect(rig.pump.stats.earlyPasses == 0)
         rig.work = { rig.pump.request(runTimeNanos: rig.nanos(after: 0.0005), leewayNanos: 8_000_000, precise: false) }
         rig.fireAtArmedTime()
-        #expect(rig.pump.stats.earlyPasses == 1, "a run time 0.5 ms away during a delayed pass")
+        #expect(rig.pump.stats.earlyPasses == 0, "a task 0.5 ms after an on-time pass is the next task")
+        rig.work = { rig.pump.request(milliseconds: 0) }
+        rig.fireAtArmedTime()
+        #expect(rig.pump.stats.earlyPasses == 0, "a \"now\" during an on-time pass is posted work")
+    }
+
+    /// A real early pass on absolute run times: one that began before the run time it serves (the
+    /// timer kept an armed date 50 us before it), or one Chromium answers with the same run time again
+    /// (the task was not due). Each counts once.
+    @MainActor
+    @Test func aPassBeforeItsRunTimeIsEarly() {
+        let rig = AbsoluteRig()
+        let runTime = rig.nanos(after: 0.0079)
+        rig.pump.request(runTimeNanos: runTime, leewayNanos: 8_000_000, precise: false)
+        rig.work = { rig.pump.request(runTimeNanos: runTime, leewayNanos: 8_000_000, precise: false) }
+        rig.fireAtArmedTime(offset: -0.000_05)
+        #expect(rig.pump.stats.earlyPasses == 1, "began 50 us before the run time, and Chromium sent it again")
+        rig.work = {}
+        rig.fireAtArmedTime(offset: -0.000_05)
+        #expect(rig.pump.stats.earlyPasses == 2, "began before the run time")
+        let next = rig.nanos(after: 0.010)
+        rig.pump.request(runTimeNanos: next, leewayNanos: 8_000_000, precise: false)
+        rig.work = { rig.pump.request(runTimeNanos: next, leewayNanos: 8_000_000, precise: false) }
+        rig.fireAtArmedTime()
+        #expect(rig.pump.stats.earlyPasses == 3, "on time by the clock, but Chromium reported the same run time")
     }
 
     /// The cross-thread gate compares uptime nanoseconds as the fork sent them: a run time 0.5 ms
@@ -229,7 +254,8 @@ private final class AbsoluteRig {
         let timer = Timer()
         self.state = state
         self.timer = timer
-        pump = CEFMessagePump(work: { state.work() }, timer: timer, clock: { state.seconds }, ledger: WakeupLedger())
+        pump = CEFMessagePump(work: { state.work() }, timer: timer, clock: { state.seconds }, ledger: WakeupLedger(),
+                              absoluteRunTimes: true)
         pump.start()
         fire() // the start's immediate pass
     }
@@ -239,9 +265,9 @@ private final class AbsoluteRig {
         Int64(((state.seconds + delay) * 1e9).rounded())
     }
 
-    /// Moves the clock to the armed fire and fires it.
-    func fireAtArmedTime() {
-        if let armed = timer.armed { state.seconds += armed.delay }
+    /// Moves the clock to the armed fire, `offset` seconds off it (negative: before), and fires it.
+    func fireAtArmedTime(offset: TimeInterval = 0) {
+        if let armed = timer.armed { state.seconds += armed.delay + offset }
         fire()
     }
 

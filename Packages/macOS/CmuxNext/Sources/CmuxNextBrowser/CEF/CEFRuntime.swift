@@ -68,6 +68,8 @@ final class CEFRuntime {
     /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
     /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
     var pointerFrames: PointerFrameCoalescers?
+    /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
+    var chromiumFeatures: [String] = []
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -420,17 +422,21 @@ final class CEFRuntime {
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
-        var absoluteDelayedRunTimes = false
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             let forkAPI = shim.forkAPIVersion()
             if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
                 logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
             }
+            // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
+            // keep the ms path. No request comes before CefInitialize, so the pump need not exist yet.
+            let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
+            logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
-                gate: pumpGate
+                gate: pumpGate,
+                absoluteRunTimes: absoluteRunTimes
             )
             self.pump = pump
             if let pumpInput, let input {
@@ -438,10 +444,6 @@ final class CEFRuntime {
                                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
             }
             pump.start()
-            // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046): no
-            // whole-millisecond truncation, so no pass before a task is due. Older forks keep the ms path.
-            absoluteDelayedRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
-            logger.notice("CEF pump delayed work: \(absoluteDelayedRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
         }
 
         storage.prepareForLaunch()
@@ -449,7 +451,7 @@ final class CEFRuntime {
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
-            absoluteDelayedRunTimes: absoluteDelayedRunTimes,
+            chromiumFeatures: chromiumFeatures,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled

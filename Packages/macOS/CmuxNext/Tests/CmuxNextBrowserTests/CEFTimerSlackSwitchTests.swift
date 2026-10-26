@@ -2,19 +2,26 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome's `kTimerSlackMac` (base/message_loop/message_pump_apple.mm) gives each Mac pump's delayed
-/// timer the task's leeway; field trials turn it on in Chrome and cmux runs without them. It is on
-/// only when the in-process pump gets CEF's delayed work as absolute run times (p14-energy-046): the
-/// whole-millisecond path lost the leeway, so slack there only made wakes later.
+/// Chrome's `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
+/// CFRunLoop and kqueue pump's delayed timer the task's leeway; field trials turn it on in Chrome and cmux
+/// runs without them. The UI thread's MessagePumpExternal arms no base timer, so the flag changes only
+/// renderer, GPU and utility processes and the browser's non-UI threads: it is the default-off feature
+/// `cefTimerSlack`, never a side effect of the fork's absolute run times (p14-energy-046 review).
 @Suite struct CEFTimerSlackSwitchTests {
-    @Test func absoluteRunTimesTurnOnTimerSlack() {
-        let switches = CEFSwitches.current(forkAPIVersion: 27, absoluteDelayedRunTimes: true,
+    @Test func theFeatureTurnsOnTimerSlack() {
+        let switches = CEFSwitches.current(forkAPIVersion: 27, chromiumFeatures: ["TimerSlackMac"],
                                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
-        #expect(switches.arguments.filter { $0 == CEFSwitches.timerSlackFeature }.count == 1, "\(switches.arguments)")
+        #expect(switches.arguments.filter { $0 == "enable-features=TimerSlackMac" }.count == 1, "\(switches.arguments)")
     }
 
-    @Test func theMillisecondPathKeepsItOff() {
+    @Test func withoutTheFeatureItStaysOff() {
         let switches = CEFSwitches.current(forkAPIVersion: 27, bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
         #expect(!switches.arguments.contains { $0.contains("TimerSlackMac") }, "\(switches.arguments)")
+    }
+
+    @Test func chromiumFeaturesShareOneEnableEntry() {
+        let switches = CEFSwitches.current(forkAPIVersion: 27, chromiumFeatures: ["TimerSlackMac", "AlignWakeUps"],
+                                           bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
+        #expect(switches.arguments.contains("enable-features=TimerSlackMac,AlignWakeUps"), "\(switches.arguments)")
     }
 }

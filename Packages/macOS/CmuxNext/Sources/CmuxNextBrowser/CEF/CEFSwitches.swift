@@ -7,9 +7,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
-    /// The in-process pump gets CEF's delayed work as absolute run times with Chromium's leeway
-    /// (`cmux_shim_set_schedule_delayed` returned 1, p14-energy-046), so `TimerSlackMac` applies.
-    var absoluteDelayedRunTimes = false
+    /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
+    /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
+    var chromiumFeatures: [String] = []
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -86,14 +86,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
-        // Chrome's timer slack on macOS (`kTimerSlackMac`, base/message_loop/message_pump_apple.mm): a
-        // CFRunLoop pump's delayed-work timer fires from the task's earliest time with its leeway as the
-        // tolerance, and the kqueue pump (message_pump_kqueue.cc) arms EVFILT_TIMER with NOTE_LEEWAY.
-        // Chrome turns it on by field trial; disable-field-trial-config leaves it off. Only with absolute
-        // run times: then the UI thread's external pump hands the app's deadline queue the same earliest
-        // time and leeway; the whole-millisecond pump had no leeway to hand over (p14-energy-040, -046).
-        // The shim merges it into CEF's list.
-        if absoluteDelayedRunTimes { result.append(Self.timerSlackFeature) }
+        // The app's Chromium features, for example `cefTimerSlack` (default off): `kTimerSlackMac`
+        // (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each CFRunLoop and kqueue
+        // pump's delayed timer the task's leeway. It changes renderer, GPU and utility processes and the
+        // browser's non-UI threads only: the UI thread's MessagePumpExternal arms no base timer, and the
+        // app's deadline queue gets the leeway from the fork's absolute run times (p14-energy-046). Chrome
+        // turns it on by field trial; disable-field-trial-config leaves it off. The shim merges the list
+        // into CEF's, and Chromium passes it to every child process.
+        if !chromiumFeatures.isEmpty { result.append("enable-features=" + chromiumFeatures.joined(separator: ",")) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -158,8 +158,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
     /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-    /// Chromium's `kTimerSlackMac` (base/message_loop/message_pump_apple.mm).
-    static let timerSlackFeature = "enable-features=TimerSlackMac"
 
     static let chromePromptOffSwitches = [
         "no-first-run",
@@ -179,7 +177,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static func current(
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
-        absoluteDelayedRunTimes: Bool = false,
+        chromiumFeatures: [String] = [],
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -205,7 +203,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            absoluteDelayedRunTimes: absoluteDelayedRunTimes,
+            chromiumFeatures: chromiumFeatures,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
