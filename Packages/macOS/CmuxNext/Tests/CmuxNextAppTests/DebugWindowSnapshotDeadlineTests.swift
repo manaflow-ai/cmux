@@ -20,12 +20,22 @@ import Testing
                                    configuration: ControlRouter.Configuration(requestDeadline: .milliseconds(50)))
         router.register([DebugWindowSnapshot.controlMethod(services: services)])
         let request = ControlRequest(id: "1", method: "debug.window_snapshot", params: ["window": .string("999999999")])
-        let reply = Task.detached { await router.handle(request) }
+        let entered = DispatchSemaphore(value: 0)
+        let reply = Task.detached {
+            entered.signal()
+            return await router.handle(request)
+        }
+        Self.block(on: entered)  // the request's clock runs before the main actor goes busy
         // The main actor stays busy past the control-plane deadline, as on a loaded capture mini.
         let busyUntil = ContinuousClock.now + .milliseconds(400)
         while ContinuousClock.now < busyUntil {}
         // With the control-plane deadline this was a `timeout` failure.
         let value = try await reply.value.get()
         #expect(value["error"]?.stringValue == "no such window")
+    }
+
+    /// A synchronous wait, which async code may not call directly.
+    private nonisolated static func block(on semaphore: DispatchSemaphore) {
+        semaphore.wait()
     }
 }

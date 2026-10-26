@@ -204,9 +204,9 @@ extension NSWindow {
         return (image, floating.count)
     }
 
-    /// `composite` (this window's ``compositedSnapshotWithOverlays()``) kept only where its overlays
-    /// cover the window, transparent elsewhere: the visible child windows `includeChild` accepts
-    /// and the app's windows over it. Nil without any. A page image painted over the composite
+    /// The overlays of `composite` (this window's ``compositedSnapshotWithOverlays()``): the
+    /// visible child windows `includeChild` accepts and the app's windows over it, transparent
+    /// elsewhere (``masked(_:by:)``). Nil without any. A page image painted over the composite
     /// covers the popovers and menus over its page; this, painted over the page image, gives
     /// them back, with the window's blur under them.
     public func overlays(cutFrom composite: CGImage, includeChild: (NSWindow) -> Bool) -> CGImage? {
@@ -218,19 +218,40 @@ extension NSWindow {
         return Self.masked(composite, by: coverage)
     }
 
-    /// `image` kept where `mask` is opaque and faded where it is translucent (premultiplied:
-    /// `image` times the mask's alpha), at `image`'s size.
-    nonisolated static func masked(_ image: CGImage, by mask: CGImage) -> CGImage? {
+    /// At `image`'s size: `image` (the window's composite) where `coverage` (the overlays alone) is
+    /// opaque, so glass there keeps the blur of the window under it; `coverage` itself where it is
+    /// translucent (a shadow, a fade, an antialiased edge), since the composite there already
+    /// blends the overlay with the window, and painted over a page it would fade the overlay twice;
+    /// transparent elsewhere.
+    nonisolated static func masked(_ image: CGImage, by coverage: CGImage) -> CGImage? {
         let width = image.width, height = image.height
-        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let whole = CGRect(x: 0, y: 0, width: width, height: height)
-        context.interpolationQuality = .high
-        context.draw(mask, in: whole)
-        context.setBlendMode(.sourceIn)
-        context.draw(image, in: whole)
-        return context.makeImage()
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        func pixels(_ source: CGImage) -> [UInt8]? {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                              bytesPerRow: width * 4, space: space, bitmapInfo: info) else { return false }
+                context.interpolationQuality = .high
+                context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            return drawn ? bytes : nil
+        }
+        guard var result = pixels(coverage), let composite = pixels(image) else { return nil }
+        result.withUnsafeMutableBufferPointer { out in
+            composite.withUnsafeBufferPointer { under in
+                for index in stride(from: 0, to: out.count, by: 4) where out[index + 3] == 255 {
+                    out[index] = under[index]
+                    out[index + 1] = under[index + 1]
+                    out[index + 2] = under[index + 2]
+                }
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(result) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: info), provider: provider, decode: nil, shouldInterpolate: false,
+                       intent: .defaultIntent)
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the

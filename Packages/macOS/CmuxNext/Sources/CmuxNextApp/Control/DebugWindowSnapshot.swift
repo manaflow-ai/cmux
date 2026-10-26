@@ -126,6 +126,10 @@ enum DebugWindowSnapshot {
             let together = window.compositedSnapshotWithOverlays()
             let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
+            // The overlays cut from the composite now, before the page images' awaits: a popover
+            // that opened meanwhile is not in the composite, and its cut would be the window under it.
+            let overlays = base.method == .composited
+                ? window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) : nil
             var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
@@ -173,7 +177,7 @@ enum DebugWindowSnapshot {
             if base.method == .composited {
                 // A Chromium page image covered the panels, popovers and menus over its page:
                 // their pixels come back from the window server's composite, the page under them.
-                if !layers.isEmpty, let overlays = window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                if !layers.isEmpty, let overlays {
                     layers.append(.window(overlays))
                 }
             } else {
