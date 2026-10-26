@@ -136,6 +136,7 @@ enum RemoteBrowserPages {
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
         session.openTab = { [weak services] target, disposition, answer in
             // A page's new tab is a remote tab on the same runtime host (RT1).

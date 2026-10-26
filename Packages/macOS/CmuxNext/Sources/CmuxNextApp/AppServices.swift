@@ -296,6 +296,11 @@ final class AppServices {
     /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
     /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
     private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
+    /// Remote panes (feature `pointerFrameRemoteInput`): remote desktop and remote browser tabs send moves, drags and
+    /// mid-gesture scrolls to the host on a frame interval's first event and once more at its frame (p04-input-035).
+    /// Nil while it is off: each event goes to the host at once.
+    private(set) lazy var remotePointerFrames: FrameInputCoalescers? =
+        features.isEnabled(.pointerFrameRemoteInput) ? pointerFrames : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
