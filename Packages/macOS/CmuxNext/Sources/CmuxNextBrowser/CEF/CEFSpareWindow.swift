@@ -31,8 +31,13 @@ import Foundation
 /// incognito window gets a window of its own as before. At most one untaken
 /// spare per kind, made only while no other Chromium window is being built;
 /// each take, and any window that comes up while a wanted kind has none,
-/// reports `onNeeded`, so the warmup makes the next spare at the next idle
-/// moment (`ChromiumWarmup`).
+/// reports `onNeeded`. The report only posts the refill: the warmup builds the
+/// next spare in an idle task of the main-thread scheduler with a 500 ms
+/// `maxDelay` (`ChromiumWarmup`, `MainWorkScheduler.postIdle`), never in the
+/// key's turn or its input response, and past the delay as background work, so
+/// the next Cmd-T still finds one in a busy app (p06-scheduler-050). Chrome
+/// also refills its spare renderer after the take, off the navigation's path
+/// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`).
 ///
 /// A spare is no window request's target (`CEFWindowRequests`): a page
 /// or extension that asks for a tab with no window of its own still opens a
@@ -69,8 +74,9 @@ final class CEFSpareWindow {
     /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
     /// holds the frozen about:blank page. Read when a spare's window is built.
     var rendererlessPlaceholders = false
-    /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
-    /// idle moment may make one (`ChromiumWarmup`).
+    /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the warmup
+    /// posts the refill as an idle task (`ChromiumWarmup`). Called in the take's turn, so it must
+    /// only post, never build a window.
     var onNeeded: (@MainActor () -> Void)?
     /// Tabs Chromium created in a spare's window before a tab took it, by the spare's kind.
     private var parked: [Kind: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)]] = [:]
