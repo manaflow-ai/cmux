@@ -14,10 +14,10 @@ import Testing
 
     @Test func othersAreNamedFromTheConversationInNameOrderWithoutMe() {
         let people = [
-            Participant(id: me, kind: .human, displayName: "Me"),
-            Participant(id: ParticipantID("user_sam"), kind: .human, displayName: "Sam Okafor"),
-            Participant(id: ParticipantID("user_ana"), kind: .human, displayName: " Ana Ruiz "),
-            Participant(id: ParticipantID("user_blank"), kind: .human, displayName: "  "),
+            CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me"),
+            CmuxHomeCore.Participant(id: ParticipantID("user_sam"), kind: .human, displayName: "Sam Okafor"),
+            CmuxHomeCore.Participant(id: ParticipantID("user_ana"), kind: .human, displayName: " Ana Ruiz "),
+            CmuxHomeCore.Participant(id: ParticipantID("user_blank"), kind: .human, displayName: "  "),
         ]
         let viewing = Set(["user_sam", "user_ana", "user_blank", "user_gone"].map { ParticipantID($0) }).union([me])
         let names = HomeNativeTranscriptView.others(viewing: viewing, participants: people, me: me)
@@ -61,10 +61,10 @@ import Testing
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(HomeTunables.all)
         TunableStore.shared.set(HomeTunables.chatHeader.key, nil)
-        let mine = Participant(id: me, kind: .human, displayName: "Me")
-        let chief = Participant(id: ParticipantID("agent_chief"), kind: .agent, displayName: "Chief")
-        let ana = Participant(id: ParticipantID("user_ana"), kind: .human, displayName: "Ana Ruiz")
-        func summary(_ id: ConversationID, _ people: [Participant]) -> ConversationSummary {
+        let mine = CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me")
+        let chief = CmuxHomeCore.Participant(id: ParticipantID("agent_chief"), kind: .agent, displayName: "Chief")
+        let ana = CmuxHomeCore.Participant(id: ParticipantID("user_ana"), kind: .human, displayName: "Ana Ruiz")
+        func summary(_ id: ConversationID, _ people: [CmuxHomeCore.Participant]) -> ConversationSummary {
             ConversationSummary(id: id, participants: people, lastSeq: 0, rev: 1,
                                 createdAt: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0))
         }
