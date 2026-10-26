@@ -137,6 +137,10 @@ on:
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/release-derived-data-path.sh
+      - scripts/cmux-next/compile-dev-release.sh
+      - scripts/cmux-next/host_build_lock.py
+      - scripts/ci/canonical-build-root.sh
+      - scripts/ci/apfs_clone.py
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -188,6 +192,7 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
+      - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -365,6 +370,10 @@ on:
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/release-derived-data-path.sh
+      - scripts/cmux-next/compile-dev-release.sh
+      - scripts/cmux-next/host_build_lock.py
+      - scripts/ci/canonical-build-root.sh
+      - scripts/ci/apfs_clone.py
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -418,6 +427,7 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
+      - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -1631,6 +1641,7 @@ jobs:
           python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
+          python3 tests/test_cmux_next_dev_release_host_root.py
           python3 tests/test_cmux_next_dev_release_import_out.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
@@ -4407,7 +4418,7 @@ jobs:
           # out: the tip job in cmux-next-dev-daily.yml proves it before it
           # notarizes, so a proof failure never holds the DEV zip (#25050).
           CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
-          # The DEV app's warm state is the runner's own content-addressed Xcode
+          # The DEV app's warm state is the host's own content-addressed Xcode
           # compilation cache (no kept build products, no remote store:
           # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
           # (singlefile, Xcode's "Incremental") so a one-file change replays
@@ -4430,15 +4441,13 @@ jobs:
             echo "archive=$archive" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
           # Only a mini keeps the cache between jobs; a fresh VM would pay to fill it.
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_COMPILATION_CACHE=0
-          scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
-          app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
-          test -d "$app"
-          scripts/cmux-next/check-app-personalities.sh "$app"
+          # With the cache on, a mini builds from one fixed tree and DerivedData per host under a
+          # host lock, so the cache's path-holding keys match across its runner instances; a busy
+          # lock or a failed setup builds per runner at once (compile-dev-release.sh).
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
-          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          scripts/cmux-next/compile-dev-release.sh "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload DEV daily compile timing
