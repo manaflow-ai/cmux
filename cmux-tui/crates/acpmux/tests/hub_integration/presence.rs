@@ -43,7 +43,12 @@ impl TestClient {
         self.wait_for(PRESENCE, |p| p["sessionId"] == session && pred(p)).await
     }
 
-    async fn typing(&mut self, session: &str, on: bool, author: Option<Value>) -> Result<Value, String> {
+    async fn typing(
+        &mut self,
+        session: &str,
+        on: bool,
+        author: Option<Value>,
+    ) -> Result<Value, String> {
         self.request("_acpmux/typing", typing(session, on, author)).await
     }
 }
@@ -60,7 +65,10 @@ async fn the_attach_reply_carries_presence_and_typing_reaches_attached_clients()
     host.typing(&session, true, Some(person("ana"))).await.unwrap();
     let on = tab.presence(&session, |p| entry(p, ANA).is_some()).await;
     let ana = entry(&on, ANA).unwrap();
-    assert_eq!(*ana, json!({"id": ANA, "name": "ana", "devices": 1, "viewing": false, "typing": true}));
+    assert_eq!(
+        *ana,
+        json!({"id": ANA, "name": "ana", "devices": 1, "viewing": false, "typing": true})
+    );
     let again =
         tab.request(method::MUX_ATTACH, json!({"sessionId": session, "limit": 0})).await.unwrap();
     assert_eq!(again["presence"], on, "the attach reply is the same object");
@@ -110,8 +118,9 @@ async fn two_authors_share_one_connection_and_one_author_counts_its_devices() {
     let mut link = attached(&hub, &session).await;
     link.typing(&session, true, Some(person("ana"))).await.unwrap();
     link.typing(&session, true, Some(person("bob"))).await.unwrap();
-    let both =
-        host.presence(&session, |p| entry(p, ANA).is_some() && entry(p, "tailnet:bob").is_some()).await;
+    let both = host
+        .presence(&session, |p| entry(p, ANA).is_some() && entry(p, "tailnet:bob").is_some())
+        .await;
     assert_eq!(entry(&both, ANA).unwrap()["devices"], 1, "{both}");
     assert_eq!(entry(&both, "tailnet:bob").unwrap()["devices"], 1, "{both}");
     assert!(entry(&both, "owner").is_none(), "{both}");
@@ -149,7 +158,11 @@ async fn presence_is_never_in_the_log() {
     for record in &stored {
         let text = record.msg.to_string();
         assert!(!text.contains("tailnet:ana"), "presence reached the log: {text}");
-        assert!(!record.kind.contains("presence") && !record.kind.contains("typing"), "{}", record.kind);
+        assert!(
+            !record.kind.contains("presence") && !record.kind.contains("typing"),
+            "{}",
+            record.kind
+        );
     }
 }
 
@@ -157,7 +170,8 @@ async fn presence_is_never_in_the_log() {
 async fn an_author_from_the_web_is_refused() {
     let (hub, mut host) = setup(PermissionPolicy::ApproveAll).await;
     let session = new_session(&mut host, "web").await;
-    for (origin, via) in [(Origin::Web, None), (Origin::LocalApp, None), (Origin::Peer, Some("web"))]
+    for (origin, via) in
+        [(Origin::Web, None), (Origin::LocalApp, None), (Origin::Peer, Some("web"))]
     {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);

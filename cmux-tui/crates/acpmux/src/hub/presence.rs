@@ -56,8 +56,11 @@ pub const PEER_UNSUPPORTED: &str = "presence.peer_unsupported";
 
 /// The refusal for a presence change over a peer daemon's link.
 pub fn peer_unsupported() -> RpcError {
-    RpcError::new(-32000, "presence is kept for this daemon's own clients; a peer daemon's link carries none")
-        .with_data(json!({"reason": PEER_UNSUPPORTED}))
+    RpcError::new(
+        -32000,
+        "presence is kept for this daemon's own clients; a peer daemon's link carries none",
+    )
+    .with_data(json!({"reason": PEER_UNSUPPORTED}))
 }
 
 /// No participants: a chat on a peer daemon, whose presence this daemon does not carry.

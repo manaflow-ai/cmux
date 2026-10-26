@@ -304,7 +304,8 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     let attached =
         ca.call("_acpmux/attach", json!({"sessionId": "b/shared", "limit": 0})).await.unwrap();
     assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
-    let author = json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
+    let author =
+        json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
     let mut params = json!({"sessionId": "b/shared", "on": true});
     params["_meta"] = author["_meta"].clone();
     let refused = ca.call("_acpmux/typing", params).await.unwrap_err();
