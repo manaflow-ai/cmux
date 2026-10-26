@@ -160,8 +160,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             changeCauses = LayoutChangeCauses(workspace, causes: services.mainWork.causes)
         }
         _ = layoutView  // built here, then the bar and the content view, as before
-        // Divider, column-edge and row-edge drags move the layout once per frame (feature `pointerFrameDrags`).
-        layoutView.dragFrameInput = services.dragFrameInput
+        // Divider, column-edge and row-edge drags move the layout once per frame (`pointerFrameDrags`), drawn resampled (`resampledDrags`).
+        layoutView.setDragInput(frames: services.dragFrameInput, resampler: services.dragResampler)
         layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }

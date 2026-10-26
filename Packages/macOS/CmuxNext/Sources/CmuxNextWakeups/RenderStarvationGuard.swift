@@ -34,7 +34,7 @@ public import QuartzCore
 /// subscribers, never queued behind the classes it measures.
 ///
 /// ```swift
-/// // After FrameScheduler.install(displays:): the window schedulers made later are watched with the app's.
+/// // After FrameScheduler.install(displays:energy:): the window schedulers made later are watched with the app's.
 /// let starvation = RenderStarvationGuard(holdsWork: features.isEnabled(.renderStarvationGuard), signposts: true)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
 ///                                                          starvation: starvation), displays: displays)
@@ -49,8 +49,8 @@ public final class RenderStarvationGuard {
     public struct Stats: Sendable, Equatable {
         /// Late periods reported (`stall.render_starved`).
         public var events = 0
-        /// Per budgeted class (``MainWorkClass/budgeted`` order): times a task was held for a late frame.
-        public var heldTasks: [Int] = [0, 0, 0]
+        /// Per budgeted class (``MainFrameBudget/Stats/classes`` order): times a task was held for a late frame.
+        public var heldTasks: [Int] = [0, 0, 0, 0]
         /// Slices of a source outside the budget (the CEF pump) held for a late frame.
         public var heldSlices = 0
         /// The longest gap a period had when it was reported, in seconds.

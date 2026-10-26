@@ -49,29 +49,71 @@
       }
     },
     {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-focus-error.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "second-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "screen": "$step:fx-workspace#/value/screen_id"
+        "screen": "screen_0123456789abcdef0123456789abcdef"
       },
       "args": {
         "method": "screen.focus",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "screen-focus-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "screen",
+          "selector": "screen_0123456789abcdef0123456789abcdef"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "a well-formed screen id that names no screen: selector.not_found, focus stays on the second screen"
+    },
+    {
+      "id": "second-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
