@@ -176,6 +176,8 @@ try {
         maxDelta: 0,
         top: [] as number[],
         topReversals: 0,
+        frameTimes: [] as number[],
+        lastFrame: undefined as number | undefined,
       };
       const observer = new MutationObserver((records) => {
         for (const record of records)
@@ -183,8 +185,10 @@ try {
             if (existing.some((row) => removed === row || removed.contains(row))) receipt.remounts++;
       });
       observer.observe(scroller, { childList: true, subtree: true });
-      const stop = window.cmuxAfterPaint(() => {
+      const stop = window.cmuxAfterPaint((frame) => {
         receipt.frames++;
+        if (receipt.lastFrame !== undefined) receipt.frameTimes.push(frame - receipt.lastFrame);
+        receipt.lastFrame = frame;
         const scrollTop = scroller.scrollTop;
         const previousTop = receipt.top.at(-1);
         receipt.top.push(scrollTop);
@@ -227,6 +231,7 @@ try {
               remounts: number;
               top: number[];
               topReversals: number;
+              frameTimes: number[];
             };
             stop(): void;
           };
