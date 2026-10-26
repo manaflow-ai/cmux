@@ -39,9 +39,10 @@ final class CrashRecoveryService {
         writer = CrashReportWriter.standard(bundleID: bundleID)
         if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            reportTask = Task { [weak self, writer, logger] in  // task-owner: stored in reportTask, cancelled with the service
-                // The DiagnosticReports listing, the crash keys' read and the report write stay off the main thread.
-                let (found, keys) = await Task.detached(priority: .utility) {
+            reportTask = Task(priority: .utility) { [weak self, writer, logger] in  // task-owner: stored in reportTask, cancelled with the service
+                // The DiagnosticReports listing, the crash keys' read and the report write stay off the main thread, at
+                // utility: nobody waits for the last run's report, so the work it awaits starts at that priority too.
+                let (found, keys) = await Task.detached(priority: Task.currentPriority) {
                     (CrashRecoveryService.systemCrashLog(after: previous.launched), AppRunMarker.readCrashKeys(keysFile))
                 }.value
                 // Numbers and catalog names only (CrashKeys), so the line needs no redaction.
@@ -49,7 +50,7 @@ final class CrashRecoveryService {
                 guard let self else { return }
                 (previousCrashLog, previousCrashKeys) = (found, keys)
                 let data = CrashReportWriter.encode(appReport(previous, crashKeys: keys))
-                previousReport = await Task.detached(priority: .utility) { writer.write(data, name: "app") }.value
+                previousReport = await Task.detached(priority: Task.currentPriority) { writer.write(data, name: "app") }.value
             }
         }
     }
