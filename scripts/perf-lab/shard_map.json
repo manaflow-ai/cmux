@@ -5,18 +5,25 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 17590,
-            "T2": 22650
+            "T1": 18850,
+            "T2": 28530
           },
           "stories": {
             "T1": [
               "activation",
               "activation-stress",
+              "agent-engine",
+              "agent-engine-webkit",
+              "agent-stream",
+              "agent-stream-webkit",
               "blocking-hangs",
               "chat-anim",
               "command-pan",
               "daemon-ops",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
+              "home-perf",
               "launch-cold",
               "launch-cold-realistic",
               "launch-warm-realistic",
@@ -37,6 +44,8 @@
               "pane-stress",
               "perf-gate",
               "sidebar",
+              "sidebar-doc",
+              "sidebar-drag",
               "sidebar-mirror-rebuild",
               "sidebar-rows-live",
               "sidebar-scroll-release",
@@ -49,6 +58,7 @@
               "typing-stress"
             ],
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -66,16 +76,21 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
               "command-pan-stress",
               "daemon-spawn",
               "launch-after-reboot",
+              "layout-loop-stress",
               "new-surfaces-stress",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
               "typing-flood-stress"
             ]
           }
@@ -91,10 +106,11 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 22650
+            "T2": 28530
           },
           "stories": {
             "T2": [
+              "acpmux-overhead",
               "action-sweep-light-1",
               "action-sweep-light-2",
               "action-sweep-light-3",
@@ -112,16 +128,21 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cef-resize-sync",
+              "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
               "command-pan-stress",
               "daemon-spawn",
               "launch-after-reboot",
+              "layout-loop-stress",
               "new-surfaces-stress",
               "perceived-speed",
               "script-storm",
               "script-storm-stress",
               "sidebar-churn-typing",
+              "sidebar-drag-live",
+              "sidebar-drag-stress",
               "typing-flood-stress"
             ]
           }
@@ -137,7 +158,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 8920
+            "T1": 9430
           },
           "stories": {
             "T0": [
@@ -145,9 +166,11 @@
             ],
             "T1": [
               "activation-stress",
+              "agent-engine-webkit",
               "blocking-hangs",
               "command-pan",
               "daemon-ops",
+              "home-perf",
               "launch-cold-realistic",
               "motion",
               "new-browser-tab-webkit",
@@ -156,6 +179,8 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "sidebar-doc",
+              "sidebar-drag",
               "sidebar-rows-live",
               "sidebar-scroll-release",
               "switch",
@@ -169,7 +194,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 8670
+            "T1": 9420
           },
           "stories": {
             "T0": [
@@ -178,7 +203,12 @@
             ],
             "T1": [
               "activation",
+              "agent-engine",
+              "agent-stream",
+              "agent-stream-webkit",
               "chat-anim",
+              "drag-lag",
+              "fullscreen-transition",
               "home-idle",
               "launch-cold",
               "launch-warm-realistic",
