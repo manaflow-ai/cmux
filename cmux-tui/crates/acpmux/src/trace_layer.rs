@@ -1,11 +1,11 @@
 //! acpmux in the Release trace ring (plans/cmux-next/chrome-parity/p09-observability.md, task 017).
 //!
 //! - [`TraceLayer`]: a `tracing_subscriber` layer that writes each `tracing` event as a ring
-//!   instant while the `task` category records, under one name per callsite
-//!   (`task.<target>:<line>`),
-//!   with the level in arg0. Fields are dropped: the ring holds catalog names and numbers only.
-//!   acpmux has no spans, so the layer maps none. Chrome writes its log messages into the trace the
-//!   same way, as instants of their own category (`base/logging.cc`, `TRACE_EVENT_INSTANT`).
+//!   instant while the recording-only `log` category records, under one name per callsite
+//!   (`log.<target>:<line>`, [`site_text`]), with the level in arg0. Fields are dropped: the ring
+//!   holds catalog names and numbers only. acpmux has no spans, so the layer maps none. Chrome
+//!   writes its log messages into the trace the same way, as instants of their own `log` category
+//!   (`TRACE_LOG_MESSAGE` in `base/logging.cc`).
 //!   Events of the `log` crate (acpmux's dependencies, through tracing-log's `LogTracer`) share one
 //!   fake callsite per level; the layer names them by the record's own target and line.
 //! - [`RequestSlice`]: one async slice per JSON-RPC request (the catalog's `daemon.request`), from
@@ -19,15 +19,16 @@
 use std::future::Future;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 
-use cmux_trace::{InternedName, Phase, category, trace_async_begin, trace_async_end};
+use cmux_trace::{
+    InternedName, NAME_TEXT_BYTES, Phase, category, trace_async_begin, trace_async_end,
+};
 use serde_json::Value;
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_log::NormalizeEvent;
 use tracing_subscriber::layer::{Context, Layer};
 
-/// Event instants: a recording-only category, so the black box never holds log noise. The catalog
-/// has no `log` category; `task` is the recording category of acpmux's tokio work.
-const EVENT_CATEGORY: u64 = category::TASK;
+/// Event instants: a recording-only category, so the black box never holds log noise.
+const EVENT_CATEGORY: u64 = category::LOG;
 /// Requests record in the black box too, as the daemon's do.
 const REQUEST_CATEGORY: u64 = category::DAEMON;
 
@@ -132,13 +133,28 @@ impl NameTable {
     }
 }
 
-/// `task.<target>:<line>`: the module path and line of a site, under its category's name like
-/// every trace name (a ring name keeps 55 bytes).
+/// `log.<target>:<line>`: the module path and line of a site, under its category's name like every
+/// trace name. A text longer than a ring name holds ([`NAME_TEXT_BYTES`]) keeps its line and the
+/// last whole path segments that fit, after a hash of the whole target:
+/// `log.<hash>~<tail>:<line>`. So every site keeps its own name, and two long targets with one tail
+/// stay apart.
 fn site_text(target: &str, line: Option<u32>) -> String {
-    match line {
-        Some(line) => format!("task.{target}:{line}"),
-        None => format!("task.{target}"),
+    let category = cmux_trace::category::NAMES[usize::from(bit(EVENT_CATEGORY))];
+    let line = line.map(|line| format!(":{line}")).unwrap_or_default();
+    let full = format!("{category}.{target}{line}");
+    if full.len() <= NAME_TEXT_BYTES {
+        return full;
     }
+    // The low 32 bits of the hash: enough to tell apart the few long targets of one process.
+    let head = format!("{category}.{:08x}~", fnv1a(FNV_OFFSET, target.as_bytes()) as u32);
+    let room = NAME_TEXT_BYTES - head.len() - line.len();
+    let mut start = target.len() - room;
+    while !target.is_char_boundary(start) {
+        start += 1;
+    }
+    let tail = &target[start..];
+    let tail = tail.find("::").map_or(tail, |at| &tail[at + 2..]);
+    format!("{head}{tail}{line}")
 }
 
 /// The key of a `log` site: FNV-1a 64 of its target and line, never 0.
@@ -287,5 +303,33 @@ mod tests {
         let other_target = layer.log_name_of("notify::inotify", Some(10)).expect("a slot");
         assert!(!std::ptr::eq(first, other_line));
         assert!(!std::ptr::eq(first, other_target));
+    }
+
+    #[test]
+    fn trace_layer_names_are_under_the_log_category() {
+        assert_eq!(site_text("acpmux::hub", Some(7)), "log.acpmux::hub:7");
+        assert_eq!(site_text("acpmux::hub", None), "log.acpmux::hub");
+    }
+
+    #[test]
+    fn trace_layer_long_targets_keep_their_line_within_a_ring_name() {
+        let target = "very_long_dependency_crate::transport::connection::read_loop";
+        assert_eq!(target.len(), 60);
+        let ten = site_text(target, Some(10));
+        let eleven = site_text(target, Some(11));
+        assert_ne!(ten, eleven, "two lines of one long target share a name");
+        for text in [&ten, &eleven] {
+            assert!(text.len() <= NAME_TEXT_BYTES, "{text} is longer than a ring name");
+            assert!(text.starts_with("log."), "{text}");
+            assert!(text.contains("::read_loop:") || text.contains("~read_loop:"), "{text}");
+        }
+        assert!(ten.ends_with(":10") && eleven.ends_with(":11"));
+        // Another long target with the same tail keeps its own name.
+        let other = "another_long_dependency_crate::transport::connection::read_loop";
+        assert_ne!(site_text(other, Some(10)), ten);
+        // A multi-byte target is cut on a character boundary.
+        let wide = "é".repeat(40);
+        let text = site_text(&wide, Some(1));
+        assert!(text.len() <= NAME_TEXT_BYTES && text.ends_with(":1"), "{text}");
     }
 }

@@ -1,6 +1,7 @@
 //! acpmux in the Release trace ring (`src/trace_layer.rs`): with the black box on and no
 //! recording, an event costs no allocation; with a recording on, events decode as instants under
-//! their callsite's name and every request over a connection as one async slice keyed by its id.
+//! their callsite's name and every request over a connection as one async slice keyed by its id,
+//! which ends once when the request completes, panics or is dropped.
 //! One test: the ring is process-wide, and the cases must run in this order.
 
 #[path = "support/daemon_env.rs"]
@@ -12,7 +13,7 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
 use acpmux::server::{Origin, serve_connection_with};
-use acpmux::trace_layer::{TraceLayer, method_hash, request_slice_id};
+use acpmux::trace_layer::{RequestSlice, TraceLayer, method_hash, request_slice_id};
 use cmux_trace::{FLAG_ID, Phase, Role, category};
 use serde_json::{Value, json};
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -49,6 +50,10 @@ static ALLOCATOR: Counting = Counting;
 fn allocations() -> usize {
     ALLOCATIONS.with(Cell::get)
 }
+
+/// The connections of the request that panics and the one dropped before it completes.
+const PANIC_CONN: &str = "a connection whose request panics";
+const DROP_CONN: &str = "a connection whose request is dropped";
 
 /// The target of the test's `log` crate record, as a dependency's module path would be.
 const LOG_TARGET: &str = "acpmux_trace_probe::dependency";
@@ -117,7 +122,7 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     cmux_trace::stop().expect("the frame recording stops");
     let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
         .expect("the frame recording decodes");
-    let prefix = format!("task.{}:", module_path!());
+    let prefix = format!("log.{}:", module_path!());
     assert!(
         !decoded.names.iter().any(|n| n.text.starts_with(&prefix)),
         "an event recorded under a frame-only recording: {:?}",
@@ -131,15 +136,30 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     let hub = hub();
     let requests = [(json!(7), "_acpmux/sessions"), (json!("seven"), "_acpmux/sessions")];
     serve_requests(&hub, &requests).await;
+    // A request whose task panics, and one dropped before it completes (its task aborted, as a
+    // closing connection's are), still end their slices.
+    let panicked = tokio::spawn(
+        RequestSlice::begin(PANIC_CONN, &json!(1), "_acpmux/sessions")
+            .wrap(async { panic!("a request that panics") }),
+    )
+    .await;
+    assert!(panicked.expect_err("the request panics").is_panic());
+    let dropped = tokio::spawn(
+        RequestSlice::begin(DROP_CONN, &json!(1), "_acpmux/sessions")
+            .wrap(std::future::pending::<()>()),
+    );
+    tokio::task::yield_now().await;
+    dropped.abort();
+    assert!(dropped.await.expect_err("the request is dropped").is_cancelled());
     cmux_trace::stop().expect("the recording stops");
 
     let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
         .expect("the recording decodes");
-    // This file's one event callsite, named `task.<module>:<line>`, in the `task` category.
-    let task_bit = category::TASK.trailing_zeros() as u8;
+    // This file's one event callsite, named `log.<module>:<line>`, in the `log` category.
+    let log_bit = category::LOG.trailing_zeros() as u8;
     let names: Vec<_> = decoded.names.iter().filter(|n| n.text.starts_with(&prefix)).collect();
     assert_eq!(names.len(), 1, "one name per callsite: {names:?}");
-    assert_eq!(names[0].category, task_bit, "event names carry the category they record under");
+    assert_eq!(names[0].category, log_bit, "event names carry the category they record under");
     let instants: Vec<_> = decoded.records.iter().filter(|r| r.name == names[0].id).collect();
     assert_eq!(instants.len(), 3, "one instant per event while recording");
     assert!(
@@ -148,15 +168,21 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     );
 
     // A `log` crate record keeps its own target and line, not tracing-log's shared callsite.
-    let log_prefix = format!("task.{LOG_TARGET}:");
+    let log_prefix = format!("log.{LOG_TARGET}:");
     let log_names: Vec<_> =
         decoded.names.iter().filter(|n| n.text.starts_with(&log_prefix)).collect();
     assert_eq!(log_names.len(), 1, "one name for the log record's site: {:?}", decoded.names);
     assert!(log_names[0].text[log_prefix.len()..].parse::<u32>().is_ok(), "{log_names:?}");
-    assert_eq!(log_names[0].category, task_bit);
+    assert_eq!(log_names[0].category, log_bit);
     assert!(
-        !decoded.names.iter().any(|n| n.text == "log" || n.text == "task.log"),
-        "a log record named `log`"
+        !decoded.names.iter().any(|n| n.text.starts_with("log.log")),
+        "a log record named by tracing-log's shared callsite: {:?}",
+        decoded.names
+    );
+    assert!(
+        !decoded.names.iter().any(|n| n.text.starts_with("task.") && n.text.contains(':')),
+        "an event under the task category: {:?}",
+        decoded.names
     );
     let log_instants: Vec<_> =
         decoded.records.iter().filter(|r| r.name == log_names[0].id).collect();
@@ -167,16 +193,22 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
         decoded.records.iter().filter(|r| decoded.name(r.name) == Some("daemon.request")).collect();
     let begins: Vec<_> = slices.iter().filter(|r| r.phase == Phase::AsyncBegin as u8).collect();
     let ends: Vec<_> = slices.iter().filter(|r| r.phase == Phase::AsyncEnd as u8).collect();
-    assert_eq!(begins.len(), requests.len(), "one begin per request: {slices:?}");
-    assert_eq!(ends.len(), requests.len(), "one end per request: {slices:?}");
+    let slices_in_all = requests.len() + 2;
+    assert_eq!(begins.len(), slices_in_all, "one begin per request: {slices:?}");
+    assert_eq!(ends.len(), slices_in_all, "one end per request: {slices:?}");
     assert!(slices.iter().all(|r| r.flags & FLAG_ID != 0), "arg1 is the slice id");
     assert!(begins.iter().all(|r| r.arg0 == method_hash("_acpmux/sessions")));
     for begin in &begins {
-        let end = ends.iter().find(|end| end.arg1 == begin.arg1).expect("the slice ends");
-        assert!(end.t_ns >= begin.t_ns, "the slice ends after it begins");
+        let ended: Vec<_> = ends.iter().filter(|end| end.arg1 == begin.arg1).collect();
+        assert_eq!(ended.len(), 1, "the slice ends once: {slices:?}");
+        assert!(ended[0].t_ns >= begin.t_ns, "the slice ends after it begins");
     }
     let ids: std::collections::HashSet<u64> = begins.iter().map(|r| r.arg1).collect();
-    assert_eq!(ids.len(), requests.len(), "each request has its own slice id");
+    assert_eq!(ids.len(), slices_in_all, "each request has its own slice id");
+    for (conn, how) in [(PANIC_CONN, "panics"), (DROP_CONN, "is dropped")] {
+        let id = request_slice_id(conn, &json!(1));
+        assert!(ids.contains(&id), "the request that {how} begins its slice: {slices:?}");
+    }
     // The slice id hashes the connection with the request id; the same request id on another
     // connection gets another id.
     assert!(!ids.contains(&request_slice_id("another connection", &json!(7))));
