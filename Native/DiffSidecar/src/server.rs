@@ -363,7 +363,12 @@ fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn validate_root(root: &Path) -> Result<(), String> {
+/// Checks that `root` is a directory of this user with mode 0700.
+///
+/// # Errors
+///
+/// Returns why the root is not private.
+pub async fn validate_root(root: &Path) -> Result<(), String> {
     let metadata = tokio::fs::metadata(root)
         .await
         .map_err(|error| error.to_string())?;

@@ -13,6 +13,7 @@ pub mod connector;
 pub mod fs;
 pub mod link;
 pub mod ops;
+pub mod panic_log;
 pub mod ports;
 pub mod proxy;
 pub mod rescue;

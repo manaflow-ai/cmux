@@ -50,6 +50,10 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    optchat_chief::panic_log::install(
+        &home(&Flags::parse(&args)),
+        args.first().map_or("", String::as_str),
+    );
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {

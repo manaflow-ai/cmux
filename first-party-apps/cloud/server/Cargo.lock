@@ -112,11 +112,20 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-app-manifest",
+ "cmux-panic-log",
  "cmux-terminal-iface",
  "getrandom",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]

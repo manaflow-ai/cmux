@@ -132,6 +132,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -740,6 +748,7 @@ dependencies = [
  "chrono",
  "cmux-chief",
  "cmux-conversation",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
  "image",
