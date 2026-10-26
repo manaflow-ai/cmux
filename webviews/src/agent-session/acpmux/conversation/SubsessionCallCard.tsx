@@ -75,7 +75,9 @@ function SessionCard({
   const waiting = live ? live.waiting : fallback?.waiting;
   const doing = waiting ? waitingLine(t, waiting) : live?.doing;
   const shown = note?.state === state ? note : undefined;
-  const target = sessionId ? { id: sessionId, parent: null, name: live?.name ?? name, state: "failed", child: sessionId } : undefined;
+  const target = sessionId
+    ? { id: sessionId, parent: null, name: live?.name ?? name, state: "failed", child: sessionId }
+    : undefined;
   const run = () => {
     if (!retryAgent || !target || shown?.busy) return;
     setNote({ state, busy: true });
@@ -102,7 +104,7 @@ function SessionCard({
             <Retry size={12} />
             {t("retry.action")}
           </button>
-          {shown?.key && <span role="status">{t(shown.key)}</span>}
+          {shown?.key && <output>{t(shown.key)}</output>}
         </div>
       )}
       {children}

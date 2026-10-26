@@ -32,7 +32,12 @@ const FIXTURE = {
 describe("the adapter reads acpmux's retry", () => {
   test("a waiting retry, null once none waits, undefined when a record does not say", () => {
     expect(readRetry(FIXTURE.subagentRetry)).toEqual(FIXTURE.subagentRetry);
-    expect(readRetry(FIXTURE.sessionRetry)).toEqual({ attempt: 1, of: 4, reason: "transport", nextAt: 1_792_000_010_000 });
+    expect(readRetry(FIXTURE.sessionRetry)).toEqual({
+      attempt: 1,
+      of: 4,
+      reason: "transport",
+      nextAt: 1_792_000_010_000,
+    });
     expect(readRetry(null)).toBeNull();
     expect(readRetry(undefined)).toBeUndefined();
     expect(readRetry({ attempt: 0, of: 3 })).toBeUndefined();
@@ -67,7 +72,10 @@ describe("the fold keeps a subagent's retry", () => {
   let seq = 0;
   const feed = (fold: SubagentFold, update: any, acpmux: Record<string, unknown>) => {
     seq += 1;
-    return fold.reduce({ seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } }, update);
+    return fold.reduce(
+      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      update,
+    );
   };
   const change = (fold: SubagentFold, fields: Record<string, unknown>) =>
     feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", ...fields }] });
@@ -77,7 +85,11 @@ describe("the fold keeps a subagent's retry", () => {
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Push relay" }] });
     change(fold, { state: "failed", retryable: true, retry: { attempt: 1, of: 2, reason: "capacity" } });
     let agent = fold.all()[0]!;
-    expect([agent.state, agent.retry, agent.retryable]).toEqual(["failed", { attempt: 1, of: 2, reason: "capacity" }, true]);
+    expect([agent.state, agent.retry, agent.retryable]).toEqual([
+      "failed",
+      { attempt: 1, of: 2, reason: "capacity" },
+      true,
+    ]);
     // A progress report that says nothing of the retry keeps it.
     change(fold, { action: "Read relay.ts" });
     expect(fold.all()[0]!.retry?.attempt).toBe(1);
@@ -98,7 +110,13 @@ describe("the fold keeps a subagent's retry", () => {
 });
 
 describe("which rows get which Retry", () => {
-  const failed: RetryTarget = { id: "a", parent: null, name: "Push relay", task: "Push relay for GCP lane bundles", state: "failed" };
+  const failed: RetryTarget = {
+    id: "a",
+    parent: null,
+    name: "Push relay",
+    task: "Push relay for GCP lane bundles",
+    state: "failed",
+  };
 
   test("a Task subagent acpmux can retry goes to acpmux; one it cannot is asked of the parent", () => {
     expect(retryActionOf({ ...failed, retryable: true })).toBe("daemon");
@@ -183,7 +201,14 @@ describe("Retry reaches acpmux, else the parent", () => {
   });
 
   test("the strings are in the catalog", () => {
-    for (const key of ["retry.action", "retry.askParent", "retry.menu", "retry.busy", "retry.nothingFailed", "retry.failed"] as const)
+    for (const key of [
+      "retry.action",
+      "retry.askParent",
+      "retry.menu",
+      "retry.busy",
+      "retry.nothingFailed",
+      "retry.failed",
+    ] as const)
       expect(translate(key)).not.toBe(key);
     expect(translate("retry.retriedOut", { of: 4 })).toBe("gave up after 4 tries");
     expect(translate("retry.action")).toBe("Retry");

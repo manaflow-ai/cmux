@@ -53,7 +53,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 200,
   widths: { narrow: 360, normal: 520, wide: 720 },
-  covers: ["agent-session/acpmux/subagents/retryState.ts"],
+  covers: ["agent-session/acpmux/subagents/SubagentDoneLine.tsx"],
   load: async () => {
     const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
     const { TurnActionsContext } = await import("../conversation/turnActions");
@@ -81,7 +81,8 @@ export default componentEntry<Props>({
       );
     };
   },
-  styles: () => Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./subagents.css")]),
+  styles: () =>
+    Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./subagents.css")]),
   variants: {
     before: {
       note: "Before: Leo's two rows as the base draws them, the failure in the danger color and no way to run them again but Restart on hover.",

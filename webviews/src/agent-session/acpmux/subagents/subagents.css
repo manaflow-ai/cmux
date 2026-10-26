@@ -660,7 +660,7 @@ button.cv-subagent > :last-child {
   opacity: 0.55;
 }
 .cv-subagent-done__note,
-.cv-subsession__retry > [role="status"] {
+.cv-subsession__retry > output {
   flex: none;
   margin-inline-start: 6px;
   color: var(--cv-text-dim);
