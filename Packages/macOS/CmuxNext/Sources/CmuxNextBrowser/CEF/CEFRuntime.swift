@@ -24,6 +24,8 @@ final class CEFRuntime {
 
     var state: State = .idle
     private(set) var shim: CEFShimLibrary?
+    /// `CMUX_CEF_DEFER_EVENTS=1` in process (``CEFDeferredEvents``); nil runs each event in the shim's call.
+    var deferredEvents = CEFDeferredEvents.requested(by: ProcessInfo.processInfo.environment)
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
@@ -186,9 +188,11 @@ final class CEFRuntime {
     }
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
-    /// (tests drive panes against a spy shim).
-    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
-        self.shim = shim
+    /// (tests drive panes against a spy shim), its events deferred as `deferredEvents` says.
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage,
+         deferredEvents: CEFDeferredEvents? = CEFDeferredEvents.requested(by: ProcessInfo.processInfo.environment)) {
+        self.deferredEvents = deferredEvents
+        self.shim = deferredEvents?.serveMirror(from: shim) ?? shim
         self.storage = storage
         state = .ready
     }
@@ -336,29 +340,6 @@ final class CEFRuntime {
         }
     }
 
-    enum BootError: Error, CustomStringConvertible {
-        case notEmbedded
-        case untrusted(String)
-        case shim(CEFShimLibrary.LoadError)
-        case framework(String)
-        /// Host mode: no Chromium Host to attach to (the reason).
-        case host(String)
-        /// NSApp is not a CefAppProtocol NSApplication subclass.
-        case application
-        case initialize
-
-        var description: String {
-            switch self {
-            case .notEmbedded: "runtime not embedded"
-            case .untrusted(let item): "runtime signature: \(item)"
-            case .shim(let error): "shim: \(error)"
-            case .framework(let message), .host(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
-            case .initialize: "CefInitialize failed"
-            }
-        }
-    }
-
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
     nonisolated static func loadLibrary(
@@ -397,7 +378,9 @@ final class CEFRuntime {
 
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
     private func initialize(_ library: CEFRuntimeBoot, environment: [String: String]) throws(BootError) {
-        let shim = library.shim
+        // Deferred events stand in for host mode, whose events and mirror reads come from the wire.
+        if case .host = library { deferredEvents = nil }
+        let shim = deferredEvents?.serveMirror(from: library.shim) ?? library.shim
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
