@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 
 /// A deadline miss on a cross-process call (architecture.md 5a).
 public struct DeadlineExceeded: Error, Sendable, CustomStringConvertible {
@@ -14,8 +15,9 @@ package func withDeadline<T: Sendable>(_ duration: Duration, label: String,
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { try await operation() }
         group.addTask {
-            // wakeup-allow: one-shot deadline (cross-process call)
-            try await Task.sleep(for: duration)
+            // wakeup-allow: deadline of one cross-process call: the timer side of a task-group race with the call
+            // (the group's cancelAll ends it), not a DemandTimer; flexible, never early (WakeLeeway)
+            try await Task.sleep(for: duration, tolerance: WakeLeeway.window(delay: duration).tolerance)
             throw DeadlineExceeded(label: label)
         }
         defer { group.cancelAll() }

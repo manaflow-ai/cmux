@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The omnibar, drawn by `OmnibarStyle`: a gray
 /// 8 pt pill with a page-info chip, the compact URL with the host at full
@@ -47,6 +48,10 @@ public final class AddressBarView: NSView {
     private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
+    /// The app's one main-thread scheduler: the bar's setting follows apply on it.
+    let mainWork: MainWorkScheduler
+    /// The suggestion engine's "Always show full URLs" (``followDisplay()``).
+    var displayWatch: FrameObservation<Bool>?
 
     private var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
@@ -153,8 +158,9 @@ public final class AddressBarView: NSView {
         return resolver
     }
 
-    public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
+    public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler) {
         self.suggestionEngine = suggestionEngine
+        self.mainWork = mainWork
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
@@ -230,7 +236,8 @@ public final class AddressBarView: NSView {
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
-        density.start()
+        density.start(in: self)
+        pill.followLook(on: mainWork)
         followDisplay()
     }
 
@@ -532,13 +539,6 @@ public final class AddressBarView: NSView {
     public override func rightMouseDown(with event: NSEvent) {
         guard isBarHit(event) else { return super.rightMouseDown(with: event) }
         field.rightMouseDown(with: event)
-    }
-
-    /// The press landed on the bar itself inside the text area, not on a
-    /// chip, badge or star that passed it up the responder chain.
-    private func isBarHit(_ event: NSEvent) -> Bool {
-        guard let superview, hitTest(superview.convert(event.locationInWindow, from: nil)) === self else { return false }
-        return textArea.contains(convert(event.locationInWindow, from: nil))
     }
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

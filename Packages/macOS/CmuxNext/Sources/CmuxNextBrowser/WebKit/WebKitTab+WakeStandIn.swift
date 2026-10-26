@@ -30,6 +30,7 @@ extension WebKitTab: BrowserWakeStandIn {
     /// The main frame painted content.
     func pageDidPaint() {
         removeStandIn()
+        firstContentFrame.contentShown()
     }
 
     func removeStandIn() {

@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "chromium"
   ],
   "platforms": [
     "linux",
@@ -71,6 +73,16 @@
       }
     },
     {
+      "id": "wait-live",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/browsers/0/status",
+        "equals": "live",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -81,11 +93,10 @@
       "args": {
         "method": "browser.input.mouse",
         "params": {
-          "kind": "down",
+          "kind": "move",
           "x_px": 10.0,
           "y_px": 10.0,
-          "pointer_frame_seq": "1",
-          "button": "left"
+          "pointer_frame_seq": "1"
         },
         "idempotencyKey": "browser-input-mouse-ok.call"
       },
@@ -97,7 +108,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a pointer move on the live page"
     }
   ],
   "invariants": [
@@ -106,5 +117,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "params.pointer_frame_seq must be the token of the browser.attach frame the coordinates came from; the case has no stream step to read one (streams are p15-oracle-204), so the daemon refuses the fixed token until the case reads it from a frame"
   ]
 }

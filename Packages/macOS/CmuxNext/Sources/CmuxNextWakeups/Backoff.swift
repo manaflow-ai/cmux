@@ -13,6 +13,9 @@ public struct Backoff: Sendable {
     /// Fraction of the delay drawn at random, in 0...1 (0.2: ±20%).
     public var jitter: Double
     public private(set) var attempt = 0
+    /// A retry table that is not geometric (5 s, 15 s, 60 s, ...), in order, the last step
+    /// repeating; nil grows `initial` by `multiplier` up to `maximum`.
+    public private(set) var steps: [Duration]?
     private var random: @Sendable () -> Double
 
     /// `random` returns a value in 0..<1 (tests inject a constant). Out-of-range
@@ -29,8 +32,27 @@ public struct Backoff: Sendable {
         self.random = random
     }
 
-    /// The delay before the next attempt; grows until `maximum`.
+    /// A backoff that walks a retry table: `steps[0]`, `steps[1]`, ..., then the last step again,
+    /// each spread by `jitter` as the geometric one is. An empty table waits zero, and a step below
+    /// zero is zero; `initial` and `maximum` are the table's first and largest steps.
+    public init(steps: [Duration], jitter: Double = 0.2,
+                random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
+        let table = steps.isEmpty ? [Duration.zero] : steps.map { max($0, .zero) }
+        initial = table[0]
+        maximum = table.max() ?? .zero
+        multiplier = 1
+        self.jitter = jitter.isNaN ? 0 : min(max(jitter, 0), 1)
+        self.steps = table
+        self.random = random
+    }
+
+    /// The delay before the next attempt; grows until `maximum` (or walks ``steps``).
     public mutating func next() -> Duration {
+        if let steps {
+            let base = steps[min(attempt, steps.count - 1)].inSeconds
+            attempt += 1
+            return .seconds(max(base + base * jitter * (random() * 2 - 1), 0))
+        }
         let base = min(initial.inSeconds * pow(multiplier, Double(min(attempt, 62))), maximum.inSeconds)
         attempt += 1
         let spread = base * jitter * (random() * 2 - 1)
