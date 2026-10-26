@@ -163,10 +163,12 @@ pub enum Command {
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
         /// Send this message into the running turn when the agent supports steering. On by
-        /// default with --no-wait; a send that waits for the reply queues unless given this.
+        /// default for an agent's send (--from, or one in an acpmux session) and with
+        /// --no-wait; the person's send that waits for the reply queues unless given this. A
+        /// send that waits and steers prints the reply of the turn it went into.
         #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Queue behind the running turn even with --no-wait.
+        /// Queue behind the running turn, even an agent's send or one with --no-wait.
         #[arg(long)]
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a

@@ -113,10 +113,11 @@ acpmux run -m codex --cwd ~/proj --policy approve-edits "fix the failing test"  
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
-acpmux send NAME "next step"                       # stream the reply; -q for the final text only
+acpmux send NAME "next step"                       # stream the reply; -q for the final text only. From an agent it steers into a running turn and prints that turn's reply
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
-acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-steer "…"                    # an agent's send that waits: queue behind the running turn instead
+acpmux send NAME --steer "…"                       # the person's send that waits: steer it (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; 8 MiB a file, 10 MiB a message
 acpmux last NAME [-n 3]                            # last reply text
