@@ -146,11 +146,13 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
   }
 }
 
-// The channel's coalescing key for a state op: one value per browser that a newer call
-// replaces, with no order against other ops (geometry, zoom, hosting modes). Focus, the
-// navigation guard and password fill are ordered against later ops, so they are not state.
+// The channel's coalescing key for a state op: one value per browser (a hosted widget's
+// geometry: per widget) that a newer call replaces, with no order against other ops
+// (geometry, zoom, hosting modes). Focus, the navigation guard and password fill are ordered
+// against later ops, so they are not state.
 std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& fields) {
   switch (op) {
+    case kOpWidgetSetGeometry:
     case kOpBrowserSetBackgroundColor:
     case kOpTabSetTransparentBackground:
     case kOpBrowserSetResizeSync:

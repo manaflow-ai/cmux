@@ -69,6 +69,10 @@ Per mode:
            with --stress: idle wakes in the same three scenarios, and key and click to paint and the stall in
            both modes, in the STRESS session too (the probe opened in its measured pane).
 
+--native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
+popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
 they are not shipping latencies. `build` in the report is the bundle's config.
@@ -91,6 +95,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_native_ui  # noqa: E402
 
 
 def parse(argv=None):
@@ -104,6 +109,7 @@ def parse(argv=None):
     parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -419,6 +425,11 @@ def main():
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.native_ui:
+        native = os.path.join(opts.out, "native-ui.html")
+        open(native, "w").write(chromium_host_native_ui.PAGE)
+        url = pathlib.Path(native).as_uri()
+        env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -439,7 +450,9 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = opts.modes.split(",")
+        modes = [] if opts.native_ui else opts.modes.split(",")
+        if opts.native_ui:
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
