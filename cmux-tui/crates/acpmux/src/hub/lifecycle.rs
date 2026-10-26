@@ -1256,7 +1256,24 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+        // The harness's own `session/update`s, kept until it answers `session/new`: a mode or
+        // option it reports while its session starts counts there (review 41 of #23322). The tap
+        // sees each line before its answer is handed back, so none sent before that answer is
+        // missed. Bounded: a probe keeps at most 256.
+        let updates = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let seen = updates.clone();
+        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
+            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
+                (dir, msg)
+                && m == method::SESSION_UPDATE
+            {
+                let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
+                if seen.len() < 256 {
+                    seen.push(params.clone());
+                }
+            }
+            true
+        });
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
@@ -1282,8 +1299,13 @@ impl Hub {
             // MDM forces full access off (#23322, review 32): a session that came up in it (its
             // mode or a config option, a profile that pins nothing included) keeps nothing. Read
             // once it answered, so an off that landed during the handshake counts.
-            let view =
+            let mut view =
                 super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
+            let declared = res["modes"].is_object();
+            let harness_session = res["sessionId"].as_str();
+            for params in updates.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+                view.fold_update(declared, harness_session, params);
+            }
             if self.full_access_managed_off()
                 && super::full_access_bound::runs_full_access(&view).is_some()
             {

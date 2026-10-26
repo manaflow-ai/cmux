@@ -19,31 +19,8 @@ impl Pooled {
             let Message::Notification { method: name, params: Some(params) } = msg else {
                 continue;
             };
-            if *dir != Direction::In || name != crate::rpc::method::SESSION_UPDATE {
-                continue;
-            }
-            // A subagent's updates are not the session's own (`on_update`).
-            if harness_session
-                .is_some_and(|sid| params["sessionId"].as_str().is_some_and(|s| s != sid))
-            {
-                continue;
-            }
-            let update = &params["update"];
-            match update["sessionUpdate"].as_str() {
-                Some("current_mode_update") => {
-                    let mode = update["currentModeId"].as_str().map(str::to_owned);
-                    if declared {
-                        view.mode = mode;
-                    } else {
-                        view.undeclared_mode = mode;
-                    }
-                }
-                Some("config_option_update") => {
-                    if let Some(options) = update["configOptions"].as_array() {
-                        view.options = options.clone();
-                    }
-                }
-                _ => {}
+            if *dir == Direction::In && name == crate::rpc::method::SESSION_UPDATE {
+                view.fold_update(declared, harness_session, params);
             }
         }
         runs_full_access(&view).is_some()

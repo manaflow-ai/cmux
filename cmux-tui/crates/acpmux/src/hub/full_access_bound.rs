@@ -63,6 +63,39 @@ impl FullAccessView {
         }
     }
 
+    /// Folds one `session/update` notification's `params` into the view: a mode or config option
+    /// update of the harness session `harness_session` itself (a subagent's are not its own,
+    /// `on_update`). A harness that declared no modes (`declared` false) reports an undeclared
+    /// mode (review 32 and 41 of #23322).
+    pub(crate) fn fold_update(
+        &mut self,
+        declared: bool,
+        harness_session: Option<&str>,
+        params: &Value,
+    ) {
+        if harness_session.is_some_and(|sid| params["sessionId"].as_str().is_some_and(|s| s != sid))
+        {
+            return;
+        }
+        let update = &params["update"];
+        match update["sessionUpdate"].as_str() {
+            Some("current_mode_update") => {
+                let mode = update["currentModeId"].as_str().map(str::to_owned);
+                if declared {
+                    self.mode = mode;
+                } else {
+                    self.undeclared_mode = mode;
+                }
+            }
+            Some("config_option_update") => {
+                if let Some(options) = update["configOptions"].as_array() {
+                    self.options = options.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
         let undeclared_mode =
