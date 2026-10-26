@@ -257,12 +257,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Tab previews, page thumbnails and hibernated tabs' pictures follow memory pressure: previews shrink at warning; at critical they empty and only the pictures of tabs beside a shown tab stay, so other woken tabs may show loading first.
+    /// Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.
     public static let memoryImageCaches = Feature(
         index: 15,
         name: "memoryImageCaches",
         owner: "PL-memory",
-        description: "Tab previews, page thumbnails and hibernated tabs' pictures follow memory pressure: previews shrink at warning; at critical they empty and only the pictures of tabs beside a shown tab stay, so other woken tabs may show loading first.",
+        description: "Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

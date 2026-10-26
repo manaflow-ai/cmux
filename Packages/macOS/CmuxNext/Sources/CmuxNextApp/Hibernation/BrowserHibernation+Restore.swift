@@ -101,7 +101,6 @@ extension BrowserHibernation {
         savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
-        cache.previews.remove(key)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
@@ -136,27 +135,25 @@ extension BrowserHibernation {
         }
     }
 
-    /// The picture a hibernated tab shows: its compressed one, else the decoded one in `previews`
-    /// (`HibernationTunables.compressedSnapshots` off).
+    /// The picture a hibernated tab shows, compressed or decoded (`HibernationTunables.compressedSnapshots` off).
     func snapshotImage(_ key: String) -> CGImage? {
-        snapshots.image(for: key) ?? cache?.previews.image(for: key)
+        snapshots.image(for: key)
     }
 
     /// Keeps a hibernating page's picture until it wakes or closes.
     func keep(_ picture: HibernationSnapshots.Picture, for key: String) {
-        if picture.data != nil { snapshots.insert(picture, for: key) } else { cache?.previews.insert(picture.image, for: key) }
+        snapshots.insert(picture, for: key)
     }
 
-    /// A fresh picture (never one from an earlier sleep). Compressed whole into `snapshots` by
-    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
-    /// several fit the `previews` cache at its limit now, which refuses a picture larger than itself.
+    /// A fresh picture (never one from an earlier sleep), kept in `snapshots`: compressed whole by
+    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that four fit
+    /// the store. None, and no capture, when the store would not keep it (the critical memory limit, for
+    /// a tab beside no shown tab).
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return nil }
+        guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
         if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
-        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
-        // None while the memory limit leaves the cache no room (the critical limit).
-        guard let capacity = cache?.previews.capacityBytes, capacity > 0 else { return nil }
-        let bytes = Double(capacity / 4) * 0.98
+        // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
+        let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
         let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)

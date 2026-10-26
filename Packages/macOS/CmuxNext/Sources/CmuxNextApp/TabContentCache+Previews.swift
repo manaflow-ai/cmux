@@ -20,13 +20,15 @@ extension TabContentCache {
             return image // an evicted terminal: its last frame, pictured on demand
         }
         // A loaded page on screen whose picture is older (or gone) is pictured on demand, one capture
-        // at a time; a hidden one keeps its last picture.
+        // at a time, while the thumbnails can keep it; a hidden one keeps its last picture.
         if let entry = browsers[key], !pagePictureIsCurrent(entry, key: key),
-           (shownPages.contains(key) && entry.tab.state.phase == .finished) || (captureIfMissing && pageThumbnails.image(for: key) == nil),
+           (shownPages.contains(key) && entry.tab.state.phase == .finished && keepsPageThumbnails)
+            || (captureIfMissing && pageThumbnails.image(for: key) == nil),
            let image = await capturePage(entry, key: key, accepts: { [weak self] in self?.browsers[key] === entry }) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
-        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) {
+        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? internalPagePictures.image(for: key)
+            ?? hibernation?.snapshots.image(for: key) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
         return nil
@@ -39,6 +41,7 @@ extension TabContentCache {
     /// in `pageThumbnails` only while this hide is still the tab's latest
     /// transition and the tab still has this page.
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
+        guard keepsPageThumbnails else { return }
         Task { [weak self] in
             _ = await self?.capturePage(entry, key: key) { [weak self] in
                 guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
@@ -49,6 +52,10 @@ extension TabContentCache {
             }
         }
     }
+
+    /// The thumbnails would keep a page's picture now. Not at the critical memory limit, where a kept-nothing
+    /// capture would start again on every hover, leave and resign-key: the main-thread engine capture is skipped.
+    var keepsPageThumbnails: Bool { pageThumbnails.fits(bytes: TabPreviewFitting.cachedThumbnailBytes) }
 
     /// The page's picture is of its version now (`pageVersion`) and still cached.
     func pagePictureIsCurrent(_ entry: BrowserEntry, key: String) -> Bool {

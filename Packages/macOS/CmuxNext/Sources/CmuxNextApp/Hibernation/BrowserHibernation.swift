@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextHibernation
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -55,8 +56,8 @@ final class BrowserHibernation {
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
-    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
-    let snapshots = HibernationSnapshots()
+    /// Hibernated pages' pictures, sized by the cache's `ImageCacheShares`, and their wakes (`debug.surfaces`).
+    let snapshots: HibernationSnapshots
     var wakeLog = HibernationWakes()
     /// A navigation that woke a hibernated page, applied once it is back; at most one per page.
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
@@ -176,6 +177,7 @@ final class BrowserHibernation {
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false),
          audible: AudibleHistory? = nil) {
         self.cache = cache
+        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
         self.lowPower = lowPower
         self.memory = memory
         self.audible = audible

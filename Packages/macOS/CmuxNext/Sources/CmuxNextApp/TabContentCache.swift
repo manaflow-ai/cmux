@@ -48,9 +48,15 @@ final class TabContentCache {
     var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
     let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
-    /// Terminal previews, discarded internal pages' pictures and decoded hibernation pictures: a quarter of
-    /// the image cache budget (``ImageCacheShares``), a memory consumer once registered (`memoryImageCaches`).
+    /// The full sizes of its picture stores and of the hibernation's (``ImageCacheShares``).
+    let imageCaches: ImageCacheShares
+    /// Terminal previews, which a terminal pictures again on its next hover: a rebuildable memory consumer
+    /// once registered (`memoryImageCaches`), which gives memory back at warning.
     let previews: PreviewImageCache
+    /// Discarded internal pages' last pictures (`InternalPageTabStore.discardedPicture(of:)`), the only copy
+    /// (a hidden or discarded page cannot be pictured again): a memory consumer the coordinator limits only
+    /// at critical pressure.
+    let internalPagePictures: PreviewImageCache
     /// New tabs' `create.tab` intervals waiting for their first frame (p09-observability task 030).
     let createTabs = CreateTabTimings()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
@@ -60,8 +66,8 @@ final class TabContentCache {
     let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
-    /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
-    /// An eighth of the image cache budget (``ImageCacheShares``).
+    /// its version moved. A hidden page's thumbnail is the only copy (the engine cannot picture a
+    /// hidden page), so the coordinator limits it only at critical pressure.
     let pageThumbnails: PreviewImageCache
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
@@ -173,14 +179,17 @@ final class TabContentCache {
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
-    ///   - imageCaches: The image caches' shares of this Mac's `SubsystemBudget.imageCacheBytes`; tests pass their own.
+    ///   - imageCaches: The picture stores' full sizes: this Mac's budget shares with `memoryImageCaches` on, the
+    ///     fixed sizes from before it otherwise (the default, which tests get).
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
-         imageCaches: ImageCacheShares = ImageCacheShares(.forThisMac(gpuResidentAvailable: false))) {
-        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes)
-        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes)
+         imageCaches: ImageCacheShares = .legacy) {
+        self.imageCaches = imageCaches
+        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
+        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
+        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
@@ -507,6 +516,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        internalPagePictures.remove(key)
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)

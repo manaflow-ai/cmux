@@ -62,14 +62,22 @@ struct AppMemoryConsumers {
         registerTerminalLastFrames()  // CmuxNextTerminal
     }
 
-    /// `memoryImageCaches` (default off): tab previews and page thumbnails are lossless consumers that shrink
-    /// at warning and empty at critical (p07-memory-058). The hibernation pictures register when the
-    /// hibernation starts (``registerHibernationSnapshots(_:)``).
-    private func registerImageCaches() {
+    /// `memoryImageCaches` (default off): terminal previews are a rebuildable consumer that shrinks at warning;
+    /// page thumbnails and discarded internal pages' pictures, the only copies, are limited only at critical
+    /// (p07-memory-058). The hibernation pictures register when the hibernation starts
+    /// (``registerHibernationSnapshots(_:)``).
+    func registerImageCaches() {
         guard services.features.isEnabled(.memoryImageCaches) else { return }
-        services.cache.previews.registerMemoryConsumer(name: "preview-images", with: services.memoryCoordinator)
-        services.cache.pageThumbnails.registerMemoryConsumer(name: "page-thumbnails", with: services.memoryCoordinator)
+        let cache = services.cache, coordinator = services.memoryCoordinator
+        cache.previews.registerMemoryConsumer(name: Self.previewImagesName, with: coordinator)
+        cache.pageThumbnails.registerMemoryConsumer(name: Self.pageThumbnailsName, with: coordinator)
+        cache.internalPagePictures.registerMemoryConsumer(name: Self.internalPagePicturesName, with: coordinator)
     }
+
+    /// The image caches' names in the memory report.
+    static let previewImagesName = "preview-images"
+    static let pageThumbnailsName = "page-thumbnails"
+    static let internalPagePicturesName = "internal-page-pictures"
 
     /// `memoryImageCaches` (default off): `hibernation`'s pictures are a lossy consumer that keeps only the
     /// neighbors' pictures at critical (p07-memory-058). `startHibernation` calls it once it made the hibernation.

@@ -9,10 +9,12 @@ import UniformTypeIdentifiers
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
 /// (PR 23083). They used to share the decoded `previews` LRU with terminal previews at up
 /// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
-/// pane.
+/// pane. With `HibernationTunables.compressedSnapshots` off it keeps decoded pictures instead, under
+/// the same budget and the same neighbor rule.
 ///
-/// Its full size is `SubsystemBudget.hibernationSnapshotBytes` (M / 256 MiB: 64 MiB on a 16 GB Mac,
-/// plans/cmux-next/chrome-parity/p07-memory.md, task 058). Registered with the memory coordinator
+/// Its full size is `ImageCacheShares.hibernationSnapshotBytes`: with `memoryImageCaches` on,
+/// `SubsystemBudget.hibernationSnapshotBytes` (M / 256 MiB: 64 MiB on a 16 GB Mac,
+/// plans/cmux-next/chrome-parity/p07-memory.md, task 058), else 64 MB. Registered with the memory coordinator
 /// (`memoryImageCaches`), it is a lossy consumer (a dropped picture comes back only at the page's next
 /// sleep, and its wake shows the page loading) that the coordinator limits only at critical pressure,
 /// in the last release tier. Under a limit it keeps the N most recent pictures that fit the scaled
@@ -56,21 +58,19 @@ final class HibernationSnapshots {
     private var order: [String] = []
     private var memoryRegistration: MemoryConsumerRegistration?
 
-    /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture kept in `previews`
-    /// when `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
+    /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture, when
+    /// `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
     nonisolated struct Picture: Sendable {
         let data: Data?
         let image: CGImage
+
+        /// The bytes it holds in the store: the compressed bytes, or the decoded pixels.
+        var cost: Int { data?.count ?? max(image.bytesPerRow * image.height, image.width * image.height * 4) }
     }
 
-    /// - Parameter fullCapacityBytes: The bytes it keeps at the default limit (`SubsystemBudget.hibernationSnapshotBytes`).
+    /// - Parameter fullCapacityBytes: The bytes it keeps at the default limit (`ImageCacheShares.hibernationSnapshotBytes`).
     init(fullCapacityBytes: Int) {
         self.fullCapacityBytes = max(0, fullCapacityBytes)
-    }
-
-    /// The store of this Mac's budget.
-    convenience init(budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false)) {
-        self.init(fullCapacityBytes: budget.hibernationSnapshotBytes)
     }
 
     var count: Int { pictures.count }
@@ -90,35 +90,56 @@ final class HibernationSnapshots {
         return picture.image
     }
 
-    /// Keeps `picture` for `key` as the most recent one, then drops the oldest pictures past
-    /// ``capacityBytes`` that are not a neighbor's. A picture larger than the full store is not kept.
+    /// Whether a new picture of `key` would be kept now: the limit leaves room, or `key` is a neighbor's.
+    /// A hibernation asks before it captures, so the critical limit pays for no picture it drops.
+    func keeps(_ key: String) -> Bool {
+        capacityBytes > 0 || neighbors().contains(key)
+    }
+
+    /// Keeps `picture` for `key` as the most recent one, then drops the oldest pictures that are not a
+    /// neighbor's only as far as the store would grow past ``capacityBytes`` or its size before the insert,
+    /// whichever is larger: the drop down to a lowered limit is the release slices' work. A picture larger
+    /// than the full store is not kept.
     func insert(_ picture: Picture, for key: String) {
-        guard let cost = picture.data?.count, cost <= fullCapacityBytes else { return }
+        let cost = picture.cost
+        guard cost <= fullCapacityBytes else { return }
+        let ceiling = max(capacityBytes, totalBytes)
         remove(key)
         pictures[key] = picture
         order.append(key)
         totalBytes += cost
-        _ = trim(to: capacityBytes, within: nil)
+        _ = trim(to: ceiling, within: nil)
     }
 
     func remove(_ key: String) {
         guard let picture = pictures.removeValue(forKey: key) else { return }
-        totalBytes -= picture.data?.count ?? 0
+        totalBytes -= picture.cost
         order.removeAll { $0 == key }
     }
 
     /// Drops the oldest pictures that are not a neighbor's until the store holds at most `capacity`
-    /// bytes or `slice` expires.
+    /// bytes or `slice` expires: one pass over the order, O(pictures).
     private func trim(to capacity: Int, within slice: MemoryReleaseSlice?) -> MemoryReleaseProgress {
         guard totalBytes > capacity else { return .done }
         let kept = neighbors()
+        var survivors: [String] = []
         var index = 0
+        var progress = MemoryReleaseProgress.done
         while totalBytes > capacity, index < order.count {
-            if slice?.isExpired == true { return .more }
+            if slice?.isExpired == true {
+                progress = .more
+                break
+            }
             let key = order[index]
-            if kept.contains(key) { index += 1 } else { remove(key) }
+            index += 1
+            if kept.contains(key) {
+                survivors.append(key)
+            } else if let picture = pictures.removeValue(forKey: key) {
+                totalBytes -= picture.cost
+            }
         }
-        return .done
+        order = survivors + order[index...]
+        return progress
     }
 
     /// Pixels a picture keeps at most: a 2560 x 1600 pt pane at 2x (16.4 M) keeps its size.
