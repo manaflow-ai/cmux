@@ -156,6 +156,8 @@ final class QuitCoordinator {
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
+        // A quit while inactive records its idle period now, before any quit work or the daemon's stop is in it.
+        services.idleWakeups?.reportTriggered()
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
@@ -230,7 +232,6 @@ final class QuitCoordinator {
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
                 self?.watchdog?.recordFieldMetricsAtQuit()
-                services.idleWakeups?.reportTriggered()  // a quit while inactive keeps its idle minutes
             },
             beginDrain: { services.work.beginShutdown() },
             stopBrowserEngines: {

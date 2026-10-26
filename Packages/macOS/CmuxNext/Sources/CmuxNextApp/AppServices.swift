@@ -552,6 +552,8 @@ final class AppServices {
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
     private(set) var idleWakeups: IdleWakeupSampler?
+    /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
+    private var idleWakeupEvents: [EventSubscription] = []
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -857,15 +859,23 @@ final class AppServices {
             self?.energy.driver.update(inputs: inputs)
         }
     }
-    /// Builds ``idleWakeups``, which `AppDelegate`'s resign and become-active callbacks then feed (no observer, no
-    /// timer); an app that is inactive now opens its first period. `AppDelegate` calls it after startup, with the
-    /// watchdog that counts main run-loop wakes; a second call does nothing.
+    /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
+    /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
+    /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
+    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing.
     func startIdleWakeups(watchdog: MainThreadWatchdog) {
         guard idleWakeups == nil else { return }
         let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
-                                                       inputEvents: { ExpectedActivity.shared.count(.input) },
                                                        daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
         idleWakeups = sampler
+        idleWakeupEvents = [
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appResignedActive()
+            },
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appBecameActive()
+            },
+        ]
         if !NSApp.isActive { sampler.appResignedActive() }
     }
     /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it

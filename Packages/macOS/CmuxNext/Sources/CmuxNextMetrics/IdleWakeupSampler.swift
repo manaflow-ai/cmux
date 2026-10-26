@@ -6,13 +6,16 @@ import Darwin
 /// Chrome records `PerformanceMonitor.IdleWakeups` from `ProcessMetrics::GetIdleWakeupsPerSecond`
 /// (base/process/process_metrics_apple.mm, `task_interrupt_wakeups`), sampled on the repeating timer of
 /// chrome/browser/performance_monitor/process_monitor.cc. cmux reads the same kernel counter (`proc_pid_rusage`
-/// `RUSAGE_INFO_V4`: `ri_interrupt_wkups`, with `ri_pkg_idle_wkups`) with no timer and no observer of its own: only in
-/// the app delegate's resign and become-active callbacks, turns the activation wakes anyway, and at report triggers (a
-/// decided quit), so measuring adds no wakeup to the idle it measures.
+/// `RUSAGE_INFO_V4`: `ri_interrupt_wkups`, with `ri_pkg_idle_wkups`) with no timer and no observer of its own: only at
+/// the app's resign and become-active notices (the app's one `AppEvents` fan-out), on the person's input turns (the
+/// app's existing input-tap subscription), and at report triggers (a decided quit). Each of those wakes the app anyway,
+/// so measuring adds no wakeup to the idle it measures.
 ///
 /// - A period opens when the app resigns active (or starts inactive) and closes when it becomes active again. A report
 ///   trigger records the period so far and opens the next one.
-/// - A period with an input event records nothing and counts in ``periodsWithInput``: the person was using the app.
+/// - An input event from the person while the app is inactive (a pointer over a cmux window on the way back) ends the
+///   period at that event: the idle before it records, and the next period opens at it. Such periods count in
+///   ``periodsEndedByInput``.
 /// - A period under ``minimumPeriodNanos`` records nothing; at a report trigger it stays open.
 /// - `app_main` counts the watchdog's main run-loop wakes (`debug.hangs` `main_wakes`), `app_total` the app's interrupt
 ///   wakeups and `daemon` the local daemon's: the counters scripts/cmux-next/bench_idle.py reads. A process whose pid
@@ -22,10 +25,10 @@ import Darwin
 ///
 /// ```swift
 /// let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { watchdog.mainRunLoopWakes },
-///                                                inputEvents: { activity.count(.input) },
 ///                                                daemonPID: { daemon.identity?.pid }))
-/// sampler.appResignedActive()  // applicationDidResignActive
-/// sampler.appBecameActive()    // applicationDidBecomeActive: records the period
+/// sampler.appResignedActive()  // NSApplication.didResignActiveNotification
+/// sampler.inputArrived()       // the person's input event: the idle before it records
+/// sampler.appBecameActive()    // NSApplication.didBecomeActiveNotification: records the period
 /// ```
 @MainActor
 public final class IdleWakeupSampler {
@@ -58,8 +61,6 @@ public final class IdleWakeupSampler {
     public struct Counters: Sendable, Equatable {
         /// `CLOCK_UPTIME_RAW` in ns: it stops while the Mac sleeps, as the wakeup counters do.
         public var uptimeNanos: UInt64
-        /// The person's input events so far.
-        public var inputEvents: UInt64
         /// The main run loop's wakes so far; nil without a running watchdog.
         public var mainRunLoopWakes: UInt64?
         /// The app's counters; nil when the read failed.
@@ -88,35 +89,32 @@ public final class IdleWakeupSampler {
         }
     }
 
-    /// Where the sampler reads its counters (the tests' seam). Each is called only at a transition or a report trigger.
+    /// Where the sampler reads its counters (the tests' seam). Each is called only at a transition, an input while inactive or
+    /// a report trigger.
     public struct Sources {
         public var uptimeNanos: @MainActor () -> UInt64
-        public var inputEvents: @MainActor () -> UInt64
         public var mainRunLoopWakes: @MainActor () -> UInt64?
         public var appWakeups: @MainActor () -> Wakeups?
         public var daemonWakeups: @MainActor () -> Wakeups?
 
-        public init(uptimeNanos: @escaping @MainActor () -> UInt64, inputEvents: @escaping @MainActor () -> UInt64,
-                    mainRunLoopWakes: @escaping @MainActor () -> UInt64?, appWakeups: @escaping @MainActor () -> Wakeups?,
-                    daemonWakeups: @escaping @MainActor () -> Wakeups?) {
+        public init(uptimeNanos: @escaping @MainActor () -> UInt64, mainRunLoopWakes: @escaping @MainActor () -> UInt64?,
+                    appWakeups: @escaping @MainActor () -> Wakeups?, daemonWakeups: @escaping @MainActor () -> Wakeups?) {
             self.uptimeNanos = uptimeNanos
-            self.inputEvents = inputEvents
             self.mainRunLoopWakes = mainRunLoopWakes
             self.appWakeups = appWakeups
             self.daemonWakeups = daemonWakeups
         }
 
         /// This process's and the daemon's kernel counters (``IdleWakeupSampler/wakeups(of:)``), the uptime clock,
-        /// and the app's main-wake and input counters.
+        /// and the app's main-wake counter.
         ///
         /// - Parameters:
         ///   - mainRunLoopWakes: The watchdog's main run-loop wakes.
-        ///   - inputEvents: The person's input events (the app's `ExpectedActivity` input count).
         ///   - daemonPID: The local daemon's pid, nil before it connects.
-        public static func live(mainRunLoopWakes: @escaping @MainActor () -> UInt64?, inputEvents: @escaping @MainActor () -> UInt64,
+        public static func live(mainRunLoopWakes: @escaping @MainActor () -> UInt64?,
                                 daemonPID: @escaping @MainActor () -> Int32?) -> Sources {
             let pid = getpid()
-            return Sources(uptimeNanos: { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }, inputEvents: inputEvents,
+            return Sources(uptimeNanos: { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
                            mainRunLoopWakes: mainRunLoopWakes, appWakeups: { IdleWakeupSampler.wakeups(of: pid) },
                            daemonWakeups: { daemonPID().flatMap { $0 > 0 ? IdleWakeupSampler.wakeups(of: $0) : nil } })
         }
@@ -124,8 +122,8 @@ public final class IdleWakeupSampler {
 
     /// The most recent period that recorded, nil before the first.
     public private(set) var lastPeriod: Period?
-    /// Periods that ended with an input event in them and recorded nothing.
-    public private(set) var periodsWithInput: UInt64 = 0
+    /// Periods that an input event from the person ended and that recorded.
+    public private(set) var periodsEndedByInput: UInt64 = 0
     private let sources: Sources
     private let metrics: Metrics
     /// The counters where the open period began; nil while the app is active.
@@ -134,7 +132,7 @@ public final class IdleWakeupSampler {
     /// A sampler with no open period.
     ///
     /// - Parameters:
-    ///   - sources: The counters (``Sources/live(mainRunLoopWakes:inputEvents:daemonPID:)`` in the app).
+    ///   - sources: The counters (``Sources/live(mainRunLoopWakes:daemonPID:)`` in the app).
     ///   - metrics: Where the samples go (the app runtime's metrics file by default; tests pass their own).
     public init(sources: Sources, metrics: Metrics = Metrics()) {
         self.sources = sources
@@ -155,6 +153,16 @@ public final class IdleWakeupSampler {
         guard let start else { return }
         self.start = nil
         _ = close(start, at: read())
+    }
+
+    // perf-hot: 5us main-turn (every input event the input tap hears; two proc_pid_rusage reads only while inactive)
+    /// An input event from the person: the open period ends at it, recording the idle before it if that reached
+    /// ``minimumPeriodNanos``, and the next one opens at it. While the app is active it does nothing.
+    public func inputArrived() {
+        guard let start else { return }
+        let now = read()
+        if close(start, at: now) == .recorded { periodsEndedByInput &+= 1 }
+        self.start = now
     }
 
     /// A report is about to read the histograms (a decided quit): the open period records what it has and the next
@@ -178,19 +186,15 @@ public final class IdleWakeupSampler {
         return Wakeups(pid: pid, interrupt: info.ri_interrupt_wkups, packageIdle: info.ri_pkg_idle_wkups)
     }
 
-    private enum Outcome { case recorded, hadInput, tooShort }
+    private enum Outcome { case recorded, tooShort }
 
     private func read() -> Counters {
-        Counters(uptimeNanos: sources.uptimeNanos(), inputEvents: sources.inputEvents(), mainRunLoopWakes: sources.mainRunLoopWakes(),
-                 app: sources.appWakeups(), daemon: sources.daemonWakeups())
+        Counters(uptimeNanos: sources.uptimeNanos(), mainRunLoopWakes: sources.mainRunLoopWakes(), app: sources.appWakeups(),
+                 daemon: sources.daemonWakeups())
     }
 
-    /// Records the period from `start` to `end`, unless it had input or is under a minute.
+    /// Records the period from `start` to `end`, unless it is under a minute.
     private func close(_ start: Counters, at end: Counters) -> Outcome {
-        guard end.inputEvents == start.inputEvents else {
-            periodsWithInput &+= 1
-            return .hadInput
-        }
         guard end.uptimeNanos >= start.uptimeNanos, end.uptimeNanos - start.uptimeNanos >= Self.minimumPeriodNanos else {
             return .tooShort
         }
