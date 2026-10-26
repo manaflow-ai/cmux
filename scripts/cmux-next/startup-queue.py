@@ -100,7 +100,7 @@ GLOBAL_PRIORITIES = {"utility": "utility", "low": "utility", 17: "utility", "bac
 # ordered or paired as a gap. bench-startup.py's VALUE_MARKS.
 VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", "launch.pageins_first_frame",
                          "launch.main_cpu_ms", "launch.interrupted", "launch.sidebar_rows_built",
-                         "launch.sidebar_rows_visible"})
+                         "launch.sidebar_rows_visible", "launch.views_built"})
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}

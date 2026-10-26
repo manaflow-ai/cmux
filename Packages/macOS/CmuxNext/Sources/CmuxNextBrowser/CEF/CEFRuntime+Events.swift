@@ -3,6 +3,7 @@ import CmuxNextInput
 import Foundation
 import os
 import CmuxNextWakeups
+import CmuxSafeConcurrency
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -400,7 +401,8 @@ extension CEFRuntime {
         pump?.pumpNow()
         shutdownProgressed()
         if shutdownSequence?.phase != .readyToShutdown {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A waiter dropped unresumed (abandoned) ends the wait as the timeout does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 shutdownWaiter = continuation
                 shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
@@ -439,7 +441,7 @@ extension CEFRuntime {
     private func resumeShutdownWaiter() {
         let waiter = shutdownWaiter
         shutdownWaiter = nil
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 }
 

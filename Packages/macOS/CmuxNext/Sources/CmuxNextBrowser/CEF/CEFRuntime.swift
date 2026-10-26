@@ -5,6 +5,8 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// The process-wide embedded Chromium. `CefInitialize` may run only once per
 /// process and cannot run again after `CefShutdown`, so this is one of the
@@ -137,7 +139,7 @@ final class CEFRuntime {
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
     var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
-    var shutdownWaiter: CheckedContinuation<Void, Never>?
+    var shutdownWaiter: OnceContinuation<Void, OnceContinuationError>?
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     let crashLog = BrowserCrashLog()  // recent renderer and helper process failures (`debug.crashes`)
     var helperExits = CEFHelperExitMetric()  // where `cef.helper_exit` samples go (a test sets its own store)
