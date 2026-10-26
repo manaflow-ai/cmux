@@ -28,5 +28,17 @@
         }
       ]
     }
+  ],
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "browser",
+      "stdout": "OK tab_7c1e2d0a9b8f navigated https://dashboard.stripe.com/test/apikeys (title: Stripe Login)"
+    },
+    {
+      "cmd": "cmux",
+      "match": "tab list",
+      "stdout": "[{\"id\":\"tab_7c1e2d0a9b8f\",\"title\":\"Stripe Login\",\"pane\":\"pane_right\"}]"
+    }
   ]
 }
