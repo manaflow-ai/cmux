@@ -79,7 +79,9 @@ public final class BrowserChromeView: NSView {
     public var onPaneHeaderHeightChange: (() -> Void)?
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
-    let findBar = FindBarView()
+    /// Find in page: the bar's state, which the find bar view writes and renders.
+    public let find: BrowserFindModel
+    let findBar: FindBarView
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
@@ -153,6 +155,9 @@ public final class BrowserChromeView: NSView {
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
+        let find = BrowserFindModel()
+        self.find = find
+        findBar = FindBarView(model: find)
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
         backButton = ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
@@ -173,6 +178,7 @@ public final class BrowserChromeView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public func showFindBar() {
+        find.isPresented = true
         if findBar.isHidden {
             findBar.isHidden = false
             findBar.alphaValue = 0
@@ -183,6 +189,7 @@ public final class BrowserChromeView: NSView {
     }
 
     public func hideFindBar() {
+        find.isPresented = false
         guard !findBar.isHidden else { return }
         Motion.overlays.animate(.fadeOut, in: findBar, { self.findBar.animator().alphaValue = 0 }, completion: {
             self.findBar.isHidden = true

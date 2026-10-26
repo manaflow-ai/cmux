@@ -21573,6 +21573,43 @@
       "/data/request_path_io/lock_hold_over_1ms": {
         "ty": "uint64"
       },
+      "/data/request_path_io/lock_waits": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/dropped": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/long_waits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/recent/*/holder": {
+        "ty": "string"
+      },
+      "/data/request_path_io/lock_waits/recent/*/lock": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waiter": {
+        "ty": "string",
+        "required": true
+      },
       "/data/request_path_io/network": {
         "ty": "uint64",
         "required": true

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
+inline constexpr std::string_view kProtocolIrSha256 = "2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -188,6 +188,8 @@ struct ServerStatsJournalWriter;
 struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
+struct ServerStatsLockWait;
+struct ServerStatsLockWaits;
 struct ServerStatsRegistryLock;
 struct ServerStatsRequestLatency;
 struct ServerStatsRequestPathIo;
@@ -5504,6 +5506,22 @@ struct ServerStatsLockStall {
     friend bool operator==(const ServerStatsLockStall&, const ServerStatsLockStall&) = default;
 };
 
+struct ServerStatsLockWait {
+    std::optional<std::string> holder{};
+    std::string lock{};
+    std::string site{};
+    std::uint64_t waited_us{};
+    std::string waiter{};
+    friend bool operator==(const ServerStatsLockWait&, const ServerStatsLockWait&) = default;
+};
+
+struct ServerStatsLockWaits {
+    std::uint64_t dropped{};
+    std::uint64_t long_waits{};
+    std::vector<ServerStatsLockWait> recent{};
+    friend bool operator==(const ServerStatsLockWaits&, const ServerStatsLockWaits&) = default;
+};
+
 struct ServerStatsRegistryLock {
     std::uint64_t contended_acquisitions{};
     ServerStatsHistogram hold_us{};
@@ -5544,6 +5562,7 @@ struct ServerStatsRequestPathIo {
     std::uint64_t host_wait{};
     std::uint64_t journal_wait{};
     std::optional<std::uint64_t> lock_hold_over_1ms{};
+    std::optional<ServerStatsLockWaits> lock_waits{};
     std::uint64_t network{};
     std::uint64_t proc_scan{};
     std::uint64_t process_spawn{};
@@ -7767,6 +7786,18 @@ template <>
 struct Codec<ServerStatsLockStall> {
     static Result<Json> encode(const ServerStatsLockStall& value);
     static Result<ServerStatsLockStall> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockWait> {
+    static Result<Json> encode(const ServerStatsLockWait& value);
+    static Result<ServerStatsLockWait> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockWaits> {
+    static Result<Json> encode(const ServerStatsLockWaits& value);
+    static Result<ServerStatsLockWaits> decode(const Json& value);
 };
 
 template <>

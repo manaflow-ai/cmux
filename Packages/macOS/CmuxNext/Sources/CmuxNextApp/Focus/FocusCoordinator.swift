@@ -62,6 +62,8 @@ final class FocusCoordinator {
 
     /// Called after every reduction, before its effects run.
     var observer: ((Observation) -> Void)?
+    /// Told when an event opens or closes an overlay of this window (the palette, a sheet, the group editor).
+    var overlayChanges: OverlayChangeFeed?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
 
@@ -119,6 +121,7 @@ final class FocusCoordinator {
                     queue.append(.focusTarget(.addressBar, source: .programmatic))
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
+                if reduced.overlays != previous.overlays { overlayChanges?.signal() }
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true
                 applier.apply(effects, state: reduced)
