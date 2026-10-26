@@ -134,6 +134,10 @@ enum Mark {
     Ending(String),
     /// Stop or close came while this turn ran or was ending: it gets no continuation.
     Stopped(String),
+    /// Stop or close came after a continuation or retry of this cut turn fired and before its
+    /// turn started: its turn never starts, and its task alone clears this (`clear_fired`), so
+    /// the chat's retry (`retry_turn.rs`) waits for that task to end.
+    Stopping(String),
 }
 
 /// Each chat's [`Mark`].
@@ -344,13 +348,17 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
-        let ending = match pending.get(&session.id) {
-            Some(Mark::Ending(t) | Mark::Firing(t)) => Some(t.clone()),
-            _ => None,
+        let (ending, fired) = match pending.get(&session.id) {
+            Some(Mark::Ending(t)) => (Some(t.clone()), false),
+            Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
+            _ => (None, false),
         };
-        match session.turn().map(|t| t.turn_id).or(ending) {
-            Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t)),
-            None => pending.remove(&session.id),
+        let id = session.id.clone();
+        match (session.turn().map(|t| t.turn_id), ending) {
+            (Some(t), _) => pending.insert(id, Mark::Stopped(t)),
+            (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
+            (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
+            (None, None) => pending.remove(&id),
         };
     }
 
@@ -367,6 +375,8 @@ impl Hub {
             let mark = match pending.get(&session.id) {
                 Some(Mark::Firing(t)) if t == cut => Some(true),
                 Some(Mark::Stopped(t)) if t == cut => Some(false),
+                // Its task clears it once it ends.
+                Some(Mark::Stopping(t)) if t == cut => return Err(stopped()),
                 _ => None,
             };
             if mark.is_some() {
@@ -422,7 +432,7 @@ impl Hub {
     /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
     fn clear_fired(&self, session: &Session, cut_turn: &str) {
         let mut pending = self.auto_resumes.lock();
-        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t)) if t == cut_turn)
+        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
         {
             pending.remove(&session.id);
         }

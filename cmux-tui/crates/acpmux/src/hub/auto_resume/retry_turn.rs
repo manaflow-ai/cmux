@@ -19,7 +19,7 @@
 //!   access), checked before it claims the chat and at dispatch as any prompt's are; a sub-session's retry also as its
 //!   messages are (`receiver_check`, and `family_dispatch_check` at dispatch).
 //! - From the claim to its turn's start the chat's mark is firing: Stop or close then refuses it
-//!   (`retry.stopped`). Its `user_message` carries `_meta.provenance = {kind: "auto_resume",
+//!   (`retry.stopped`), and another retry is `retry.busy` until that one's task has ended. Its `user_message` carries `_meta.provenance = {kind: "auto_resume",
 //!   promptId, attempt, turnId, manual: true}`, and once its turn completes the prompts the
 //!   failed turn held go on (`held_by`).
 //! - A Stop the failed turn got does not hold a retry the caller asks for after it.
@@ -163,7 +163,8 @@ impl Hub {
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
-            // What is left of the claim when the prompt never started its turn.
+            // What is left of the claim when the prompt never started its turn, once the
+            // prompt is out of the ledger: a retry after this one is never joined to it.
             hub.clear_fired(&s, &cut_turn);
             if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
             {
@@ -244,7 +245,10 @@ impl Hub {
         match pending.get(&session.id) {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => return Err(busy()),
+            // One under way, or one Stop overtook whose task has not ended: never two at once.
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_) | Mark::Stopping(_)) => {
+                return Err(busy());
+            }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
             Some(Mark::Stopped(_)) | None => {}
         }
