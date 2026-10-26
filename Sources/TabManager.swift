@@ -995,6 +995,9 @@ class TabManager: ObservableObject {
             markdownPanel.startFind()
             return markdownPanel.searchState != nil
         }
+        if let projectPanel = focusedProjectPanel {
+            return projectPanel.startFind()
+        }
         guard let filePreviewPanel = focusedTextFilePreviewPanel else { return false }
         return filePreviewPanel.startFind()
     }
