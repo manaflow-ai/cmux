@@ -443,7 +443,10 @@ export type RetryKind = "turn" | "subagent";
 export interface RetryParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
-  /** One of the chat's failed subagents to resume instead. Accepted; not acted on yet. */
+  /**
+   * One of the chat's failed subagents to resume instead. Refused for now
+   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   */
   subagentId?: (string | null);
 }
 

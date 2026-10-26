@@ -2706,7 +2706,7 @@
           "type": "string"
         },
         "subagentId": {
-          "description": "One of the chat's failed subagents to resume instead. Accepted; not acted on yet.",
+          "description": "One of the chat's failed subagents to resume instead. Refused for now\n(`retry.subagent_unsupported`), never taken as the chat's own turn.",
           "type": [
             "string",
             "null"
