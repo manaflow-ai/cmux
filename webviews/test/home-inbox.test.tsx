@@ -48,6 +48,8 @@ const { createRoot } = await import("react-dom/client");
 const { HomeLists } = await import("../src/agent-session/acpmux/HomeLists");
 const { answerFromHome } = await import("../src/agent-session/acpmux/HomeInbox");
 const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
+const { callPageHost } = await import("../src/agent-session/acpmux/pageHost");
+const { pageError } = await import("../src/pages/shared/pageClient");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 const { minutesAgo } = await import("../src/gallery/clock");
@@ -296,4 +298,23 @@ test("the shortcuts answer nothing here while the home's own chat shows its card
   await gone.unmount();
   await gone.event("cmux-acpmux-permissionAllowOnce");
   expect(gone.sent).toEqual([]);
+});
+
+test("on the shared page host, a host without the op opens the chat (its unknown_op, as callPageHost reports it)", async () => {
+  const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
+  const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
+  const opened: string[] = [];
+  const page = {
+    call: async () => {
+      throw pageError("cmux.protocol.unknown_op", "unknown op cmux.agent.chat.asks.answer");
+    },
+  } as unknown as Parameters<typeof callPageHost>[0];
+  const outcome = await answerFromHome(
+    (method, params) => callPageHost(page, method, params),
+    item,
+    choice,
+    (id) => void opened.push(id),
+  );
+  expect(outcome).toBe("opened");
+  expect(opened).toEqual(["tests"]);
 });
