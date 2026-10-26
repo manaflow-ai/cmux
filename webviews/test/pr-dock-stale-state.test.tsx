@@ -134,5 +134,20 @@ test("the default dock is a compact count that opens Session Info changes", asyn
   await act(async () => (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).click());
   expect(opened).toBe(1);
   act(() => root.unmount());
+  const oneRoot = createRoot(container());
+  await act(async () =>
+    oneRoot.render(
+      <PullRequestDock
+        rows={[{ ...rows[0], items: [rows[0].items[0]] } as never]}
+        sessionId="s4"
+        onOpenChanges={() => undefined}
+      />,
+    ),
+  );
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
+  expect(
+    (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).getAttribute("aria-label"),
+  ).toBe("1 PR");
+  act(() => oneRoot.unmount());
   delete dom.window.document.documentElement.dataset.prDock;
 });

@@ -116,9 +116,14 @@ export function PullRequestDock({
   if (mode === "compact" && onOpenChanges) {
     return (
       <section className="acpmux-pr-dock" data-mode="compact" aria-label={t("prDock.label")}>
-        <button type="button" className="acpmux-pr-dock__count" aria-label={t("prDock.label")} onClick={onOpenChanges}>
+        <button
+          type="button"
+          className="acpmux-pr-dock__count"
+          aria-label={t(prs.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(prs.length) })}
+          onClick={onOpenChanges}
+        >
           <Icon name="git.pullrequest" size={13} />
-          <span>{t("prDock.count", { count: String(prs.length) })}</span>
+          <span>{t(prs.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(prs.length) })}</span>
         </button>
       </section>
     );
