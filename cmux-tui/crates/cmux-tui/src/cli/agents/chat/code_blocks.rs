@@ -22,6 +22,11 @@ pub(super) fn load(mut events: impl FnMut(u64) -> Result<Value, String>) -> Resu
             .get("events")
             .and_then(Value::as_array)
             .ok_or(crate::localization::chat_code::text().invalid_page)?;
+        // acpmux replaces a record larger than its transport budget with an
+        // omission stub. Its missing text could hold the latest block.
+        if older.iter().any(|event| event.pointer("/msg/_meta/acpmux/omitted").is_some()) {
+            return Err(scan_limit());
+        }
         let more = page.get("hasMore") == Some(&Value::Bool(true));
         if older.is_empty() {
             if more {

@@ -117,3 +117,16 @@ fn latest_code_block_masks_secrets_decoded_from_markdown_info() {
     assert!(!block.to_string().contains(&key), "{block}");
     assert_eq!(block["language"], "[AWS access key]");
 }
+
+#[test]
+fn latest_code_block_refuses_a_transport_omission() {
+    let result = load(|_| {
+        Ok(json!({"events": [
+        text(1, "```sh\necho old\n```"), end(2),
+        {"seq": 3, "dir": "in", "kind": "agent_message_chunk",
+         "msg": {"_meta": {"acpmux": {"omitted": {"bytes": 40000000, "reason": "too_large"}}}}},
+        end(4),
+    ], "hasMore": false}))
+    });
+    assert!(result.is_err(), "must not claim the old block is the latest: {result:?}");
+}
