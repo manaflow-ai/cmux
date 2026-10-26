@@ -25,6 +25,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Switches a bench run sets (`CMUX_NEXT_BENCH_CEF_SWITCHES`, development and bench bundles of a
     /// Debug or bench build only): only the names in ``benchSwitchNames``.
     var benchSwitches: [String] = []
+    /// PL-memory's cmux page sharing table (``pageSchemeProcessPerSite``): each cmux page host that may
+    /// share a renderer, with its cap (``CEFPageSchemes/siteCaps(_:)``). Empty: no switch.
+    var pageSiteCaps: [PageSiteCap] = []
 
     /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
     /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
@@ -83,6 +86,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // Chrome gives every NTP one renderer (ChromeContentBrowserClient::ShouldUseProcessPerSite) and
+        // sends top-chrome WebUI to a live renderer of its lock (ShouldTryToUseExistingProcessHost). The
+        // fork reads this table the second way, so a cap holds: a listed cmux page host joins a live
+        // renderer of its own host (with page groups registered, of its group) while that renderer has
+        // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc, cp/p13-webui-011).
+        // A host with no entry keeps Chromium's process per origin; an older fork never sees the switch.
+        if forkAPIVersion >= CEFForkFeatures.pageSiteSharingForkAPI, !pageSiteCaps.isEmpty {
+            result.append(Self.pageSchemeProcessPerSiteArgument(pageSiteCaps))
+        }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -148,6 +160,24 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
 
+    /// PL-memory's switch for cmux pages (p07-memory 049): the hosts whose pages share a renderer.
+    static let pageSchemeProcessPerSite = "cmux-page-scheme-process-per-site"
+
+    /// One cmux page host (or page group) and the most main frames one shared renderer takes for it.
+    /// Chrome caps per-site sharing at its ProcessPerSiteMainFrameThreshold (2,
+    /// content/public/common/content_features.cc) and process-per-site not at all; a cmux page renderer
+    /// takes ``CEFPageSchemes/sharedRendererMainFrames``.
+    struct PageSiteCap: Equatable, Sendable {
+        var site: String
+        var mainFrames: Int
+    }
+
+    /// `cmux-page-scheme-process-per-site=<site>:<mainFrames>[,<site>:<mainFrames>...]`, the grammar the
+    /// fork parses (`ParseCaps` in cmux_page_groups.cc).
+    static func pageSchemeProcessPerSiteArgument(_ caps: [PageSiteCap]) -> String {
+        pageSchemeProcessPerSite + "=" + caps.map { "\($0.site):\($0.mainFrames)" }.joined(separator: ",")
+    }
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -169,7 +199,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        pageSiteCaps: [PageSiteCap] = []
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
@@ -196,7 +227,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            benchSwitches: bench
+            benchSwitches: bench,
+            pageSiteCaps: pageSiteCaps
         )
     }
 

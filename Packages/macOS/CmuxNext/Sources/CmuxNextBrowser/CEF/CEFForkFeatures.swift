@@ -6,6 +6,14 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// `cmux-process-reuse-per-renderer-devtools` switch (CEF cmux.35).
     static let rendererPathsForkAPI: Int32 = 29
 
+    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` (manaflow-ai/cef
+    /// `cp/p13-webui-011`, `libcef/browser/cmux/cmux_page_groups.cc`): cmux pages of a listed host share a
+    /// live renderer up to the entry's main-frame cap. That fork commit holds no API number yet; the fork
+    /// train (p07-memory 074, `scripts/cmux-next/cef-fork-train.json`) is at 32, and an export it has not
+    /// numbered takes the next one, so this gate waits for the train to claim 33. A fork below it never
+    /// gets the switch.
+    static let pageSiteSharingForkAPI: Int32 = 33
+
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
     /// The shim exports every renderer-path call (`CEFShimLibrary.hasRendererPaths`).

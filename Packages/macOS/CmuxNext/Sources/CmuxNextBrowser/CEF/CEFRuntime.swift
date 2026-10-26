@@ -444,9 +444,9 @@ final class CEFRuntime {
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
-            bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
+            bundleIdentifier: Bundle.main.bundleIdentifier, environment: environment,
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

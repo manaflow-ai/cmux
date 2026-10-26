@@ -63,22 +63,32 @@ enum FirstPartyPageSchemes {
     ///   by (the `pageProcessGroups` feature). A `solo` or `secrets` page names none and keeps Chromium's
     ///   one process per origin: its raw value is a class, not a group, and two pages with one key would
     ///   share. Off, no entry names one.
-    static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false) -> [String: CEFPageSchemes.Entry] {
+    /// - Parameter rendererSharing: Each entry of a page whose group shares a renderer gets the shared
+    ///   renderer's main-frame cap (``CEFPageSchemes/sharedRendererMainFrames``), so Chromium sends its
+    ///   pages to one live renderer, as Chrome does for every NTP (the `cmuxPageRendererSharing`
+    ///   feature, PL-memory's switch). A `solo` or `secrets` page gets none and never joins one. Off, no
+    ///   entry has a cap.
+    static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false,
+                        rendererSharing: Bool = false) -> [String: CEFPageSchemes.Entry] {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
+            let shares = page.processGroup.sharesRenderer
             out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
-                                           entry: page.entry, processGroup: processGroups && page.processGroup.sharesRenderer ? page.processGroup.rawValue : nil)
+                                           entry: page.entry, processGroup: processGroups && shares ? page.processGroup.rawValue : nil,
+                                           mainFrameCap: rendererSharing && shares ? CEFPageSchemes.sharedRendererMainFrames : nil)
         }
         return out
     }
 
     /// Hands the checked table to Chromium; call before Chromium starts.
     ///
-    /// - Parameter processGroups: The `pageProcessGroups` feature (``entries(roots:bundleResources:processGroups:)``).
-    @MainActor static func install(bundle: Bundle = .main, processGroups: Bool) {
+    /// - Parameter processGroups: The `pageProcessGroups` feature (``entries(roots:bundleResources:processGroups:rendererSharing:)``).
+    /// - Parameter rendererSharing: The `cmuxPageRendererSharing` feature (the same).
+    @MainActor static func install(bundle: Bundle = .main, processGroups: Bool, rendererSharing: Bool) {
         guard let resources = bundle.resourceURL else { return }
-        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources, processGroups: processGroups)
+        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources, processGroups: processGroups,
+                                            rendererSharing: rendererSharing)
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).
