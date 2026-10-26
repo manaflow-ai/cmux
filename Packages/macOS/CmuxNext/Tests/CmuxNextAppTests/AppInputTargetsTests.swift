@@ -12,6 +12,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct AppInputTargetsTests {
     /// A commit boundary the test fires.
+    @MainActor
     final class Boundary: InputTurnBoundary {
         private var handler: (@MainActor (CommitBoundary.Outcome) -> Void)?
         private(set) var isArmed = false
@@ -27,6 +28,7 @@ struct AppInputTargetsTests {
     }
 
     /// A presentation clock that never answers: a host-mode page's slot needs none.
+    @MainActor
     final class SilentPresentation: InputPresentationEstimating {
         private(set) var asked = 0
         func holdLinkForInput(in window: NSWindow?) {}
