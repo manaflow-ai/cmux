@@ -57,6 +57,7 @@
 
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -846,7 +847,7 @@ fn attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =
         std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
-            if worker_committed.recv().is_ok() {
+            if waits::recv(&worker_committed).is_ok() {
                 worker.run();
             } else {
                 worker.mux.control_clients.snapshot_viewers.unregister(
