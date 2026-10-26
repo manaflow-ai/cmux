@@ -48,6 +48,8 @@ final class ComputerUseSetup {
         var disabledByPolicy: Bool
         var enabled: Bool
         var helper: ComputerUseHelperDaemon.State
+        /// The driver chosen: this model reads the legacy helper only.
+        var driver: ComputerUseDriver = .legacy
     }
 
     /// One `permissions_status` read.
@@ -65,6 +67,9 @@ final class ComputerUseSetup {
     /// The signed helper the grants belong to (the running one, else the one
     /// that would start). Nil when this build has none.
     private(set) var helperAppURL: URL?
+    /// The driver chosen (`computerUse.driver`): the phase and grants are
+    /// the legacy helper's, so a reader under the helper v2 knows they say nothing.
+    private(set) var driver: ComputerUseDriver = .legacy
 
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
@@ -184,6 +189,7 @@ final class ComputerUseSetup {
     // MARK: Phase
 
     private func apply(_ inputs: Inputs) {
+        driver = inputs.driver
         generation &+= 1
         reading?.cancel()
         reading = nil
@@ -297,7 +303,8 @@ extension ComputerUseSetup {
             inputs: { [weak services] in
                 Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                        enabled: services?.settings?.snapshot.computerUse.enabled ?? false,
-                       helper: helper.state)
+                       helper: helper.state,
+                       driver: services?.settings?.snapshot.computerUse.driver ?? .legacy)
             },
             configuration: { helper.configuration },
             enableSetting: { [weak services] in
@@ -317,8 +324,11 @@ extension ComputerUseSetup {
 
 extension ComputerUseSetup {
     /// The Settings page's Computer Use card (`cmux.settings.host.lists`
-    /// `computer_use`): live through `cmux.settings.host.changed`, since the
-    /// host lists read this observable model. Grants are null while unknown.
+    /// `computer_use`) and `computer_use.status`: live through
+    /// `cmux.settings.host.changed`, since the host lists read this
+    /// observable model. Grants are null while unknown. `driver` tells a
+    /// reader (the agent setup check in `cmux mcp serve`) whether the grants
+    /// belong to the helper that runs.
     var pageJSON: CmuxNextSettings.JSONValue {
         let known = phase == .ready
         return [
@@ -326,6 +336,7 @@ extension ComputerUseSetup {
             "accessibility": known ? .bool(permissions.accessibility) : .null,
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
+            "driver": .string(driver.rawValue),
         ]
     }
 }

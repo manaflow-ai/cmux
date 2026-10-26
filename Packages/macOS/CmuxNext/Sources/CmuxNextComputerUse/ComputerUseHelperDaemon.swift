@@ -110,6 +110,11 @@ public final class ComputerUseHelperDaemon {
         self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
+        // Published from launch with the default driver, before settings
+        // load: an agent pane that connects first must not enroll an empty
+        // endpoint. The first settings value withdraws it under the helper v2
+        // or DisabledFeatures.
+        publish(true)
     }
 
     /// What a child this app spawns for agents (acpmux) gets in its spawn

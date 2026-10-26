@@ -219,10 +219,22 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
 /// The app's Computer Use Setup with both grants on, or not set up.
 fn setup_status(ready: bool) -> Value {
     if ready {
-        json!({"phase": "ready", "accessibility": true, "screen_recording": true, "helper": "cmux Computer Use"})
+        json!({"phase": "ready", "accessibility": true, "screen_recording": true,
+               "helper": "cmux Computer Use", "driver": "legacy"})
     } else {
-        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null})
+        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null,
+               "driver": "legacy"})
     }
+}
+
+/// The `permissions.request` params among the app caller's requests.
+fn card_requests(fake_calls: &std::sync::Arc<std::sync::Mutex<Vec<Value>>>) -> Vec<Value> {
+    let calls = fake_calls.lock().unwrap();
+    calls
+        .iter()
+        .filter(|c| c["method"] == "permissions.request")
+        .map(|c| c["params"].clone())
+        .collect()
 }
 
 fn computer_use_server(fake: Fake) -> Server<Fake> {
@@ -241,12 +253,12 @@ fn a_computer_use_call_before_setup_shows_the_card_then_runs() {
         setup_outcome: Some(json!({"kind": "computer_use", "outcome": "granted"})),
         ..Fake::default()
     };
-    let requests = fake.setup_requests.clone();
+    let calls = fake.app_calls.clone();
     let mut server = computer_use_server(fake);
     let result = call(&mut server, "cua_look", json!({"x": 1}));
     assert_ne!(result["isError"], true, "{result}");
     assert_eq!(result["content"][0]["text"], "saw {\"x\": 1}", "{result}");
-    let requests = requests.lock().unwrap().clone();
+    let requests = card_requests(&calls);
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0]["kind"], "computer_use");
     assert!(requests[0]["reason"].as_str().unwrap().contains("look"), "{requests:?}");
@@ -261,13 +273,15 @@ fn a_ready_setup_runs_the_call_without_a_card() {
         setup_outcome: Some(json!({"outcome": "denied"})),
         ..Fake::default()
     };
-    let requests = fake.setup_requests.clone();
+    let calls = fake.app_calls.clone();
     let mut server = computer_use_server(fake);
     let result = call(&mut server, "cua_look", json!({}));
     assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
-    assert!(requests.lock().unwrap().is_empty());
+    assert!(card_requests(&calls).is_empty());
+    assert!(calls.lock().unwrap().iter().any(|c| c["method"] == "computer_use.status"));
+    // The read runs with the call, never on the server's dispatch thread.
     let sent = server.backend.sent.borrow().clone();
-    assert!(sent.iter().any(|sent| sent["method"] == "computer_use.status"), "{sent:?}");
+    assert!(!sent.iter().any(|sent| sent["method"] == "computer_use.status"), "{sent:?}");
 }
 
 /// Deny and an unfinished setup end the call with what to do next; the
@@ -301,14 +315,15 @@ fn a_script_waits_for_setup_and_goes_on() {
         setup_outcome: Some(json!({"outcome": "granted"})),
         ..Fake::with_actions()
     };
-    let requests = fake.setup_requests.clone();
+    let calls = fake.app_calls.clone();
     let mut server = code_mode_server(fake);
     server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
-    let ran = call(&mut server, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
+    let ran =
+        call(&mut server, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
     assert_eq!(ran["isError"], false, "{ran}");
     assert_eq!(ran["structuredContent"]["result"]["content"][0]["text"], "saw {\"x\": 2}", "{ran}");
     // The script's own limit bounds the wait.
-    let timeout = requests.lock().unwrap()[0]["timeout_seconds"].as_u64().unwrap();
+    let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
     assert!(timeout <= 300, "{timeout}");
 }
 
@@ -320,10 +335,10 @@ fn other_servers_never_wait_for_computer_use_setup() {
         setup_outcome: Some(json!({"outcome": "denied"})),
         ..Fake::default()
     };
+    let calls = fake.app_calls.clone();
     let mut server = Server::new(fake, None);
     server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
     let result = call(&mut server, "secrets_look", json!({}));
     assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
-    let sent = server.backend.sent.borrow().clone();
-    assert!(!sent.iter().any(|sent| sent["method"] == "computer_use.status"), "{sent:?}");
+    assert!(calls.lock().unwrap().is_empty(), "another server read the setup");
 }

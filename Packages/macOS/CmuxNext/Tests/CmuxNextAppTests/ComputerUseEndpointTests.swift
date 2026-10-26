@@ -60,6 +60,13 @@ struct ComputerUseEndpointTests {
         #expect(daemon.childEnvironment == beforeSetup)
     }
 
+    /// A pane can connect before settings load; it must not enroll an empty endpoint.
+    @Test func theEndpointIsPublishedFromLaunch() {
+        let daemon = Self.daemon(RecordingHelperLauncher())
+        #expect(daemon.childEnvironment["CMUX_NEXT_CUA_SOCKET"] == daemon.socketPath)
+        #expect(daemon.childEnvironment["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]?.isEmpty == false)
+    }
+
     @Test func aHelperRestartServesTheSameAgentToken() async throws {
         let launcher = RecordingHelperLauncher()
         let daemon = Self.daemon(launcher)

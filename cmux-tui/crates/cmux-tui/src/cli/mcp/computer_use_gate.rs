@@ -14,10 +14,12 @@
 //! one card. Then the call runs, or the agent gets a plain answer that says
 //! what happened and what to do next (never "retry in a loop").
 //!
-//! The wait runs inside the call (`SetupWait::run`), so in direct mode it
-//! holds only that call's thread; in a `cmux_exec` script it is bounded by
-//! the script's limit. An app that does not answer the status read or the
-//! request (an older app, no app) leaves the call as before.
+//! The check runs inside the call (`SetupCheck::run`), never on the
+//! server's dispatch thread: in direct mode it holds only that call's
+//! thread, in a `cmux_exec` script it is bounded by the script's limit. An
+//! app that does not answer the status read or the request (an older app,
+//! no app) leaves the call as before. Only the legacy driver's setup is read:
+//! the helper v2 (`driver: upstream`) answers its own grants.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,10 +33,12 @@ pub(super) const SERVER: &str = "cmux-cua";
 /// Its status read: it reports the grants, so it never waits for them
 /// (the helper proxy's own rule).
 const STATUS_TOOL: &str = "check_permissions";
-/// The app's Computer Use Setup: `{phase, accessibility, screen_recording, helper}`.
+/// The app's Computer Use Setup: `{phase, accessibility, screen_recording, helper, driver}`.
 pub(super) const STATUS_METHOD: &str = super::super::agents_doctor::STATUS_METHOD;
 /// The app's agent permission card.
 pub(super) const REQUEST_METHOD: &str = "permissions.request";
+/// The status read is one main-actor JSON answer.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a call waits for the person (the card's default).
 const SETUP_WAIT: Duration = Duration::from_secs(300);
 /// The app answers a request only when it ends: its wait, plus transport slack.
@@ -44,76 +48,113 @@ const REQUEST_SLACK: Duration = Duration::from_secs(15);
 pub(super) type AppCaller =
     Arc<dyn Fn(&str, Value, Duration) -> Result<Value, CallFailure> + Send + Sync>;
 
-/// What a computer use call needs before it runs.
+/// What a proxied call does before it runs.
 pub(super) enum Gate {
-    /// Setup is ready (or unknown): run the call.
+    /// Not a computer use call that needs the grants: run it.
     Run,
-    /// The call cannot run; this is its result.
-    Refuse(Value),
-    /// The person must finish setup first.
-    Wait(SetupWait),
+    /// Check Computer Use setup first, where the call runs.
+    Check(SetupCheck),
 }
 
-/// The card request for one call, run where the call runs.
-pub(super) struct SetupWait {
+/// The setup check of one computer use call.
+pub(super) struct SetupCheck {
     app: AppCaller,
-    params: Value,
-    wait: Duration,
+    tool: String,
+    caller: Option<Value>,
+    cap: Option<Duration>,
 }
 
-impl SetupWait {
-    /// Shows the card and waits for it to end: `None` runs the call, a
-    /// value is the call's result instead.
-    pub(super) fn run(self) -> Option<Value> {
-        match (self.app)(REQUEST_METHOD, self.params, self.wait + REQUEST_SLACK) {
-            Ok(outcome) => answer(&outcome),
-            // No card in this app (or no answer): the call runs as before,
-            // and the helper says what is missing.
-            Err(_) => None,
-        }
-    }
-}
-
-/// Whether `status` (the app's Computer Use Setup) lets the helper act.
-pub(super) fn is_ready(status: &Value) -> bool {
-    status["phase"] == "ready" && status["accessibility"] == true && status["screen_recording"] == true
-}
-
-/// What `tool` of the computer use server needs, from the app's `status`
-/// read. `app` runs the card request; `caller` names the chat that asks;
-/// `cap` is the call's own time limit (a script's).
-pub(super) fn decide(
+/// The gate of computer use `tool`: `app` reaches the app from the call's
+/// thread, `caller` names the chat that asks, `cap` is the call's own time
+/// limit (a script's). No app caller: the call runs as before.
+pub(super) fn gate(
     tool: &str,
-    status: Result<Value, CallFailure>,
     app: Option<AppCaller>,
     caller: Option<Value>,
     cap: Option<Duration>,
 ) -> Gate {
-    if tool == STATUS_TOOL {
-        return Gate::Run;
+    match app {
+        Some(app) if tool != STATUS_TOOL => {
+            Gate::Check(SetupCheck { app, tool: tool.to_owned(), caller, cap })
+        }
+        _ => Gate::Run,
     }
+}
+
+impl SetupCheck {
+    /// Reads setup and, when it is not done, shows the card and waits for
+    /// it to end: `None` runs the call, a value is the call's result instead.
+    pub(super) fn run(self) -> Option<Value> {
+        let status = (self.app)(STATUS_METHOD, json!({}), STATUS_TIMEOUT);
+        match decide(&self.tool, status, self.cap) {
+            Decision::Run => None,
+            Decision::Refuse(result) => Some(result),
+            Decision::Wait { mut params, wait } => {
+                if let Some(caller) = self.caller {
+                    params["caller"] = caller;
+                }
+                match (self.app)(REQUEST_METHOD, params, wait + REQUEST_SLACK) {
+                    Ok(outcome) => answer(&outcome),
+                    // No card in this app (or no answer): the call runs as
+                    // before, and the helper says what is missing.
+                    Err(_) => None,
+                }
+            }
+        }
+    }
+}
+
+/// What setup `status` means for computer use `tool`.
+#[derive(Debug)]
+pub(super) enum Decision {
+    /// Setup is ready, or unknown: run the call.
+    Run,
+    /// The call cannot run; this is its result.
+    Refuse(Value),
+    /// The person must finish setup: the card request and how long it waits.
+    Wait { params: Value, wait: Duration },
+}
+
+/// Whether `status` (the app's Computer Use Setup) lets the helper act.
+pub(super) fn is_ready(status: &Value) -> bool {
+    status["phase"] == "ready"
+        && status["accessibility"] == true
+        && status["screen_recording"] == true
+}
+
+/// What `tool` needs, from the app's `status` read; `cap` bounds the wait.
+pub(super) fn decide(
+    tool: &str,
+    status: Result<Value, CallFailure>,
+    cap: Option<Duration>,
+) -> Decision {
     // An app that does not answer (or knows no setup) leaves the call as before.
-    let Ok(status) = status else { return Gate::Run };
-    if !status.is_object() || is_ready(&status) {
-        return Gate::Run;
+    let Ok(status) = status else { return Decision::Run };
+    if tool == STATUS_TOOL || !status.is_object() || is_ready(&status) {
+        return Decision::Run;
+    }
+    // The helper v2 reports its own grants; this setup reads the legacy helper's.
+    if status["driver"].as_str().is_some_and(|driver| driver != "legacy") {
+        return Decision::Run;
     }
     match status["phase"].as_str() {
-        Some("disabled_by_policy") => return Gate::Refuse(refusal(Refusal::Disabled)),
-        Some("unavailable") => return Gate::Refuse(refusal(Refusal::Unavailable)),
-        Some("version_mismatch") => return Gate::Refuse(refusal(Refusal::VersionMismatch)),
-        _ => {}
+        Some("disabled_by_policy") => return Decision::Refuse(refusal(Refusal::Disabled)),
+        Some("unavailable") => return Decision::Refuse(refusal(Refusal::Unavailable)),
+        Some("version_mismatch") => return Decision::Refuse(refusal(Refusal::VersionMismatch)),
+        // Off, or the helper answered with a grant missing: only the person can fix it.
+        Some("off" | "ready") => {}
+        // `starting` (the helper is not up yet, or did not answer): the grants
+        // are unknown and may be on, and the card would stay until clicked;
+        // the helper proxy's own wait decides.
+        _ => return Decision::Run,
     }
-    let Some(app) = app else { return Gate::Run };
     let wait = cap.map_or(SETUP_WAIT, |cap| cap.min(SETUP_WAIT)).max(Duration::from_secs(1));
-    let mut params = json!({
+    let params = json!({
         "kind": "computer_use",
         "reason": format!("It called the computer use tool {tool} to work in an app on this Mac."),
         "timeout_seconds": wait.as_secs(),
     });
-    if let Some(caller) = caller {
-        params["caller"] = caller;
-    }
-    Gate::Wait(SetupWait { app, params, wait })
+    Decision::Wait { params, wait }
 }
 
 /// The call's result for the card's `outcome`, or `None` to run it.
@@ -193,44 +234,75 @@ pub(super) fn refusal(refusal: Refusal) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::FailureKind;
-
-    fn caller() -> Option<AppCaller> {
-        Some(Arc::new(|_: &str, _: Value, _: Duration| Ok(json!({"outcome": "granted"}))))
-    }
+    use super::*;
 
     fn not_set_up() -> Result<Value, CallFailure> {
-        Ok(json!({"phase": "ready", "accessibility": true, "screen_recording": false}))
+        Ok(
+            json!({"phase": "ready", "accessibility": true, "screen_recording": false, "driver": "legacy"}),
+        )
     }
 
-    fn code(gate: Gate) -> Option<String> {
-        match gate {
-            Gate::Refuse(result) => result["structuredContent"]["error"]["code"].as_str().map(str::to_owned),
+    fn code(decision: Decision) -> Option<String> {
+        match decision {
+            Decision::Refuse(result) => {
+                result["structuredContent"]["error"]["code"].as_str().map(str::to_owned)
+            }
             _ => None,
         }
     }
 
     #[test]
     fn the_status_read_and_an_unknown_setup_run_as_before() {
-        assert!(matches!(decide("check_permissions", not_set_up(), caller(), None, None), Gate::Run));
+        assert!(matches!(decide("check_permissions", not_set_up(), None), Decision::Run));
         let down = Err(CallFailure::local(FailureKind::NotRun, "app.unreachable", "no app"));
-        assert!(matches!(decide("click", down, caller(), None, None), Gate::Run));
-        assert!(matches!(decide("click", Ok(Value::Null), caller(), None, None), Gate::Run));
-        // A missing grant with no way to show the card: the helper says what is missing.
-        assert!(matches!(decide("click", not_set_up(), None, None, None), Gate::Run));
+        assert!(matches!(decide("click", down, None), Decision::Run));
+        assert!(matches!(decide("click", Ok(Value::Null), None), Decision::Run));
+        // The status tool never reads setup at all.
+        assert!(matches!(
+            gate(
+                "check_permissions",
+                Some(Arc::new(|_: &str, _: Value, _: Duration| {
+                    panic!("the status tool read setup")
+                })),
+                None,
+                None
+            ),
+            Gate::Run
+        ));
+        assert!(matches!(gate("click", None, None, None), Gate::Run));
+    }
+
+    /// The helper v2 answers its own grants: the legacy setup stays off
+    /// under it, and must not hold its calls.
+    #[test]
+    fn a_starting_helper_is_left_to_its_own_wait() {
+        let status =
+            Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null}));
+        assert!(matches!(decide("click", status, None), Decision::Run));
+        let off = Ok(json!({"phase": "off", "accessibility": null, "screen_recording": null}));
+        assert!(matches!(decide("click", off, None), Decision::Wait { .. }));
+    }
+
+    #[test]
+    fn the_helper_v2_never_waits_for_the_legacy_setup() {
+        let status =
+            Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null,
+                               "driver": "upstream"}));
+        assert!(matches!(decide("click", status, None), Decision::Run));
     }
 
     #[test]
     fn a_missing_grant_waits_for_the_card_within_the_calls_limit() {
-        let Gate::Wait(wait) = decide("click", not_set_up(), caller(), Some(json!({"agent_session": "s1"})), Some(Duration::from_secs(90)))
+        let Decision::Wait { params, wait } =
+            decide("click", not_set_up(), Some(Duration::from_secs(90)))
         else {
             panic!("a missing grant must wait for the card");
         };
-        assert_eq!(wait.params["kind"], "computer_use");
-        assert_eq!(wait.params["timeout_seconds"], 90);
-        assert_eq!(wait.params["caller"], json!({"agent_session": "s1"}));
-        assert!(wait.run().is_none(), "granted runs the call");
+        assert_eq!(params["kind"], "computer_use");
+        assert_eq!(params["timeout_seconds"], 90);
+        assert_eq!(wait, Duration::from_secs(90));
+        assert!(params["reason"].as_str().unwrap().contains("click"));
     }
 
     #[test]
@@ -240,8 +312,9 @@ mod tests {
             ("unavailable", "computer_use.unavailable"),
             ("version_mismatch", "computer_use.version_mismatch"),
         ] {
-            let status = Ok(json!({"phase": phase, "accessibility": null, "screen_recording": null}));
-            assert_eq!(code(decide("click", status, caller(), None, None)).as_deref(), Some(expected), "{phase}");
+            let status =
+                Ok(json!({"phase": phase, "accessibility": null, "screen_recording": null}));
+            assert_eq!(code(decide("click", status, None)).as_deref(), Some(expected), "{phase}");
         }
     }
 }
