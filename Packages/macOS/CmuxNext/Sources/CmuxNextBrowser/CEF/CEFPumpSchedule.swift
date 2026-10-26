@@ -2,7 +2,8 @@ import CmuxNextWakeups
 import Foundation
 
 /// When the external message pump must call `CefDoMessageLoopWork` next.
-/// Pure value logic; `CEFMessagePump` applies it to one timer.
+/// Pure value logic; `CEFMessagePump` applies it to one timer. In process only: in host mode the
+/// Chromium Host pumps Chromium and the app schedules no `CefDoMessageLoopWork`.
 ///
 /// CEF asks for work through `OnScheduleMessagePumpWork(delay_ms)`: 0 means
 /// "now", a delay is its earliest delayed task (CEF sends it only when no
