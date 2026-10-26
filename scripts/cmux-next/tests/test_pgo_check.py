@@ -98,6 +98,9 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="pgo-check-")
         self.addCleanup(shutil.rmtree, self.dir)
+        # The repo's pinned file is real state (task 052); a fixture pins only what it passes with --pinned.
+        self.addCleanup(setattr, pc, "DEFAULT_PINNED", pc.DEFAULT_PINNED)
+        pc.DEFAULT_PINNED = os.path.join(self.dir, "absent.sha256")
         self.fake = self.write("fake-llvm-profdata.py",
                                "import sys\nsys.stdout.write(open(sys.argv[-1] + '.show').read())\n")
 
@@ -275,9 +278,6 @@ class BindingTests(Fixture):
 
     def test_nothing_to_compare_with_fails(self):
         order, _ = self.bound_order(["_main"])
-        pinned_default = pc.DEFAULT_PINNED
-        pc.DEFAULT_PINNED = os.path.join(self.dir, "absent.sha256")
-        self.addCleanup(setattr, pc, "DEFAULT_PINNED", pinned_default)
         self.assertEqual(self.run_main("--order", order, "--link-map", self.map), 1)
         self.assertIn("nothing to compare", self.checks()["binding"]["detail"])
 
