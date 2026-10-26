@@ -24,6 +24,10 @@ public nonisolated final class CreatingTerminalInput: Sendable {
         self.targetKnown = targetKnown
     }
 
+    /// True once input goes by the attachment for good: ``write(_:)`` would return false at once, so the
+    /// caller sends without awaiting it.
+    public var sendsByAttachment: Bool { done.withLock { $0 } }
+
     /// Sends `data` by the terminal id; false when it must go by the attachment instead (the
     /// target is known, or the daemon refused the id: the attach queue keeps it, as before).
     public func write(_ data: Data) async -> Bool {

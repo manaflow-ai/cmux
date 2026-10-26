@@ -168,6 +168,33 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.input(data)
     }
 
+    /// The session's input drains on the driver's input queue: a key goes to the attach socket's outbox
+    /// there, one hop from the main thread. While the terminal is still being created its bytes go by id
+    /// (``CreatingTerminalInput``), one awaited send at a time; the lane holds later records meanwhile.
+    func inputDrain() -> TerminalInputDrain {
+        TerminalInputDrain(queue: driver.inputQueue) { [driver, creatingInput] record, resume in
+            switch record {
+            case .bytes(let data):
+                guard let creatingInput, !creatingInput.sendsByAttachment else {
+                    driver.input(data)
+                    return .next
+                }
+                Task {
+                    let sentByID = await creatingInput.write(data)
+                    if !sentByID { driver.input(data) }
+                    resume()
+                }
+                return .hold
+            case .resize: break // never sent: `resizeOnMain` takes every grid
+            case .focusGained: driver.focused()
+            case .takeOverSize(let setLatest): driver.takeOver(setLatest: setLatest)
+            case .reconnect: driver.reconnect()
+            case .resync: driver.requestResync()
+            }
+            return .next
+        }
+    }
+
     /// Focus takes geometry back after another client sized the terminal,
     /// or re-attaches a disconnected view.
     func focusGained() async {
