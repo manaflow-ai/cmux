@@ -18,7 +18,7 @@
 //! another update runs between that check and the step's end. Its uploads
 //! go to names of its own and are moved in place by a fenced step.
 
-use super::{MAKE_REMOTE_HOME, REMOTE_HOME, Remote, RemoteOut};
+use super::{REMOTE_HOME, Remote, RemoteOut, make_remote_home};
 use anyhow::{Context, Result, anyhow};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -52,7 +52,8 @@ command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 || { echo "t
 /// script's later commands keep that umask.
 fn open_locks() -> String {
     format!(
-        "{MAKE_REMOTE_HOME} && acpmux_um=$(umask) && umask 077 && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease && umask \"$acpmux_um\""
+        "{} && acpmux_um=$(umask) && umask 077 && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease && umask \"$acpmux_um\"",
+        make_remote_home()
     )
 }
 
@@ -355,9 +356,10 @@ mod umask_tests {
             .unwrap();
         assert!(status.success());
         let mode = |p: &str| std::fs::metadata(home.join(p)).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(".acpmux"), 0o700);
-        assert_eq!(mode(".acpmux/update.lock"), 0o600);
-        assert_eq!(mode(".acpmux/update.lease"), 0o600);
+        let dir = REMOTE_HOME.trim_start_matches("~/");
+        assert_eq!(mode(dir), 0o700);
+        assert_eq!(mode(&format!("{dir}/update.lock")), 0o600);
+        assert_eq!(mode(&format!("{dir}/update.lease")), 0o600);
         assert_eq!(mode("after"), 0o664, "the host's umask holds after the lock step");
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -380,7 +382,7 @@ mod umask_tests {
         let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
         let said = lines.next().unwrap().unwrap();
         assert_eq!(said, UPDATE_LOCKED);
-        let owner = home.join(".acpmux").join(OWNER);
+        let owner = home.join(REMOTE_HOME.trim_start_matches("~/")).join(OWNER);
         assert_eq!(std::fs::metadata(&owner).unwrap().permissions().mode() & 0o777, 0o600);
         // Closing its stdin ends the holder, which gives the lease back.
         drop(child.stdin.take());
