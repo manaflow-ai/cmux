@@ -5,7 +5,9 @@
 
 CHECKS is the one table: each row holds the check's commands (as section 6 writes them, plus --json where the
 runner reads JSON), its thresholds in the spec's own units, and the judge that compares the two. The judges own
-no numbers. Queries come from queues.py (task 200): `queues.<name>(root)` returns the hits as a list of strings.
+no numbers. Queries come from queues.py (task 200): `queues.find(MQ).run(root)`, each item's key one hit. MQ4 is
+section 7's pipeline (`lab.py stories --lint --format=paths`, then the files without a result-v1 writer), since
+queues.py does not hold it. Check 3 reads each target's stories from the story catalog (catalog.py, task 007).
 
 It prints one line per check (a JSON object with --json) and exits 0 only when every judged check passes; field
 and stability (check 18) are reported, never judged, because opt-in Nightly data in 72 h is small (3.10).
@@ -56,12 +58,26 @@ class CommandResult:
     stderr: str
 
 
+@dataclass(frozen=True)
+class TargetMap:
+    """One fixed target as the catalog maps it: its rows' engines, whether every row check has a story, the stories."""
+    id: str
+    browser: bool
+    engines: tuple[str, ...]
+    mapped: bool
+    stories: tuple[str, ...]
+
+
+Targets = Callable[[Path], list[TargetMap]]
+
+
 @dataclass
 class Evidence:
     root: Path
     outputs: list[CommandResult]
     queries: dict[str, list[str]]
     kill_switch_evidence: Path | None = None
+    targets: Targets | None = None
 
 
 Verdict = tuple[bool, dict[str, object], str]
@@ -101,18 +117,20 @@ def _list(obj: object, key: str | None = None) -> list:
     return value
 
 
+def _tail(result: CommandResult) -> str:
+    return (result.stderr or result.stdout).strip()[-300:]
+
+
 def _json(result: CommandResult) -> object:
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
-        tail = (result.stderr or result.stdout).strip()[-300:]
-        raise DoneCheckError(f"`{result.argv}` exited {result.returncode} without JSON: {tail}") from None
+        raise DoneCheckError(f"`{result.argv}` exited {result.returncode} without JSON: {_tail(result)}") from None
 
 
 def _exited_zero(result: CommandResult) -> None:
     if result.returncode != 0:
-        tail = (result.stderr or result.stdout).strip()[-300:]
-        raise DoneCheckError(f"`{result.argv}` exited {result.returncode}: {tail}")
+        raise DoneCheckError(f"`{result.argv}` exited {result.returncode}: {_tail(result)}")
 
 
 def _pct(part: int, whole: int) -> float:
@@ -156,29 +174,34 @@ def judge_coverage_t1(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     return _verdict(failures, {"newest_complete_age_hours": age, "missing_families": missing})
 
 
+TARGETS_MAPPED = re.compile(r"^targets mapped: (\d+)/(\d+)$", re.M)
+
+
 def judge_targets(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """Reads {"total", "mapped", "result_window_hours", "targets": [{"id", "browser", "engines", "stories": [{"id", "results"}]}]}."""
-    result = ev.outputs[0]
-    report = _json(result)
-    total, mapped = int(_number(report, "total")), int(_number(report, "mapped"))
+    """Reads `targets --check` ("targets mapped: N/M"), the runs JSON ([{"story"}]) and the catalog's targets."""
+    check, runs = ev.outputs
+    match = TARGETS_MAPPED.search(check.stdout)
+    if match is None:
+        raise DoneCheckError(f"`{check.argv}` exited {check.returncode} without a mapped count: {_tail(check)}")
+    mapped, total = int(match.group(1)), int(match.group(2))
     failures = []
-    if result.returncode != 0:
-        failures.append(f"`targets --check` exited {result.returncode}")
-    if total != t["targets"] or mapped != t["targets"]:
+    if check.returncode != 0 or (mapped, total) != (t["targets"], t["targets"]):
         failures.append(f"{mapped}/{total} targets mapped, need {t['targets']}/{t['targets']}")
-    if _number(report, "result_window_hours") != t["result_window_hours"]:
-        failures.append(f"results counted over {report['result_window_hours']} h, the spec says "
-                        f"{t['result_window_hours']} h")
+    if ev.targets is None:
+        raise DoneCheckError("no story catalog to read the targets' stories from")
+    targets = ev.targets(ev.root)
     engines = set(t["browser_engines"])
-    stale = []
-    for target in _list(report, "targets"):
-        name = _get(target, "id")
-        if _get(target, "browser") and not engines <= set(_list(target, "engines")):
-            failures.append(f"{name} lacks an engine row ({', '.join(sorted(engines - set(target['engines'])))})")
-        stale += [f"{name}:{_get(s, 'id')}" for s in _list(target, "stories")
-                  if _number(s, "results") < t["min_results"]]
+    for target in targets:
+        if target.browser and not engines <= set(target.engines):
+            failures.append(f"{target.id} lacks an engine row ({', '.join(sorted(engines - set(target.engines)))})")
+    try:
+        stored = [str(_get(run, "story")) for run in _list(_json(runs))]
+    except DoneCheckError as error:  # the mapped count above still reports
+        return _verdict([*failures, str(error)], {"mapped": mapped, "total": total})
+    stale = sorted({story for target in targets if target.mapped for story in target.stories
+                    if stored.count(story) < t["min_results"]})
     if stale:
-        failures.append(f"mapped stories with no result in {t['result_window_hours']} h: {', '.join(stale)}")
+        failures.append(f"mapped stories with no stored result in the runs window: {', '.join(stale)}")
     return _verdict(failures, {"mapped": mapped, "total": total, "stories_without_results": stale})
 
 
@@ -201,9 +224,22 @@ def judge_release_grade(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 
 
 def judge_one_format(ev: Evidence, t: Mapping[str, object]) -> Verdict:
+    """MQ1 from queues.py; MQ4 is each story command path (`stories --lint --format=paths`) with no result-v1 writer."""
     allowed = set(t["mq1_allowlist"])
-    private_stats = [hit for hit in ev.queries["mq1"] if Path(hit).name not in allowed]
-    unwritten = ev.queries["mq4"]
+    private_stats = [hit for hit in ev.queries["MQ1"] if Path(hit).name not in allowed]
+    listing = ev.outputs[0]
+    paths = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
+    if not paths:
+        raise DoneCheckError(f"`{listing.argv}` printed no story command paths: {_tail(listing)}")
+    writes_result = re.compile(str(t["mq4_result_writer"]))
+    unwritten = []
+    for path in paths:
+        try:
+            text = (ev.root / path).read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            raise DoneCheckError(f"MQ4 cannot read {path}: {error}") from None
+        if not writes_result.search(text):
+            unwritten.append(path)
     failures = []
     if len(private_stats) > t["max_mq1_outside_allowlist"]:
         failures.append(f"MQ1 outside the allowlist: {', '.join(private_stats)}")
@@ -228,34 +264,37 @@ def judge_orphans(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 
 
 def judge_noise(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """Reads {"hosts": [{"name", "role", "aa_runs"}], "series_days", "false_alerts", "series": [{"kind", "cv_median", "cv_p99"}]}; CVs are fractions."""
-    report = _json(ev.outputs[0])
+    """Reads aa.py's {"summary": {...}} (task 024): its CV limits and shares are fractions, the row's are percent."""
+    summary = _get(_json(ev.outputs[0]), "summary")
+    limits = _get(summary, "thresholds")
     failures = []
-    waterfall = [h for h in _list(report, "hosts") if _get(h, "role") == "waterfall"]
-    if not waterfall:
-        failures.append("no waterfall host in the A/A report")
-    short = [f"{_get(h, 'name')}={int(_number(h, 'aa_runs'))}" for h in waterfall
-             if _number(h, "aa_runs") < t["min_aa_runs_per_waterfall_host"]]
+    for key, row_key in (("median_cv", "max_median_cv_pct"), ("p99_cv", "max_p99_cv_pct")):
+        if round(100.0 * _number(limits, key), 6) != t[row_key]:
+            failures.append(f"aa judged {key} at {100.0 * limits[key]:g} %, the spec says {t[row_key]} %")
+    hosts = [str(host) for host in _list(summary, "waterfall_hosts")]
+    runs = _get(summary, "aa_runs_by_host")
+    if not hosts:
+        failures.append("no waterfall host in the A/A window")
+    short = [f"{host}={int(_number(runs, host))}" for host in hosts
+             if _number(runs, host) < t["min_aa_runs_per_waterfall_host"]]
     if short:
         failures.append(f"hosts under {t['min_aa_runs_per_waterfall_host']} A/A runs: {', '.join(short)}")
-    series_days, false_alerts = _number(report, "series_days"), _number(report, "false_alerts")
-    rate = round(100.0 * false_alerts / series_days, 3) if series_days else None
+    rate = _get(summary, "false_alerts_per_100_series_days")
     if rate is None:
-        failures.append("0 monitored series-days")
-    elif rate > t["max_false_alerts_per_100_series_days"]:
-        failures.append(f"{rate} false alerts per 100 series-days")
-    latency = [s for s in _list(report, "series") if _get(s, "kind") == "latency"]
-    measured: dict[str, object] = {"false_alerts_per_100_series_days": rate, "latency_series": len(latency)}
-    if not latency:
-        failures.append("0 monitored latency series")
-    else:
-        for stat, max_key, min_key in (("cv_median", "max_median_cv_pct", "min_median_cv_series_pct"),
-                                       ("cv_p99", "max_p99_cv_pct", "min_p99_cv_series_pct")):
-            quiet = sum(1 for s in latency if 100.0 * _number(s, stat) <= t[max_key])
-            share = _pct(quiet, len(latency))
-            measured[f"{stat}_quiet_pct"] = share
-            if share < t[min_key]:
-                failures.append(f"{share} % of latency series have {stat} <= {t[max_key]} %, need >= {t[min_key]} %")
+        failures.append("no false-alert rate (0 monitored series-days)")
+    elif _number(summary, "false_alerts_per_100_series_days") > t["max_false_alerts_per_100_series_days"]:
+        failures.append(f"{rate:.3f} false alerts per 100 series-days")
+    measured: dict[str, object] = {"false_alerts_per_100_series_days": rate,
+                                   "latency_series": _get(summary, "latency_series_judged")}
+    for key, max_key, min_key in (("median_cv_share_within", "max_median_cv_pct", "min_median_cv_series_pct"),
+                                  ("p99_cv_share_within", "max_p99_cv_pct", "min_p99_cv_series_pct")):
+        if _get(summary, key) is None:
+            failures.append(f"{key}: 0 judged latency series")
+            continue
+        share_pct = round(100.0 * _number(summary, key), 2)
+        measured[key] = share_pct
+        if share_pct < t[min_key]:
+            failures.append(f"{share_pct} % of latency series within {t[max_key]} % CV, need >= {t[min_key]} %")
     return _verdict(failures, measured)
 
 
@@ -386,7 +425,7 @@ def judge_kill_switch(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 
 def judge_features(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     _exited_zero(ev.outputs[0])
-    unmigrated = ev.queries["mq6"]
+    unmigrated = ev.queries["MQ6"]
     failures = [f"unmigrated: {', '.join(unmigrated)}"] if len(unmigrated) > t["max_unmigrated"] else []
     return _verdict(failures, {"unmigrated": unmigrated})
 
@@ -414,13 +453,13 @@ def judge_corpus(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 def judge_exit_zero(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     result = ev.outputs[0]
     ok = result.returncode == t["exit_code"]
-    return ok, {"exit_code": result.returncode}, "" if ok else (result.stderr or result.stdout).strip()[-300:]
+    return ok, {"exit_code": result.returncode}, "" if ok else f"`{result.argv}` exited {result.returncode}: {_tail(result)}"
 
 
 def judge_no_ci(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     _exited_zero(ev.outputs[0])
     stat = ev.outputs[0].stdout.strip()
-    return (stat == t["stdout"]), {"stat": stat}, f"workflow files changed: {stat}" if stat else ""
+    return (stat == t["stdout"]), {"stat": stat}, f"workflow files changed: {stat.splitlines()[-1]}" if stat else ""
 
 
 def judge_reported(ev: Evidence, t: Mapping[str, object]) -> Verdict:
@@ -430,26 +469,27 @@ def judge_reported(ev: Evidence, t: Mapping[str, object]) -> Verdict:
 # --- the table ---------------------------------------------------------------------------------------------------
 
 LAB = "python3 scripts/perf-lab/lab.py"
+SHERIFF = "python3 scripts/perf-lab/sheriff.py"  # `lab.py sheriff`'s commands; sheriff.py declares no LAB_COMMANDS yet
 
 CHECKS: tuple[Check, ...] = (
     Check(1, "coverage-t0", (Command(f"{LAB} coverage --tier T0 --since 24h --json"),),
           {"min_covered_pct": 90, "batch_minutes": 10, "window_minutes": 60}, judge_coverage_t0),
     Check(2, "coverage-t1", (Command(f"{LAB} coverage --tier T1 --json", spec=False),),
           {"max_age_hours": 3, "max_missing_families": 0}, judge_coverage_t1),
-    Check(3, "targets-mapped", (Command(f"{LAB} targets --check --json"),),
-          {"targets": 12, "browser_engines": ("chromium", "webkit"), "result_window_hours": 24, "min_results": 1},
-          judge_targets),
+    Check(3, "targets-mapped", (Command(f"{LAB} targets --check"), Command(f"{LAB} runs --since 24h --json", spec=False)),
+          {"targets": 12, "browser_engines": ("chromium", "webkit"), "min_results": 1}, judge_targets),
     Check(4, "release-grade", (Command(f"{LAB} runs --since 24h --config debug --tier T0,T1 --json"),
                                Command(f"{LAB} runs --since 24h --story bench-parity --json", spec=False)),
           {"max_debug_runs": 0, "parity_metric": "bench_parity.action_commit_delta_pct", "max_parity_delta_pct": 3},
           judge_release_grade),
-    Check(5, "one-result-format", (), {"mq1_allowlist": ("perf-budgets.py", "perf-cron.py"),
-                                       "max_mq1_outside_allowlist": 0, "max_mq4": 0},
-          judge_one_format, queries=("mq1", "mq4")),
+    Check(5, "one-result-format", (Command(f"{LAB} stories --lint --format=paths"),),
+          {"mq1_allowlist": ("perf-budgets.py", "perf-cron.py"), "max_mq1_outside_allowlist": 0,
+           "mq4_result_writer": r"perf_result|BenchApp|\.record\(", "max_mq4": 0},
+          judge_one_format, queries=("MQ1",)),
     Check(6, "self-launch-removed", (), {"max_files": 0},
-          _query_empty("mq2", "max_files", "MQ2 benches that launch their own app"), queries=("mq2",)),
+          _query_empty("MQ2", "max_files", "MQ2 benches that launch their own app"), queries=("MQ2",)),
     Check(7, "signposts-live", (), {"max_cases": 0},
-          _query_empty("mq5", "max_cases", "MQ5 SignpostName cases with no emitter"), queries=("mq5",)),
+          _query_empty("MQ5", "max_cases", "MQ5 SignpostName cases with no emitter"), queries=("MQ5",)),
     Check(8, "no-orphan-benches", (Command(f"{LAB} stories --orphans --json"),), {"max_orphans": 0}, judge_orphans),
     Check(9, "noise", (Command(f"{LAB} aa --since-live --json"),),
           {"min_aa_runs_per_waterfall_host": 3, "max_false_alerts_per_100_series_days": 1,
@@ -461,14 +501,14 @@ CHECKS: tuple[Check, ...] = (
           {"mwu_discrete": 0.0195, "ks_discrete": 0.4973, "mwu_spread": 0.9892, "ks_spread": 0.0082,
            "tolerance": 0.0005, "high_threshold_args": ("performance", 1.0, 10), "high_threshold": 0.5708},
           judge_stats),
-    Check(12, "sheriff-slo", (Command(f"{LAB} sheriff --slo --since-live --json"),),
+    Check(12, "sheriff-slo", (Command(f"{SHERIFF} --slo --since-live --json"),),
           {"min_triaged_pct": 100, "triage_hours": 1, "max_median_culprit_hours": 4, "stale_hours": 12,
            "stale_states": ("new", "triaged", "culprit"), "max_stale_groups": 0}, judge_sheriff),
     Check(13, "kill-switch", (Command("cmux settings feature-flags --json", run=False),),
           {"feature": "perfLabKillProbe", "off_state": "off", "off_source": "remote", "on_state": "on",
            "safe_mode_suite": "FeatureSafeModeTests"}, judge_kill_switch),
     Check(14, "features-complete", (Command("python3 scripts/cmux-next/gen-features.py --check"),),
-          {"max_unmigrated": 0}, judge_features, queries=("mq6",)),
+          {"max_unmigrated": 0}, judge_features, queries=("MQ6",)),
     Check(15, "corpus", (Command("python3 scripts/perf-lab/corpus/play.py --verify --all --json", timeout_s=6 * 3600),),
           {"min_stories": 6, "min_replays": 2, "max_key_frame_p50_cv_pct": 5, "max_wpr_misses": 0}, judge_corpus),
     Check(16, "env-audit", (Command("python3 scripts/features/env_audit.py --check"),), {"exit_code": 0},
@@ -500,23 +540,33 @@ def run_subprocess(argv: Sequence[str], cwd: Path, timeout_s: int) -> CommandRes
 
 @dataclass
 class QueuesModule:
-    """queues.py (task 200), imported once; `query(name, root)` returns `queues.<name>(root)` as strings."""
+    """queues.py (task 200), imported once; `query(MQ, root)` returns the item keys of `queues.find(MQ).run(root)`."""
     path: Path = HERE / "queues.py"
     _module: ModuleType | None = field(default=None, repr=False)
 
     def __call__(self, name: str, root: Path) -> list[str]:
         if self._module is None:
             self._module = _load_module("perf_lab_queues", self.path)
-        function = getattr(self._module, name, None)
-        if not callable(function):
-            raise DoneCheckError(f"queues.py has no {name}(root)")
+        queues = self._module
         try:
-            hits = function(root)
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            raise DoneCheckError(f"queues.{name}(root): {error}") from None
-        if isinstance(hits, (str, bytes)) or not all(isinstance(hit, str) for hit in hits):
-            raise DoneCheckError(f"queues.{name}(root) must return strings")
-        return list(hits)
+            items = queues.find(name).run(str(root))
+        except (queues.QueueError, OSError, ValueError) as error:
+            raise DoneCheckError(f"queues.py {name}: {error}") from None
+        return [item.key for item in items]
+
+
+def catalog_targets(root: Path) -> list[TargetMap]:
+    """The fixed targets of catalog.py (task 007), each with the stories that claim its rows' checks."""
+    catalog = _load_module("perf_lab_catalog", root / "scripts/perf-lab/catalog.py")
+    try:
+        loaded = catalog.load_catalog(root)
+    except (catalog.CatalogError, OSError) as error:
+        raise DoneCheckError(f"catalog.py: {error}") from None
+    claims = catalog.claimed_checks(loaded)
+    return [TargetMap(target.id, target.browser, tuple(sorted({row.engine for row in target.rows if row.engine})),
+                      mapped, tuple(sorted({story for row in target.rows for check in row.checks
+                                            for story in claims.get((row.id, check.metric), ())})))
+            for target, mapped in catalog.mapped_targets(loaded)]
 
 
 @dataclass(frozen=True)
@@ -536,27 +586,35 @@ class Outcome:
         return f"{self.status.upper():8} {self.check.number:>2} {self.check.name}: {detail}"
 
 
+def _one_line(text: str) -> str:
+    return " / ".join(line.strip() for line in text.splitlines() if line.strip())
+
+
 def evaluate(check: Check, root: Path, *, runner: Runner = run_subprocess, queries: Queries | None = None,
-             kill_switch_evidence: Path | None = None) -> Outcome:
+             kill_switch_evidence: Path | None = None, targets: Targets = catalog_targets) -> Outcome:
     queries = QueuesModule() if queries is None else queries
     try:
         outputs = [runner(shlex.split(c.argv), root, c.timeout_s) for c in check.commands if c.run]
         found = {name: queries(name, root) for name in check.queries}
-        ok, measured, reason = check.judge(Evidence(root, outputs, found, kill_switch_evidence), check.threshold)
+        evidence = Evidence(root, outputs, found, kill_switch_evidence, targets)
+        ok, measured, reason = check.judge(evidence, check.threshold)
     except DoneCheckError as error:
         ok, measured, reason = False, {}, str(error)
+    reason = _one_line(reason)
     if check.reported_only:
         return Outcome(check, REPORTED, measured, reason)
     return Outcome(check, PASS if ok else FAIL, measured, reason)
 
 
 def run_checks(checks: Sequence[Check], root: Path, *, emit: Callable[[Outcome], None], runner: Runner = run_subprocess,
-               queries: Queries | None = None, kill_switch_evidence: Path | None = None) -> int:
+               queries: Queries | None = None, kill_switch_evidence: Path | None = None,
+               targets: Targets = catalog_targets) -> int:
     """Runs `checks` in table order, emits each outcome as it lands; 0 only when no judged check failed."""
     queries = QueuesModule() if queries is None else queries
     failed = False
     for check in checks:
-        outcome = evaluate(check, root, runner=runner, queries=queries, kill_switch_evidence=kill_switch_evidence)
+        outcome = evaluate(check, root, runner=runner, queries=queries, kill_switch_evidence=kill_switch_evidence,
+                           targets=targets)
         failed |= outcome.status == FAIL
         emit(outcome)
     return 1 if failed else 0

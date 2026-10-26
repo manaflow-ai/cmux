@@ -29,9 +29,13 @@ _spec.loader.exec_module(dc)
 
 
 def spec_items() -> dict[int, str]:
-    """Section 6's numbered items, each joined with the design JSON's done-check line of the same number."""
+    """Section 6's numbered items, each joined with the design JSON's done-check line of the same number and the
+    section 7 definition of each machine queue (MQn) the item names."""
     text = SPEC.read_text(encoding="utf-8")
     section = text.split("## 6. Done checks", 1)[1].split("\n## ", 1)[0]
+    queues = text.split("## 7. Machine queues", 1)[1].split("\n## ", 1)[0]
+    definitions = {match.group(1): match.group(0) for match in
+                   re.finditer(r"^- \*\*(MQ\d+):.*(?:\n  .*)*", queues, re.M)}
     items: dict[int, str] = {}
     current = None
     for line in section.splitlines():
@@ -44,12 +48,17 @@ def spec_items() -> dict[int, str]:
     program_checks = json.loads(DESIGN.read_text(encoding="utf-8"))["programs"]["p12-perf-process"]["done_checks"]
     for number, line in enumerate(program_checks[1:], start=1):
         items[number] = items.get(number, "") + "\n" + line
+    for number, item in items.items():
+        for mq in sorted(set(re.findall(r"\bMQ\d+\b", item))):
+            items[number] += "\n" + definitions.get(mq, "")
     return items
 
 
 def spec_form(argv: str) -> str:
-    """The command as section 6 writes it: lab.py by its short name, without the runner's --json."""
-    return argv.replace("python3 scripts/perf-lab/lab.py", "lab.py").replace(" --json", "")
+    """The command as section 6 writes it: lab.py (and sheriff.py, `lab.py sheriff`) by its short name, without the
+    runner's --json."""
+    return (argv.replace("python3 scripts/perf-lab/lab.py", "lab.py")
+            .replace("python3 scripts/perf-lab/sheriff.py", "lab.py sheriff").replace(" --json", ""))
 
 
 def threshold_values(value: object):
@@ -104,29 +113,41 @@ class TableMatchesSpec(unittest.TestCase):
 
     def test_queries_come_from_queues(self):
         names = {q for c in dc.CHECKS for q in c.queries}
-        self.assertEqual(names, {"mq1", "mq2", "mq4", "mq5", "mq6"})
+        self.assertEqual(names, {"MQ1", "MQ2", "MQ5", "MQ6"})
+        queues = dc._load_module("perf_lab_queues", LAB / "queues.py")
+        self.assertTrue(all(queues.find(name).mq == name for name in names))
+
+
+TARGETS_TEXT = "ok launch\nok idle-wakeups\ntargets mapped: 12/12\n"
+GOOD_TARGETS = [
+    dc.TargetMap("idle-wakeups", True, ("chromium", "webkit"), True, ("idle-tabs",)),
+    dc.TargetMap("launch", False, (), True, ("launch-cold", "launch-warm")),
+]
+
+
+def aa_report(**summary):
+    base = {"waterfall_hosts": ["m6-a"], "aa_runs_by_host": {"m6-a": 3, "m6-c": 0}, "series_days": 400,
+            "false_alerts": 3, "false_alerts_per_100_series_days": 0.75, "latency_series_judged": 10,
+            "median_cv_share_within": 0.9, "p99_cv_share_within": 0.8,
+            "thresholds": {"median_cv": 0.05, "p99_cv": 0.1, "min_aa_runs_per_host": 3, "min_pairs": 3}}
+    return {"summary": {**base, **summary}, "series": []}
 
 
 GOOD_OUTPUTS = {
     "coverage --tier T0": {"planned": 144, "covered": 132, "batch_minutes": 10, "window_minutes": 60},
     "coverage --tier T1": {"newest_complete_age_hours": 1.5, "missing_families": []},
-    "targets --check": {"total": 12, "mapped": 12, "result_window_hours": 24, "targets": [
-        {"id": "idle-wakeups", "browser": True, "engines": ["chromium", "webkit"],
-         "stories": [{"id": "idle-tabs", "results": 4}]},
-        {"id": "launch", "browser": False, "engines": [], "stories": [{"id": "launch", "results": 2}]}]},
+    "targets --check": TARGETS_TEXT,
+    "runs --since 24h --json": [{"story": s, "kind": "waterfall"} for s in ("idle-tabs", "launch-cold", "launch-warm")],
+    "stories --lint --format=paths": "scripts/perf-lab/perf_result.py\n",
     "--config debug": [],
     "--story bench-parity": [
         {"started": "2026-10-25T01:00:00Z", "results": [{"metric": "bench_parity.action_commit_delta_pct", "p50": 9}]},
         {"started": "2026-10-25T03:00:00Z", "results": [{"metric": "bench_parity.action_commit_delta_pct", "p50": 2.1}]}],
     "stories --orphans": [],
-    "aa --since-live": {"hosts": [{"name": "m6-a", "role": "waterfall", "aa_runs": 3},
-                                  {"name": "m6-c", "role": "pinpoint", "aa_runs": 0}],
-                        "series_days": 400, "false_alerts": 3,
-                        "series": [{"kind": "latency", "cv_median": 0.02, "cv_p99": 0.05}] * 9
-                        + [{"kind": "latency", "cv_median": 0.06, "cv_p99": 0.08}]},
+    "aa --since-live": aa_report(),
     "canary --last 3": [{"injected_sha": s, "culprit_sha": s, "alert_batches": 7, "alert_to_culprit_hours": 2.5,
                          "verification": "different"} for s in ("a1", "b2", "c3")],
-    "sheriff --slo": {"groups": 4, "triage": {"missed": [], "pct": 100.0, "slo_hours": 1.0},
+    "sheriff.py --slo": {"groups": 4, "triage": {"missed": [], "pct": 100.0, "slo_hours": 1.0},
                       "culprit": {"median_hours": 3.0}, "stale": []},
     "play.py": [{"story": f"s{i}", "replays": 2, "digests_identical": True, "key_frame_p50_cv": 0.03,
                  "wpr_misses": 0} for i in range(6)],
@@ -145,12 +166,12 @@ class FakeRunner:
         code = next((c for key, c in self.codes.items() if key in text), 0)
         for key, value in self.outputs.items():
             if key in text:
-                return dc.CommandResult(text, code, json.dumps(value), "")
+                return dc.CommandResult(text, code, value if isinstance(value, str) else json.dumps(value), "")
         return dc.CommandResult(text, code, "", "")
 
 
 def good_queries(name, root):
-    return ["scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-cron.py"] if name == "mq1" else []
+    return ["scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-cron.py"] if name == "MQ1" else []
 
 
 def kill_switch_dir() -> Path:
@@ -162,11 +183,13 @@ def kill_switch_dir() -> Path:
     return directory
 
 
-def outcomes(outputs=GOOD_OUTPUTS, codes=None, queries=good_queries, evidence=None, only=None):
+def outcomes(outputs=GOOD_OUTPUTS, codes=None, queries=good_queries, evidence=None, only=None, targets=GOOD_TARGETS,
+             root=REPO):
     found = []
     checks = dc.select(only)
-    code = dc.run_checks(checks, REPO, emit=found.append, runner=FakeRunner(outputs, codes), queries=queries,
-                         kill_switch_evidence=evidence if evidence is not None else kill_switch_dir())
+    code = dc.run_checks(checks, root, emit=found.append, runner=FakeRunner(outputs, codes), queries=queries,
+                         kill_switch_evidence=evidence if evidence is not None else kill_switch_dir(),
+                         targets=lambda root: targets)
     return code, {(o.check.number, o.check.name): o for o in found}
 
 
@@ -192,12 +215,12 @@ class Runner(unittest.TestCase):
         cases = {
             (1, "coverage-t0"): ("coverage --tier T0", {**GOOD_OUTPUTS["coverage --tier T0"], "covered": 129}),
             (2, "coverage-t1"): ("coverage --tier T1", {"newest_complete_age_hours": 3.2, "missing_families": []}),
-            (3, "targets-mapped"): ("targets --check", {**GOOD_OUTPUTS["targets --check"], "mapped": 11}),
+            (3, "targets-mapped"): ("targets --check", "targets mapped: 11/12\n"),
             (4, "release-grade"): ("--config debug", [{"started": "x", "results": []}]),
             (8, "no-orphan-benches"): ("stories --orphans", ["scripts/cmux-next/old-bench.py"]),
-            (9, "noise"): ("aa --since-live", {**GOOD_OUTPUTS["aa --since-live"], "false_alerts": 5}),
+            (9, "noise"): ("aa --since-live", aa_report(false_alerts_per_100_series_days=1.25)),
             (10, "pipeline-proof"): ("canary --last 3", GOOD_OUTPUTS["canary --last 3"][:2]),
-            (12, "sheriff-slo"): ("sheriff --slo", {**GOOD_OUTPUTS["sheriff --slo"],
+            (12, "sheriff-slo"): ("sheriff.py --slo", {**GOOD_OUTPUTS["sheriff.py --slo"],
                                                     "culprit": {"median_hours": 4.5}}),
             (15, "corpus"): ("play.py", GOOD_OUTPUTS["play.py"][:5]),
         }
@@ -208,15 +231,69 @@ class Runner(unittest.TestCase):
                 self.assertEqual(code, 1)
 
     def test_browser_target_without_a_webkit_row_fails(self):
-        targets = json.loads(json.dumps(GOOD_OUTPUTS["targets --check"]))
-        targets["targets"][0]["engines"] = ["chromium"]
-        _, found = outcomes({**GOOD_OUTPUTS, "targets --check": targets}, only="3")
+        targets = [dc.TargetMap("idle-wakeups", True, ("chromium",), True, ("idle-tabs",)), GOOD_TARGETS[1]]
+        _, found = outcomes(only="3", targets=targets)
         self.assertIn("webkit", found[(3, "targets-mapped")].reason)
+
+    def test_mapped_story_without_a_stored_run_fails(self):
+        runs = [{"story": "idle-tabs"}, {"story": "launch-cold"}]
+        _, found = outcomes({**GOOD_OUTPUTS, "runs --since 24h --json": runs}, only="3")
+        self.assertEqual(found[(3, "targets-mapped")].status, dc.FAIL)
+        self.assertEqual(found[(3, "targets-mapped")].measured["stories_without_results"], ["launch-warm"])
+
+    def test_unmapped_target_stories_need_no_run(self):
+        targets = [*GOOD_TARGETS, dc.TargetMap("qos", False, (), False, ("qos-static",))]
+        _, found = outcomes({**GOOD_OUTPUTS, "targets --check": "targets mapped: 12/12\n"}, only="3", targets=targets)
+        self.assertEqual(found[(3, "targets-mapped")].status, dc.PASS)
+
+    def test_targets_count_still_reports_without_the_store(self):
+        code, found = outcomes({**GOOD_OUTPUTS, "targets --check": "targets mapped: 1/12\n",
+                                "runs --since 24h --json": ""}, codes={"targets --check": 1}, only="3")
+        reason = found[(3, "targets-mapped")].reason
+        self.assertEqual(code, 1)
+        self.assertIn("1/12 targets mapped", reason)
+        self.assertIn("without JSON", reason)
+
+    def test_mq4_lists_story_commands_without_a_result_writer(self):
+        root = Path(tempfile.mkdtemp(prefix="done-checks-mq4-"))
+        (root / "writes.py").write_text("from perf_result import Result\n")
+        (root / "records.sh").write_text("bench.record(x)\n")
+        (root / "silent.py").write_text("print(42)\n")
+        listing = "writes.py\nrecords.sh\nsilent.py\n"
+        _, found = outcomes({**GOOD_OUTPUTS, "stories --lint --format=paths": listing}, only="5", root=root)
+        outcome = found[(5, "one-result-format")]
+        self.assertEqual((outcome.status, outcome.measured["mq4"]), (dc.FAIL, ["silent.py"]))
+
+    def test_mq4_without_story_paths_fails(self):
+        _, found = outcomes({**GOOD_OUTPUTS, "stories --lint --format=paths": ""}, codes={"stories": 2}, only="5")
+        self.assertIn("no story command paths", found[(5, "one-result-format")].reason)
+
+    def test_noise_fails_when_aa_judges_other_limits(self):
+        report = aa_report(thresholds={"median_cv": 0.08, "p99_cv": 0.1})
+        _, found = outcomes({**GOOD_OUTPUTS, "aa --since-live": report}, only="9")
+        self.assertIn("median_cv at 8 %", found[(9, "noise")].reason)
+
+    def test_noise_shares_and_hosts(self):
+        report = aa_report(p99_cv_share_within=0.75, aa_runs_by_host={"m6-a": 2})
+        _, found = outcomes({**GOOD_OUTPUTS, "aa --since-live": report}, only="9")
+        reason = found[(9, "noise")].reason
+        self.assertIn("75.0 % of latency series within 10 % CV", reason)
+        self.assertIn("m6-a=2", reason)
+        _, found = outcomes({**GOOD_OUTPUTS, "aa --since-live": aa_report(median_cv_share_within=None)}, only="9")
+        self.assertIn("0 judged latency series", found[(9, "noise")].reason)
+
+    def test_each_outcome_is_one_line(self):
+        def runner(argv, cwd, timeout_s):
+            return dc.CommandResult(shlex.join(argv), 2, "", "usage: lab.py\nlab.py: error: no such command\n")
+        found = []
+        dc.run_checks(dc.select("1"), REPO, emit=found.append, runner=runner, queries=good_queries)
+        self.assertNotIn("\n", found[0].as_line())
+        self.assertIn("usage: lab.py / lab.py: error", found[0].reason)
 
     def test_query_hits_fail(self):
         def queries(name, root):
-            return {"mq1": ["scripts/cmux-next/perf-cron.py", "scripts/cmux-next/idle-budget.py"],
-                    "mq5": ["cefPump"]}.get(name, [])
+            return {"MQ1": ["scripts/cmux-next/perf-cron.py", "scripts/cmux-next/idle-budget.py"],
+                    "MQ5": ["cefPump"]}.get(name, [])
         code, found = outcomes(queries=queries, only="5,6,7")
         self.assertEqual(code, 1)
         self.assertIn("idle-budget.py", found[(5, "one-result-format")].reason)
@@ -267,6 +344,21 @@ class Runner(unittest.TestCase):
     def test_only_rejects_unknown_numbers(self):
         with self.assertRaises(dc.DoneCheckError):
             dc.select("19")
+
+    def test_real_queues_module_returns_item_keys(self):
+        queries = dc.QueuesModule()
+        hits = queries("MQ5", REPO)
+        self.assertTrue(all(isinstance(hit, str) for hit in hits))
+        with self.assertRaises(dc.DoneCheckError):
+            queries("MQ99", REPO)
+
+    def test_real_catalog_maps_the_twelve_targets(self):
+        targets = dc.catalog_targets(REPO)
+        self.assertEqual(len(targets), 12)
+        browser = [t for t in targets if t.browser]
+        self.assertTrue(browser)
+        self.assertTrue(all({"chromium", "webkit"} <= set(t.engines) for t in browser))
+        self.assertTrue(all(t.stories for t in targets if t.mapped))
 
     def test_lab_registry_names_the_command(self):
         self.assertEqual(list(dc.LAB_COMMANDS), ["done-checks"])
