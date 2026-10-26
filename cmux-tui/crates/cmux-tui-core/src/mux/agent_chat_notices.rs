@@ -543,6 +543,20 @@ mod tests {
         json!({"permissionId": permission, "seq": seq, "sessionId": "chat-1", "via": "watch", "request": {}})
     }
 
+    /// A chat whose turn `turn` ended, hidden, `unread`, with or without work below it.
+    fn ended(turn: &str, unread: bool, works_below: bool) -> Chat {
+        Chat::of(&json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": if works_below { "working" } else { "done" },
+            "unread": unread,
+            "lastSeq": 20,
+            "lastTurn": {"turnId": turn, "status": "completed"},
+            "subagentsWorkingSince": if works_below { json!(1_700_000_000_000_u64) } else { Value::Null },
+        }))
+        .expect("a local chat")
+    }
+
     fn key(notice: Option<Notice>) -> Option<String> {
         notice.map(|notice| notice.key)
     }
@@ -705,6 +719,20 @@ mod tests {
             assert!(followed.is_err());
             assert!(chats.contains_key("chat-1"), "an unfinished list drops no chat");
         }
+    }
+
+    #[test]
+    fn a_turn_that_ends_while_its_subagents_run_finishes_when_they_end() {
+        // manaflow-ai/cmux#25563: the parent's turn ended unseen, its background work runs on.
+        let working = chat("working", 8);
+        let mut waiting = ended("turn-1", false, true);
+        waiting.notified_turn = working.notified_turn.clone();
+        assert!(waiting.notices(Some(&working)).is_empty(), "not done while its subagents run");
+        // The last of the work ends and acpmux marks the chat unread: now it finished.
+        let mut done = ended("turn-1", true, false);
+        done.notified_turn = waiting.notified_turn.clone();
+        let keys: Vec<_> = done.notices(Some(&waiting)).into_iter().map(|n| n.key).collect();
+        assert_eq!(keys, ["done-turn-1"]);
     }
 
     #[test]
