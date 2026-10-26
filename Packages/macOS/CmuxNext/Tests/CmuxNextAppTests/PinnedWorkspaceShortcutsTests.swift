@@ -62,4 +62,28 @@ import Testing
         #expect(reason != nil, "Home was offered a rename")
         #expect(fixture.asked().isEmpty)
     }
+
+    // MARK: Move Up/Down among Pinned's items
+
+    static let pinned = LayoutSectionID("sec_pinned")
+
+    static func layout(_ items: [String]) -> SidebarLayoutDocument {
+        SidebarLayoutDocument(sections: [
+            LayoutSection(id: pinned, region: .top, items: items.map { LayoutItem(id: LayoutItemID($0), ref: .workspace("s-local:\($0)")) }),
+            LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, content: .workspaces),
+        ])
+    }
+
+    @Test func moveStepsAmongThePinnedItems() {
+        let layout = Self.layout(["itm_a", "itm_b", "itm_c"])
+        #expect(AppActions.bandMove("itm_b", by: -1, in: layout) == SidebarDocTarget(section: "sec_pinned", before: "itm_a"))
+        #expect(AppActions.bandMove("itm_b", by: 1, in: layout) == SidebarDocTarget(section: "sec_pinned", after: "itm_c"))
+    }
+
+    @Test func moveStopsAtEitherEndAndOutsideTheBands() {
+        let layout = Self.layout(["itm_a", "itm_b"])
+        #expect(AppActions.bandMove("itm_a", by: -1, in: layout) == nil)
+        #expect(AppActions.bandMove("itm_b", by: 1, in: layout) == nil)
+        #expect(AppActions.bandMove("itm_list_row", by: 1, in: layout) == nil)
+    }
 }
