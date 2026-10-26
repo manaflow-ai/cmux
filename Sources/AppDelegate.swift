@@ -714,9 +714,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
-    /// Names the terminal whose process tree is running away, with a Stop
-    /// action, before macOS's low-memory path can take cmux down.
-    let runawayPaneWarningCenter = RunawayPaneWarningCenter()
     weak var sidebarState: SidebarState?
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
