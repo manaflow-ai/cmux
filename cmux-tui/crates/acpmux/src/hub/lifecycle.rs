@@ -617,7 +617,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(mode, "default")
+                super::start_mode::resumable_mode(mode, "default", self.full_access_allowed())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
@@ -905,15 +905,14 @@ impl Hub {
         saved: &SessionMeta,
     ) {
         let Some(sid) = session.meta().agent_session_id else { return };
+        let allowed = self.full_access_allowed();
         // A resumed chat saved in a full-access mode does not get it back while the setting is off.
         if let Some(mode) = saved
             .modes
             .as_ref()
             .and_then(|m| m.get("currentModeId"))
             .and_then(Value::as_str)
-            .filter(|mode| {
-                !super::start_mode::is_full_access(mode) || super::start_mode::full_access_allowed()
-            })
+            .filter(|mode| allowed || !super::start_mode::is_full_access(mode))
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -948,8 +947,10 @@ impl Hub {
             if value.is_null() {
                 continue;
             }
-            if value.as_str().is_some_and(super::start_mode::is_full_access)
-                && !super::start_mode::full_access_allowed()
+            if !allowed
+                && value.as_str().is_some_and(|v| {
+                    super::start_mode::option_is_full_access(&id, v, saved.config_options.as_ref())
+                })
             {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;

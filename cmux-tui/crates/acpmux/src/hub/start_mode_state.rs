@@ -12,6 +12,11 @@
 //! - the effective value when nothing forces it, for a file with no key: a
 //!   team default or an MDM recommended value, so new chats start in what
 //!   Settings shows. With the app closed it is the last value pushed.
+//! - the effective `sessions.allowFullAccess` (`allowFullAccess`,
+//!   `allowFullAccessManaged`): a forced value beats the settings file, and an
+//!   unforced one (a team default) applies to a file with no key
+//!   (`start_mode::full_access_allowed_by`). Without it, MDM turning full
+//!   access off never reached acpmux, which reads only the file.
 //! - a count of changes to the setting, for "latest choice wins": a pick
 //!   records the count and its epoch (`lastPermissionModeChange`) and wins
 //!   only while no change has been counted since. Counting changes, not
@@ -51,6 +56,12 @@ pub(crate) struct StartModeState {
     pub changes: u64,
     /// Names this count; a new one when the count starts again.
     pub epoch: String,
+    /// The `sessions.allowFullAccess` MDM or the team policy forces, as the app pushed it
+    /// (`false` for a forced value that is not a boolean). It beats the settings file.
+    pub full_access_managed: Option<bool>,
+    /// The effective `sessions.allowFullAccess` the app pushed when nothing forces it (a team
+    /// default), for a settings file with no key.
+    pub full_access_pushed: Option<bool>,
 }
 
 impl StartModeState {
@@ -117,9 +128,19 @@ impl StartModeState {
     }
 }
 
-/// The state, loaded from `start-mode.json` at first use.
+/// The state, loaded from `start-mode.json` when the hub is built (`StartModeCell::load`), so a
+/// forced `sessions.allowFullAccess` holds from the first request after a daemon restart, before
+/// the app pushes again; else at first use.
 #[derive(Default)]
 pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>);
+
+impl StartModeCell {
+    /// The state saved beside config.json (`state_file`), read now. Nothing is written until the
+    /// first update.
+    pub(super) fn load(path: Option<&Path>) -> Self {
+        Self(StdMutex::new(path.map(|p| StartModeState::load(Some(p)))))
+    }
+}
 
 /// Where the state is kept: beside config.json, if the daemon has one.
 pub(super) fn state_file(cfg: &Config) -> Option<PathBuf> {
@@ -148,6 +169,36 @@ impl Hub {
             tracing::warn!("{FILE} not saved: {e:#}");
         }
         (before, state.clone())
+    }
+
+    /// The pushed `sessions.allowFullAccess`: the forced value and the unforced effective one.
+    pub(super) fn full_access_push(&self) -> (Option<bool>, Option<bool>) {
+        let cell = self.start_mode_state.0.lock().unwrap_or_else(|e| e.into_inner());
+        cell.as_ref().map_or((None, None), |s| (s.full_access_managed, s.full_access_pushed))
+    }
+
+    /// The app's push of `sessions.allowFullAccess` (`_acpmux/chat_settings` `allowFullAccess`,
+    /// `allowFullAccessManaged`): the effective value and whether policy forces it. `None` is a
+    /// push without the key (an older app): nothing pushed. Tells watchers when what a new chat
+    /// starts in may have changed.
+    pub async fn apply_full_access_push(&self, allowed: Option<bool>, managed: bool) {
+        let (forced, pushed) = if managed { (allowed, None) } else { (None, allowed) };
+        let path = state_file(&*self.config.read().await);
+        let (before, after) = self.update_start_mode_state(path.as_deref(), |state| {
+            state.full_access_managed = forced;
+            state.full_access_pushed = pushed;
+        });
+        if before.full_access_managed != after.full_access_managed
+            || before.full_access_pushed != after.full_access_pushed
+        {
+            tracing::info!(
+                managed = ?after.full_access_managed,
+                pushed = ?after.full_access_pushed,
+                "{}: the app pushed a new value",
+                super::start_mode::ALLOW_FULL_ACCESS
+            );
+            self.start_mode_changed();
+        }
     }
 
     /// The app's push (`_acpmux/chat_settings`): the effective setting and

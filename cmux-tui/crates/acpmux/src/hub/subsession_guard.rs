@@ -277,7 +277,7 @@ impl Hub {
         // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
         // starts as a cross-family child would, at the person's start level, which is not full access.
         let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
-            && !super::start_mode::full_access_allowed();
+            && !self.full_access_allowed();
         let inherit = same_family && !capped;
         // Another family (or a capped parent): the parent's level on the child's modes
         // (`start_mode.rs`, "Inherit"), which `hold_subsession` then holds to the parent.
