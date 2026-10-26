@@ -61,8 +61,9 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// terminals today) and for the blank-pane invariant.
 ///
 /// Content in a window draws while AppKit reports the window at least partly
-/// on screen (`occlusionState` contains `.visible`); nothing here guesses
-/// visibility, and key or active state plays no part. While the window is
+/// on screen (`occlusionState` contains `.visible`), as its
+/// ``WindowVisibilitySource`` keeps it; nothing here guesses visibility, and
+/// key or active state plays no part. While the window is
 /// occluded, surfaces stop drawing (energy saving) and keep their state; when
 /// it is visible again each surface draws its current content at once
 /// (Ghostty's renderer draws on its `.visible` message).
@@ -87,9 +88,12 @@ public struct WindowDrawPolicy {
     /// Whether occluded windows draw in this launch (tests set it).
     public internal(set) static var drawsWhenOccluded = isAutomationLaunch(ProcessInfo.processInfo.environment)
 
-    /// AppKit's answer: `occlusionState` contains `.visible`. Tests replace
-    /// it to drive occlude and un-occlude transitions without a screen.
-    static var onScreen: (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) }
+    /// The window's ``WindowVisibilitySource`` (its node's own state), or the
+    /// same AppKit rule for a window that has none (a popup, a panel). Tests
+    /// replace it to drive occlude and un-occlude transitions without a screen.
+    static var onScreen: (NSWindow) -> Bool = { window in
+        WindowVisibilitySource.installed(on: window)?.isOnScreen ?? WindowVisibilitySource.appKitState(of: window).isVisible
+    }
 
     /// Whether `window` is at least partly on screen now.
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }
