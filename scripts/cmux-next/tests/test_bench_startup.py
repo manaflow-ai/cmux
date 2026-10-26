@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""bench-startup.py (p08-startup-006): percentiles, true cold (purge and its refusal), the value marks of task 007
-and 108, --require-optimized, and --order chains, on fixtures.
+"""bench-startup.py (p08-startup-006, p12-perf-process-033): perf_stats percentiles, true cold (the purge right,
+purge and their refusals), the after-reboot checks, the value marks of task 007 and 108, result-v1 series and the
+lab stories that run them, --require-optimized, and --order chains, on fixtures.
 
 Runs on any host (Linux included): no app, no fleet, no network. Launches are fakes; nothing is started.
 
@@ -12,8 +13,10 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -59,20 +62,32 @@ def bundle(folder, tag, configuration=None, debug_dylib=False, marker=False, exe
 
 
 class PercentileTests(unittest.TestCase):
-    def test_nearest_rank_percentiles(self):
+    def test_percentiles_are_perf_stats_linear_interpolation(self):
+        # p12-perf-process-033 moved from nearest rank to perf_stats.pct. Old -> new on these vectors:
+        # 1..100: p95 95 -> 95.05, p99 99 -> 99.01; 100..119: p95 118 -> 118.05, p99 119 -> 118.81. p50 is unchanged.
         values = list(range(1, 101))
-        self.assertEqual(bs.spread(values), {"p50": 50.5, "p95": 95, "p99": 99, "max": 100})
+        self.assertEqual(bs.spread(values), {"p50": 50.5, "p95": 95.05, "p99": 99.01, "max": 100})
         self.assertEqual(bs.spread([7.0]), {"p50": 7.0, "p95": 7.0, "p99": 7.0, "max": 7.0})
-        # 20 runs: p95 is the 19th value, p99 the 20th (the max), as a nearest rank reads.
         twenty = [float(v) for v in range(100, 120)]
-        self.assertEqual((bs.spread(twenty)["p95"], bs.spread(twenty)["p99"]), (118.0, 119.0))
+        self.assertAlmostEqual(bs.spread(twenty)["p95"], 118.05)
+        self.assertAlmostEqual(bs.spread(twenty)["p99"], 118.81)
+        for vector in (values, twenty, [3.0, 1.0, 2.0]):
+            self.assertEqual(bs.spread(vector)["p95"], bs.perf_stats.pct(vector, 0.95))
+
+    def test_no_private_stat_function_is_left(self):
+        source = (HERE / "bench-startup.py").read_text()
+        self.assertNotRegex(source, r"def (pct|percentile|percentiles|p95|p99|quantile|med|median|stats)\(",
+                            "MQ1: statistics come only from perf_stats")
+        self.assertNotIn("import statistics", source)
 
     def test_table_rows_have_every_percentile_in_landing_order(self):
         runs = [{"main_start": 10, "first_window_frame_committed": 150 + i, "dfl.menu": 90} for i in range(20)]
         rows = bs.table(runs)
         self.assertEqual([row[1] for row in rows], ["main_start", "dfl.menu", "first_window_frame_committed"])
         _, _, values, gap, n = rows[2]
-        self.assertEqual((values["p50"], values["p95"], values["p99"], values["max"], n), (159.5, 168, 169, 169, 20))
+        self.assertEqual((values["p50"], values["max"], n), (159.5, 169, 20))
+        self.assertAlmostEqual(values["p95"], 168.05)
+        self.assertAlmostEqual(values["p99"], 168.81)
         self.assertEqual(gap, 159.5 - 90)
 
     def test_value_marks_never_make_a_row_and_a_non_number_is_left_out(self):
@@ -195,7 +210,7 @@ class CompletionReasonTests(unittest.TestCase):
 class PurgeTests(unittest.TestCase):
     def test_a_refused_purge_is_named_and_stops_the_run(self):
         def refused(argv, **_):
-            self.assertEqual(argv, ["sudo", "-n", "purge"], "sudo -n: never a prompt")
+            self.assertEqual(argv, ["sudo", "-n", "/usr/sbin/purge"], "sudo -n: never a prompt; the sudoers command")
             return subprocess.CompletedProcess(argv, 1, "", "sudo: a password is required\n")
         code, _, err = quiet(bs.purge, refused)
         self.assertEqual(code, 2)
@@ -207,7 +222,7 @@ class PurgeTests(unittest.TestCase):
             raise FileNotFoundError(2, "No such file", "sudo")
         code, _, err = quiet(bs.purge, missing)
         self.assertEqual(code, 2)
-        self.assertIn("cannot run `sudo -n purge`", err)
+        self.assertIn("cannot run `sudo -n /usr/sbin/purge`", err)
 
     def test_a_granted_purge_returns(self):
         ok = quiet(bs.purge, lambda argv, **_: subprocess.CompletedProcess(argv, 0, "", ""))
@@ -247,18 +262,18 @@ class OneRunTests(unittest.TestCase):
         FakeLaunch.events.append("purge")
 
     def test_cold_temperature_purges_last_before_the_measured_launch(self):
-        marks = bs.one_run("t", "cold", 5, temperature="cold", purge_cache=self.purge)
+        marks = bs.one_run("t", "cold", 5, purge_cold=True, purge_cache=self.purge)
         self.assertEqual(FakeLaunch.events, ["stop", "purge", "launch", "quit"])
         self.assertEqual(marks[bs.TEMPERATURE], "cold")
 
-    def test_cold_mode_without_temperature_still_only_stops_the_daemon(self):
+    def test_cold_mode_without_purge_still_only_stops_the_daemon(self):
         bs.one_run("t", "cold", 5, purge_cache=self.purge)
         self.assertNotIn("purge", FakeLaunch.events, "--mode cold keeps its meaning: daemon stopped, no purge")
 
     def test_a_refusal_stops_before_any_launch(self):
         def refuse():
             raise bs.Refused("cold run refused: test")
-        code, _, err = quiet(bs.one_run, "t", "cold", 5, temperature="cold", purge_cache=refuse)
+        code, _, err = quiet(bs.one_run, "t", "cold", 5, purge_cold=True, purge_cache=refuse)
         self.assertEqual(code, 2)
         self.assertNotIn("launch", FakeLaunch.events)
         self.assertIn("cold run refused", err)
@@ -286,10 +301,24 @@ class OneRunTests(unittest.TestCase):
         self.assertEqual(waited[1][0], bs.STARTUP_COMPLETE)
         self.assertLessEqual(waited[1][1], 5, "within what is left of the run's one timeout")
 
-    def test_warm_temperature_purges_nothing(self):
+    def test_purge_never_runs_before_a_warm_launch(self):
         bs.tag_pids = lambda tag: [41]  # the daemon runs: no priming launch
-        bs.one_run("t", "warm", 5, temperature="warm", purge_cache=self.purge)
+        bs.one_run("t", "warm", 5, purge_cold=True, purge_cache=self.purge)
         self.assertEqual(FakeLaunch.events, ["launch", "quit"])
+
+    def test_on_reached_runs_in_the_measured_app_before_it_quits(self):
+        bs.one_run("t", "cold", 5, purge_cold=True, purge_cache=self.purge,
+                   on_reached=lambda tag: FakeLaunch.events.append(f"features {tag}"))
+        self.assertEqual(FakeLaunch.events, ["stop", "purge", "launch", "features t", "quit"])
+
+    def test_on_reached_skips_a_launch_that_never_drew(self):
+        class Unreached(FakeLaunch):
+            def wait_for(self, mark, timeout, any_of=False):
+                return False
+
+        bs.Launch = Unreached
+        quiet(bs.one_run, "t", "cold", 5, on_reached=lambda tag: FakeLaunch.events.append("features"))
+        self.assertNotIn("features", FakeLaunch.events)
 
 
 class RequireOptimizedTests(unittest.TestCase):
@@ -409,6 +438,7 @@ class ArgsTests(unittest.TestCase):
         args = bs.parse_args(BASE)
         self.assertEqual((args.temperature, args.require_optimized, args.mode, args.runs, args.order),
                          (None, False, None, 5, []))
+        self.assertEqual((args.purge, args.purge_cold, args.after_reboot, args.out), (False, False, False, None))
 
     def test_cold_temperature_needs_cold_mode_only(self):
         self.assertEqual(bs.parse_args(BASE + ["--mode", "cold", "--temperature", "cold"]).temperature, "cold")
@@ -419,6 +449,289 @@ class ArgsTests(unittest.TestCase):
 
     def test_a_tag_or_app_is_required(self):
         self.assertEqual(quiet(bs.parse_args, [])[0], 2)
+
+
+class PurgeRightTests(unittest.TestCase):
+    """Acceptance (p12-perf-process-033): without purge rights the cold story refuses with a reason before any
+    launch, and never reports warm as cold."""
+
+    def test_a_missing_right_refuses_with_sudos_reason(self):
+        def refused(argv, **_):
+            self.assertEqual(argv, ["sudo", "-n", "-l", "/usr/sbin/purge"], "-l lists the right and runs nothing")
+            return subprocess.CompletedProcess(argv, 1, "", "sudo: a password is required\n")
+        code, _, err = quiet(bs.check_purge_right, refused)
+        self.assertEqual(code, 2)
+        self.assertIn("may not run /usr/sbin/purge without a password (sudo: a password is required)", err)
+        self.assertIn("--grant-privileged", err)
+        self.assertIn("--after-reboot", err)
+
+    def test_a_silent_refusal_names_the_exit_status(self):
+        code, _, err = quiet(bs.check_purge_right, lambda argv, **_: subprocess.CompletedProcess(argv, 1, "", ""))
+        self.assertEqual(code, 2)
+        self.assertIn("(exit 1)", err)
+
+    def test_no_sudo_is_a_refusal(self):
+        def missing(argv, **_):
+            raise FileNotFoundError(2, "No such file", "sudo")
+        self.assertEqual(quiet(bs.check_purge_right, missing)[0], 2)
+
+    def test_a_granted_right_returns(self):
+        def granted(argv, **_):
+            return subprocess.CompletedProcess(argv, 0, "/usr/sbin/purge\n", "")
+        self.assertEqual(quiet(bs.check_purge_right, granted)[0], None)
+
+
+class AfterRebootTests(unittest.TestCase):
+    BOOT = "{ sec = 1000000, usec = 52 } Mon Oct 26 03:00:00 2026\n"
+
+    def setUp(self):
+        self.saved = bs.tag_pids, bs.seeded_focus
+        bs.tag_pids = lambda tag: []
+        bs.seeded_focus = lambda tag: None
+
+    def tearDown(self):
+        bs.tag_pids, bs.seeded_focus = self.saved
+
+    def check(self, uptime, profile="empty", boot=None):
+        def sysctl(argv, **_):
+            self.assertEqual(argv, ["/usr/sbin/sysctl", "-n", "kern.boottime"])
+            return subprocess.CompletedProcess(argv, 0, self.BOOT if boot is None else boot, "")
+        return quiet(bs.check_after_reboot, ["t"], profile, sysctl, lambda: 1000000 + uptime)
+
+    def test_a_fresh_boot_passes(self):
+        self.assertEqual(self.check(120)[0], None)
+
+    def test_a_long_uptime_refuses(self):
+        code, _, err = self.check(bs.AFTER_REBOOT_MAX_UPTIME_S + 1)
+        self.assertEqual(code, 2)
+        self.assertIn("after-reboot run refused: the Mac has been up", err)
+
+    def test_an_unreadable_boot_time_refuses(self):
+        code, _, err = self.check(10, boot="")
+        self.assertEqual(code, 2)
+        self.assertIn("kern.boottime is unreadable", err)
+
+    def test_a_tag_that_already_ran_refuses(self):
+        bs.tag_pids = lambda tag: [41]
+        code, _, err = self.check(10)
+        self.assertEqual(code, 2)
+        self.assertIn("tag t already ran since the boot", err)
+
+    def test_an_unseeded_realistic_profile_refuses(self):
+        code, _, err = self.check(10, profile="realistic")
+        self.assertEqual(code, 2)
+        self.assertIn("seed it with one --profile realistic run before the reboot", err)
+        bs.seeded_focus = lambda tag: bs.seed_layout()
+        self.assertEqual(self.check(10, profile="realistic")[0], None)
+
+
+class ResultSeriesTests(unittest.TestCase):
+    def test_every_result_mark_and_its_missing_runs(self):
+        runs = [{"first_window_frame_committed": 140.0 + i, "first_terminal_frame": 300.0 + i,
+                 "did_finish_launching_end": 90.0} for i in range(4)] + [{"first_window_frame_committed": 150.0}]
+        series = {metric: (unit, samples) for metric, unit, samples in bs.result_series("warm", runs)}
+        self.assertEqual(series["launch.warm.first_window_frame_committed"],
+                         ("ms", [140.0, 141.0, 142.0, 143.0, 150.0]))
+        self.assertEqual(series["launch.warm.first_terminal_frame"], ("ms", [300.0, 301.0, 302.0, 303.0]))
+        self.assertEqual(series["launch.warm.first_terminal_frame.missing_runs"], ("count", [1]))
+        self.assertEqual(series["launch.warm.sidebar_rows_shown.missing_runs"], ("count", [5]))
+        self.assertNotIn("launch.warm.sidebar_rows_shown", series, "no samples, no series")
+        self.assertNotIn("launch.warm.not_cold_runs", series)
+
+    def test_a_run_the_build_called_warm_is_never_a_cold_sample(self):
+        runs = [{"first_window_frame_committed": 280.0, bs.TEMPERATURE: "cold"},
+                {"first_window_frame_committed": 120.0, bs.TEMPERATURE: "warm"},
+                {"first_window_frame_committed": 125.0, "launch.temperature.lukewarm": 4.0},
+                {"first_window_frame_committed": 290.0},
+                {"first_window_frame_committed": 295.0, bs.TEMPERATURE: 0.0}]
+        series = {metric: samples for metric, _, samples in bs.result_series("cold", runs)}
+        self.assertEqual(series["launch.cold.first_window_frame_committed"], [280.0, 290.0, 295.0],
+                         "a named non-cold run is left out; no name, or a number, keeps the run")
+        self.assertEqual(series["launch.cold.not_cold_runs"], [2])
+        self.assertEqual(series["launch.cold.first_window_frame_committed.missing_runs"], [0])
+
+    def test_stories_and_targets(self):
+        self.assertEqual(bs.default_story("cold", "empty"), "launch-cold")
+        self.assertEqual(bs.default_story("warm", "realistic"), "launch-warm-realistic")
+        self.assertEqual(bs.default_story("cold", "empty", after_reboot=True), "launch-after-reboot")
+        self.assertEqual(bs.target_of("cold", "launch.cold.first_window_frame_committed", "empty"), "launch.cold")
+        self.assertEqual(bs.target_of("warm", "launch.warm.first_window_frame_committed", "empty"), "launch.warm")
+        self.assertIsNone(bs.target_of("cold", "launch.cold.first_window_frame_committed", "realistic"))
+        self.assertIsNone(bs.target_of("cold", "launch.cold.first_terminal_frame", "empty"))
+        self.assertIsNone(bs.target_of("restart", "launch.restart.first_window_frame_committed", "empty"))
+
+
+class FakeBenchApp:
+    made = []
+
+    def __init__(self, app, out=None, teardown=True, perf_session="light", build_config=None, run=None):
+        self.app, self.out, self.teardown, self.run = app, out, teardown, run
+        self.features = None
+        self.records = []
+        FakeBenchApp.made.append(self)
+
+    def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+        if self.features is None:
+            raise bl.RecordError("bench-launch: t has no features.list snapshot")
+        self.records.append((story, metric, unit, list(samples), better, engine, target_ref))
+        return os.path.join(self.out, f"{metric}.ndjson")
+
+
+class RecorderTests(unittest.TestCase):
+    def setUp(self):
+        self.saved = dict(bs.APPS)
+        bs.APPS["t"] = "/tmp/cmux DEV t.app"
+        FakeBenchApp.made = []
+        self.calls = []
+
+    def tearDown(self):
+        bs.APPS.clear()
+        bs.APPS.update(self.saved)
+
+    def rpc(self, path, method, params=None, timeout=60):
+        self.calls.append((path, method))
+        if len(self.calls) == 1:
+            return {"error": "connection refused", "unreachable": True}
+        return {"features": [{"name": "launch.instant", "state": "on", "source": "default"}],
+                "features_hash": "abc", "safe_mode": "off"}
+
+    def recorder(self, profile="empty", **kwargs):
+        return bs.Recorder("/tmp/out", profile, bench_app=FakeBenchApp, rpc=self.rpc, **kwargs)
+
+    def test_features_come_from_the_measured_app_once(self):
+        recorder = self.recorder()
+        recorder.read_features("t")
+        recorder.read_features("t")
+        self.assertEqual([method for _, method in self.calls], ["features.list", "features.list"],
+                         "the next socket after an unreachable one, then never again")
+        self.assertEqual(FakeBenchApp.made[0].features[0], {"launch.instant": {"state": "on", "source": "default"}})
+        self.assertFalse(FakeBenchApp.made[0].teardown, "bench-startup stops its own processes")
+
+    def test_records_name_the_story_target_and_engine(self):
+        recorder = self.recorder()
+        recorder.read_features("t")
+        written = recorder.record("t", "cold", [{"first_window_frame_committed": 250.0, "first_terminal_frame": 400.0}])
+        app = FakeBenchApp.made[0]
+        frame = next(r for r in app.records if r[1] == "launch.cold.first_window_frame_committed")
+        self.assertEqual(frame, ("launch-cold", "launch.cold.first_window_frame_committed", "ms", [250.0], "lower",
+                                 "none", "launch.cold"))
+        self.assertTrue(all(r[0] == "launch-cold" for r in app.records))
+        self.assertTrue(written["launch.cold.first_terminal_frame"].endswith(".ndjson"))
+        self.assertIs(app.run, recorder.run, "every result of the invocation names one run")
+
+    def test_a_story_override_and_the_realistic_profile(self):
+        recorder = self.recorder(profile="realistic")
+        recorder.read_features("t")
+        recorder.record("t", "warm", [{"first_window_frame_committed": 100.0}])
+        self.assertTrue(all(r[0] == "launch-warm-realistic" and r[6] is None for r in FakeBenchApp.made[0].records))
+        recorder = self.recorder(story="my-story")
+        recorder.read_features("t")
+        recorder.record("t", "warm", [{"first_window_frame_committed": 100.0}])
+        self.assertTrue(all(r[0] == "my-story" for r in FakeBenchApp.made[-1].records))
+
+    def test_no_features_writes_nothing_and_says_why(self):
+        written = self.recorder().record("t", "warm", [{"first_window_frame_committed": 100.0}])
+        self.assertTrue(all(outcome.startswith("not recorded: bench-launch: t has no features.list snapshot")
+                            for outcome in written.values()))
+        self.assertEqual(FakeBenchApp.made[0].records, [])
+        code, out, err = quiet(bs.write_results, self.recorder(),
+                               {"t": {"warm": [{"first_window_frame_committed": 1.0}]}})
+        self.assertEqual(code, 2)
+        self.assertIn("no result-v1 written to /tmp/out", err)
+        self.assertIn("result-v1 t launch.warm.first_window_frame_committed: not recorded", out)
+
+    def test_the_real_bench_app_writes_valid_result_v1(self):
+        folder = tempfile.mkdtemp(prefix="bench-startup-result-")
+        bs.APPS["t"] = bundle(folder, "t", configuration="bench", marker=True)
+        host = {"fingerprint": "0" * 64, "class": "apple-m4-16gb-120hz", "chip": "Apple M4", "macos": "26.0",
+                "macos_build": "25A100", "display_hz": 120}
+
+        def bench_app(path, **kwargs):
+            return bl.BenchApp(path, host=lambda: host, **kwargs)
+
+        saved = os.environ.get("CMUX_CI_SHA")
+        os.environ["CMUX_CI_SHA"] = "a" * 40
+        try:
+            recorder = bs.Recorder(os.path.join(folder, "out"), "empty", bench_app=bench_app, rpc=self.rpc)
+            recorder.read_features("t")
+            written = recorder.record("t", "cold", [{"first_window_frame_committed": 250.0, bs.TEMPERATURE: "cold"}])
+        finally:
+            if saved is None:
+                os.environ.pop("CMUX_CI_SHA")
+            else:
+                os.environ["CMUX_CI_SHA"] = saved
+        self.assertFalse([o for o in written.values() if o.startswith("not recorded")], written)
+        results = {r.metric: r for r in bs.perf_result.read_dir(os.path.join(folder, "out"))}
+        frame = results["launch.cold.first_window_frame_committed"]
+        self.assertEqual((frame.story, frame.samples, frame.build.config, frame.target_ref.target),
+                         ("launch-cold", [250.0], "bench", "launch.cold"))
+        self.assertEqual(results["launch.cold.not_cold_runs"].samples, [0])
+
+
+class StoryCommandTests(unittest.TestCase):
+    """Each launch story's command is a valid bench-startup command once the runner adds --app and --out, and the
+    result-v1 metrics it writes are the ones the story lists."""
+
+    STORIES = HERE.parent / "perf-lab" / "stories.d"
+
+    def stories(self):
+        found = [json.loads(path.read_text()) for path in sorted(self.STORIES.glob("launch*.json"))]
+        self.assertLessEqual({"launch-cold", "launch-cold-realistic", "launch-warm", "launch-warm-realistic",
+                              "launch-after-reboot"}, {story["id"] for story in found})
+        return found
+
+    def test_every_launch_story_runs_and_lists_its_metrics(self):
+        for story in self.stories():
+            with self.subTest(story=story["id"]):
+                self.assertEqual(story["command"][0], "scripts/cmux-next/bench-startup.py")
+                args = bs.parse_args(story["command"][1:] + BASE + ["--out", "/tmp/out"])
+                patterns = [m["name"] for m in story["metrics"]]
+                for mode in args.mode:
+                    self.assertEqual(bs.default_story(mode, args.profile, args.after_reboot), story["id"])
+                    written = [metric for metric, _, _ in bs.result_series(mode, [{}])]
+                    written += [f"launch.{mode}.{mark}" for mark in bs.RESULT_MARKS]
+                    for metric in written:
+                        self.assertTrue(any(re.fullmatch(p, metric) for p in patterns), metric)
+                    for pattern in patterns:
+                        self.assertTrue(any(re.fullmatch(pattern, metric) for metric in written), pattern)
+
+    def test_cold_stories_purge_or_follow_a_reboot(self):
+        for story in self.stories():
+            args = bs.parse_args(story["command"][1:] + BASE)
+            if "cold" in args.mode:
+                with self.subTest(story=story["id"]):
+                    self.assertTrue(args.purge_cold or args.after_reboot)
+                    self.assertEqual("privilege:purge" in story["needs"], args.purge_cold)
+                    self.assertEqual(story["tier"], "T2" if args.after_reboot else "T1")
+
+
+class ResultArgsTests(unittest.TestCase):
+    def test_purge_runs_only_before_cold_launches(self):
+        args = bs.parse_args(BASE + ["--purge"])
+        self.assertTrue(args.purge_cold)
+        self.assertEqual(args.mode, None, "--purge keeps cold and warm; only the cold launches purge")
+        self.assertTrue(bs.parse_args(BASE + ["--mode", "cold", "--temperature", "cold"]).purge_cold)
+
+    def test_an_unpurged_cold_result_is_refused(self):
+        for argv in (["--profile", "empty", "--out", "o"], ["--profile", "empty", "--mode", "cold", "--out", "o"]):
+            code, _, err = quiet(bs.parse_args, BASE + argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("result-v1 never reports it as cold", err)
+        self.assertTrue(bs.parse_args(BASE + ["--profile", "empty", "--mode", "warm", "--out", "o"]).out)
+        self.assertTrue(bs.parse_args(BASE + ["--profile", "empty", "--purge", "--out", "o"]).out)
+
+    def test_a_result_names_its_profile(self):
+        code, _, err = quiet(bs.parse_args, BASE + ["--mode", "warm", "--out", "o"])
+        self.assertEqual(code, 2)
+        self.assertIn("--out needs --profile", err)
+
+    def test_after_reboot_is_one_cold_run_without_purge(self):
+        args = bs.parse_args(BASE + ["--after-reboot"])
+        self.assertEqual((args.mode, args.runs, args.purge_cold), (["cold"], 1, False))
+        for extra in (["--mode", "warm"], ["--runs", "3"], ["--purge"], ["--temperature", "cold"]):
+            code, _, err = quiet(bs.parse_args, BASE + ["--after-reboot"] + extra)
+            self.assertEqual(code, 2, extra)
+            self.assertIn("--after-reboot", err)
 
 
 if __name__ == "__main__":
