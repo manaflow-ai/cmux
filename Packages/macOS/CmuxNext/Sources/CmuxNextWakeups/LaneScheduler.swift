@@ -48,6 +48,17 @@ import Dispatch
 /// ``raise(_:to:awaited:)`` moves a queued item up to a higher list, and gives a running one a QoS override
 /// on its slot thread until it ends (Chrome's `UpdateableSequencedTaskRunner::UpdatePriority` and
 /// `ScopedBoostablePriority`).
+///
+/// Shutdown raises block-shutdown work, as Chrome runs BLOCK_SHUTDOWN tasks "with a normal thread priority" once
+/// shutdown has started (`TaskTracker::StartShutdown` and the run policy it recomputes,
+/// base/task/thread_pool/task_tracker.cc and thread_group.cc). Chrome raises the thread, never the order of a
+/// sequence (`WorkerThread::GetDesiredThreadType`, worker_thread.cc), so after ``close()`` a
+/// ``ShutdownBehavior/blockShutdown`` item starts at `.userInitiated` from its own level, and ``close()`` raises
+/// each such item that already runs below it as ``raise(_:to:awaited:)`` does, with one ``ThreadQoSOverride`` on
+/// its thread that the item's end lifts. A `perPriority` lane keeps each block item on its level's slots, so the
+/// level keeps its width and post order and the levels still run side by side. A `shared` lane has no per-level
+/// order: there ``close()`` moves the queued block items to the user-blocking list (and one submitted later is
+/// queued there), so they may take the reserve too.
 final class LaneScheduler: Sendable {
     /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
     struct HangWatching: Sendable {
@@ -102,14 +113,16 @@ final class LaneScheduler: Sendable {
     }
 
     /// What one busy slot runs: its item, level, capped class and start (on the lane's ``MayBlockCompensation``
-    /// clock), and the overrides a raise started on it.
+    /// clock), and the overrides a raise or shutdown started on it.
     private struct Running {
         var id: UInt64
         var priority: WorkPriority
         var cap: LaneCap?
         var started: Duration
-        /// Whether a raise may boost it; only such an item records its thread.
+        /// Whether a raise or shutdown may boost it; only such an item records its thread.
         var raisable: Bool
+        /// A ``ShutdownBehavior/blockShutdown`` item, which ``close()`` raises to ``WorkPriority/userBlocking``.
+        var blockShutdown: Bool
         /// The slot thread's Mach port once a raisable item runs on it; 0 before.
         var thread: mach_port_t = 0
         /// The level a raise asked for above `priority`; nil when none did.
@@ -222,6 +235,21 @@ final class LaneScheduler: Sendable {
         var slot: Int
         var priority: WorkPriority
         var raisable: Bool
+        /// Shutdown had started when the item was claimed.
+        var closed: Bool
+
+        /// A block-shutdown item claimed after shutdown started runs at user-blocking's QoS, from any level.
+        var qos: DispatchQoS {
+            (closed && job.shutdown == .blockShutdown ? WorkPriority.userBlocking : priority).qos
+        }
+    }
+
+    /// Test seams on a slot's thread; ``none`` does nothing.
+    struct Hooks: Sendable {
+        /// Called on the slot's thread before a claimed item begins, so a test can start shutdown in between.
+        var beforeBegin: @Sendable (_ slot: Int) -> Void
+
+        static let none = Hooks(beforeBegin: { _ in })
     }
 
     let policy: Policy
@@ -234,8 +262,9 @@ final class LaneScheduler: Sendable {
     private let compensation: MayBlockCompensation?
     /// Rechecks the caps when a held low item may start because a running one passed the threshold.
     private let recheck: DemandTimer?
-    /// Starts and ends the QoS override a raise puts on a running item's slot thread.
+    /// Starts and ends the QoS override a raise or shutdown puts on a running item's slot thread.
     private let qosOverride: ThreadQoSOverride
+    private let hooks: Hooks
     /// For a `perPriority` lane, the slots of each level (by `rawValue`); empty for a `shared` lane.
     private let levelSlots: [Range<Int>]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
@@ -246,12 +275,14 @@ final class LaneScheduler: Sendable {
     ///   - compensation: on a `shared` lane whose items may block, when a low item stops counting against the
     ///     best-effort caps; nil counts it for its whole run.
     ///   - hangWatching: how each slot registers with the hang watch; nil watches nothing.
-    ///   - qosOverride: the override a raise of a running item starts; tests count its calls.
+    ///   - qosOverride: the override a raise or shutdown of a running item starts; tests count its calls.
+    ///   - hooks: test seams on the slot threads.
     init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:],
          compensation: MayBlockCompensation? = nil, hangWatching: HangWatching? = nil,
-         qosOverride: ThreadQoSOverride = .system) {
+         qosOverride: ThreadQoSOverride = .system, hooks: Hooks = .none) {
         self.policy = policy
         self.qosOverride = qosOverride
+        self.hooks = hooks
         self.mayBlock = mayBlock
         self.compensation = compensation
         recheck = compensation.map { DemandTimer(owner: "\(label).may-block", clock: $0.clock) }
@@ -297,12 +328,14 @@ final class LaneScheduler: Sendable {
     /// A `posted` item (nobody awaits it) at ``WorkPriority/idle`` or ``WorkPriority/bestEffort`` waits
     /// while a fence is up. An item of the `cap` class waits while the class runs its cap. Only a `raisable` item
     /// (a ``WorkHandle``'s) gets a QoS override when ``raise(_:to:awaited:)`` finds it running; the others skip
-    /// recording their thread.
+    /// recording their thread, except a block-shutdown item below user-blocking, which ``close()`` raises. After
+    /// ``close()`` a block-shutdown item starts at `.userInitiated`; on a `shared` lane it is queued at
+    /// ``WorkPriority/userBlocking`` (quit waits for it).
     func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil, raisable: Bool = false,
                 unless cancelled: () -> Bool) -> Submitted {
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
-            let level = priority
+            let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
             state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable))
             return (pump(&state), level)
         }
@@ -386,23 +419,43 @@ final class LaneScheduler: Sendable {
     }
 
     /// Stops taking items other than ``ShutdownBehavior/blockShutdown`` ones, lifts the best-effort
-    /// fence, and returns the pending items that shutdown drops.
+    /// fence, raises block-shutdown work to `.userInitiated` (each queued one starts at it; each running one
+    /// below it gets one override; on a `shared` lane the queued ones move to the user-blocking list, the highest
+    /// level first and in order within a level), and returns the pending items that shutdown drops. A second
+    /// call drops and raises nothing more.
     func close() -> [LaneJob] {
         let result = state.withLock { state -> (dropped: [LaneJob], starts: [Start]) in
             state.closed = true
             var dropped: [LaneJob] = []
-            for level in WorkPriority.allCases {
+            var lifted: [Entry] = []
+            for level in WorkPriority.allCases.reversed() {
                 let (keep, drop) = state.pending[level.rawValue].reduce(into: ([Entry](), [Entry]())) { split, entry in
                     if entry.job.shutdown == .blockShutdown { split.0.append(entry) } else { split.1.append(entry) }
                 }
-                state.pending[level.rawValue] = keep
                 dropped += drop.map(\.job)
+                if liftsBlockItems && level < .userBlocking {
+                    state.pending[level.rawValue] = []
+                    lifted += keep
+                } else {
+                    state.pending[level.rawValue] = keep
+                }
+            }
+            state.pending[WorkPriority.userBlocking.rawValue] += lifted
+            for slot in state.running.indices where state.running[slot]?.blockShutdown == true {
+                boost(slot, to: .userBlocking, in: &state)
             }
             return (dropped, pump(&state))
         }
         // Closing lifts the fence: block-shutdown items it held start now.
         launch(result.starts)
         return result.dropped
+    }
+
+    /// Whether shutdown moves block-shutdown items to the user-blocking list: only a `shared` lane, which keeps
+    /// no per-level order; a `perPriority` lane's levels keep their own slots (``BlockingLane/files``).
+    private var liftsBlockItems: Bool {
+        if case .shared = policy { return true }
+        return false
     }
 
     /// Raises the best-effort fence one level. Items that already run finish; posted
@@ -449,9 +502,13 @@ final class LaneScheduler: Sendable {
     /// Takes the pending item `index` at `level` and marks `slot` busy with it.
     private func claim(_ level: WorkPriority, _ index: Int, slot: Int, in state: inout State) -> Start {
         let entry = state.pending[level.rawValue].remove(at: index)
+        let blockShutdown = entry.job.shutdown == .blockShutdown
+        // A block-shutdown item that starts below user-blocking before shutdown records its thread, so close() can
+        // raise it.
+        let raisable = entry.raisable || (blockShutdown && !state.closed && level < .userBlocking)
         state.running[slot] = Running(id: entry.job.id, priority: level, cap: entry.cap, started: state.now,
-                                      raisable: entry.raisable)
-        return Start(job: entry.job, slot: slot, priority: level, raisable: entry.raisable)
+                                      raisable: raisable, blockShutdown: blockShutdown)
+        return Start(job: entry.job, slot: slot, priority: level, raisable: raisable, closed: state.closed)
     }
 
     /// Sets the recheck timer to the next threshold crossing when that is earlier than the one it is set to.
@@ -475,7 +532,8 @@ final class LaneScheduler: Sendable {
 
     private func launch(_ starts: [Start]) {
         for start in starts {
-            slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
+            slots[start.slot].async(qos: start.qos, flags: .enforceQoS) { [self] in
+                hooks.beforeBegin(start.slot)
                 if start.raisable { began(slot: start.slot) }
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
