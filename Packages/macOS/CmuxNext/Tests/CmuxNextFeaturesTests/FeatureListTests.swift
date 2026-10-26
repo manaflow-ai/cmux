@@ -208,6 +208,22 @@ struct FeatureListTests {
         #expect(FeatureRegistry().features == Feature.registered)
     }
 
+    /// A daemon whose launch filters what it inherits (a Team-signed acpmux spawn) gets the app's
+    /// overridden daemon features, and only those: app features and channel defaults stay out.
+    @Test func theDaemonEnvironmentCarriesOnlyOverriddenDaemonFeatures() {
+        let overrides = FeatureOverrides(policyDisabled: ["killThing"], environment: [
+            FeatureOverrides.enableVariable: "leftoverDaemonIdleExit,perfThing",
+        ])
+        let list = FeatureList(registry: FeatureRegistry(), channel: .release, overrides: overrides)
+        #expect(list.isEnabled(.leftoverDaemonIdleExit))
+        #expect(list.daemonEnvironment == [FeatureOverrides.enableVariable: "leftoverDaemonIdleExit"])
+        let none = FeatureList(registry: FeatureRegistry(), channel: .release)
+        #expect(none.daemonEnvironment.isEmpty)
+        let disabled = FeatureList(registry: FeatureRegistry(), channel: .release, overrides: FeatureOverrides(
+            policyDisabled: ["leftoverDaemonIdleExit"], environmentEnabled: ["leftoverDaemonIdleExit"]))
+        #expect(disabled.daemonEnvironment == [FeatureOverrides.disableVariable: "leftoverDaemonIdleExit"])
+    }
+
     // MARK: Early reads
 
     @Test func aReadBeforeInstallIsRecordedAndAnswersTheDefault() {

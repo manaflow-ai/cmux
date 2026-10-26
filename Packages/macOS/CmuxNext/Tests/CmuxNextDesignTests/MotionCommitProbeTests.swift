@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextDesign
 import Foundation
 import Testing
@@ -10,6 +11,10 @@ import Testing
 @Suite(.serialized) struct MotionCommitProbeTests {
     final class FakeClock {
         var time: CFTimeInterval = 100
+    }
+
+    @MainActor final class AlphaLog {
+        var atCommit: [CGFloat] = []
     }
 
     @Test func eachCommitIsRecordedInMilliseconds() {
@@ -59,5 +64,42 @@ import Testing
         _ = MotionDebug.handle(["action": "stop"], windows: [], commitProbe: probe)
         #expect(!probe.isRunning)
         #expect(!MotionTrace.isEnabled)
+    }
+
+    /// p03-rendering-068: a popup's open forced a commit (`CATransaction.flush` in `openPopup`) so the
+    /// card's first frame (opacity 0) reached the screen before the window turned opaque. The window
+    /// now turns opaque right after the run loop's own commit of the open's turn: at Core Animation's
+    /// commit order (one after the probe's `beforeOrder`) it is still clear, and before the run loop
+    /// waits it is opaque, so the card shows in the frame of the key that opened it, with no flash and
+    /// no extra commit.
+    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await PopupGrowMotionTests.queuesAnimations() })
+    func aPopupTurnsOpaqueRightAfterTheCommitOfItsOpensTurn() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 300, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = try #require(window.contentView)
+        content.wantsLayer = true
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+        defer { window.resetPopupScale(); window.orderOut(nil) }
+        try #require(window.screen != nil)
+
+        let log = AlphaLog()
+        let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
+        let commit = CFRunLoopObserverCreateWithHandler(nil, activities, false, MotionCommitProbe.beforeOrder + 1) { _, _ in
+            // main-proof: the observer is added to the main run loop only (below).
+            MainActor.assumeIsolated { log.atCommit.append(window.alphaValue) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), commit, .commonModes)
+        defer { CFRunLoopObserverInvalidate(commit) }
+
+        window.openPopup(pivot: CGPoint(x: 150, y: 200))
+        #expect(window.alphaValue == 0, "the window turned opaque before the card's first frame was committed")
+        PopupGrowMotionTests.commitTurn()
+
+        #expect(log.atCommit.first == 0, "the commit of the open's turn ran with the window already opaque")
+        #expect(window.alphaValue == 1, "the popup did not show in the frame of its open's turn")
     }
 }

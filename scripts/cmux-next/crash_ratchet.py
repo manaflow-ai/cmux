@@ -102,8 +102,19 @@ crash-allow does not waive it; only an "allow" entry {path, class, count, reason
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
 
+REPORT-ONLY classes (--report CLASS[,CLASS]; plans/cmux-next/chrome-parity/p10-stability.md, implementer rule 1):
+counted over every package's Sources and printed as JSON {class: {"total": N, "modules": {module: hits}}}, never
+compared, never in crash-safety-baseline.json, and never read by the CI compare mode (no flag, --baseline-against,
+--update-baseline). A crash-allow does not hide a hit from the report. guardrails.py refuses new hits before a push
+(local only).
+    raw_continuation  with(Checked|Unsafe)(Throwing)?Continuation: a raw continuation traps on a second resume
+                      and leaks its task when dropped. Use CmuxSafeConcurrency's withOnceContinuation /
+                      withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which
+                      implements them, is not counted
+
 Usage: crash_ratchet.py [--repo ROOT] [--exported-tree]
                         [--update-baseline [--record-waivers] [--base REF] | --baseline-against BASE_TREE]
+       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS]
 Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseline, when
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
@@ -139,6 +150,14 @@ SWIFT = {
     "unchecked": re.compile(r"nonisolated\(unsafe\)|@unchecked\s+Sendable"),
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
+}
+# Report-only classes (--report): counted for the report, never in the baseline or the CI compare. Each class's
+# scope is every package's Sources less REPORT_OWNERS[class], the package that implements its safe replacement.
+REPORT_SWIFT = {
+    "raw_continuation": re.compile(r"\bwith(?:Checked|Unsafe)(?:Throwing)?Continuation\b"),
+}
+REPORT_OWNERS = {
+    "raw_continuation": ("Packages/Shared/CmuxSafeConcurrency/",),
 }
 ASYNC_DEFAULT = re.compile(
     r"\w+\s*:\s*(?:@\w+(?:\([^)]*\))?\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b[^=]*?=\s*\{")
@@ -673,6 +692,61 @@ def scan_swift(repo, scan, exported):
                     scan.add(is_allowed, "swift", kind, rel, line, hits)
 
 
+def package_sources(repo, exported):
+    """Every Swift file under a package's Sources (Packages/**/Sources/**/*.swift), relative to REPO, sorted:
+    the report-only classes' scope, wider than the ratchet's app closure. vendor/ is outside Packages/."""
+    root = os.path.join(repo, "Packages")
+    if not os.path.isdir(root):
+        return []
+    files = (os.path.relpath(path, repo) for path in tracked_files(repo, root, exported))
+    return sorted(rel for rel in files
+                  if rel.endswith(".swift") and "Sources" in rel.split(os.sep)[:-1])
+
+
+def report_owned(kind, rel):
+    """Whether REL (relative to the repo) is in the package that implements KIND's safe replacement."""
+    return rel.replace(os.sep, "/").startswith(REPORT_OWNERS.get(kind, ()))
+
+
+def report_counts(repo, exported, kinds):
+    """{class: {module: hits}} of the report-only KINDS over package_sources(), each class outside its owner.
+    Comment lines and string contents never count (swift_code); a crash-allow does not hide a hit."""
+    counts = {kind: {} for kind in kinds}
+    for rel in package_sources(repo, exported):
+        path = os.path.join(repo, rel)
+        judged = [kind for kind in kinds if not report_owned(kind, rel)]
+        if not judged or not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().split("\n")
+        module = module_of(rel)
+        for line in lines:
+            if line.lstrip().startswith("//"):
+                continue
+            code = swift_code(line)
+            for kind in judged:
+                hits = len(REPORT_SWIFT[kind].findall(code))
+                if hits:
+                    counts[kind][module] = counts[kind].get(module, 0) + hits
+    return counts
+
+
+def report(repo, exported, names):
+    """Prints the report-only classes NAMES (comma-separated) as JSON; exit 0 (it judges nothing), 2 for an
+    unknown class."""
+    kinds = [name for name in (part.strip() for part in names.split(",")) if name]
+    unknown = [kind for kind in kinds if kind not in REPORT_SWIFT]
+    if unknown or not kinds:
+        print(f"crash-ratchet: unknown report class {', '.join(unknown) or '(none)'}; report classes: "
+              f"{', '.join(sorted(REPORT_SWIFT))}", file=sys.stderr)
+        return 2
+    counts = report_counts(repo, exported, kinds)
+    out = {kind: {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
+           for kind, modules in counts.items()}
+    print(json.dumps(out, indent=2, sort_keys=True))
+    return 0
+
+
 def load_allowlist():
     if not os.path.exists(ALLOWLIST):
         return {"banned": [], "allow": []}
@@ -1038,7 +1112,14 @@ def main():
                         help="judge this baseline against BASE_TREE's (an exported tree); no tree check")
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
+    parser.add_argument("--report", metavar="CLASS[,CLASS]",
+                        help="print these report-only classes' counts per module as JSON ("
+                        + ", ".join(sorted(REPORT_SWIFT)) + "); compares nothing")
     opts = parser.parse_args()
+    if opts.report is not None:
+        if opts.update_baseline or opts.record_waivers or opts.base or opts.baseline_against:
+            parser.error("--report only reports: it does not go with --update-baseline, --base or --baseline-against")
+        return report(opts.repo, opts.exported_tree, opts.report)
     updating = opts.update_baseline or opts.record_waivers
     if opts.base and not updating:
         parser.error("--base goes with --update-baseline or --record-waivers")

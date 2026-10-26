@@ -27,6 +27,33 @@ nonisolated enum PageSharedChunks {
         Bundle.module.url(forResource: "_shared", withExtension: nil, subdirectory: "pages")
     }
 
+    /// The shared folder of a web-dev.json overlay (``WebDevOverride/overlay``), beside its pages.
+    static let overlayFolder = "pages/_shared"
+
+    /// The Debug override of the shared folder (`CMUX_NEXT_PAGE_ROOT_cmux_shared`, the page roots'
+    /// variable for this host), else nil: the `pages/_shared` of the build whose page a
+    /// `CMUX_NEXT_PAGE_ROOT_<id>` override loads (agent-stream-e2e.py passes both per variant).
+    static var debugRoot: URL? {
+        #if DEBUG
+        let name = "CMUX_NEXT_PAGE_ROOT_" + PageID.sharedHost.replacingOccurrences(of: ".", with: "_")
+        guard let path = ProcessInfo.processInfo.environment[name], !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+        #else
+        return nil
+        #endif
+    }
+
+    /// The folders a shared file is read from, in order, each once: the live overlay's
+    /// (``overlayFolder``), the Debug override (``debugRoot``), the active web update's copy of the
+    /// bundled folder, the bundled folder. A chunk's name is its content hash, so a name is one file in
+    /// every folder that holds it: a page from an overlay or another build gets its own chunks, and a
+    /// bundled page still gets the bundled ones.
+    static func roots(overlay: URL?, debug: URL?, update: URL, bundled: URL) -> [URL] {
+        let candidates = [overlay?.appending(path: overlayFolder, directoryHint: .isDirectory), debug, update, bundled]
+        var seen: Set<String> = []
+        return candidates.compactMap { $0 }.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
     /// Whether `url` is at the shared origin.
     static func isShared(_ url: URL?) -> Bool {
         guard let url else { return false }

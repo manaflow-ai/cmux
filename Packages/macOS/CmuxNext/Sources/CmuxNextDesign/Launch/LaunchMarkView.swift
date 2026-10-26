@@ -79,6 +79,7 @@ public final class LaunchMarkView: NSView {
 
     /// Resolves the mark in with `style` (`Motion.revealLaunchMark`).
     public func reveal(_ style: LaunchMarkStyle = LaunchMarkStyle.tunable.value) {
+        // sync-layout: revealLaunchMark animates the mark's layers from the paths layout() sets.
         layoutSubtreeIfNeeded()
         revealedStyle = style
         Motion.panes.revealLaunchMark(style, mark: mark, outline: outline, body: body)

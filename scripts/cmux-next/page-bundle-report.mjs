@@ -36,6 +36,7 @@
 //   node scripts/cmux-next/page-bundle-report.mjs --pages /tmp/pages # build-pages-web.sh --out /tmp/pages
 //   ... --agent-pane DIR --agent-activity DIR --webviews-app DIR     # one tree from elsewhere
 //   ... --json                                                       # the same report as JSON
+//   ... --baseline BASE.json   # also each document's total JS and requests against a --json report of the base
 //
 // Exits 0 when every cap holds, 1 when one fails or a document is missing, 2 on a usage error.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -380,6 +381,41 @@ function table(rows) {
   return [format(header), ...lines.map(format)].join("\n");
 }
 
+/**
+ * Each document measured in both `baseline` (a --json report's documents) and `rows`: its total
+ * first-load JS and request count there and here, and whether either grew.
+ */
+export function compareWithBaseline(baseline, rows) {
+  const before = new Map(baseline.filter((row) => !row.missing).map((row) => [row.name, row]));
+  return rows
+    .filter((row) => !row.missing && before.has(row.name))
+    .map((row) => {
+      const base = before.get(row.name);
+      const baseBytes = base.ownBytes + base.sharedBytes;
+      const bytes = row.ownBytes + row.sharedBytes;
+      return {
+        name: row.name,
+        baseBytes,
+        bytes,
+        baseRequests: base.requests,
+        requests: row.requests,
+        grew: bytes > baseBytes || row.requests > base.requests,
+      };
+    });
+}
+
+function comparisonTable(comparison) {
+  const kb = (bytes) => (bytes / KB).toFixed(1);
+  const lines = comparison.map((row) => [
+    row.name,
+    `${kb(row.baseBytes)} -> ${kb(row.bytes)} KB (${row.bytes - row.baseBytes >= 0 ? "+" : ""}${row.bytes - row.baseBytes} B)`,
+    `${row.baseRequests} -> ${row.requests} requests`,
+    row.grew ? "GREW" : "",
+  ]);
+  const widths = [0, 1, 2].map((i) => Math.max(...lines.map((line) => line[i].length)));
+  return lines.map((line) => line.map((cell, i) => (i < 3 ? cell.padEnd(widths[i]) : cell)).join("  ").trimEnd()).join("\n");
+}
+
 /** Measures every document of the given trees; `sections` as findings() takes it. */
 export function report(trees, names, sections = settingsSections()) {
   const sharedDir = join(trees.pages, "_shared");
@@ -389,11 +425,17 @@ export function report(trees, names, sections = settingsSections()) {
 }
 
 function parseArgs(argv) {
-  const options = { root: REPO, json: false, overrides: {} };
+  const options = { root: REPO, json: false, overrides: {}, baseline: undefined };
   const flags = { "--pages": "pages", "--agent-pane": "agentPane", "--agent-activity": "agentActivity", "--webviews-app": "webviewsApp" };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
+    else if (arg === "--baseline") {
+      const value = argv[i + 1];
+      if (!value) throw new UsageError("--baseline needs a --json report");
+      options.baseline = resolve(value);
+      i += 1;
+    }
     else if (arg === "--root" || arg in flags) {
       const value = argv[i + 1];
       if (!value) throw new UsageError(`${arg} needs a directory`);
@@ -414,11 +456,16 @@ function main(argv) {
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
     console.error(`error: ${error.message}`);
-    console.error("usage: page-bundle-report.mjs [--root DIR] [--pages DIR] [--agent-pane DIR] [--agent-activity DIR] [--webviews-app DIR] [--json]");
+    console.error(
+      "usage: page-bundle-report.mjs [--root DIR] [--pages DIR] [--agent-pane DIR] [--agent-activity DIR] [--webviews-app DIR] [--json] [--baseline BASE.json]",
+    );
     return 2;
   }
   const trees = Object.fromEntries(Object.entries(TREES).map(([key, path]) => [key, options.overrides[key] ?? join(options.root, path)]));
   const result = report(trees, pageNames());
+  if (options.baseline) {
+    result.baseline = compareWithBaseline(JSON.parse(readFileSync(options.baseline, "utf8")).documents, result.documents);
+  }
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
     return result.pass ? 0 : 1;
@@ -430,6 +477,12 @@ function main(argv) {
       `requests <= ${CAPS.requests} (every page and the agent pane); one React URL; Settings first load: navigation and one section`,
   );
   for (const finding of result.findings) console.log(`FAIL ${finding}`);
+  if (result.baseline) {
+    const grew = result.baseline.filter((row) => row.grew).map((row) => row.name);
+    console.log(`against ${options.baseline}: total first-load JS and requests`);
+    console.log(comparisonTable(result.baseline));
+    console.log(grew.length ? `baseline: ${grew.join(", ")} grew` : "baseline: no document grew");
+  }
   console.log(result.pass ? "D8: pass" : `D8: FAIL (${result.findings.length} findings)`);
   return result.pass ? 0 : 1;
 }

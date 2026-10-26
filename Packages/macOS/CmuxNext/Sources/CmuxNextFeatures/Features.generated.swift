@@ -511,6 +511,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
+    public static let leftoverDaemonIdleExit = Feature(
+        index: 28,
+        name: "leftoverDaemonIdleExit",
+        owner: "PL-memory",
+        description: "The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.",
+        kind: .perfPath,
+        process: .daemon,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
     public static let memoryAcpmuxPressure = Feature(
         index: 29,
@@ -1497,6 +1514,7 @@ nonisolated extension Feature {
         .intentPrewarmHover,
         .intentPrewarmPress,
         .ipcMethodLatencyFieldData,
+        .leftoverDaemonIdleExit,
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
@@ -1585,6 +1603,7 @@ nonisolated extension Feature {
         .intentPrewarmHover,
         .intentPrewarmPress,
         .ipcMethodLatencyFieldData,
+        .leftoverDaemonIdleExit,
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
