@@ -146,7 +146,7 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-12vcpu-macos-26/ { saw_blacksmith=1 }
+  in_prepare && /blacksmith-6vcpu-macos-26/ { saw_blacksmith=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
@@ -388,7 +388,7 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly(, pick-nightly-sign-runner)?\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
   # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
@@ -1373,7 +1373,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
@@ -1387,7 +1387,7 @@ for expected in \
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do

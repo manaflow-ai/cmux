@@ -84,6 +84,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -299,16 +300,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        which @ (Command::Status | Command::DaemonStart { .. }) => {
+        which @ (Command::Status { .. } | Command::DaemonStart { .. }) => {
             let start = matches!(which, Command::DaemonStart { .. });
+            let show_token = match &which {
+                Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
+                    *show_token
+                }
+                _ => false,
+            };
             // A keyed start (cx-0q7o, D2): the daemon must be the one this
             // command starts, with the key from the app's own exec.
             #[cfg(unix)]
-            if let Command::DaemonStart { person_key_fd: Some(fd) } = &which {
+            if let Command::DaemonStart { person_key_fd: Some(fd), .. } = &which {
                 crate::daemon::start_keyed(*fd).await?;
             }
             #[cfg(not(unix))]
-            if let Command::DaemonStart { person_key_fd: Some(_) } = &which {
+            if let Command::DaemonStart { person_key_fd: Some(_), .. } = &which {
                 return Err(crate::platform::unsupported("--person-key-fd"));
             }
             match connect(start).await {
@@ -339,12 +346,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "policy:   {}",
                         v.get("permissionPolicy").and_then(Value::as_str).unwrap_or("")
                     );
-                    println!(
-                        "web:      {}",
-                        v.get("webUrl").and_then(Value::as_str).unwrap_or("-")
-                    );
+                    let url = v.get("webUrl").and_then(Value::as_str);
+                    println!("web:      {}", web_line(url, show_token));
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
+                    }
+                    let login = match &v["loginSession"] {
+                        Value::Bool(here) => Some(Some(*here)),
+                        Value::String(s) if s == "unknown" => Some(None),
+                        _ => None,
+                    };
+                    let own = v.get("ownHome").and_then(Value::as_bool).unwrap_or(true);
+                    if let Some(line) =
+                        login.and_then(|l| crate::daemon::login_placement::keychain_line(l, own))
+                    {
+                        println!("{line}");
                     }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
@@ -422,11 +438,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Peer(cmd) => {
+        // No daemon connection: the update must work while the daemon does not.
+        Command::Host(PeerCmd::SelfUpdate { channel }) => {
+            crate::cli::hosts::self_update(&channel, json_out).await
+        }
+        Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
+                    let has_token = token.is_some();
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -434,7 +455,70 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
                     p["wait"] = json!(true);
-                    client.request("_acpmux/peer_add", p).await?
+                    let reply = client.request("_acpmux/peer_add", p).await?;
+                    let connected = reply
+                        .get("peers")
+                        .and_then(Value::as_array)
+                        .and_then(|peers| {
+                            peers.iter().find(|peer| {
+                                peer.get("name").and_then(Value::as_str) == Some(name.as_str())
+                            })
+                        })
+                        .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
+                        .unwrap_or(false);
+                    let warning = if !connected {
+                        let host = url
+                            .strip_prefix("ssh://")
+                            .unwrap_or(&url)
+                            .split(':')
+                            .next()
+                            .unwrap_or(&name);
+                        let (message, warning) = if url.starts_with("ssh://") && has_token {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else if url.starts_with("ssh://") {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": "acpmux host ls",
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        };
+                        if !json_out {
+                            eprintln!("warning: {message}");
+                        }
+                        Some(warning)
+                    } else {
+                        None
+                    };
+                    let mut reply = reply;
+                    if let Some(warning) = warning {
+                        reply["warning"] = warning;
+                    }
+                    reply
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Status { name } => {
@@ -459,10 +543,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port } => {
-                    return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
+                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                    let auto = !no_auto_update;
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                        .await;
                 }
-                PeerCmd::Update { name, all, binary_dir, if_idle } => {
+                // Dispatched before the connect (above); kept here so the
+                // match stays total without a panic.
+                PeerCmd::SelfUpdate { channel } => {
+                    return crate::cli::hosts::self_update(&channel, json_out).await;
+                }
+                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
                         Ok(session) if if_idle && !session.is_empty() => {
@@ -473,18 +564,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         }
                         _ => None,
                     };
-                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle, caller };
+                    let opts = crate::cli::hosts::UpdateOptions {
+                        binary_dir,
+                        if_idle,
+                        keep_newer,
+                        caller,
+                    };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
-                    let plan = crate::cli::host_enroll::Plan {
-                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                    let plan = crate::cli::host_enroll::Plan::enroll(
                         host,
-                        port: crate::peer::SSH_PEER_PORT,
+                        name,
                         harnesses,
                         remote_binary,
                         reverse,
-                    };
+                    );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
                 PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
@@ -558,10 +653,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::UniichatAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
-        | Command::Harness(_)
-        | Command::Host(_) => {
+        | Command::Harness(_) => {
             unreachable!()
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
+    }
+}
+
+/// The `web:` line of `daemon status` and `daemon start`: the Web UI link
+/// without its bearer token unless `show_token` (ergo-walk2, 2026-10-25: a
+/// terminal, a screen share or a pasted log is no place for it).
+fn web_line(url: Option<&str>, show_token: bool) -> String {
+    let Some(url) = url else { return "-".into() };
+    if show_token {
+        return url.to_owned();
+    }
+    match url.split_once("?token=") {
+        Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
+        None => url.to_owned(),
     }
 }

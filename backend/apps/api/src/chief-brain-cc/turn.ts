@@ -14,6 +14,7 @@ import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
 import { wakeCall } from "./wake.ts"
+import { autoCall } from "./jobs.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -86,6 +87,14 @@ tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RAN
 change it for this machine at once and for your next turns.
 Timers: \`chief-wake SECONDS "note"\` (30 s to 24 h) wakes you later with "[wake] note" as a new turn; \`chief-wake
 list|clear\`. Use it to come back to something (a sign-in code that ends, a deploy) instead of waiting.
+Jobs: when the person asks for something recurring or triggered ("every morning", "each Friday", "when
+GitHub calls this URL"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN is a 5-field cron,
+\`webhook\` or \`manual\`; PROMPT is the whole task, it is all a later run sees). Each run posts "[job ID] PROMPT"
+here as your own note and starts a turn in the cloud while the person's computers sleep: do the job then and post
+the result in this chat. \`chief-auto ls|run ID|rm ID\`. Say in one line what you made and when it next runs.
+Paid plans: when a step answers \`automation.plan.required\` (or \`cloud.plan.required\`, or credits ran out), send
+the person one line: what the plan adds and its price, with its "checkout" link as a Markdown link; nothing is
+charged until they pay on that page. Never say you bought or upgraded anything, and send it once per ask.
 Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
 \`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
 .claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
@@ -245,27 +254,35 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
   try {
     if (!vm) {
       const name = vmName(env)
+      // Nothing below the create depends on the VM until the boot: the tailnet key, the turn token, the Chief's GitHub login and its tool
+      // files are asked for while the machine is made (each was a serial round trip on the first-token path). A failure surfaces where the
+      // value is used; the catch only keeps a rejection that lands before then from being unhandled.
+      const keyP = mintTailnetKey(env)
+      const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles()])
+      keyP.catch(() => undefined)
+      prepP.catch(() => undefined)
       vm = await createVm(env, name, { agent, conversation, run: id })
       writeConfig(b.sql, { [`cc_vm:${id}`]: vm })
       mark("vm")
-      const key = await mintTailnetKey(env)
-      const boot = await execRoot(env, vm, `/opt/chief-cc/boot.sh ${name}`, key, BOOT_MS)
+      const providerP = vmNetwork(env, vm)
+      providerP.catch(() => undefined)
+      const boot = await execRoot(env, vm, `/opt/chief-cc/boot.sh ${name}`, await keyP, BOOT_MS)
       if (boot.exit !== 0 || !boot.stdout.includes("ready")) throw new CcError(`the turn machine did not join the network (exit ${boot.exit})`)
       // The agent stays closed (boot.sh) until the Chief's network settings are applied here.
       const net = readNet(cfgOf(b, "cc_net"))
-      // The current `chief-vm` first (it ships with the Worker, not the snapshot), then the network settings.
-      const applied = await execRoot(env, vm, "bash -s", enc.encode(`${toolsScript()}\n${netScript(net)}`), 30_000)
+      // The current `chief-vm` first (it ships with the Worker, not the snapshot), then the network settings; the attachments the input
+      // names (pasted screenshots, files) are written meanwhile, where its lines say, before the agent starts.
+      const [applied, staged] = await Promise.all([
+        execRoot(env, vm, "bash -s", enc.encode(`${toolsScript()}\n${netScript(net)}`), 30_000),
+        stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
+      ])
       if (applied.exit !== 0 || !applied.stdout.includes("net ok")) throw new CcError(`the turn machine's network settings did not apply (exit ${applied.exit})`)
       mark("vm_ready")
-      // The attachments the input names (pasted screenshots, files), written where its lines say, before the agent starts.
-      const staged = await stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
       if (staged.written > 0) mark("attachments")
       const missingNote = staged.missing.length > 0 ? `\n\n[attachment files not available in this turn: ${staged.missing.map((m) => `${m.path} (${m.why})`).join("; ")}]` : ""
-      const token = await notesToken(env, agent, conversation, id)
+      const [token, github, toolFiles] = await prepP
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
-      // The Chief's own GitHub login (github.ts), else the deployment's shared token until it signs in.
-      const github = await githubOf(env, agent).ccGithubTurn(agent)
       const input = {
         notes_url: `${origin}/v1/chief-cc/${agent}/${conversation}/notes`,
         token,
@@ -274,10 +291,10 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
         prompt: "",
         max_ms: RUN_MS,
         net,
-        provider: await vmNetwork(env, vm),
+        provider: await providerP,
         // The agent user's tools: written as its files by chief-turn-runner (root) before Claude Code starts. The Chief's own
         // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
-        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
+        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), toolFiles),
         github_token: github.token ?? env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
       input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
@@ -397,6 +414,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
   // The Chief's `chief-wake` (wake.ts): a timer on this conversation that starts a turn later.
   if (typeof action === "string" && action.startsWith("wake_")) return wakeCall(b, b.turnConversation ?? "", body.vm)
+  // The Chief's `chief-auto` (jobs.ts): its scheduled and triggered jobs, each run a turn of this conversation.
+  if (typeof action === "string" && action.startsWith("auto_")) return autoCall(b, b.turnConversation ?? "", body.vm)
   // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
   if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`

@@ -1,5 +1,5 @@
 import { resolveVmProvisioningAccountScope, runAfterResponse, withAuthedVmApiRoute } from "../../../services/vms/routeHelpers";
-import { runError, runJson, jsonBodyObject } from "../../../services/runs/http";
+import { runError, runJson, jsonBodyObject, RunRequestError } from "../../../services/runs/http";
 import { requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
 import { ALLOWED_RUN_RECIPES, type RunRoutingRequest } from "../../../services/runs/model";
@@ -22,11 +22,11 @@ type ParsedProviderRouting = {
 };
 
 function parseProviderRouting(body: Record<string, unknown>): ParsedProviderRouting | Response {
-  if (body.provider !== undefined && body.provider !== "cloud-vm") return runJson({ error: "run_provider_invalid", message: "The MVP provider is cloud-vm." }, 400);
+  if (body.provider !== undefined && body.provider !== "cloud-vm") return runError(new RunRequestError("run_provider_invalid", "The MVP provider is cloud-vm.", "Set provider to cloud-vm and retry."));
   const routingBody = jsonBodyObject(body.routing);
   const requestedProvider = routingBody?.requestedProvider;
   if (requestedProvider !== undefined && requestedProvider !== "freestyle" && requestedProvider !== "huge-blue" && requestedProvider !== "unknown") {
-    return runJson({ error: "run_provider_invalid", message: "routing.requestedProvider must be freestyle, huge-blue, or unknown." }, 400);
+    return runError(new RunRequestError("run_provider_invalid", "routing.requestedProvider must be freestyle, huge-blue, or unknown.", "Set routing.requestedProvider to freestyle, huge-blue, or unknown and retry."));
   }
   return {
     provider: "cloud-vm",
@@ -41,10 +41,10 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   const recipe = typeof body.recipe === "string" ? body.recipe.trim() : "";
   const desiredAttempts = typeof body.desiredAttempts === "number" && Number.isSafeInteger(body.desiredAttempts)
     ? body.desiredAttempts : 1;
-  if (!/^[0-9a-f]{40}$/i.test(commit)) return runJson({ error: "run_source_required", message: "source.commit must be a 40-character immutable commit SHA." }, 400);
-  if (!repository || repository.length > 512) return runJson({ error: "run_source_required", message: "source.repository is required." }, 400);
-  if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runJson({ error: "run_recipe_required", message: "recipe must be an allowlisted internal recipe." }, 400);
-  if (desiredAttempts < 1 || desiredAttempts > 32) return runJson({ error: "run_attempts_invalid", message: "desiredAttempts must be between 1 and 32." }, 400);
+  if (!/^[0-9a-f]{40}$/i.test(commit)) return runError(new RunRequestError("run_source_required", "source.commit must be a 40-character immutable commit SHA.", "Provide a 40-character commit SHA and retry."));
+  if (!repository || repository.length > 512) return runError(new RunRequestError("run_source_required", "source.repository is required.", "Provide source.repository and retry."));
+  if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runError(new RunRequestError("run_recipe_required", "recipe must be an allowlisted internal recipe.", "Choose an allowlisted recipe and retry."));
+  if (desiredAttempts < 1 || desiredAttempts > 32) return runError(new RunRequestError("run_attempts_invalid", "desiredAttempts must be between 1 and 32.", "Set desiredAttempts between 1 and 32 and retry."));
   const providerRouting = parseProviderRouting(body);
   if (providerRouting instanceof Response) return providerRouting;
   return {
@@ -69,28 +69,18 @@ export async function POST(request: Request): Promise<Response> {
       } catch {
         body = null;
       }
-      if (!body) return runJson({ error: "run_invalid_request", message: "Run body must be a JSON object." }, 400);
+      if (!body) return runError(new RunRequestError("run_invalid_request", "Run body must be a JSON object.", "Send a JSON object and retry."));
       const parsed = parseCreateRunBody(body);
       if (parsed instanceof Response) return parsed;
       const idempotencyKey = request.headers.get("idempotency-key")?.trim() || request.headers.get("x-cmux-idempotency-key")?.trim() || "";
-      if (!idempotencyKey || idempotencyKey.length > 128) return runJson({ error: "run_idempotency_required", message: "Idempotency-Key is required for Run creation." }, 400);
+      if (!idempotencyKey || idempotencyKey.length > 128) return runError(new RunRequestError("run_idempotency_required", "Idempotency-Key is required for Run creation.", "Add an Idempotency-Key header and retry."));
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
       if (parsed.routing.requestedProvider === "huge-blue") {
-        return runJson({
-          error: "run_provider_unavailable",
-          reasonCode: "adapter_not_configured",
-          message: "The Huge Blue Run adapter is not configured for this deployment.",
-          retryable: false,
-        }, 409);
+        return runError(new RunRequestError("run_provider_unavailable", "The Huge Blue Run adapter is not configured for this deployment.", "Choose the freestyle provider and retry.", 409, { reasonCode: "adapter_not_configured" }));
       }
       if (parsed.routing.requestedProvider === "unknown") {
-        return runJson({
-          error: "run_provider_invalid",
-          reasonCode: "provider_unknown",
-          message: "The requested Run provider is not recognized.",
-          retryable: false,
-        }, 400);
+        return runError(new RunRequestError("run_provider_invalid", "The requested Run provider is not recognized.", "Choose a supported Run provider and retry.", 400, { reasonCode: "provider_unknown" }));
       }
       try {
         const admitted = await createRunWithAllocationAdmission({

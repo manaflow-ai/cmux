@@ -983,16 +983,16 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
+            cwd_pin: crate::cwd_pin::CwdPin::current(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
             Ok(child) => return Ok(child),
             Err(e) => e,
         };
-        // A host that started but did not answer (a wedged or dead host:
-        // its hello missed `link::connect`'s budget) is ended and one fresh
-        // host takes its place, once. A remote-origin chain is not started
-        // again: its sandbox canary proves only the start it preceded.
+        // A host that started but did not answer (a wedged or dead host: its hello missed the
+        // `link::connect` budget) is ended and one fresh host takes its place, once; never for a
+        // remote-origin chain, whose sandbox canary proves only the start it preceded.
         let Some(failed) = first.started else { return Err(internal(first.error)) };
         let ended = self.end_unanswered_host(session, &failed, &first.error).await;
         if !ended || meta.remote_origin {

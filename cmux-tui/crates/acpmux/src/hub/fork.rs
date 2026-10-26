@@ -239,7 +239,11 @@ impl Hub {
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
-            mode_set_by_cmux: None,
+            // A mode cmux set on the chat stays cmux's on its fork, which runs it too; the fork's
+            // agent gets the mark back once it is put in that mode (`restore_mode_mark`).
+            mode_set_by_cmux: parent_meta.mode_set_by_cmux.clone().filter(|mode| {
+                crate::web_modes::mode_of(&parent_meta).as_deref() == Some(mode.as_str())
+            }),
             modes: parent_meta
                 .modes
                 .clone()
@@ -261,6 +265,9 @@ impl Hub {
             event_count: 0,
             turn_count,
             usage: None,
+            context_breakdown: None,
+            // The account's limits, which the fork shares.
+            usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
             permission_rules: None,
@@ -314,6 +321,8 @@ impl Hub {
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
+        // The fork copies transcript records, never the parent's reported Git branch.
+        self.restore_git_branch(&new, new.meta().git_branch);
         self.sessions.lock().unwrap().insert(id.clone(), new.clone());
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.

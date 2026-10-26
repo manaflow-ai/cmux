@@ -13,6 +13,9 @@ public import Foundation
 ///   from a click-free site; `auto: true` (the page loading it without a click) never spends one.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
 ///   (``AgentPaneMediaGrants``). Passive.
+/// - `video.info {src}`: an attached video's length, size, poster and key frames
+///   (``AgentPaneVideoInfo``), for a chat on this Mac. Passive.
+/// - `video.quickLook {src}`: plays that video in Quick Look. Spends a user gesture.
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
@@ -30,11 +33,15 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
+///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
+///   only and never starts a read: its links are read in batches when it registers them.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
     case loadImage(String, auto: Bool)
     case loadMedia(String)
+    case videoInfo(String)
+    case quickLookVideo(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
     case revealImage(src: String, name: String, path: String?)
@@ -44,12 +51,13 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case quickLookImage(src: String, name: String)
     case dragImage(src: String, name: String)
     case dragFile(String)
-    case inspectPullRequest(URL)
+    case inspectPullRequest(URL, cached: Bool = false)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
+        "video.info", "video.quickLook",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
@@ -59,6 +67,8 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "link.openPath": ["path"],
         "image.load": ["src", "auto"],
         "media.load": ["src"],
+        "video.info": ["src"],
+        "video.quickLook": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
         "image.reveal": ["src", "name", "path"],
@@ -68,7 +78,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.quickLook": ["src", "name"],
         "image.drag": ["src", "name"],
         "file.drag": ["path"],
-        "pr.inspect": ["url"],
+        "pr.inspect": ["url", "cached"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -100,8 +110,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
-        case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile: false
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .inspectPullRequest: true
+        case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
+             .dragFile: false
         }
     }
 
@@ -139,6 +150,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "media.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadMedia(src)
+        case "video.info", "video.quickLook":
+            guard let src = text("src", AgentPaneReplyPaths.maximumLength) else { return nil }
+            self = method == "video.info" ? .videoInfo(src) : .quickLookVideo(src)
         case "browser.list":
             self = .listBrowsers
         case "browser.openIn":
@@ -169,7 +183,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             }
         case "pr.inspect":
             guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
-            self = .inspectPullRequest(url)
+            let cached = params["cached"].map { $0 as? Bool } ?? false
+            guard let cached else { return nil }
+            self = .inspectPullRequest(url, cached: cached)
         default:
             return nil
         }

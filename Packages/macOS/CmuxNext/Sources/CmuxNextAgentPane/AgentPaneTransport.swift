@@ -100,6 +100,9 @@ import CmuxNextCompat
     /// The workspace's agent-home folder: a root once it exists, and the cwd of a `session/new`
     /// that names none when there is no ``primaryRoot`` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     public var agentHome: @MainActor () -> AgentHomeFill? = { nil }
+    /// The pane's cmux workspace key on this Mac's daemon, stamped on each local `session/new`
+    /// (``AcpmuxPathPolicy/Scope/workspaceID``); nil for none or a workspace of another machine.
+    public var workspaceID: @MainActor () -> String? = { nil }
     /// The user's home folder: never a root or a filled cwd unless the user added it
     /// (``addedRoots``), so an inherited or default `~` never opens the whole home folder.
     public var homeFolder: String? = NSHomeDirectory()
