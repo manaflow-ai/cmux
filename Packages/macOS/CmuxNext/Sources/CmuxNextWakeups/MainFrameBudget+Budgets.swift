@@ -38,10 +38,11 @@ extension MainFrameBudget {
         /// display, commit) stays under it: past 4 ms of render, the scheduled work gets less.
         public var passTarget: Duration = .milliseconds(8)
 
-        /// The budget of `workClass`; nil for the unbudgeted classes.
+        /// The budget of `workClass`; nil for the unbudgeted classes (idle work has a deadline per
+        /// idle period instead, ``IdleDeadline``).
         public func budget(_ workClass: MainWorkClass) -> Duration? {
             switch workClass {
-            case .input, .frame: nil
+            case .input, .frame, .idle: nil
             case .visible: visible
             case .automation: automation
             case .background: background

@@ -93,6 +93,11 @@ public final class FrameScheduler: NSObject {
     /// Told when the display link comes and goes (the ``MainWorkScheduler``: its link's ticks own
     /// the budget's window, and render passes are timed only while it runs).
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
+    /// Told after each display-link frame with its timestamp and refresh period (the
+    /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
+    /// millisecond before the next vsync). Synthesized (stalled) frames have no vsync and are not
+    /// reported.
+    var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
     private let clock: any Clock<Duration>
@@ -161,6 +166,9 @@ public final class FrameScheduler: NSObject {
 
     /// A display link exists (only while clients are active).
     public var hasLink: Bool { link != nil }
+
+    /// A budgeted client still has work queued: it stays in the round-robin until it goes idle.
+    var hasBudgetedWork: Bool { !budgetedOrder.isEmpty }
 
     // MARK: Clients
 
@@ -291,6 +299,7 @@ public final class FrameScheduler: NSObject {
         stalls = 0
         deliver(timestamp: timestamp, refreshInterval: refreshInterval)
         if clients.isEmpty { pause() } else { armStall() }
+        if let timestamp, let refreshInterval, link != nil { onLinkFrame?(timestamp, refreshInterval) }
     }
 
     private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)

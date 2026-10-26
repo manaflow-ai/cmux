@@ -47,7 +47,8 @@ public final class MainFrameBudget {
     public let budgets: Budgets
     public private(set) var stats = Stats()
     private let input: any InputPendingSource
-    private let uptimeNanos: () -> UInt64
+    /// The clock (`CLOCK_UPTIME_RAW` nanoseconds); the ``IdleScheduler`` reads the same one.
+    let uptimeNanos: () -> UInt64
     private let signposts: Bool
     // Frame window.
     private var windowStart: UInt64 = 0
@@ -156,7 +157,12 @@ public final class MainFrameBudget {
     /// pending, on idle time the other classes left; never once the frame's scheduled work reached
     /// its limit (``Budgets/total``, lowered by an expensive last render pass). A refusal is
     /// counted: the caller keeps the task for the next frame.
+    ///
+    /// ``MainWorkClass/idle`` may run while no input is pending: the ``IdleScheduler`` asks before
+    /// each idle task and ends its idle period on a refusal. Its deadline, not a frame share,
+    /// bounds it.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
+        if workClass == .idle { return !inputPending(uptimeNanos()) }
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
@@ -294,7 +300,7 @@ public final class MainFrameBudget {
 
     private static func index(_ workClass: MainWorkClass) -> Int? {
         switch workClass {
-        case .input, .frame: nil
+        case .input, .frame, .idle: nil
         case .visible: 0
         case .automation: 1
         case .background: 2

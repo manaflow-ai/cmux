@@ -18,6 +18,9 @@ public import QuartzCore
 /// comes back): each class has one FIFO queue here, and the board names the posting site of the
 /// task it runs.
 ///
+/// Idle work (``MainWorkClass/idle``) is posted with ``postIdle(owner:maxDelay:node:file:line:_:)``
+/// and runs in the ``idle`` scheduler's idle periods, each task with a deadline.
+///
 /// ```swift
 /// // The composition root:
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
@@ -38,50 +41,115 @@ public final class MainWorkScheduler {
     /// The display-link scheduler the budgeted clients tick on (the main screen's); the daemon
     /// services' drains are frame clients on it, so they tick before the budgeted classes.
     public let frames: FrameScheduler
+    /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
+    public let idle: IdleScheduler
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
-    private let renderPasses: RenderPassMeter?
+    private var renderPasses: RenderPassMeter?
+    /// The next vsync after the last link frame (`CLOCK_UPTIME_RAW` nanoseconds), until that
+    /// frame's render pass ends: a short idle period may run before it.
+    private var nextVsyncNanos: UInt64?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
     ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///   Idle periods use an unposted precise run-loop timer; a long one waits until no scheduler's
+    ///   display link runs (``FrameScheduler/all``).
     public convenience init(budget: MainFrameBudget) {
-        let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
-        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
+        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget),
+                  idleTimer: MainRunLoopPreciseTimer(), ledger: .shared,
+                  otherFramesActive: { FrameScheduler.all.contains { $0.hasLink } }, measuresRenderPasses: true)
     }
 
-    private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
+    private init(budget: MainFrameBudget, frames: FrameScheduler, idleTimer: any IdlePeriodTimer, ledger: WakeupLedger,
+                 otherFramesActive: @escaping @MainActor () -> Bool, measuresRenderPasses: Bool) {
         self.budget = budget
         board = budget.board
         self.frames = frames
-        self.renderPasses = renderPasses
+        idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherFramesActive: otherFramesActive)
+        if measuresRenderPasses {
+            renderPasses = RenderPassMeter { [weak self] nanos in self?.renderPassEnded(nanos: nanos) }
+        }
         // The link's ticks own the budget's window while it exists; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }
             self.budget.tickOwnsWindow = exists
-            if exists { self.renderPasses?.start() } else { self.renderPasses?.stop() }
+            if exists {
+                self.renderPasses?.start()
+            } else {
+                self.renderPasses?.stop()
+                self.nextVsyncNanos = nil
+            }
+            self.idle.framesChanged(running: exists)
         }
+        frames.onLinkFrame = { [weak self] timestamp, refreshInterval in
+            // CACurrentMediaTime's timebase is CLOCK_UPTIME_RAW's, in seconds.
+            self?.nextVsyncNanos = UInt64(max(0, timestamp + refreshInterval) * 1_000_000_000)
+        }
+        idle.promote = { [weak self] owner, site, body in self?.post(.background, owner: owner, site: site, body) }
     }
 
     /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
-    /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
+    /// and render passes reach the budget and the idle scheduler only through ``renderPassEnded(nanos:)``.
     ///
     /// - Parameters:
     ///   - budget: The budget (tests inject its clock and input source).
     ///   - clock: The stall deadline's clock.
-    ///   - ledger: Where frames are recorded.
+    ///   - ledger: Where frames and idle period timer fires are recorded.
+    ///   - idleTimer: The idle period timer (tests: a fake fired by hand).
+    ///   - otherFramesActive: Whether a frame client ticks on another scheduler (holds long idle periods).
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
-                               ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
+                               ledger: WakeupLedger = .shared, idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
+                               otherFramesActive: @escaping @MainActor () -> Bool = { false },
+                               makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),
-                          renderPasses: nil)
+                          idleTimer: idleTimer, ledger: ledger, otherFramesActive: otherFramesActive, measuresRenderPasses: false)
     }
 
     /// One display frame (the link's tick; tests call it directly).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         frames.frameDidFire(timestamp: timestamp, refreshInterval: refreshInterval)
+    }
+
+    /// One render pass of the main run loop ended (the ``RenderPassMeter``; tests call it after a
+    /// frame): it is charged to the next frame's budget, and when it followed a link frame, a short
+    /// idle period may run until 1 ms before the next vsync.
+    ///
+    /// - Parameter nanos: The pass's length.
+    public func renderPassEnded(nanos: UInt64) {
+        budget.noteRenderPass(nanos: nanos)
+        guard let vsync = nextVsyncNanos else { return }
+        nextVsyncNanos = nil
+        idle.frameRendered(nextVsyncNanos: vsync, budgetedWorkHeld: frames.hasBudgetedWork)
+    }
+
+    /// Queues `body` for the main thread's idle time (``MainWorkClass/idle``): a long idle period
+    /// after 50 ms of quiet, or a short one between a frame's render pass and the next vsync. It
+    /// gets the period's ``IdleDeadline``; pending input ends the period, and a task posted from an
+    /// idle task waits for the next one. Never inline.
+    ///
+    /// - Parameters:
+    ///   - owner: The task's owner in the board, the watchdog's records and signposts.
+    ///   - maxDelay: When set, a task that has not run by then runs as ``MainWorkClass/background``
+    ///     work with ``IdleDeadline/didTimeout`` set. Nil (the default): it waits for idle time.
+    ///   - node: The node of the thing the task is for: its periods stop 10 s after the node is
+    ///     hidden and resume on show; the task is dropped when the node is released.
+    ///   - file: The posting file (leave the default).
+    ///   - line: The posting line (leave the default).
+    ///   - body: The task.
+    public func postIdle(owner: String, maxDelay: Duration? = nil, node: VisibilityNode? = nil, file: StaticString = #fileID,
+                         line: UInt = #line, _ body: @escaping @MainActor (IdleDeadline) -> Void) {
+        idle.post(owner: taskOwner(owner), site: MainPostSite(file: file, line: line), maxDelay: maxDelay, node: node, body)
+    }
+
+    /// ``postIdle(owner:maxDelay:node:file:line:_:)`` with an owner already interned on this
+    /// scheduler's board (``MainTaskBoard/owner(_:)``).
+    public func postIdle(owner: MainTaskOwner, maxDelay: Duration? = nil, node: VisibilityNode? = nil, file: StaticString = #fileID,
+                         line: UInt = #line, _ body: @escaping @MainActor (IdleDeadline) -> Void) {
+        idle.post(owner: owner, site: MainPostSite(file: file, line: line), maxDelay: maxDelay, node: node, body)
     }
 }

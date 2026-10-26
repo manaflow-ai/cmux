@@ -285,7 +285,7 @@ import Testing
         let expected: WorkPriority = switch workClass {
         case .input, .frame: .userBlocking
         case .visible: .userVisible
-        case .automation, .background: .bestEffort
+        case .automation, .background, .idle: .bestEffort
         }
         #expect(WorkPriority(workClass) == expected)
         #expect(WorkPriority(WorkPriority(workClass).taskPriority) == expected)
