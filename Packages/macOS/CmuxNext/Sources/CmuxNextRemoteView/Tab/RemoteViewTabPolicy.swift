@@ -26,7 +26,14 @@ public struct RemoteViewTabPolicy {
         if source == .remoteTree { return .unavailable(.remoteRecord) }
         guard let record else { return .unavailable(.invalidAddress) }
         guard paneAvailable else { return .unavailable(.notInThisBuild) }
-        guard isLoopback(record.host) else { return .unavailable(.notLoopback(host: record.host)) }
+        if record.vncPort != nil {
+            // An RFB host authenticates the viewer itself (its own password),
+            // so the phase-1 loopback rule does not apply; its stream is not
+            // encrypted, so it stays on private networks.
+            guard isPrivateNetwork(record.host) else { return .unavailable(.notPrivateNetwork(host: record.host)) }
+        } else {
+            guard isLoopback(record.host) else { return .unavailable(.notLoopback(host: record.host)) }
+        }
         guard source == .person else {
             // A confirmed tab starts in view mode; control is the person's toggle.
             var view = record
@@ -34,6 +41,40 @@ public struct RemoteViewTabPolicy {
             return .confirm(view)
         }
         return .connect(record)
+    }
+
+    /// Where a VNC tab may connect: loopback, the tailnet (100.64.0.0/10 and
+    /// `*.ts.net` names), private IPv4 (10/8, 172.16/12, 192.168/16), link-local
+    /// `*.local` names, and single-label names (resolved by the LAN or
+    /// MagicDNS search domain, never by public DNS).
+    public func isPrivateNetwork(_ host: String) -> Bool {
+        if isLoopback(host) { return true }
+        let lower = host.lowercased()
+        if let octets = ipv4Octets(lower) {
+            switch (octets[0], octets[1]) {
+            case (10, _), (192, 168): return true
+            case (172, 16...31): return true
+            case (100, 64...127): return true
+            default: return false
+            }
+        }
+        if lower.hasSuffix(".ts.net") || lower.hasSuffix(".local") { return true }
+        // A dotless all-digit or 0x name is a numeric IPv4 address to the
+        // resolver (134744072 is 8.8.8.8), not a LAN name.
+        if lower.utf8.allSatisfy({ (0x30...0x39).contains($0) }) || lower.hasPrefix("0x") { return false }
+        return !lower.contains(".")
+    }
+
+    /// The four octets of a dotted IPv4 address (no leading zeros), else nil.
+    private func ipv4Octets(_ host: String) -> [UInt8]? {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+        let octets = parts.compactMap { part -> UInt8? in
+            guard (1...3).contains(part.count), part.utf8.allSatisfy({ (0x30...0x39).contains($0) }),
+                  part.count == 1 || part.first != "0" else { return nil }
+            return UInt8(part)
+        }
+        return octets.count == 4 ? octets : nil
     }
 
     /// `mock`, `local`, `localhost` (any case) or a dotted IPv4 address in

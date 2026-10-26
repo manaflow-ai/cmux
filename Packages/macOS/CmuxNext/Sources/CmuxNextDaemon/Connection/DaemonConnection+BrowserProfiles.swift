@@ -3,10 +3,10 @@ public import Foundation
 /// Browser profile records in the home session (`browser-profiles-v1`).
 /// Each wrapper throws `missingCapabilities` on a daemon without it.
 extension DaemonConnection {
-    public var supportsBrowserProfiles: Bool { identity?.supports(DaemonCapabilities.shared.browserProfiles) == true }
+    public var supportsBrowserProfiles: Bool { identity?.supports(DaemonCapability.browserProfiles.rawValue) == true }
 
     private func requireBrowserProfiles() throws {
-        guard supportsBrowserProfiles else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.browserProfiles]) }
+        guard supportsBrowserProfiles else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
     }
 
     @discardableResult

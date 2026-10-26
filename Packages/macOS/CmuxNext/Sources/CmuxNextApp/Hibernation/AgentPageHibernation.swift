@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextWakeups
 import os

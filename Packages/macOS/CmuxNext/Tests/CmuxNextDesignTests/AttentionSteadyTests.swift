@@ -1,6 +1,7 @@
 import QuartzCore
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The opt-in steady ring (blink is the default style) is clearly visible and arrives with
 /// one short soft pulse (Leo, 2026-10-14: the steady ring settled at the old faint resting

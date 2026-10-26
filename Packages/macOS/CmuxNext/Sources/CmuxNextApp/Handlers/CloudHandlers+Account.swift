@@ -30,6 +30,7 @@ extension CloudHandlers {
             }
             run("new cloud workspace", context) {
                 if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+                RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
             }
         }
     }
@@ -44,7 +45,7 @@ extension CloudHandlers {
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy) },
-            open: { session in try await firstWorkspace(on: session, context) },
+            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
@@ -72,17 +73,17 @@ extension CloudHandlers {
         bind("palette.auth.signOut", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
             run("sign out", context) { await cloud.signOut() }
         }
-        // Team Picker lists the teams as a Cmd-Shift-P step, the current one marked (its `team`
-        // argument); the shortcut and the Settings row open that step too.
+        // Switch Active Team lists the teams as a Cmd-Shift-P step, the current one marked (its `team`
+        // argument); the shortcut opens that step too. The switch goes through ActiveTeam, like
+        // every other surface (Settings > Accounts has its own team menu).
         bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { invocation in
-            let teams = cloud.auth.teams
+            let active = cloud.auth.activeTeam, teams = active.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
             guard let id = invocation["team"]?.stringValue, let team = teams.first(where: { $0.id == id || $0.displayName == id }) else {
                 throw ActionFailure.invalidTarget(CloudStrings.noSuchTeam(invocation["team"]?.stringValue ?? ""))
             }
-            guard team.id != cloud.auth.teamID else { return }
-            cloud.auth.selectTeam(team.id)
-            run("switch team", context) { await cloud.refresh() }
+            guard team.id != active.id else { return } // the active team is a no-op
+            run("switch team", context) { try await active.select(team.id) }
         }
         let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in

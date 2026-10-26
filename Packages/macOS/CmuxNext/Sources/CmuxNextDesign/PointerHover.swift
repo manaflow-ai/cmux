@@ -113,7 +113,7 @@ public final class PointerHover: NSObject {
 
     // MARK: The pointer
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`, tests): the pointer synthesized per window, in
     /// window coordinates (`point` nil: outside the window), and where the
     /// real mouse was then. A window with a synthesized pointer ignores the
@@ -243,7 +243,7 @@ private final class KeyWindowObserver {
                 MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
             })
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A closed window's synthesized pointer must not pass to a new window
         // that reuses its address.
         tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
