@@ -23,6 +23,7 @@ import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
 import { agentsHandlers } from "./handlers/agents.ts";
+import { clientSessionsHandlers } from "./handlers/client-sessions.ts";
 import type { AgentStore } from "./db/agents.ts";
 import { runAgentReaper, type ReapReport } from "./agents/reaper.ts";
 import type { TeamAdmin } from "./auth/team-admin.ts";
@@ -106,6 +107,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
     Layer.provide(authenticated(agentsHandlers)),
+    Layer.provide(authenticated(clientSessionsHandlers)),
     Layer.provide(authenticated(meshHandlers)),
     Layer.provide(authenticated(overlayServerHandlers)),
     Layer.provide(overlayServerDeviceHandlers),

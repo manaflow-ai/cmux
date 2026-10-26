@@ -478,6 +478,32 @@ is useless without it. Only the identity id is stored
 `DELETE /v1/vms/{vmId}/client-sessions/{sessionId}`, deletes the identity, which
 revokes the token and grant.
 
+The response also carries `tokenId`, the id of that first token. The rest of
+a session's life (the provider CLI's `identity` commands; cx-b4h.6), all
+`vm:exec`, all reaching only sessions on VMs the credential reaches:
+
+| route | does |
+| --- | --- |
+| `GET /v1/client-sessions` | the team's live sessions on live VMs, by id (`limit` up to 200, `cursor`); allowlisted, service and agent keys see only their VMs' sessions |
+| `GET /v1/vms/{vmId}/client-sessions/{sessionId}` | one live session (id, Linux user, created) |
+| `PUT /v1/vms/{vmId}/client-sessions/{sessionId}/linux-user` | `{ "linuxUser": "cmux" }` replaces the grant's one Linux user, for existing tokens too; never a list, never unrestricted |
+| `GET …/{sessionId}/tokens` | the session's live tokens, ids only |
+| `POST …/{sessionId}/tokens` | one more token, shown once, with `ssh`, `providerVmId` and `apiBaseUrl` like the first |
+| `DELETE …/{sessionId}/tokens/{tokenId}` | revokes one token; the session and its other tokens stay |
+
+A token id is `vct_` plus the first 128 bits of SHA-256 over a fixed label,
+the provider identity id and the provider token id
+(`src/upstream/live-client-session-tokens.ts`): stable without being stored,
+naming no provider id. Token routes read the provider's token list, so a token
+minted before `tokenId` existed is listed and revocable too. A session's one
+VM permission is the session itself: listing and reading permissions is
+reading the session, revoking it is revoking the session. Nothing here needs a
+migration.
+
+To SSH with a session: `ssh <ssh.user>@<ssh.host>`, entering `token` as the
+password (`ssh.user` is `<providerVmId>+<linuxUser>`). Clients take host and
+user from the response; they never hard-code the provider's host.
+
 Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
