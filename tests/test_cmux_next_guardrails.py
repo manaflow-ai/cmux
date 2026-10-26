@@ -878,14 +878,25 @@ class SyncLayoutRuleTests(Fixture):
                 self.assertEqual(self.refused_lines(),
                                  [("sync-layout", ["Forced.swift: view.layoutSubtreeIfNeeded()"])])
 
-    def test_comments_strings_lookalikes_and_tests_are_not_forced_passes(self):
-        self.write(f"{KIT}/Mentions.swift",
-                   "// call layoutSubtreeIfNeeded() only in the frame\n"
-                   "let note = \"CATransaction.flush() and view.display()\"\n"
+    def test_comment_and_string_mentions_need_the_reason_as_dc11_counts_them(self):
+        # DC11's `rg -n` reads the raw line, so a mention in a comment or a string grows MQ-sync-layout too.
+        comment = "// call layoutSubtreeIfNeeded() only in the frame"
+        string = "let note = \"CATransaction.flush() and view.display()\""
+        self.write(f"{KIT}/Mentions.swift", f"{comment}\n{string}\n")
+        self.commit("mentions in a comment and a string")
+        self.assertEqual(self.refused_lines(),
+                         [("sync-layout", [f"Mentions.swift: {comment}", f"Mentions.swift: {string}"])])
+        self.write(f"{KIT}/Mentions.swift", f"{comment} // sync-layout: names the call\n"
+                                             f"// sync-layout: names the calls\n{string}\n")
+        self.commit("annotated mentions")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_deferred_invalidations_lookalikes_and_tests_are_not_forced_passes(self):
+        self.write(f"{KIT}/Deferred.swift",
                    "func f() {\n    view.needsLayout = true\n    view.needsDisplay = true\n    model.displayName()\n}\n")
         self.write(f"{PKG}/Tests/CmuxNextKitTests/ForcedTests.swift",
                    "func test() {\n    view.layoutSubtreeIfNeeded()\n    CATransaction.flush()\n}\n")
-        self.commit("mentions, a deferred invalidation and a test")
+        self.commit("a deferred invalidation, a lookalike and a test")
         self.assertEqual(self.refused_lines(), [])
 
     def test_base_debt_is_not_new_and_an_edit_of_it_adds_none(self):

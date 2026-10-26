@@ -1956,9 +1956,10 @@ RULES = (
 # per display refresh (plans/cmux-next/chrome-parity/p03-rendering.md R4, DC11). Blink names the reason of every
 # forced lifecycle update (`Document::UpdateStyleAndLayout(DocumentUpdateReason)`,
 # third_party/blink/renderer/core/dom/document.cc); here the reason is the `// sync-layout: <why>` comment, on the
-# hit's line or the line directly above it, the same pattern and window as render-done-checks.py's MQ-sync-layout
-# queue and DC11, so a push that passes this rule never grows that queue. Added lines only, base debt per file as
-# the other line rules; a fault in the rule turns off only it (check()'s fail open per rule).
+# hit's line or the line directly above it, the same pattern, window and raw line text (comments and strings too,
+# as its `rg -n` reads them) as render-done-checks.py's MQ-sync-layout queue and DC11, so a push that passes this
+# rule never grows that queue. Added lines only, base debt per file as the other line rules; a fault in the rule
+# turns off only it (check()'s fail open per rule).
 # The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
 SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
 SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
@@ -1973,7 +1974,7 @@ SYNC_LAYOUT_RULES = (
          "result (a measured size before a window opens, a snapshot), say why on the line or the line directly "
          "above",
          "// sync-layout: <why this turn needs the layout now>",
-         matcher_rule(Matcher(SYNC_LAYOUT, SYNC_LAYOUT_ALLOW, window=ratchet.allow_lines))),
+         matcher_rule(Matcher(SYNC_LAYOUT, SYNC_LAYOUT_ALLOW, code=lambda text: text, window=ratchet.allow_lines))),
 )
 RULES += SYNC_LAYOUT_RULES
 # ---------------------------------------------------------------- end of sync-layout (p03-rendering-066)
