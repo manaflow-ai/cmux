@@ -116,11 +116,15 @@ impl LocalStore {
                 (true, archive.map(|a| a.join(id).join(format!("{}", now_ms()))))
             }
         };
+        // The nearest folder above the pass's that was there before it: every one from the pass's
+        // up to it is synced before any segment is replaced.
+        let mut existed = None;
         if let Some(archive) = &archive {
             // Owner-only, as the chat's own folder is.
             if archive.exists() {
                 anyhow::bail!("archive folder {} already exists", archive.display());
             }
+            existed = archive.ancestors().skip(1).find(|dir| dir.is_dir()).map(Path::to_path_buf);
             std::fs::create_dir_all(archive.parent().unwrap_or(archive))?;
             crate::config::private_state_dir(archive)?;
             crate::config::private_state_dir(&archive.join("events"))?;
@@ -181,11 +185,15 @@ impl LocalStore {
             }
         }
         // The copies are on disk before any segment is replaced, and so is every folder that
-        // names them: the pass's, the chat's (`<archive>/<id>`) and the archive's own.
+        // names them: each one from the pass's up to the first that was there before the pass,
+        // whose entry for the first one it made is synced too.
         if let Some(archive) = &archive {
             sync_directory(&archive.join("events"))?;
-            for dir in archive.ancestors().take(3) {
+            for dir in archive.ancestors().filter(|dir| !dir.as_os_str().is_empty()) {
                 sync_directory(dir)?;
+                if existed.as_deref() == Some(dir) {
+                    break;
+                }
             }
         }
         Ok(Some(staged))

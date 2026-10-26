@@ -224,7 +224,7 @@ fn archive_mode_keeps_the_old_segments() {
     let (home, store) = Home::new();
     chat(&store, "c1");
     let original = bytes(&store, "c1");
-    let archive = home.0.join("archive");
+    let archive = home.0.join("backup").join("archive");
     let mode = CompactMode::Write { archive: Some(&archive) };
     let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
     assert!(store.commit_compaction("c1", staged).unwrap());
