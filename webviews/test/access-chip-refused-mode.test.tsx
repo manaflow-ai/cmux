@@ -227,6 +227,36 @@ test("an answer without the managed field leaves full access as it was", async (
   expect(picked).toEqual(["bypassPermissions"]);
 });
 
+test("an older answer that arrives after a newer ask failed does not change full access", async () => {
+  // Managed off, then two asks across a push: the newer one fails (the socket closed) and the
+  // older one (from before the push) answers without the field. Only the newest ask counts, so
+  // the rows stay managed.
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  let releaseOlder: (reply: unknown) => void = () => undefined;
+  const replies: (() => Promise<unknown>)[] = [
+    () => new Promise((done) => (releaseOlder = done)),
+    () => Promise.reject(new Error("the socket closed")),
+  ];
+  let asked = 0;
+  (client as unknown as { request: () => Promise<unknown> }).request = () => replies[asked++]!();
+  let older: Promise<unknown> = Promise.resolve();
+  await act(async () => {
+    older = client.startMode("claude", "/Users/dev/project");
+    await client.startMode("claude", "/Users/dev/project").catch(() => undefined);
+  });
+  await act(async () => {
+    releaseOlder({ harness: "claude", modeId: "default" });
+    await older;
+  });
+  await render(reported("s1", "default"), () => undefined);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+});
+
 test("an older answer that arrives after a newer one does not change full access", async () => {
   // Two asks in flight (a probe, then a push's new generation): the newer says managed off, the
   // older (from before the push) arrives last and must not turn the rows back on.

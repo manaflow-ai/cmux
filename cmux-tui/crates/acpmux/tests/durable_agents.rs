@@ -2014,6 +2014,43 @@ async fn a_retained_full_access_host_ends_once_mdm_turns_full_access_off() {
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
 }
 
+/// #23322 review: the same, for a harness that declares no modes and moved itself into full access
+/// (`bypassPermissions`) while the daemon allowed it: the next daemon, under MDM's off, reads that
+/// mode back from the log and ends the host instead of adopting it.
+#[tokio::test]
+async fn a_retained_host_that_moved_itself_into_full_access_ends_once_mdm_turns_it_off() {
+    let mut daemon = Daemon::new("mdmoffself", "ask");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}}}, "defaultHarness": "fake", "permissionPolicy": "ask"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let moved = json!({"sessionId": session, "prompt": [{"type": "text", "text": "set-mode: bypassPermissions"}]});
+    rpc.call("session/prompt", moved).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    let state = daemon.home.join("start-mode.json");
+    let mut recorded: Value = std::fs::read(&state)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    recorded["fullAccessManaged"] = json!(false);
+    std::fs::write(&state, recorded.to_string()).unwrap();
+    daemon.start();
+
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted an agent that had moved itself into full access"
+    );
+}
+
 /// #23322 review: the same, for a host whose record this build cannot read (another record
 /// version): it is not adopted, and under the managed off it ends too (its nonce proves it).
 #[tokio::test]
