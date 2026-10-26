@@ -137,9 +137,11 @@ public final class MainThreadWatchdog: Sendable {
     private let mainWakeCount = Atomic<UInt64>(0)
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
-    /// Work gaps of 100 ms and up and of 250 ms and up (``StallCounts``), counted on the main thread.
-    private let gaps100 = Atomic<UInt64>(0)
-    private let gaps250 = Atomic<UInt64>(0)
+    /// Work gaps of 100 ms and up (low 32 bits) and of 250 ms and up (high 32 bits) (``StallCounts``), counted on
+    /// the main thread. One word, so one add counts a gap in both and a read or a reset is never half done.
+    private let stallPair = Atomic<UInt64>(0)
+    static let stallPair100: UInt64 = 1
+    static let stallPair250: UInt64 = 1 | 1 << 32
     static let count100Nanos = nanos(StallCounts.edge100)
     static let count250Nanos = nanos(StallCounts.edge250)
     let mainAsleep = Atomic<Bool>(true)
@@ -229,13 +231,12 @@ public final class MainThreadWatchdog: Sendable {
     /// Main-thread work gaps of 100 ms and up and of 250 ms and up since ``start()`` or the last
     /// ``resetStallCounts()``, whatever the stall threshold (`debug.hangs` `count100` and `count250`).
     public var stallCounts: StallCounts {
-        StallCounts(count100: Int(clamping: gaps100.load(ordering: .relaxed)),
-                    count250: Int(clamping: gaps250.load(ordering: .relaxed)))
+        let pair = stallPair.load(ordering: .relaxed)
+        return StallCounts(count100: Int(clamping: pair & 0xFFFF_FFFF), count250: Int(clamping: pair >> 32))
     }
 
     public func resetStallCounts() {
-        gaps100.store(0, ordering: .relaxed)
-        gaps250.store(0, ordering: .relaxed)
+        stallPair.store(0, ordering: .relaxed)
     }
 
     /// A decided quit is ending: from now on a hang is still reported, but
@@ -321,8 +322,11 @@ public final class MainThreadWatchdog: Sendable {
                 longFrames.add(1, ordering: .relaxed)
                 Self.raise(longFrameMaxNanos, to: gap)
             }
-            if gap >= Self.count100Nanos { gaps100.add(1, ordering: .relaxed) }
-            if gap >= Self.count250Nanos { gaps250.add(1, ordering: .relaxed) }
+            if gap >= Self.count250Nanos {
+                stallPair.wrappingAdd(Self.stallPair250, ordering: .relaxed)
+            } else if gap >= Self.count100Nanos {
+                stallPair.wrappingAdd(Self.stallPair100, ordering: .relaxed)
+            }
         }
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)

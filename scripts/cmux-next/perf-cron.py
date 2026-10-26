@@ -441,24 +441,26 @@ def refresh_ms_of(report):
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
-def count250_of(report):
-    """The main-thread stalls of 250 ms and up a part's app had (pure): the sum of every whole-number `count250` its
-    benches copied from `debug.hangs` (each bench window clears the counter first), or None when no bench printed one.
-    Printed and kept with the part, never a row: no target, no regression, no gate (the Nightly readout)."""
-    found = []
+# The Mac parts whose benches copy `count250` from each window's `debug.hangs` (pane-perf-terminal, perf-budgets'
+# new_surfaces, panes, tab_switch, palette and anim, perf-gate's phases). Only these say "not reported" when none
+# came back (a build without the counter); the others print a count only if one of their benches gives one.
+COUNT250_PARTS = ("stress", "motion", "switch", "perf-gate", "chat-anim")
 
-    def walk(v):
-        if isinstance(v, dict):
-            for k, x in v.items():
-                if k == "count250" and isinstance(x, int) and not isinstance(x, bool) and x >= 0:
-                    found.append(x)
-                elif k != "display":
-                    walk(x)
-        elif isinstance(v, list):
-            for x in v:
-                walk(x)
-    walk(report)
-    return sum(found) if found else None
+
+def count250_of(report, budgets_mod):
+    """The main-thread stalls of 250 ms and up in a part's bench windows (pure): perf-budgets' count250_sum of its
+    report (each window clears `debug.hangs` first), or None when no window reported one. Printed and kept with the
+    part, never a row: no target, no regression, no gate (the Nightly readout). It is not the app's whole run: time
+    outside the bench windows (launch, setup) is not in it."""
+    return budgets_mod.count250_sum(report)
+
+
+def count250_line(part, stalls):
+    """The report step's count250 line for a Mac part, or None when the part prints none."""
+    if stalls is None and part not in COUNT250_PARTS:
+        return None
+    return (f"perf-cron report: {part} count250 {'not reported' if stalls is None else stalls} "
+            "(main-thread stalls >= 250 ms in its bench windows; read only)")
 
 
 def rows_of_part(part, report, budgets_mod, budgets):
@@ -2917,12 +2919,13 @@ def report(o):
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                 json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
-            if not is_linux_part(part):
-                stalls = count250_of(report_value)
+            if not is_linux_part(part) and PART_BY_NAME[part]["kind"] != "build":
+                stalls = count250_of(report_value, load_budgets_module())
                 if stalls is not None:
                     entry["count250"] = stalls
-                print(f"perf-cron report: {part} count250 {'not reported' if stalls is None else stalls} "
-                      "(main-thread stalls >= 250 ms; read only)", flush=True)
+                line = count250_line(part, stalls)
+                if line:
+                    print(line, flush=True)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod = load_budgets_module()
