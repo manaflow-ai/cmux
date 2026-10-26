@@ -55,6 +55,11 @@ public final class FrameClient {
     private let onFrame: @MainActor (FrameTick) -> Bool
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
+    /// The launch phases that enable a budgeted client's class (its ``MainWorkScheduler``'s); nil
+    /// for frame and input clients, which are never held.
+    private let startup: StartupPhase?
+    /// True while an active client waits for the phase that opens its class.
+    private var waitingForStartup = false
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
@@ -66,6 +71,7 @@ public final class FrameClient {
         self.workClass = .frame
         self.resolve = resolve
         self.onFrame = onFrame
+        startup = nil
     }
 
     /// A batch client of a budgeted class (``MainWorkClass/isBudgeted``) on the app's one
@@ -74,6 +80,10 @@ public final class FrameClient {
     /// active and ticks on the next frame. `onFrame` gets the budget: it runs its work through
     /// ``MainFrameBudget/run(_:owner:_:)``, one task at a time, and returns true to tick again while
     /// work is left. The client holds `work`: it never falls back to another scheduler.
+    ///
+    /// While `work`'s ``StartupPhase`` does not admit the class (background while launching), an
+    /// activated client stays off the frame scheduler: its work waits in its queue, and the phase
+    /// change attaches it, so it ticks from the next frame on.
     public init(owner: String, budgeted workClass: BudgetedWorkClass, on work: MainWorkScheduler,
                 onFrame: @escaping @MainActor (FrameTick, MainFrameBudget) -> Bool) {
         self.owner = owner
@@ -82,6 +92,7 @@ public final class FrameClient {
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }
         self.onFrame = { tick in onFrame(tick, budget) }
+        startup = work.startup
     }
 
     /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
@@ -92,6 +103,7 @@ public final class FrameClient {
         self.workClass = .input
         self.resolve = { [weak scheduler] in scheduler ?? .app }
         self.onFrame = onFrame
+        startup = nil
     }
 
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).
@@ -106,13 +118,29 @@ public final class FrameClient {
         self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
     }
 
-    /// Starts ticking (no effect while active).
+    /// Starts ticking (no effect while active); a budgeted client whose class the launch holds
+    /// starts at the phase change.
     public func activate() {
         guard !isActive else { return }
         isActive = true
+        if let startup, !startup.admits(workClass) { return waitForStartup(startup) }
+        attach()
+    }
+
+    private func attach() {
         let target = resolve()
         scheduler = target
         target.activate(self)
+    }
+
+    private func waitForStartup(_ startup: StartupPhase) {
+        guard !waitingForStartup else { return }
+        waitingForStartup = true
+        startup.whenReached(workClass.startupOpening) { [weak self] in
+            guard let self else { return }
+            waitingForStartup = false
+            if isActive, scheduler == nil { attach() }
+        }
     }
 
     /// Stops ticking.
