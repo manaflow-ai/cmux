@@ -40,7 +40,8 @@ import {
   closeSync,
   existsSync,
   ftruncateSync,
-  mkdirSync,
+  mkdtempSync,
+  rmSync,
   openSync,
   readFileSync,
   statSync,
@@ -181,7 +182,8 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
-  const dir = path.join(os.tmpdir(), "composer-bigtest-files");
+  // Each run its own folder (two runs at once must not share fixtures), removed when the file ends.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "composer-bigtest-files-"));
 
   const MOV: BigFile = {
     name: "Screen Recording 2026-10-25 at 10.14.02.mov",
@@ -375,7 +377,6 @@ os.replace(path + ".part", path)
   /// The baseline row, the floor the other rows' typing and stalls are held to.
   let baseline: Row | undefined;
   beforeAll(async () => {
-    mkdirSync(dir, { recursive: true });
     for (const file of [MOV, BIN, MP4]) sparse(file);
     for (const file of [PNG, SHOT]) {
       png(file);
@@ -392,10 +393,15 @@ os.replace(path + ".part", path)
     browser = await launch();
   });
   afterAll(async () => {
-    console.log(table(rows));
-    console.log(`BIGTEST-JSON ${JSON.stringify(rows)}`);
-    await browser?.close();
-    await vite?.close();
+    try {
+      console.log(table(rows));
+      console.log(`BIGTEST-JSON ${JSON.stringify(rows)}`);
+      await browser?.close();
+      await vite?.close();
+    } finally {
+      // Also when setup failed part way: the sparse and generated fixtures are about 3 GB apparent.
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   /// The page's native host and in-page probes, before the page's own scripts run.
@@ -965,7 +971,8 @@ os.replace(path + ".part", path)
         } else {
           row.sentBlocks = await promptBlocks(page, before);
           row.send = `held; the tile's × sent it without the file in ${(went - (await probes(page)).clickAt).toFixed(0)} ms`;
-          if (row.sentBlocks.some((block) => names(block, name))) problem("the prompt the × sent still carried the file");
+          if (row.sentBlocks.some((block) => names(block, name)))
+            problem("the prompt the × sent still carried the file");
         }
       }
       await uploadStopped(page, row, problem, begin?.token);
@@ -1039,7 +1046,8 @@ os.replace(path + ".part", path)
     row.sentBlocks = went === undefined ? [] : await promptBlocks(page, before);
     if (went === undefined) problem("its prompt never went");
     else {
-      if (!uploadedLink(row.sentBlocks, name)) problem(`its prompt carried no link to its copy: ${blocksText(row.sentBlocks)}`);
+      if (!uploadedLink(row.sentBlocks, name))
+        problem(`its prompt carried no link to its copy: ${blocksText(row.sentBlocks)}`);
       if (row.sentBlocks.some((block) => block.type === "image")) problem("its prompt carried it as an image");
     }
   }
@@ -1189,7 +1197,8 @@ os.replace(path + ".part", path)
       row.heap = { base: base.heap, peak: Math.max(state.heapPeak, heapNow, base.heap), after: after.heap };
       row.rss = { base: base.rss, peak: rssPeak, after: after.rss };
 
-      if (row.tileMs !== undefined && row.tileMs > TILE_MS) problem(`the tile took ${row.tileMs.toFixed(0)} ms to show`);
+      if (row.tileMs !== undefined && row.tileMs > TILE_MS)
+        problem(`the tile took ${row.tileMs.toFixed(0)} ms to show`);
       if (row.keys.lost) problem(`typed keys were lost: the prompt reads ${JSON.stringify(typed.slice(0, 40))}`);
       if (!attaching) baseline = row;
       else {
