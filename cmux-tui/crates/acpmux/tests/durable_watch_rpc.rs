@@ -3,33 +3,12 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-use acpmux::{config::Config, hub::Hub, rpc::Message, server::Origin};
-use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use acpmux::{config::Config, hub::Hub, server::Origin};
+use serde_json::json;
 
-struct Connection(mpsc::Sender<String>, mpsc::Receiver<String>);
-impl Connection {
-    fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
-        let (tx, input) = mpsc::channel(64);
-        let (output, rx) = mpsc::channel(64);
-        tokio::spawn(acpmux::server::serve_connection_with(hub.clone(), input, output, origin));
-        Self(tx, rx)
-    }
-    async fn call(&mut self, method: &str, params: Value) -> Value {
-        self.0.send(Message::request(1, method, params).to_line()).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(20), async {
-            loop {
-                let v: Value = serde_json::from_str(&self.1.recv().await.unwrap()).unwrap();
-                if v["id"] == 1 {
-                    return v;
-                }
-            }
-        })
-        .await
-        .unwrap()
-    }
-}
+#[path = "durable_watch_lifecycle/connection.rs"]
+mod connection;
+use connection::Connection;
 
 #[tokio::test]
 async fn watch_rpc_refuses_remote_origins_self_and_invalid_parameters() {
@@ -68,8 +47,8 @@ async fn watch_rpc_refuses_remote_origins_self_and_invalid_parameters() {
     }
     let missing = local.call("_acpmux/watch_rm", json!({"id": "missing"})).await;
     assert!(missing["error"]["message"].as_str().unwrap().contains("_acpmux/watch_ls"));
-    let list = local.call("_acpmux/watch_ls", json!({})).await;
-    assert_eq!(list["result"]["watches"], json!([]));
+    let list = local.result("_acpmux/watch_ls", json!({})).await;
+    assert_eq!(list["watches"], json!([]));
     hub.end_agents_at_shutdown(Default::default()).unwrap();
     hub.shutdown_all().await;
 }

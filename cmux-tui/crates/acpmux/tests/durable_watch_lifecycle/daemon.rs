@@ -15,7 +15,7 @@ use tokio::{
 };
 
 pub struct Daemon {
-    dir: cmux_unix_socket::TestDir,
+    pub dir: cmux_unix_socket::TestDir,
     child: Child,
     pub client: Arc<Client>,
     listen: String,
@@ -101,15 +101,12 @@ impl Daemon {
         s["sessionId"].as_str().unwrap().to_owned()
     }
     pub async fn peer(&self, b: &Daemon) {
-        self.peer_as(b, true).await;
-    }
-    pub async fn peer_as(&self, b: &Daemon, trusted: bool) {
         let token =
             std::fs::read_to_string(acpmux::server::peer_auth::token_path(b.dir.path())).unwrap();
         self.call(
             "_acpmux/peer_add",
             json!({"name": "b", "url": format!("ws://{}", b.listen),
-            "token": "watch-test", "peerToken": trusted.then_some(token), "wait": true}),
+            "token": "watch-test", "peerToken": token, "wait": true}),
         )
         .await;
     }

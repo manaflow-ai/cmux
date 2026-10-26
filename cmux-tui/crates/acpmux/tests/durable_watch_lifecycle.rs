@@ -179,18 +179,21 @@ async fn failed_wake_stays_listed_and_retries_after_recipient_is_repaired() {
 
 #[tokio::test]
 async fn remote_replay_checkpoints_pages_even_when_total_exceeds_request_deadline() {
-    let mut a = Daemon::new().await;
-    let peer = Peer::new(Duration::from_millis(100), 1).await;
-    peer.connect(&a).await;
-    let sink = a.chat("coordinator").await;
-    let mut notes = observe(&a, &sink).await;
-    let watch =
-        a.watch(&sink, vec!["scripted/job-0".into()], "ready", true, Some("complete")).await;
-    assert!(next_wake(&mut notes).await.contains("is ready"));
-    a.settled(|v| watch_gone(v, &watch["id"])).await;
-    assert_eq!(*peer.pages.lock().unwrap(), vec![0, 256, 512]);
-    assert_eq!(a.wakes(&sink).await.len(), 1);
-    a.stop().await;
+    for (summary, timeout) in [(601, false), (0, false), (601, true)] {
+        let mut a = Daemon::new().await;
+        let peer = Peer::scripted(Duration::from_millis(100), 1, summary, timeout).await;
+        peer.connect(&a).await;
+        let sink = a.chat("coordinator").await;
+        let mut notes = observe(&a, &sink).await;
+        let watch =
+            a.watch(&sink, vec!["scripted/job-0".into()], "ready", true, Some("complete")).await;
+        assert!(next_wake(&mut notes).await.contains("is ready"));
+        a.settled(|v| watch_gone(v, &watch["id"])).await;
+        let expected = if timeout { vec![0, 256, 256, 512] } else { vec![0, 256, 512] };
+        assert_eq!(*peer.pages.lock().unwrap(), expected, "summary={summary}, timeout={timeout}");
+        assert_eq!(a.wakes(&sink).await.len(), 1);
+        a.stop().await;
+    }
 }
 
 #[tokio::test]
@@ -231,5 +234,37 @@ async fn remote_replay_resumes_from_saved_page_after_daemon_restart() {
     assert!(next_wake(&mut notes).await.contains("is ready"));
     assert_eq!(peer.pages.lock().unwrap().iter().filter(|p| **p == 0).count(), 1);
     assert_eq!(a.wakes(&sink).await.len(), 1);
+    a.stop().await;
+}
+
+#[tokio::test]
+async fn corrupt_watch_file_is_quarantined_and_older_cursors_still_resolve() {
+    let mut a = Daemon::new().await;
+    a.disconnect().await;
+    let path = a.dir.path().join("watches.json");
+    std::fs::write(&path, b"{bad").unwrap();
+    a.start_again().await;
+    assert_eq!(a.list().await["watches"], json!([]));
+    let bad = std::fs::read_dir(a.dir.path())
+        .unwrap()
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().starts_with("watches.json.bad-"))
+        .unwrap();
+    assert_eq!(std::fs::read(bad.path()).unwrap(), b"{bad");
+    let sink = a.chat("sink").await;
+    let source = a.chat("source").await;
+    let watch = a.watch(&sink, vec![source.clone()], "ready", true, Some("migrated")).await;
+    a.disconnect().await;
+    let mut saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let cursor = &mut saved["watches"][watch["id"].as_str().unwrap()]["cursors"][&source];
+    cursor.as_object_mut().unwrap().retain(|k, _| {
+        ["seq", "initial", "reply", "tail", "matched", "last_resolve"].contains(&k.as_str())
+    });
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    a.start_again().await;
+    assert_eq!(a.list().await["watches"][0]["id"], watch["id"]);
+    let mut notes = observe(&a, &sink).await;
+    a.prompt(&source, "migrated").await;
+    assert!(next_wake(&mut notes).await.contains("is ready"));
     a.stop().await;
 }
