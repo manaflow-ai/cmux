@@ -82,16 +82,23 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("settings exports were requested but the exporter produced no files", guard["run"])
         self.assertIn("action exports were requested but the exporter produced no files", guard["run"])
         self.assertIn("find", guard["run"])
+        self.assertIn("SETTINGS_OUTCOME", guard["run"])
+        self.assertIn("settings-exports.txt", guard["run"])
         with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "settings-exports.txt").write_text(
+                "::error::" + "schemas/settings-export/" + "settings-schema.sources.sha256 was not written by the settings export\n"
+            )
             result = run_step(guard["run"], Path(tmp), {
                 "RUNNER_TEMP": tmp,
                 "ACTIONS_REQUESTED": "true",
                 "SETTINGS_REQUESTED": "true",
                 "ACTIONS_EXPORTS": "",
                 "SETTINGS_EXPORTS": "",
+                "SETTINGS_OUTCOME": "failure",
             })
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("settings exports were requested but the exporter produced no files", result.stdout)
+        self.assertIn("schemas/settings-export/" + "settings-schema.sources.sha256", result.stdout)
 
     def test_the_repair_copies_them_in_and_rewrites_the_defaults_snapshot(self):
         download = step(PR, "repair", "Download the regenerated action exports")

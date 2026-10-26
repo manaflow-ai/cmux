@@ -295,6 +295,7 @@ jobs:
           SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings }}
           ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
           SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
+          SETTINGS_OUTCOME: ${{ steps.settings.outcome }}
         run: |
           set -euo pipefail
           failed=0
@@ -304,6 +305,13 @@ jobs:
           fi
           if [[ "$SETTINGS_REQUESTED" == true && "$SETTINGS_EXPORTS" != true ]]; then
             echo "::error::settings exports were requested but the exporter produced no files"
+            failed=1
+          fi
+          if [[ "$SETTINGS_REQUESTED" == true && "$SETTINGS_OUTCOME" == failure ]]; then
+            echo "::error::settings exporter failed; required input/output mismatch follows"
+            if [[ -f "$RUNNER_TEMP/settings-exports.txt" ]]; then
+              grep -E '::error::' "$RUNNER_TEMP/settings-exports.txt" || true
+            fi
             failed=1
           fi
           if [[ "$failed" != 0 ]]; then exit 1; fi
