@@ -104,6 +104,24 @@ describe("pageLifecycle hide-time save", () => {
     expect(readPageState<number[]>(host)).toEqual([1, 2]);
   });
 
+  test("a write the storage refuses leaves no older state to read back", () => {
+    const page = makeHost();
+    expect(writePageState({ scroll: 10 }, page.host)).toBe(true);
+    const full: PageStateHost = {
+      ...page.host,
+      storage: {
+        getItem: (key) => page.stored.get(key) ?? null,
+        setItem: () => {
+          throw new DOMException("quota", "QuotaExceededError");
+        },
+        removeItem: (key) => void page.stored.delete(key),
+      },
+    };
+    expect(writePageState({ scroll: 120 }, full)).toBe(true);
+    expect(readPageState(full)).toBeUndefined();
+    expect(page.posts).toEqual(['{"scroll":10}', '{"scroll":120}']);
+  });
+
   test("an unreadable saved state reads as none", () => {
     const page = makeHost();
     page.stored.set(PAGE_STATE_KEY, "{not json");

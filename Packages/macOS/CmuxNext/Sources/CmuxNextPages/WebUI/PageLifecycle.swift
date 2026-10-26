@@ -14,8 +14,9 @@ package protocol PageLifecycleTarget {
     /// From now on the page calls ``PageLifecycle/pageReasonsDidChange(_:)`` when a reason it reports
     /// starts or ends with no show or hide (its load). Called once per page object.
     func reportsReasonChanges(to lifecycle: PageLifecycle)
-    /// The page just hid: keep its last frame now, while it is still in its window and before any
-    /// freeze. A frozen page cannot answer, so nothing is asked of the page later. Makes no page call.
+    /// The page is hiding: keep its last frame now, while it is still in its window, before the engine
+    /// is told it is hidden (the tab's conceal calls the lifecycle first) and before any freeze. A frozen
+    /// page cannot answer, so nothing is asked of the page later. Makes no page call.
     func keepHideSnapshot()
     /// The page shows again running (it was hidden or frozen, not discarded): the picture kept at its
     /// hide is out of date.
@@ -31,8 +32,8 @@ package protocol PageLifecycleTarget {
     func discard()
 }
 
-/// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame
-/// (``PageWebView/keepHideSnapshot()``) and a discard encodes it (``PageWebView/discardDocument(encoder:)``).
+/// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
+/// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
 /// Freeze and thaw are no-ops until p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its
 /// window); ending the engine page at the discard is p13-webui-030.
 package struct PageWebViewLifecycle: PageLifecycleTarget {
@@ -41,7 +42,7 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     /// - Parameters:
     ///   - view: The page.
-    ///   - encoder: Encodes its hide-time frame when it is discarded (the app's one, on its lanes).
+    ///   - encoder: Encodes its hide-time frame as it comes (the app's one, on its lanes).
     package init(_ view: PageWebView, encoder: PageSnapshotEncoder) {
         self.view = view
         self.encoder = encoder
@@ -64,11 +65,12 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
 
-    package func keepHideSnapshot() { view?.keepHideSnapshot() }
+    package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
     package func dropHideSnapshot() { view?.hideState.drop() }
     package func freeze() {}
     package func thaw() {}
-    package func discard() { view?.discardDocument(encoder: encoder) }
+    /// Nothing until p13-webui-030 ends the engine page: the picture and the state are kept already.
+    package func discard() {}
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each

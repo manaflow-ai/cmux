@@ -67,7 +67,8 @@ export function savePageStateOnHide(save: PageStateSaver, host: PageStateHost = 
 
 /**
  * Writes `state` where a discard keeps it. A state over `PAGE_STATE_MAX_BYTES` is not kept: the
- * older one is cleared too, so the page never comes back to a state older than the one it had.
+ * older one is cleared too, so the page never comes back to a state older than the one it had. The
+ * host gets JSON `null` for no state (PageHideState.noStateText), never an oversized string.
  *
  * @returns Whether the state was kept.
  */
@@ -78,10 +79,20 @@ export function writePageState(state: unknown, host: PageStateHost): boolean {
     if (fits) host.storage?.setItem(PAGE_STATE_KEY, json);
     else host.storage?.removeItem(PAGE_STATE_KEY);
   } catch {
-    // Over the storage quota: the host's copy still holds it.
+    // Over the storage quota: the older state must not stay to be read back.
+    clearStoredState(host);
   }
   host.post?.(fits ? json : "null");
   return fits;
+}
+
+/** Removes the stored state; a storage that refuses even that is left as it is. */
+function clearStoredState(host: PageStateHost): void {
+  try {
+    host.storage?.removeItem(PAGE_STATE_KEY);
+  } catch {
+    // The storage refuses every write: nothing more the page can do.
+  }
 }
 
 /** The state the page saved before it was discarded or reloaded; undefined when there is none. */

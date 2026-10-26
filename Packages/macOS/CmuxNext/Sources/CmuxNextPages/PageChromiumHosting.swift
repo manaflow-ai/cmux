@@ -83,7 +83,7 @@ public protocol PageChromiumPage: AnyObject {
     /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
-    /// hides, before any freeze (``PageWebView/keepHideSnapshot()``). Never `Page.captureScreenshot`: one
+    /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one
     /// DevTools agent ends main-frame renderer reuse for the whole browser.
     ///
     /// - Parameters:
