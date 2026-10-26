@@ -22,3 +22,17 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         values.reduce(root) { root, entry in root.value(at: entry.key) == nil ? root.setting(entry.value, at: entry.key) : root }
     }
 }
+
+extension SettingsController {
+    /// `descriptor`'s default in this build: its build default (``SettingsBuildDefaults``), else the schema's.
+    public func defaultValue(of descriptor: SettingDescriptor) -> JSONValue? {
+        buildDefaults.values[descriptor.path] ?? descriptor.defaultValue
+    }
+
+    /// Whether the person's file sets `descriptor` to something other than this build's default,
+    /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
+    public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
+        guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
+        return stored != defaultValue(of: descriptor)
+    }
+}

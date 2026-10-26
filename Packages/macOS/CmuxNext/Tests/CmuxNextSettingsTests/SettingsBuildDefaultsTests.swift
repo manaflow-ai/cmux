@@ -28,6 +28,17 @@ import Testing
         #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil, "the channel default was written to the shared file")
     }
 
+    /// An explicit off in NIGHTLY differs from its default, so Settings offers Reset; an explicit on does not.
+    @Test func resetFollowsTheBuildDefault() async throws {
+        let descriptor = try #require(SettingsSchema.all.first { $0.path == UpdatesSettings.downloadAutomaticallyPath })
+        for (json, customized) in [(#"{"updates": {"downloadAutomatically": false}}"#, true), (#"{"updates": {"downloadAutomatically": true}}"#, false)] {
+            let (settings, home) = try await Self.settings(json, .channel(downloadsAutomatically: true))
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(settings.defaultValue(of: descriptor) == .bool(true))
+            #expect(settings.isCustomized(descriptor) == customized, "\(json)")
+        }
+    }
+
     @Test func stableStaysOptIn() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
