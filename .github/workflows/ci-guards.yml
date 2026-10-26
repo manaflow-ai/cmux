@@ -1626,6 +1626,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_generate_nightly_deltas.sh
 
+      - name: Validate a rewritten nightly appcast keeps each item's first-publish pubDate
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_appcast_keep_pubdates.py
+
       - name: Validate Sparkle key export permissions
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_keys_permissions.sh
