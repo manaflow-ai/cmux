@@ -105,3 +105,18 @@ test("a machine without an authoritative connection state stays unknown", () => 
   const machines = newTabMachines({ sessions: [], peers: ["unknown-box"] }, {}, "This Mac");
   expect(machines.find((machine) => machine.id === "unknown-box")?.online).toBeUndefined();
 });
+
+test("a historical Cloud host yields to the native registry record for that machine", () => {
+  const machines = newTabMachines(
+    {
+      sessions: [{ sessionId: "old", hostKind: "cloud", host: "vm-demo" }] as never,
+      machines: [
+        { id: "vm-demo", label: "Paused cloud", kind: "cloud", native: true, status: "paused", connected: false },
+      ],
+    },
+    {},
+    "This Mac",
+  );
+  expect(machines.filter((machine) => machine.id === "vm-demo")).toHaveLength(1);
+  expect(machines.find((machine) => machine.id === "vm-demo")).toMatchObject({ native: true, status: "paused" });
+});

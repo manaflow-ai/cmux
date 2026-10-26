@@ -736,3 +736,35 @@ test("selecting a same-id peer never assigns a native Cloud folder to it", async
   expect(calls.filter((call) => call[0] === "project")).toEqual([]);
   expect(folderName()).not.toContain("only");
 });
+
+test("a saved-environment round trip never turns a peer folder into a local folder", async () => {
+  const saved = {
+    id: "saved",
+    name: "Saved machine",
+    kind: "ssh" as const,
+    host: "saved-box",
+    folder: "/saved",
+    updatedAt: 0,
+  };
+  const asks: unknown[][] = [];
+  await mountNewTab(async () => undefined, {
+    snapshot: {
+      ...noChat([{ sessionId: "remote", cwd: "/remote/only", host: "gpu-box", peer: "gpu-box" }] as never),
+      peers: ["gpu-box"],
+    },
+    location: "explain this code",
+    savedEnvironments: { list: async () => [saved], save: async () => saved, remove: async () => {} },
+    onAsk: (...args) => {
+      asks.push(args);
+    },
+  });
+  for (const name of ["gpu-box", "Saved machine", "This Mac"]) {
+    await openPicker();
+    const row = rows().find((item) => item.querySelector(".acpmux-menu-label")?.textContent === name);
+    expect(!!row).toBe(true);
+    await act(async () => row!.click());
+  }
+  await press(host.querySelector("textarea")!, { key: "Enter" });
+  expect(asks[0]?.[2]).toBeUndefined();
+  expect(asks[0]?.[6]).toBeUndefined();
+});
