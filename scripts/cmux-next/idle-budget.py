@@ -11,11 +11,16 @@ session, lets it settle, then measures one window with no input and reports, per
   per thread, PROC_PIDTHREADID64INFO: the thread names show which loop woke);
   for the app also main_wakes/s (the main run loop's wakes from sleep, debug.hangs `main_wakes`) and,
   when the build has it, the wakeup ledger's owners (debug.wakeups: DemandTimer, FrameScheduler,
-  Backoff by owner and reason).
+  Backoff by owner and reason);
+  D15 (plans/cmux-next/chrome-parity/p14-energy.md): disk bytes written (ri_diskio_byteswritten delta),
+  network bytes, the lo0 part and connections open at the end (nettop over the window), unified-log
+  lines and their subsystem:category owners (`log show` of the pid set after the window), and
+  WindowServer's wakeups/s against a reference window with cmux hidden (reported, never judged).
+  A reader that fails leaves its values null ("not measured") and prints IDLE-BUDGET-READER-FAILED.
 
 The script reads the app's counters only at the window's two ends (proc_pid_rusage of another process
-does not wake it; the two socket reads sit outside the process counters' window), so the bench adds no
-wakeup to what it measures.
+does not wake it; the two socket reads sit outside the process counters' window; nettop and `log show`
+ask the kernel and logd), so the bench adds no wakeup to what it measures.
 
 Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
@@ -30,9 +35,10 @@ Sessions (--sessions):
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
-Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
-Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
-runs it and reports).
+Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged;
+`all_kinds` limits judge every measured kind, `allowed_periodic` entries excuse a named kind's metric).
+Over budget prints IDLE-BUDGET-OVER lines (a disk, network or log over names its pids, remote ends or log
+owners); the exit code is 0 unless --gate (no CI gate: the perf cron runs it and reports).
 
 Use (fleet only, a host with a GUI console session; never on a laptop in use):
   python3 scripts/cmux-next/idle-budget.py --app "<...>/cmux DEV <tag>.app" --out DIR \\
@@ -56,7 +62,7 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+_libproc = procs.dylib("/usr/lib/libproc.dylib")
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -140,45 +146,136 @@ def read_rpc(app, method, params=None):
     return reply if isinstance(reply, dict) and not reply.get("error") else {}
 
 
-def measure(app, instance, seconds):
-    """Counters of every process of the app over `seconds` with no input."""
+def process_row(pid, cmd, first, last, elapsed, network=None, logs=None):
+    """One process's row over the window from its (rusage counters, overhead, threads) at the two ends; None once
+    it is gone. `network` ({pid: parse_nettop entry}) and `logs` ({pid: parse_log entry}) are None when their
+    reader failed: the row's network or log values are then None (not measured), never 0."""
+    (c1, o1, t1) = last
+    if c1 is None or o1 is None:
+        return None
+    (c0, o0, t0) = first or (None, None, {})
+    partial = c0 is None
+    c0 = c0 or (0, 0, 0, 0)
+    o0 = o0 or (0, 0, 0, 0, 0)
+    ran = []
+    for tid, (cpu, name) in t1.items():
+        before = t0.get(tid, (0, name))[0] if not partial else 0
+        if cpu > before:
+            ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
+    ran.sort(key=lambda t: -t["cpu_us"])
+    disk = max(0, o1[0] - o0[0])
+    net = (network or {}).get(pid, {})
+    log = (logs or {}).get(pid, {})
+    return {
+        "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": partial,
+        "threads": o1[1], "threads_ran": len(ran), "ran": ran[:8],
+        "cpu_pct": round(100 * (c1[1] - c0[1]) / 1e9 / elapsed, 4),
+        "wakeups_per_s": round((c1[2] - c0[2]) / elapsed, 3),
+        "csw_per_s": round(procs._delta32(o1[4], o0[4]) / elapsed, 3),
+        "footprint_mb": round(c1[3] / procs.MB, 1),
+        "disk_bytes": disk, "disk_bytes_per_s": round(disk / elapsed, 3),
+        "network_bytes": None if network is None else net.get("bytes", 0),
+        "network_loopback_bytes": None if network is None else net.get("loopback_bytes", 0),
+        "connections": None if network is None else net.get("connections", 0),
+        "remotes": net.get("remotes", []),
+        "log_lines": None if logs is None else log.get("lines", 0),
+        "log_owners": log.get("owners", {}),
+    }
+
+
+def start_nettop(seconds, workdir):
+    """nettop over the coming window, writing its CSV to workdir/nettop.csv; (process, path), or None."""
+    path = os.path.join(workdir, "nettop.csv")
+    try:
+        os.makedirs(workdir, exist_ok=True)
+        handle = open(path, "w")
+        process = subprocess.Popen(procs.nettop_command(seconds), stdout=handle, stderr=subprocess.DEVNULL,
+                                   stdin=subprocess.DEVNULL)
+    except OSError:
+        return None
+    handle.close()  # the child holds its own descriptor
+    return process, path
+
+
+def finish_nettop(started, seconds):
+    """parse_nettop of a start_nettop run once it has printed its last sample, or None when it failed."""
+    if started is None:
+        return None
+    process, path = started
+    try:
+        process.wait(timeout=seconds + 30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return None
+    if process.returncode != 0:
+        return None
+    with open(path, errors="replace") as handle:
+        return procs.parse_nettop(handle.read())
+
+
+def windowserver_reading():
+    """(pid, cumulative wakeups, source, monotonic time) of WindowServer now."""
+    pid = procs.windowserver_pid()
+    if pid is None:
+        return None, None, "not-found", time.monotonic()
+    value, source = procs.windowserver_wakeups(pid)
+    return pid, value, source, time.monotonic()
+
+
+def windowserver_rate(before, after):
+    """WindowServer wakeups/s between two windowserver_reading()s, or None (another pid, another source,
+    unreadable)."""
+    pid0, value0, source0, at0 = before
+    pid1, value1, source1, at1 = after
+    if pid0 != pid1 or source0 != source1 or value0 is None or value1 is None or at1 <= at0:
+        return None
+    return round((value1 - value0) / (at1 - at0), 3)
+
+
+def windowserver_report(window_rate, reference_rate, source):
+    """WindowServer's wakeups/s in the window, in the reference window with cmux hidden, and the delta cmux
+    adds (reported, never judged: WindowServer serves every app on the host)."""
+    delta = None
+    if window_rate is not None and reference_rate is not None:
+        delta = round(window_rate - reference_rate, 3)
+    return {"source": source, "wakeups_per_s": window_rate, "hidden_reference_per_s": reference_rate,
+            "delta_per_s": delta}
+
+
+def measure(app, instance, seconds, workdir):
+    """Counters of every process of the app over `seconds` with no input: rusage, threads, disk bytes written,
+    network (nettop over the window), unified-log lines (`log show` of the pid set after the window) and
+    WindowServer's wakeups. The readers run before the first and after the last process counters, or outside
+    the processes (nettop, logd), so none of them lands in the window."""
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
     counters0 = app_counters(app)
+    server0 = windowserver_reading()
     pids = process_set(instance)
     first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    nettop = start_nettop(seconds, workdir)
     began = time.monotonic()
+    wall_began = time.time()
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
+    wall_ended = time.time()
     last_pids = process_set(instance)
     last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
+    server1 = windowserver_reading()
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
+    network = finish_nettop(nettop, seconds)
+    logs = procs.read_log(set(pids) | set(last_pids), wall_began, wall_ended)
     rows = []
     for pid, cmd in sorted(last_pids.items()):
-        (c1, o1, t1) = last[pid]
-        if c1 is None or o1 is None:
-            continue
-        (c0, o0, t0) = first.get(pid, (None, None, {}))
-        partial = c0 is None
-        c0 = c0 or (0, 0, 0, 0)
-        o0 = o0 or (0, 0, 0, 0, 0)
-        ran = []
-        for tid, (cpu, name) in t1.items():
-            before = t0.get(tid, (0, name))[0] if not partial else 0
-            if cpu > before:
-                ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
-        ran.sort(key=lambda t: -t["cpu_us"])
-        rows.append({
-            "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": partial,
-            "threads": o1[1], "threads_ran": len(ran), "ran": ran[:8],
-            "cpu_pct": round(100 * (c1[1] - c0[1]) / 1e9 / elapsed, 4),
-            "wakeups_per_s": round((c1[2] - c0[2]) / elapsed, 3),
-            "csw_per_s": round(procs._delta32(o1[4], o0[4]) / elapsed, 3),
-            "footprint_mb": round(c1[3] / procs.MB, 1),
-        })
-    result = {"seconds": round(elapsed, 1), "processes": rows}
+        row = process_row(pid, cmd, first.get(pid), last[pid], elapsed, network, logs)
+        if row is not None:
+            rows.append(row)
+    result = {"seconds": round(elapsed, 1), "processes": rows,
+              "readers": {"network": network is not None, "log": logs is not None},
+              "windowserver": windowserver_report(windowserver_rate(server0, server1), None, server1[2])}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
     owners = ledger_rates(ledger0, ledger1, elapsed)
@@ -285,12 +382,21 @@ def ledger_rates(before, after, elapsed):
 # Budget
 
 
+# D15 sums per kind: None when every process's value is None (its reader failed), so a failed reader is
+# "not measured", never a pass.
+D15_SUMS = ("disk_bytes", "disk_bytes_per_s", "network_bytes", "network_loopback_bytes", "connections", "log_lines")
+
+
 def aggregate(result):
-    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process), CPU %."""
+    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process), CPU %, and the D15
+    sums (disk bytes written and per s, network bytes, loopback part, open connections, log lines) with their
+    owners: the pids that wrote, the remote ends and the log subsystem:category counts."""
     kinds = {}
     for row in result["processes"]:
         entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_per_s": 0.0,
-                                               "wakeups_max": 0.0, "csw_per_s": 0.0, "cpu_pct": 0.0, "threads_ran": 0})
+                                               "wakeups_max": 0.0, "csw_per_s": 0.0, "cpu_pct": 0.0, "threads_ran": 0,
+                                               **{field: None for field in D15_SUMS},
+                                               "disk_writers": [], "remotes": [], "log_owners": {}})
         entry["n"] += 1
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
@@ -299,34 +405,97 @@ def aggregate(result):
         entry["csw_per_s"] = round(entry["csw_per_s"] + row["csw_per_s"], 3)
         entry["cpu_pct"] = round(entry["cpu_pct"] + row["cpu_pct"], 4)
         entry["threads_ran"] += row["threads_ran"]
+        for field in D15_SUMS:
+            value = row.get(field)
+            if isinstance(value, (int, float)):
+                entry[field] = round((entry[field] or 0) + value, 3)
+        if row.get("disk_bytes"):
+            entry["disk_writers"].append(row["pid"])
+        entry["remotes"] += [remote for remote in row.get("remotes") or [] if remote not in entry["remotes"]]
+        for owner, count in (row.get("log_owners") or {}).items():
+            entry["log_owners"][owner] = entry["log_owners"].get(owner, 0) + count
     if "main_wakes_per_s" in result and "app" in kinds:
         kinds["app"]["main_wakes_per_s"] = result["main_wakes_per_s"]
     return kinds
 
 
+def kind_limits(budget, name, session):
+    """{field: limit} of kind `name` in `session`: the kind's own limit (one number, or {session: number}), else
+    `all_kinds` (D15's zeros, which judge every measured kind). An explicit null in the kind is "reported, not
+    judged" and stays null; a {session: number} without this session falls back to `all_kinds`."""
+    own = (budget.get("kinds") or {}).get(name) or {}
+    shared = budget.get("all_kinds") or {}
+    out = {}
+    for field in list(own) + [field for field in shared if field not in own]:
+        if field.startswith("_"):
+            continue
+        limit = own.get(field, shared.get(field))
+        if isinstance(limit, dict):
+            limit = limit.get(session, shared.get(field))
+        out[field] = limit
+    return out
+
+
+def allowed_periodic(budget, name, field, entry):
+    """Whether an `allowed_periodic` entry ({owner, period_s, why, kind, metrics, remote}) excuses `field` of kind
+    `name`: the entry names the kind and the metric, and, when it names a remote, every remote end of the kind
+    contains it."""
+    for rule in budget.get("allowed_periodic") or []:
+        if rule.get("kind") != name or field not in (rule.get("metrics") or []):
+            continue
+        remote = rule.get("remote")
+        if remote is None or (entry.get("remotes") and all(remote in end for end in entry["remotes"])):
+            return True
+    return False
+
+
 def over_budget(session, kinds, budget):
     """[(kind, field, value, limit)] for every value over its budget. Limits are per process for
-    `wakeups_max` and `threads_max`, and per kind for the rest."""
+    `wakeups_max` and `threads_max`, and per kind for the rest. The budget's kinds come first, in file order,
+    then any other measured kind that `all_kinds` judges."""
+    names = list(budget.get("kinds") or {})
+    if budget.get("all_kinds"):
+        names += [name for name in kinds if name not in names]
     out = []
-    for name, limits in (budget.get("kinds") or {}).items():
+    for name in names:
         entry = kinds.get(name)
         if not entry:
             continue
-        for field, limit in limits.items():
-            if field.startswith("_") or limit is None:
+        for field, limit in kind_limits(budget, name, session).items():
+            if limit is None:
                 continue
-            if isinstance(limit, dict):
-                limit = limit.get(session)
-                if limit is None:
-                    continue
             value = entry.get(field)
-            if isinstance(value, (int, float)) and value > limit:
+            if isinstance(value, (int, float)) and value > limit and not allowed_periodic(budget, name, field, entry):
                 out.append((name, field, value, limit))
     return out
 
 
-# Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
-CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2}
+def over_owner(field, entry):
+    """Who an over belongs to, for the D15 fields: the pids that wrote, the remote ends, the top log owners."""
+    if field.startswith("disk_"):
+        return "pids=" + ",".join(str(pid) for pid in entry.get("disk_writers") or []) if entry.get("disk_writers") else ""
+    if field in ("network_bytes", "connections"):
+        return "remotes=" + ";".join(entry["remotes"][:6]) if entry.get("remotes") else ""
+    if field == "log_lines":
+        top = sorted((entry.get("log_owners") or {}).items(), key=lambda kv: -kv[1])[:4]
+        return "owners=" + ",".join(f"{owner}={count}" for owner, count in top) if top else ""
+    return ""
+
+
+def over_lines(session, overs, kinds):
+    """The IDLE-BUDGET-OVER lines of one session (with the owner of a disk, network or log over)."""
+    lines = []
+    for name, field, value, limit in overs:
+        owner = over_owner(field, kinds.get(name) or {})
+        lines.append(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}" + (f" {owner}" if owner else ""))
+    return lines
+
+
+# Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late). D15's rows
+# are 0 at idle: any byte or line is a change.
+CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2,
+               "disk_bytes_per_s": 0.5, "network_bytes": 0.5, "log_lines": 0.5}
+CRON_UNITS = {"disk_bytes_per_s": "B/s", "network_bytes": "bytes", "log_lines": "lines"}
 
 
 def cron_rows(report, budget=None):
@@ -336,15 +505,13 @@ def cron_rows(report, budget=None):
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
         for name, values in (entry.get("kinds") or {}).items():
-            limits = (budget.get("kinds") or {}).get(name) or {}
+            limits = kind_limits(budget, name, session)
             for field, floor in CRON_FLOORS.items():
                 value = values.get(field)
                 if not isinstance(value, (int, float)):
                     continue
                 limit = limits.get(field)
-                if isinstance(limit, dict):
-                    limit = limit.get(session)
-                unit = "threads" if field.startswith("threads") else "/s"
+                unit = CRON_UNITS.get(field) or ("threads" if field.startswith("threads") else "/s")
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
                                                                  "budget": limit, "floor": floor}
     return out
@@ -443,18 +610,43 @@ def host_facts():
         "load": os.getloadavg(), "display": [l.strip() for l in display.splitlines() if "Refresh" in l or "Resolution" in l][:4]}
 
 
-def table(session, kinds, overs):
+def table(session, kinds, overs, windowserver=None):
     over_keys = {(k, f) for k, f, _, _ in overs}
-    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | threads that ran |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | threads that ran "
+             "| disk B/s | net bytes (conns) | log lines |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     order = ["app", "daemon", "holder", "terminal-host", "acpmux"]
     for name in sorted(kinds, key=lambda k: (order.index(k) if k in order else len(order), k)):
         e = kinds[name]
-        mark = lambda f, v: f"**{v}**" if (name, f) in over_keys else f"{v}"  # noqa: E731
+        mark = lambda f, v: f"**{v}**" if (name, f) in over_keys else ("-" if v is None else f"{v}")  # noqa: E731
         lines.append(f"| {name} | {e['n']} | {e['threads']} ({mark('threads_max', e['threads_max'])}) | "
                      f"{mark('wakeups_per_s', e['wakeups_per_s'])} ({mark('wakeups_max', e['wakeups_max'])}) | "
-                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} |")
+                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} | "
+                     f"{mark('disk_bytes_per_s', e.get('disk_bytes_per_s'))} | "
+                     f"{mark('network_bytes', e.get('network_bytes'))} ({mark('connections', e.get('connections'))}) | "
+                     f"{mark('log_lines', e.get('log_lines'))} |")
+    if windowserver:
+        lines.append(f"\nWindowServer ({windowserver.get('source')}, reported): {windowserver.get('wakeups_per_s')}/s, "
+                     f"{windowserver.get('hidden_reference_per_s')}/s with cmux hidden, delta {windowserver.get('delta_per_s')}/s")
     return "\n".join(lines)
+
+
+REFERENCE_SETTLE_S = 5  # the hide finishes before the WindowServer reference window opens
+
+
+def hide_app(app):
+    return app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True}, "focus": False,
+                                  "origin": "script"}, timeout=30)
+
+
+def windowserver_reference(app, seconds):
+    """WindowServer wakeups/s over `seconds` with cmux hidden (the reference the window's delta is taken
+    against), and the hide action's reply."""
+    reply = hide_app(app)
+    time.sleep(REFERENCE_SETTLE_S)  # bench: the hide lands before the reference window opens
+    before = windowserver_reading()
+    time.sleep(seconds)  # bench: the reference window
+    return windowserver_rate(before, windowserver_reading()), reply
 
 
 def main():
@@ -470,9 +662,13 @@ def main():
     parser.add_argument("--gate", action="store_true", help="exit 1 when a value is over its budget")
     parser.add_argument("--sample", type=float, default=10,
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
+    parser.add_argument("--windowserver-reference", type=float, default=None,
+                        help="seconds of the WindowServer reference window with cmux hidden, after the sample "
+                             "(default: --measure; 0: none; a hidden session is its own reference)")
     opts, _unknown = parser.parse_known_args()
     from bench_launch import BenchApp
     budget = json.load(open(opts.budget))
+    reference_s = opts.measure if opts.windowserver_reference is None else opts.windowserver_reference
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
@@ -490,16 +686,26 @@ def main():
             if session in ("stress", "stress-static"):
                 entry["stress"] = build_stress(app, static=session == "stress-static")
             if SESSIONS[session].get("hide"):
-                entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
-                                                       "focus": False, "origin": "script"}, timeout=30)
+                entry["hide"] = hide_app(app)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
-            result = measure(app, instance, opts.measure)
+            result = measure(app, instance, opts.measure, os.path.join(out, session))
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+            server = result["windowserver"]
+            if SESSIONS[session].get("hide"):
+                server = windowserver_report(server["wakeups_per_s"], server["wakeups_per_s"], server["source"])
+            elif reference_s > 0:
+                rate, result["windowserver_reference_hide"] = windowserver_reference(app, reference_s)
+                server = windowserver_report(server["wakeups_per_s"], rate, server["source"])
+            result["windowserver"] = server
+            print(f"IDLE-BUDGET-WINDOWSERVER {session} " + json.dumps(server), flush=True)
+            for reader, ok in result["readers"].items():
+                if not ok:
+                    print(f"IDLE-BUDGET-READER-FAILED {session} {reader}: not measured", flush=True)
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
@@ -517,14 +723,14 @@ def main():
             for timer in result.get("main_run_loop_timers") or []:
                 if timer["interval_s"] > 0:
                     print(f"IDLE-BUDGET-MAIN-TIMER {session} every {timer['interval_s']:g} s: {timer['callout']}", flush=True)
-            for name, entry in (result.get("sample") or {}).items():
-                top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
+            for name, sampled in (result.get("sample") or {}).items():
+                top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
-            for name, field, value, limit in overs:
-                print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
+            for line in over_lines(session, overs, kinds):
+                print(line, flush=True)
             all_overs += [(session, *o) for o in overs]
-            markdown.append(table(session, kinds, overs))
+            markdown.append(table(session, kinds, overs, server))
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.
