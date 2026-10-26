@@ -50,35 +50,227 @@ How it is enforced:
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
   ratchet's `blocking_allow_escapes` row: to come, PL-arch).
 
+## Contexts, modes and seams
+
+**Contexts.** The detector gives each thread one context (`BlockingContext`, CmuxNextCompat):
+
+| Context | Which threads | Blocking seam | Sync primitive (semaphore, group, condition, `blockingSync`) |
+|---|---|---|---|
+| main | the main thread | violation (outside `allowBlocking`) | violation |
+| pool | the Swift cooperative pool (label suffix `.cooperative`) and GCD root queues (`com.apple.root.` prefix, no pthread name): `Task.detached`, actors, `DispatchQueue.global` | violation | violation |
+| lane | a `BackgroundWork` `.files` or `.system` item | allowed | target: violation (`lane-sync`, task 119) |
+| cpu-lane | a `BackgroundWork` `.cpu` item | `wrong-lane` site (records, never traps) | `wrong-lane` site |
+| dedicated | a named thread or queue in [Registered threads and queues](#registered-threads-and-queues) | allowed | allowed |
+
+The daemon has the same split. `cmux_threads::disallow_blocking()` at the entry of a request or echo thread
+makes it "main-like"; a `cmux_threads::work` worker may block; other registered threads may block.
+
+**Modes.**
+
+| Build | App (Swift) | Daemon (Rust) |
+|---|---|---|
+| Debug | record: one unified-log line per site, the Debug menu count, `debug.blocking`. `CMUX_BLOCKING_TRAP=1` traps main sites, `CMUX_BLOCKING_TRAP_POOL=1` pool sites. Task 021 makes trap the default after RUN-1 passes (`CMUX_BLOCKING_TRAP=0` turns it off) | record (`server.blocking`). `CMUX_DAEMON_BLOCKING=panic` panics at the site. Task 021 makes panic the default after MQ-13 is empty |
+| Bench (`-DCMUX_BLOCKING_CHECKS`) | record, never a trap | as Release |
+| Nightly | target: compiled in with `-DCMUX_BLOCKING_CHECKS`, record, one report per new site to the opt-in hang-report sink (at most 5 per launch, 1 per site per 24 h); `CMUX_BLOCKING_TRAP=1` opts in to a trap | as Release |
+| Release | the check is compiled out; only the trace hook (one relaxed atomic load) and lane latency stats stay | per-site counters (256 sites, then `overflow`), never a panic |
+
+**Seams.** Each seam passes `#fileID` and `#line` and runs inside `blockingCall(kind)`. Swift seams live in
+`CmuxNextCompat/Threading` (one file per family): files (`FileManager.checked`, `Data(blockingContentsOf:)`,
+`String(blockingContentsOf:)`, `URL.blockingResourceValues`, `FileHandle.blocking*`, POSIX), sockets and
+descriptors (`blockingRead/Recv/Write/Send`), sync waits (`blockingWait` on semaphores, groups, conditions and work
+items; `DispatchQueue.blockingSync`), processes (`blockingPosixSpawn`, `Process.blockingRun`,
+`Process.blockingWaitUntilExit`), IPC replies (`blockingXPCSendWithReply`), system calls and queries (Security,
+LocalAuthentication, AX, window lists, Launch Services and `NSWorkspace`, ServiceManagement, host resolution,
+`sysctl`/`proc`), SQLite, ImageIO and image decodes, and size-gated CPU work. The kinds are `BlockingKind`:
+file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, process-spawn, process-wait,
+process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive and wrong-lane.
+
+Rust checked forms live in `cmux-tui/crates/cmux-threads`: `checked::fs`, `checked::process`, `checked::sync`
+(`recv`, `recv_timeout`, `join`, condvar waits, `sleep`), `checked::block_on`, `checked::ipc_reply`,
+`scoped_blocking_call(kind, f)` for the rest, `own_fd_read` / `own_fd_write` / `own_fd_write_all` for a
+thread's own descriptor, and `LockHolder` for timed lock waits (`lock_wait`). The kinds are `BlockingKind`:
+fs, process-spawn, process-wait, recv, join, condvar-wait, sleep, sqlite, block-on, ipc-reply, fd-read,
+fd-write, lock-wait and priority-inversion.
+
 ## Threads and queues
 
-The QoS column is what the code sets today; the target model is "QoS and task priority" below (PL-qos owns it
-and changes both with the code).
+"QoS today" is what the code sets at this commit. "Target QoS" is the model below ("QoS and task priority" and
+the closed user-interactive list); the task named in the cell changes the code and this row together. "Waits
+on (QoS)" names what the thread may wait for and the QoS of the thread on the other side: a wait on a thread of
+lower QoS is a priority inversion, so every such row names how it is bounded or boosted. The daemon's threads
+are in [Daemon threads](#daemon-threads-cmux-tui).
 
-| Thread / queue | Owns | May block on | QoS | Bound and back-pressure |
-|---|---|---|---|---|
-| **Main thread** (AppKit, SwiftUI, CEF UI thread via the external message pump `CEFMessagePump`, Ghostty app tick) | All UI state, `@MainActor` models, CA commits, CEF browser-process UI work | Nothing. Only reviewed `allowBlocking` reasons below. CEF's `CefDoMessageLoopWork` slice is 2 ms (`cmux-pump-time-slice-us`). | user-interactive (system) | Input first; everything else through the scheduler below |
-| **Main-thread scheduler** (`CmuxNextWakeups`: `MainWorkClass` input > frame > visible > automation > background; `MainFrameBudget`; `FrameBatchQueue`; `MainActorWorkQueue` for control-socket work; owner PL-main) | Order and per-frame budget of main-thread work | Never | main | Budgets per frame: visible 2.5 ms, automation 1 ms, background 0.5 ms (4 ms of an 8 ms target); over budget: the rest runs next frame (no drop). `MainActorWorkQueue`: 1024 pending, 256 per connection; full: the request fails `busy`; expired: `timeout`, never runs |
-| **Frame clock** (`FrameScheduler`; `MotionClock`, `DisplayLinkDriver`, `DemandTimer` on it). `DisplayClock` (p03-rendering-010) holds one link per display and every `FrameScheduler` (window, app, budgeted) subscribes to it; with feature `vsyncHub` (p03-rendering-014, off by default) that link is the `VSyncHub`'s, and its ticks reach main as one coalesced post per vsync | Frame ticks for clients | Never | main | One link per display with an active client, 0 at idle; one stall timer per display; a link is rebuilt after 3 stalls of 100 ms (through the hub: `VSyncHub.rebuildLink(display:)`, so the display's off-main subscribers move to the new link too) |
-| **VSyncHub** thread `cmux-next vsync <display>`, one per display that got a link (`CmuxNextWakeups/VSyncHub.swift`, p03-rendering-014, feature `vsyncHub`, off by default; Chrome `ui/display/mac/ca_display_link_mac.mm` and `display_link_mac.mm`) | The display's only link, added to its own run loop; its subscriber list (a `Mutex`, held only to copy or change it, never across a callback); off-main `Sendable` vsync callbacks (Ghostty surfaces after p03-rendering-083) and the main fan-out of `DisplayClock` | Nothing: a callback that blocks is a bug. It never touches a layer whose superlayer belongs to an `NSView` | user-interactive (a frame waits on it; `// qos-allow:`) | The thread starts with the display's first link: a display with no screen (`DisplayClock.noDisplay`, a gone screen) gets no thread, however often its link is retried. The link runs while a subscriber is armed, at the fastest rate an armed subscriber asked for, and is paused while none is (`debug.wakeups` `vsync.live_links` counts the displays with an armed subscriber, `vsync.paused_links` the paused ones); it goes with the display's last subscriber, and the thread stays, asleep in its run loop. A paused link is kept, as Chrome keeps a `DisplayLinkMac` while a consumer holds it and only stops its `CADisplayLink` when the last `VSyncCallbackMac` unregisters, so an arm needs no main hop to make a link. Producers arm on dirty content and a tick that returns `.done` disarms them (an arm during the tick wins). Main gets one coalesced tick post (`MainRunLoopBlock`, common modes), at most one pending: a newer vsync replaces a pending one. Hop: `vsync.main_hop_p50_ms` / `main_hop_p99_ms` (post to main take, last 256 ticks). Before `vsyncHub` turns on by default, the round's fleet run records here: typing-frame-bench main tick p99 with the feature on and off, and bench_idle.py wakeups of the `cmux-next vsync` threads with a visible idle terminal (paused link: 0 expected). If the p99 rises >= 0.1 ms, the composition root keeps `DisplayClock()` main links next to the hub (<= 2 links per display; rendering-DESIGN difference 6). Measurement: not yet run, so the feature stays off |
-| **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | Rings of 128 hangs and 128 over-budget entries |
-| **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Blocking `read(2)` (reader); `write` (writer) | user-interactive (reader), default (writer) | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
-| **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued, resumes below 2 MiB | user-interactive | The daemon's attach mailbox overflows and ends the stream |
-| **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read/write | user-interactive | 2 MiB high water: the consumer task suspends |
-| **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | Renderer: focused user-interactive, visible user-initiated, hidden utility (ghostty-next `src/renderer/Thread.zig` `setQosClass`). IO: not set; removed for manual-IO surfaces by p03-rendering-086 ([Renderer QoS](#renderer-qos-rendering-design-r5)) | cmux runs surfaces in manual IO mode: no Ghostty read thread |
-| **Swift cooperative pool and actors** (`actor`s that own I/O: daemon, cloud, remote, stores; `Task.detached` at `.utility`/`.userInitiated`) | Async I/O and domain state off main | Nothing (never a blocking call on the pool; blocking work belongs on a dedicated thread or queue) | the task's priority | Each actor's own stream bounds (`AsyncStream` with a buffering policy, never `.unbounded`) |
-| **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue | Coalesced by the source; main-queue sources only hop |
-| **Hang watch** (p09-observability, owner PL-telemetry). App: the `HangWatch` slots in CmuxNextTrace (`TraceRuntime.shared.hangWatch`), read by `HangMonitor` on the existing `cmux-next main-thread watchdog` thread's kqueue (no new thread; p02-threads-016, attached by `AppControl.startWatchdog`). Rust: one `cmux-hang-watch` thread per process (cmux-hang-watch crate: daemon, holder, terminal host, acpmux) | Watched threads' and lanes' deadlines; the hang record and stack sample of an overdue slot; app reports go to `debug.hangs` `thread_hangs` (`MainThreadWatchdog.threadHangs`, apart from main-thread stalls) | Its kqueue (app) or a `Condvar` (Rust). Sampling: between `thread_suspend` and `thread_resume` it only reads registers and stack memory into a preallocated buffer, no lock and no allocation | user-interactive (app, the watchdog's); default (Rust) | Opening a scope is a clock read, one store (a lane: two) and one load of the plan; closing one store; no lock and no system call. App: while scopes open and close, one scan per minimum deadline (100 ms); after a scan with no slot changed it sleeps to the earliest open deadline (a 30 s job alone: no periodic wake); with nothing open it parks with no timer (0 idle wakes). A scope whose deadline the plan would see over one minimum deadline late (parked, or sleeping to a later deadline) posts one `EVFILT_USER`. Detection within deadline + minimum deadline. Rust: one one-shot timer per minimum deadline while scopes open (at most 1 wake/s at 1 s), parked after one quiet minimum-deadline period, the first open after that posts one wake. A watcher that wakes over 100 ms late blames nobody. One hang record per overdue scope, kept when a nested scope closes |
-| **Trace ring adoption** (p09-observability, owner PL-telemetry). App: a `BackgroundWork` `.files` job at launch and at `trace.start` (no new thread). Rust: one `cmux-trace-open` one-shot thread per process at start | Moving the heap ring into its file: rename the spare file or create one, `mmap` `MAP_SHARED`, copy the heap records, swap the ring pointer; delete dead-pid rings older than 3 days | Disk (open, `ftruncate`, `mmap`, rename, unlink) | utility | Once per process start and once per recording start; the writers keep writing the heap ring until the swap, never wait for it; an `mmap` failure keeps the heap ring and is counted; a recording mapping is never unmapped while the process lives; the directory is capped at 16 MiB |
-| **Blocking detector drain** `com.cmuxterm.app.next.blocking-drain` | Resolving violations to image UUID + offset; the Debug log line; the sink | Nothing | utility | Ring of 64 new sites, 128 sites per launch; past either: counted in `overflow` |
-| **cmux-tui daemon (Rust)** request path: `mux-server` accept, one `mux-conn` thread per connection (max 64; over: `server.busy`), `mux-control-dispatch` per connection, `mux-line-out` writer | Requests, model, snapshots | Socket read on its own thread | not set (PL-qos) | Per connection 256 requests / 16 MiB (over: error, not run); outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s; event bus 4096 per subscriber, then disconnect. Rules D1-D8 in perf-lead.md |
-| **Request watchdog** `mux-request-watchdog` (cmux-tui daemon, one per process; p05-ipc-006, cmux-tui-core server/request_watchdog.rs) | Requests running past 250 ms: every connection frame from its arrival until its handler returns (v2 operations, sniffed handlers, remote-relay frames) and every `cmd` the connection's scheduler runs on another thread; one `slow_requests` entry each with its final duration (server-stats) and a `slow-request` debug-spans line. `wait-for` and other waits by design are counted in `expected_waits`, not recorded | `park` / `park_timeout`, no timer while idle. A request claims one of 256 slots with atomics; only the first request while disarmed unparks the thread, and a run that ends slow before a scan hands its end over through its slot. Armed, it wakes only on a 250 ms grid, records overruns and finished-slow runs, and disarms on a tick with nothing left to watch and no new request. An overrun still running is recorded with its thread's stack (p05-ipc-008: it stops that thread, `thread_suspend` on macOS, SIGURG on Linux, < 1 ms p95, nothing allocated while it is stopped; frame pointers are walked on macOS and in Linux builds with `-C force-frame-pointers=yes`, otherwise only the pc is kept, `stack_truncated`); a run first seen after it ended gets `run-ended`, no stack | utility (`cmux_threads::spawn`; a failed start is counted in `spawn_failures` and retried by the next arm) | 0 wakes at idle; at most 1 wake per 250 ms (4/s) plus one, under any request spacing; 128-entry ring; a request past 256 busy slots is counted as unwatched, never blocked; Linux captures run one at a time, each waits at most 50 ms for the signal's answer |
-| **Journal writer** `mux-session-journal-writer` (+ `-fanout`, maintenance, hook workers) | Durable session journal | Disk | not set | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
-| **Effect / terminal work** (`mux/resource_effects.rs` intents through the journal writer; `mux-terminal-work` pool, 8 workers) | Registry commits; terminal jobs | Disk (writer side) | not set | 1024 queued jobs; a job that does not fit runs inline |
-| **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
-| **Holder** (`cmux-holder`, one `poll` loop; daemon side `holder-link`) | PTYs that outlive the daemon | `poll` | not set | 1 MiB ring per terminal, 1 MiB link queue, 512 KiB credit window; daemon attached: the holder stops reading the PTY (the shell blocks); no daemon: the ring keeps the newest bytes |
-| **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
-| **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit` / `.control`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends; in the host one frame queue (moves, wheel deltas and geometry coalesce, keys kept), over 4096: the host ends; one exit queue per launcher (kqueue process source, no thread per host); control channel `com.cmuxterm.chromium-host.control` (one reader thread per end, user-initiated, waits only in `poll`; p01-process-012): sends never block, a refused frame waits in the outbox where state ops coalesce per (op, page); over 256 KiB or 4096 waiting is counted (`quota_excess`) and ends the host only after 60 s over without a break; a malformed frame ends it; replies resume on the reader, other messages reach main as one visible task per batch, and past 4096 unread the reader stops reading until main drains |
+| Thread / queue | Owns | Waits on (QoS) | QoS today | Target QoS | Bound and back-pressure |
+|---|---|---|---|---|---|
+| **Main thread** (AppKit, SwiftUI, CEF UI thread via the external message pump `CEFMessagePump`, Ghostty app tick) | All UI state, `@MainActor` models, CA commits, CEF browser-process UI work | Nothing. Donating waits only: a short `Mutex` section (the holder gets main's QoS while main waits; a wait over 2 ms is recorded), and the reviewed `allowBlocking` reasons below. CEF's `CefDoMessageLoopWork` slice is 2 ms (`cmux-pump-time-slice-us`). | user-interactive (system) | user-interactive (closed list) | Input first; everything else through the scheduler below |
+| **Main-thread scheduler** (`CmuxNextWakeups`: `MainWorkClass` input > frame > visible > automation > background; `MainFrameBudget`; `FrameBatchQueue`; `MainActorWorkQueue` for control-socket work; owner PL-main) | Order and per-frame budget of main-thread work | Never | main | main | Budgets per frame: visible 2.5 ms, automation 1 ms, background 0.5 ms (4 ms of an 8 ms target); over budget: the rest runs next frame (no drop). `MainActorWorkQueue`: 1024 pending, 256 per connection; full: the request fails `busy`; expired: `timeout`, never runs |
+| **Frame clock** (`FrameScheduler`; `MotionClock`, `DisplayLinkDriver`, `DemandTimer` on it). `DisplayClock` (p03-rendering-010) holds one link per display and every `FrameScheduler` (window, app, budgeted) subscribes to it; with feature `vsyncHub` (p03-rendering-014, off by default) that link is the `VSyncHub`'s, and its ticks reach main as one coalesced post per vsync | Frame ticks for clients | Never | main | main | One link per display with an active client, 0 at idle; one stall timer per display; a link is rebuilt after 3 stalls of 100 ms (through the hub: `VSyncHub.rebuildLink(display:)`, so the display's off-main subscribers move to the new link too) |
+| **VSyncHub** thread `cmux-next vsync <display>`, one per display that got a link (`CmuxNextWakeups/VSyncHub.swift`, p03-rendering-014, feature `vsyncHub`, off by default; Chrome `ui/display/mac/ca_display_link_mac.mm` and `display_link_mac.mm`) | The display's only link, added to its own run loop; its subscriber list (a `Mutex`, held only to copy or change it, never across a callback); off-main `Sendable` vsync callbacks (Ghostty surfaces after p03-rendering-083) and the main fan-out of `DisplayClock` | Its run loop only. The subscriber `Mutex` (main or a subscriber holds it briefly, never across a callback). A callback that blocks is a bug. It never touches a layer whose superlayer belongs to an `NSView` | user-interactive (`// qos-allow:`) | user-interactive (closed list: a frame waits on it) | The thread starts with the display's first link: a display with no screen (`DisplayClock.noDisplay`, a gone screen) gets no thread, however often its link is retried. The link runs while a subscriber is armed, at the fastest rate an armed subscriber asked for, and is paused while none is (`debug.wakeups` `vsync.live_links` counts the displays with an armed subscriber, `vsync.paused_links` the paused ones); it goes with the display's last subscriber, and the thread stays, asleep in its run loop. A paused link is kept, as Chrome keeps a `DisplayLinkMac` while a consumer holds it and only stops its `CADisplayLink` when the last `VSyncCallbackMac` unregisters, so an arm needs no main hop to make a link. Producers arm on dirty content and a tick that returns `.done` disarms them (an arm during the tick wins). Main gets one coalesced tick post (`MainRunLoopBlock`, common modes), at most one pending: a newer vsync replaces a pending one. Hop: `vsync.main_hop_p50_ms` / `main_hop_p99_ms` (post to main take, last 256 ticks). Before `vsyncHub` turns on by default, the round's fleet run records here: typing-frame-bench main tick p99 with the feature on and off, and bench_idle.py wakeups of the `cmux-next vsync` threads with a visible idle terminal (paused link: 0 expected). If the p99 rises >= 0.1 ms, the composition root keeps `DisplayClock()` main links next to the hub (<= 2 links per display; rendering-DESIGN difference 6). Measurement: not yet run, so the feature stays off |
+| **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | user-interactive (closed list: it samples a wedged main thread) | Rings of 128 hangs and 128 over-budget entries |
+| **Quit and crash deadlines**: threads `cmux-next quit deadline` (`QuitDeadline`), `cmux-next crash deadline` (`CrashDeadline`) | The deadline after quit starts or after a crash signal: stop a wedged main thread and end the process | Its own semaphore with a deadline (nothing it waits for runs below it) | user-interactive | user-interactive (closed list: it must run while main is wedged) | One thread each, only while quit or crash handling runs |
+| **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Reader: `read(2)` of the daemon socket, fed by the daemon's `mux-line-out` (user-interactive). Writer: `write(2)`, drained by the daemon's `mux-conn` (default today; user-interactive for the UI connection by task 224) | user-interactive (reader), default (writer) | user-interactive, both (closed list; the writer by task 030) | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
+| **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued and resumes below 2 MiB; the consumer is the output lane (user-interactive) | user-interactive | user-interactive (closed list, on the daemon reader) | The daemon's attach mailbox overflows and ends the stream |
+| **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read and write; the shell on the other end runs at default | user-interactive (output lane, PTY read); default (PTY write) | user-interactive, all three (closed list; the PTY write by task 030) | 2 MiB high water: the consumer task suspends |
+| **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | Renderer: focused user-interactive, visible user-initiated, hidden utility (ghostty-next `src/renderer/Thread.zig` `setQosClass`). IO: not set | declared by library: as today; IO removed for manual-IO surfaces by p03-rendering-086 ([Renderer QoS](#renderer-qos-rendering-design-r5)) | cmux runs surfaces in manual IO mode: no Ghostty read thread |
+| **BackgroundWork lanes** (`CmuxNextWakeups`, one per app; slot queues `com.cmuxterm.next.work.<lane>.<slot>`) | Work that may block, off main and off the pool | files: disk. system: system calls (DNS, Security, Launch Services, AX, window server). cpu: nothing (a seam there is `wrong-lane`) | the item's (`WorkPriority.qos` through `.enforceQoS`; the slot queue states none) | the item's: user-initiated, default, utility or background; never user-interactive | [Lanes](#lanes); a slot has a GCD thread only while it has work |
+| **Swift cooperative pool and actors** (`actor`s that own I/O: daemon, cloud, remote, stores; `Task.detached` at `.utility`/`.userInitiated`) | Async I/O and domain state off main | Nothing (never a blocking call on the pool; blocking work belongs on a lane or a dedicated thread or queue). An `await` is not a wait: the thread runs other tasks | the task's priority | the task's priority | Each actor's own stream bounds (`AsyncStream` with a buffering policy, never `.unbounded`) |
+| **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue; the control socket queues: default | as the queue; the control socket queues: utility (task 031) | Coalesced by the source; main-queue sources only hop |
+| **Process queues** `com.cmuxterm.next.process.<name>` (`ProcessRun`) and the `ProcessLauncher` queues | One child's spawn and its exit source | `posix_spawn` (the kernel); never a wait for the child: the exit source reports it | the run's `WorkPriority.qos` | the run's; the child gets `WorkPriority.processQoS`, never user-interactive | One queue per run or launcher |
+| **Hang watch** (p09-observability, owner PL-telemetry). App: the `HangWatch` slots in CmuxNextTrace (`TraceRuntime.shared.hangWatch`), read by `HangMonitor` on the existing `cmux-next main-thread watchdog` thread's kqueue (no new thread; p02-threads-016, attached by `AppControl.startWatchdog`). Rust: one `cmux-hang-watch` thread per process (daemon, holder, terminal host, acpmux; not started yet, task 205) | Watched threads' and lanes' deadlines; the hang record and stack sample of an overdue slot; app reports go to `debug.hangs` `thread_hangs` (`MainThreadWatchdog.threadHangs`, apart from main-thread stalls) | Its kqueue (app) or a `Condvar` (Rust). Sampling: between `thread_suspend` and `thread_resume` it only reads registers and stack memory into a preallocated buffer, no lock and no allocation | user-interactive (app, the watchdog's); Rust not started yet | user-interactive (app, closed list); utility (Rust `mux-hang-watch`, task 205) | Opening a scope is a clock read, one store (a lane: two) and one load of the plan; closing one store; no lock and no system call. App: while scopes open and close, one scan per minimum deadline (100 ms); after a scan with no slot changed it sleeps to the earliest open deadline (a 30 s job alone: no periodic wake); with nothing open it parks with no timer (0 idle wakes). A scope whose deadline the plan would see over one minimum deadline late (parked, or sleeping to a later deadline) posts one `EVFILT_USER`. Detection within deadline + minimum deadline. Rust: one one-shot timer per minimum deadline while scopes open (at most 1 wake/s at 1 s), parked after one quiet minimum-deadline period, the first open after that posts one wake. A watcher that wakes over 100 ms late blames nobody. One hang record per overdue scope, kept when a nested scope closes |
+| **Trace ring adoption** (p09-observability, owner PL-telemetry). App: a `BackgroundWork` `.files` job at launch and at `trace.start` (no new thread). Rust: one `cmux-trace-open` one-shot thread per process at start | Moving the heap ring into its file: rename the spare file or create one, `mmap` `MAP_SHARED`, copy the heap records, swap the ring pointer; delete dead-pid rings older than 3 days | Disk (open, `ftruncate`, `mmap`, rename, unlink) | utility (app lane item); Rust not set | utility (Rust by task 229) | Once per process start and once per recording start; the writers keep writing the heap ring until the swap, never wait for it; an `mmap` failure keeps the heap ring and is counted; a recording mapping is never unmapped while the process lives; the directory is capped at 16 MiB |
+| **Blocking detector drain** `com.cmuxterm.app.next.blocking-drain` | Resolving violations to image UUID + offset; the Debug log line; the sink | Nothing | utility | utility | Ring of 64 new sites, 128 sites per launch; past either: counted in `overflow` |
+| **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit` / `.control`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread. The host prototype's threads wait only in `poll` and on their exit source | Chromium's; the host prototype threads and queues user-initiated | declared by library (Chromium sets it from the thread type, `base/threading/platform_thread_apple.mm`); host prototype user-initiated | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends; in the host one frame queue (moves, wheel deltas and geometry coalesce, keys kept), over 4096: the host ends; one exit queue per launcher (kqueue process source, no thread per host); control channel `com.cmuxterm.chromium-host.control` (one reader thread per end, user-initiated, waits only in `poll`; p01-process-012): sends never block, a refused frame waits in the outbox where state ops coalesce per (op, page); over 256 KiB or 4096 waiting is counted (`quota_excess`) and ends the host only after 60 s over without a break; a malformed frame ends it; replies resume on the reader, other messages reach main as one visible task per batch, and past 4096 unread the reader stops reading until main drains |
+
+## Closed user-interactive list
+
+Only these threads and queues run at user-interactive (Chrome's `kDisplayCritical`: the UI thread, the
+compositor and the threads a frame or an echoed key waits on). Any other cmux thread or queue at user-interactive
+is a bug. A new entry needs a row here in the same commit, with the reason a frame or the key echo waits on it.
+The Swift guardrail `task-priority` refuses a new `.userInteractive` without `// qos-allow: <why>`; in the daemon
+the only source is `ECHO_PATH_QOS` (`cmux-tui-core/src/echo_thread.rs`).
+
+| Thread or queue | Process | Why a frame or the echo waits on it | At user-interactive today |
+|---|---|---|---|
+| Main thread and the frame clock on it | app | The UI thread | yes (system) |
+| `cmux-next vsync <display>` | app | Frame ticks | yes |
+| `cmux-next main-thread watchdog` | app | Samples a wedged main thread; the app hang watch | yes |
+| `cmux-next quit deadline`, `cmux-next crash deadline` | app | Must run while main is wedged | yes |
+| `cmux-tui reader <path>` | app | Daemon output to the terminal | yes |
+| `com.cmuxterm.next.daemon.write` | app | Keys to the daemon | no: default; task 030 |
+| `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write` | app | Local PTY echo | read yes; write no (task 030) |
+| `com.cmuxterm.next.terminal.output` | app | Feeds the terminal surface | yes |
+| `cmux.remote-view.render` | app | Remote desktop frames (compositor class, task 131); a hidden view: p03-rendering-114 | yes |
+| Ghostty renderer of the focused surface | app | Declared by library (ghostty-next `setQosClass`) | yes |
+| `mux-conn` of the app's UI connection | daemon | Reads the person's keys | no: default for every connection; task 224 raises the UI connection after its hello |
+| `mux-line-out`, `mux-pty-input`, `mux-attach-out`, `mux-render-attach-out` | daemon | Key in, echo out | yes |
+| `surface-<id>-reader`, `surface-<id>-host`, `surface-<id>-host-frames`, `surface-frames` | daemon | PTY output and frames | yes |
+| `terminal-host-pty`, `terminal-host-parser`, `terminal-host-client`, `terminal-host-client-input` | terminal host | PTY output, parse, frames out, keys in | yes |
+| Holder `poll` loop | holder | The PTY that outlives the daemon | no: not set; task 207 after task 223 |
+
+Per-terminal entries (`surface-<id>-*`, `terminal-host-*`) of a hidden workspace drop to utility (task 236).
+Child processes never inherit this class: a shell or agent starts at default (task 223), and a helper at its
+`WorkPriority.processQoS` or utility.
+
+## Lanes
+
+App: one `BackgroundWork` per process, built in AppServices (`work`). Daemon: one `cmux_threads::work::Work`
+per process, built where the session opens (`mux/construct.rs`, label `mux`).
+
+| Lane | App today | App target | Daemon (`cmux_threads::work`) |
+|---|---|---|---|
+| files | One serial slot per priority (4 slots), so a best-effort write never waits in front of a user-blocking read | Width 4/3/2/1 by priority (userBlocking/userVisible/bestEffort/idle; task 116), ordered work through a sequence | Width 4/3/2/1 by priority |
+| system | Width 6; 1 slot only for an uncapped userBlocking item (Chrome `PrioritizedDispatcher`, counting every busy slot); host resolution capped at 4 | as today | Width 6/5/2/1 by priority; 1 slot only for UserBlocking |
+| cpu | Performance cores minus 1 (at least 1); a blocking seam is `wrong-lane` | as today | Performance cores minus 1 (at least 2) |
+
+- Best effort and idle: at most 2 running per shared lane, idle at most 1 (Chrome `kMaxBestEffortTasks`,
+  `base/task/thread_pool/thread_pool_impl.cc`). Daemon: done. App: task 115.
+- Startup fence: best-effort and idle posts wait until launch settles (`beginBestEffortFence` /
+  `endBestEffortFence`); an awaited item never waits for the fence.
+- QoS by priority: the table in "QoS and task priority" below. Daemon workers keep one class for life (`fg`
+  user-initiated, `be` utility, `idle` background), named `mux-<lane>-<fg|be|idle>` (lane `files`, `sys`,
+  `cpu`); on Linux a `mux-launch` thread (user-initiated) starts them.
+- Hang deadlines per item: files 5 s, system 30 s, cpu 10 s.
+- **Sequence rule.** Work that must run in order (writes to one file or one store) goes through one sequence:
+  target `work.sequence(label)` returns a `WorkSequence` (Chrome `SequencedTaskRunner`, task 116). Until then,
+  post it at one priority on `.files`, whose slot for that priority is serial. Never count on order across
+  priorities or lanes.
+- Shutdown: `skipOnShutdown` (default) is dropped at quit, `continueOnShutdown` runs on, `blockShutdown` is
+  awaited inside the quit deadline and raised to user-initiated (task 118). `blockShutdown` is only for one
+  bounded write (< 50 ms, atomic replace).
+
+## Daemon threads (cmux-tui)
+
+Every row is a thread name the daemon side starts (cmux-tui-core, cmux-tui, cmux-holder, the terminal host,
+acpmux). "Registered" means it starts through `cmux_threads::spawn` (or `echo_thread::spawn`) and is listed by
+`server.threads` with its declared QoS; the other rows still use `std::thread::Builder` and move in tasks
+213-218 and 229 (queue MQ-12), with one-shot threads becoming `work` items in task 230. `<id>` is a per-object
+part of the name.
+
+| Thread | Owns | Waits on (QoS) | QoS today | Target QoS | Registered | Bound and back-pressure |
+|---|---|---|---|---|---|---|
+| `mux-server` (accept) | Accepting local connections | `accept` | not set | utility (task 211) | no | Max 64 connections; over: `server.busy` |
+| `mux-conn`, `mux-remote-conn` (one reader per connection) | Line read and request dispatch inline; blocking disallowed | Its socket (`read`, the client's QoS); request work that may block goes to `work` | default (`CONNECTION_READER_QOS`) | user-interactive for the app's UI connection, utility for automation (CLI, MCP, hook, agent, remote), user-initiated until the hello (task 224) | yes | Per connection 256 requests / 16 MiB (over: error, not run) |
+| `mux-control-dispatch` (one per connection), `mux-surface-control`, `mux-surface-operation` | Requests the connection's scheduler moves off the reader | Store locks (`LockHolder`, timed; owner boost by task 226), `work` replies | not set | user-initiated (task 211); `mux-surface-control` becomes a `work` item (task 230) | no | Rules D1-D8 in perf-lead.md |
+| `mux-line-out`, `mux-attach-out`, `mux-render-attach-out` | Writing queued bytes to one connection | Its socket (`write`); the producer queue (`Condvar`, producers user-interactive) | user-interactive | user-interactive (closed list) | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s |
+| `mux-pty-input` | Writing keys to PTYs | The PTY (`write`); the shell runs at default | user-interactive | user-interactive (closed list) | yes | One bounded scheduler; per-surface order, byte writes batched, motion coalesced |
+| `surface-<id>-reader`, `surface-<id>-host`, `surface-<id>-host-frames` | One terminal's PTY output or its host's frames | Its PTY or host socket (own descriptor) | user-interactive | user-interactive; utility while its workspace is hidden (task 236) | yes | One per terminal (see [Per-terminal threads](#why-the-daemon-keeps-thread-per-connection)) |
+| `surface-frames` (one per process) | Frame production for every surface (one thread, not one per terminal) | Its condition variable, no timer at idle | user-interactive | user-interactive (closed list) | yes | One thread |
+| `surface-<id>-wait`, `terminal-host-reaper`, `holder-reaper`, `mux-terminal-reap` | Reaping one child | `waitpid` | not set | one `mux-reaper` at utility on kqueue (macOS) or pidfd (Linux), 0 per-child threads (task 237) | no | One thread per child today |
+| `mux-terminal-work` (8 workers) | Terminal jobs | Disk; the journal writer | not set | user-initiated (task 214) | no | 1024 queued jobs; a job that does not fit runs inline |
+| `mux-<lane>-<fg/be/idle>`, `mux-launch` (`cmux_threads::work`) | Work that may block, by lane | Disk (files), system calls (sys), nothing (cpu) | `fg` user-initiated, `be` utility, `idle` background; `mux-launch` user-initiated | same | yes | [Lanes](#lanes) |
+| `mux-session-journal-writer` (+ `-fanout`, `-hooks`, `-reaper`), `journal-hook-worker-<index>`, `cmux-journal-maintenance`, `journal-retention`, `sqlite-wal-sync` | Durable session journal and its upkeep | Disk; SQLite (`LockHolder` chokepoints, task 225) | not set | writer user-initiated while a request can wait on its durable commit, utility after PL-daemon removes that wait (task 212, with the owner boost of task 226); upkeep utility | no | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
+| `mux-request-watchdog` | Requests past 250 ms | `park` / `park_timeout` | utility | utility | yes | See the app-side "Request watchdog" notes: 0 wakes at idle, at most 4/s plus one, 128-entry ring |
+| `cmux-hang-watch` | Echo and request deadlines | `Condvar` | not started (task 205) | utility | (task 205) | 0 idle wakes |
+| `cmux-trace-open` | Moving the trace ring into its file | Disk | not set | utility (task 229) | no | One-shot at process start |
+| `mux-ws-server`, `mux-ws-conn`, `mux-ws-out`, `mux-events-<generation>`, `mux-events-out` | WebSocket and event-bus clients | Sockets; the event bus | not set | accept utility; per-client user-initiated (task 211), utility for automation clients (task 224) | no | Event bus 4096 per subscriber, then disconnect |
+| `holder-link` | Routing each held terminal's output to its surface | The holder socket (holder: see below) | not set | user-initiated (task 218); task 302 measures whether the echo waits on it | no | 1 MiB link queue, 512 KiB credit window |
+| `browser-surface-<id>-worker`, `-events`, `-bootstrap`; `browser-host-*` | One browser surface's CDP traffic | Sockets to the browser host | not set | user-initiated (task 215); one-shot bootstrap becomes a `work` item (task 230) | no | Per surface |
+| `chief-*`, `mux-agent-*`, `acpmux-*` watchers, `machine-*`, `cmux-apps-*`, `cmux-app-server:<name>`, `cmux-app-host:<name>`, other named one-shots (`mux-url-open`, `mux-cloud-request`, `mux-launch-snapshot` and about 60 more) | Agents, machines, apps and one-shot requests | Sockets, child processes, disk | not set | loops: utility unless a person waits on them (tasks 213-218); one-shots: `work` items at the priority of the request they serve (task 230) | no | Per loop |
+| tokio runtimes (acpmux, link, remote, cloud conversations, coderouter, server pairing) | Async I/O of that subsystem | Sockets on the runtime | not set, unnamed workers | named and registered through `cmux_threads::tokio::builder(name, qos)` (task 228); acpmux workers default, blocking pool utility, at most 16 | no | Per runtime |
+
+Holder (`cmux-holder`, its own process): one `poll` loop on its main thread; it forks the user's shell from that
+thread. Waits on: `poll` (the PTYs and the daemon link). QoS today: not set. Target: user-interactive (closed
+list) after task 223 makes the forked shell start at default (task 207). Bound: 1 MiB ring per terminal, 1 MiB
+link queue, 512 KiB credit window; with the daemon attached the holder stops reading the PTY (the shell
+blocks); with no daemon the ring keeps the newest bytes.
+
+acpmux (its own process): tokio multi-thread runtime with `acpmux-socket-read` / `-write` bridges and
+`acpmux-accept`. Waits on: socket I/O on its runtime. QoS today: not set. Target: task 218 (above). Bound: in 256
+/ out 4096 per connection, a full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub
+broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f).
+
+Per-stream lanes (PL-conn, `pl-conn`) are not on feat-cmux-next yet; they get a row here when they land.
+
+## Why the daemon keeps thread-per-connection
+
+The daemon keeps one reader thread per connection and one writer per output stream; it does not move to one
+reactor (epoll or kqueue) thread:
+
+- The reader is the echo path of the app's UI connection. A thread of its own gets the QoS of its client (task
+  224): the person's connection reads at user-interactive and an agent's at utility. In one reactor, every
+  client shares one thread and one QoS, and a burst of automation would wait in front of a key.
+- Chrome makes the same split: each renderer has its own IPC channel and the browser gives each priority its
+  own threads; its IO thread is never shared with work a person waits on.
+- A blocking call on a reader stalls only that client, and the detector (`disallow_blocking`) names it. In a
+  reactor, one blocking call stalls every client.
+- The count is bounded: at most 64 connections (over: `server.busy`), and threads sleep in `read` (0 idle wakes).
+
+Per-terminal threads must not grow. Today a terminal costs at most these threads:
+
+| Mode | Threads per terminal | Names |
+|---|---|---|
+| Daemon PTY | 2 | `surface-<id>-reader`, `surface-<id>-wait` |
+| Terminal host (daemon side) | 2 or 3 | `surface-<id>-host`, `surface-<id>-host-frames`, `terminal-host-reaper` |
+| Terminal host (host process, one per terminal) | 4 echo threads plus about 6 lifecycle threads | `terminal-host-pty`, `-parser`, `-client`, `-client-input`; `-child`, `-exit`, `-signals`, `-terminate`, `-clipboard`, `-record-mirror`, `-publication-sync` |
+
+Target: task 237 removes every per-child wait thread (one `mux-reaper` per process) and task 230 turns
+per-terminal one-shots (`terminal-adopt-<id>`, `template-complete-<id>`, `terminal-exit-detach-<id>`) into
+`work` items, so a daemon-PTY terminal costs 1 thread. A change that adds a thread per terminal, per tab or per
+request needs a row here and a measured reason; a one-shot is a `work` item, not a thread.
+
+## Process roles
+
+Each cmux process states its launchd `ProcessType` (when launchd starts it), its Mach task role and the QoS
+its parent spawns it at. Chrome's model: `base::Process::SetPriority` (`base/process/process_mac.cc`) sets the
+task role and `DARWIN_BG`; a child never inherits a display-critical thread's QoS. Task 234 changes the plist
+values and their tests, task 235 the task roles, tasks 207 and 223 the spawn QoS.
+
+| Process | Started by | launchd ProcessType today | Target | Task role today | Target | Spawn QoS today | Target |
+|---|---|---|---|---|---|---|---|
+| App (cmux-next) | LaunchServices | none (an app) | none | foreground app (AppKit) | same | n/a | n/a |
+| Daemon (`cmux server`, owner session) | the app (`cmux server ensure`, detached), or launchd | `com.cmux.server` and `<bundle id>.server`: Standard | Standard | not set | `TASK_FOREGROUND_APPLICATION` (`set_default_role`, task 235) | the app's caller thread (`ProcessRunner`) | user-initiated (task 207) |
+| Holder (`cmux-holder`) | the daemon | none | none | not set | `TASK_FOREGROUND_APPLICATION` (task 235) | the daemon's thread | user-initiated; its own main user-interactive after task 223 (task 207) |
+| Terminal host (one per terminal) | the daemon (`cmux_process`) | none | none | not set | foreground; background-suppressed (`PRIO_DARWIN_BG`) while its workspace is hidden (tasks 235, 236) | the daemon's thread | user-initiated |
+| acpmux | the app (`AcpmuxDaemonLauncher`, `posix_spawn`) | none | none | not set | foreground | the caller's | user-initiated |
+| Chromium host prototype | the app (`ChromiumHostLauncher`) | none | none | not set | foreground; background while every page is hidden (Chrome `RenderProcessHostImpl::UpdateProcessPriority`) | the caller's | user-initiated (task 235 Swift twin) |
+| CEF helpers (renderer, GPU, utility) | Chromium | none | none | set by Chromium | set by Chromium | Chromium's | Chromium's |
+| Daemon bridge (`cmux link dial`) | the app (`DaemonBridge`, `posix_spawn`) | none | none | not set | foreground | the caller's | user-initiated (task 207) |
+| Link agent `com.cmuxterm.link` (`cmux link serve`) | launchd | Background | Adaptive: a person's input passes through it (task 234) | not set | same as ProcessType | launchd | launchd |
+| Remote host (`cmux host serve`) | launchd | Background | Adaptive (task 234) | not set | same as ProcessType | launchd | launchd |
+| Server helper `com.cmux.server.helper` | launchd (`SMAppService.daemon`) | not set (launchd default: Standard) | Standard | not set | same | launchd | launchd |
+| Computer Use helper v2 | the app (`ComputerUseHelperV2Spawner`, responsibility disclaimed) | none | none | not set | foreground | the caller's | user-initiated |
+| User shells and agents | the daemon, the holder or a terminal host | none | none | inherited | inherited | the spawning thread's (an echo thread: user-interactive) | default, never an echo thread's (task 223) |
+| Helper commands (git, `ss`/`netstat`, hooks, plugins) | the daemon or the app | none | none | inherited | inherited | the spawning thread's | utility (`cmux_threads::process::spawn_qos`, task 223); app: `WorkPriority.processQoS` |
 
 ## QoS and task priority (PL-qos, 2026-10-24)
 One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority, derived from it (CmuxNextWakeups).
@@ -90,9 +282,8 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 | bestEffort | automation, background | utility | utility | saves, agent/CLI/MCP work off main, gh/git polls |
 | idle (opt-in) | none | background | background | nothing ever waits: indexing, telemetry upload, prefetch, cache cleanup. Never the journal, quit work, or anything a UI path awaits later |
 
-userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
-CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+userInteractive: only the threads and queues of the [closed user-interactive list](#closed-user-interactive-list).
+No BackgroundWork lane, process queue or child process runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
@@ -114,8 +305,13 @@ OperationQueue set `.name` and `.qualityOfService` on their own variable, at a l
 .background or .default; Thread.detachNewThread and `delegateQueue: nil` are refused. Escape `// qos-allow: <why>`.
 Guardrail `pool-blocking` refuses a blocking call (PL-blocking's BLOCKING_* list) on a shared pool thread.
 
-Daemon: no cmux-tui thread sets a QoS yet. The journal writer stays at the default QoS while request paths wait on its
-durable commit (PL-daemon is removing that wait; then writer = utility, request threads = userInitiated).
+Daemon: `cmux_threads::ThreadQos` is one table for every daemon thread (Chromium's ThreadType,
+`base/threading/platform_thread_apple.mm`): UserInteractive = the echo path (closed list), UserInitiated = request
+dispatch a person waits on and `work` foreground workers, Default = only a child shell or agent at its fork,
+Utility = automation, watchers and best-effort workers, Background = idle workers. Linux uses nice 0/0/0/5/10. The
+echo threads and the connection readers are registered today; [Daemon threads](#daemon-threads-cmux-tui) gives
+every other thread its target. The journal writer (not set today) is to run at user-initiated while request paths wait on its
+durable commit (PL-daemon is removing that wait; then the writer is utility and is boosted by a waiting request, task 226).
 
 Blocking rule for the two "donating waits" above (lead decision 2026-10-24): a short `Mutex` critical
 section on the main thread is allowed (a contended wait over 2 ms is recorded), but a `dispatch_sync` from the
@@ -152,10 +348,15 @@ what a person sees gets the frame priority, hidden producers get utility and dra
 ## Registered threads and queues
 
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
-matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
+matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on
+and its QoS.
 
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`,
   `cmux-next vsync <display>` (VSyncHub)
+- Lanes and processes (CmuxNextWakeups): `com.cmuxterm.next.work.<lane>.<slot>` (BackgroundWork slot queues, the
+  item's QoS), `com.cmuxterm.next.process.<name>` (ProcessRun, the run's QoS), ProcessLauncher queues
+  `com.cmuxterm.next.sleepy-lock` (user-initiated), `com.cmuxterm.next.now-playing` (default),
+  `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (user-initiated)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
@@ -164,8 +365,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
-  `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
-  `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
+  `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render` (user-interactive, closed list),
+  `cmux.remote-view.rd-transport`, `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read` (user-initiated),
   `com.cmuxterm.chromium-host.control` (user-initiated; the control channel's reader in cmux and, same label, in the host;
@@ -192,15 +393,31 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
   waits for the dropped files)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
-  gets a named delegate queue. None is unnamed.
+  gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
+
+Queues above that state no QoS or target yet run at default until tasks 032 and 033 set them: task 032 the
+retry-wake, process-progress, daemon exit and path, settings watcher, CEF children, provider write, mobile
+unix-lane, agent-activity socket and updates network queues; task 033 the remote-view transport and mock host,
+remote-fetch, import-history-sync, acpmux, chief-settle and fixture video queues. Their target is utility, except
+the remote-fetch and remote-view transport queues that a visible pane waits on (user-initiated). None goes to
+user-interactive.
 
 ## Reviewed blocking allowances
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
 `ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push. It is not for
 hot paths: in Debug and bench builds (and Nightly, to come) each outermost scope adds and removes one `CFRunLoopObserver` (it
-holds the allowance back while a nested run of the main run loop runs other work).
+holds the allowance back while a nested run of the main run loop runs other work). Swift allowances plus
+`// blocking-allow:` escapes stay at 3 or fewer (INV-4; arch-ratchet `blocking_allow_escapes`).
 
 | Reason | Why the wait cannot move off the main thread |
 |---|---|
 | `terminate` | `applicationWillTerminate(_:)` runs on the main thread and the process exits right after it: a bounded final flush there cannot delay a frame (Chrome allows blocking during shutdown the same way). |
+
+Daemon: `cmux_threads::AllowReason` is the Rust friend list, 3 variants or fewer. `allow_blocking(reason, f)` is
+the only way past `disallow_blocking`.
+
+| AllowReason | What it permits | Where |
+|---|---|---|
+| `Shutdown` | Every kind except ipc-reply, while the daemon flushes state and joins workers on a thread that no longer serves input (Chrome's `PermanentThreadAllowance::AllowBlocking`) | No call site yet (shutdown paths adopt it with tasks 211 and 213-218) |
+| `OwnDescriptor` | Only fd-read and fd-write on the descriptor the thread registered (`register_own_descriptor`); call-scoped, never thread-wide; made only by `own_fd_read`, `own_fd_write` and `own_fd_write_all` | Echo threads that own a terminal-host socket (`echo_thread::spawn_host_stream_reader`, `with_own_host_stream`); PTY and control-socket descriptors by task 210b |
