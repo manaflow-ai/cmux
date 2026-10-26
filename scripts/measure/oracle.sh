@@ -16,17 +16,20 @@
 #   --artifact=PATH   the step's --artifact, a relative artifacts/oracle/<name>.tar.gz (required)
 #   --config=C        bench (default) or debug: reload.sh --config and oracle.py --build
 #   --dry-run         plan the shard and write its receipt; build and launch nothing
+#   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout (p15-oracle-026):
+#                     applied to the checkout before the build and reverted on exit; a dry run only checks it applies
 # On exit, TERM, INT or HUP (a cancelled step) the script ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle). It never touches /Applications/cmux.app.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-shard="" artifact="" config=bench dry_run=0 args=()
+shard="" artifact="" config=bench dry_run=0 mutant="" args=()
 for arg in "$@"; do
   case "$arg" in
     --shard=*) shard="${arg#--shard=}" ;;
     --artifact=*) artifact="${arg#--artifact=}" ;;
     --config=*) config="${arg#--config=}" ;;
     --dry-run) dry_run=1 ;;
+    --mutant=*) mutant="${arg#--mutant=}" ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -38,15 +41,31 @@ case "$config" in
   bench | debug) ;;
   *) echo "oracle.sh: --config=$config: bench or debug" >&2; exit 2 ;;
 esac
+mutant_id=""
+if [[ -n "$mutant" ]]; then
+  if [[ "$mutant" != tests/oracle/mutants/app/*.patch || "$mutant" == *..* ]]; then
+    echo "oracle.sh: --mutant=$mutant: a tests/oracle/mutants/app/<name>.patch of this checkout" >&2
+    exit 2
+  fi
+  mutant_id="$(python3 -I scripts/cmux-next/oracle/patch_mutants.py validate "$mutant" --product app)" || exit 2
+  if ! git apply --check "$mutant"; then
+    echo "oracle.sh: $mutant does not apply at $(git rev-parse HEAD)" >&2
+    exit 1
+  fi
+fi
 tag="oracle"
 sha="$(git rev-parse HEAD)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/oracle-step.XXXXXX")"
 app=""
+mutant_applied=0
 # shellcheck disable=SC2329 # run by the traps below
 cleanup() {
   trap - EXIT TERM INT HUP
   if [[ -n "$app" ]]; then
     python3 scripts/cmux-next/tag_teardown.py "$app" || true
+  fi
+  if [[ "$mutant_applied" == 1 ]]; then
+    git apply -R "$mutant" || echo "oracle.sh: could not revert mutant $mutant_id; the checkout keeps it" >&2
   fi
 }
 # shellcheck disable=SC2329 # run by the traps below
@@ -62,10 +81,18 @@ trap 'on_signal HUP 1' HUP
 
 step=(python3 -I scripts/cmux-next/oracle/fleet.py step --ref "$sha" --tag "$tag" --config "$config"
   --shard "$shard" --artifact "$artifact" --work "$work")
+if [[ -n "$mutant_id" ]]; then
+  step+=(--mutant "$mutant_id")
+fi
 if [[ "$dry_run" == 1 ]]; then
   exec "${step[@]}" --dry-run ${args[@]+"${args[@]}"}
 fi
 
+if [[ -n "$mutant" ]]; then
+  git apply "$mutant"
+  mutant_applied=1
+  echo "oracle.sh: applied mutant $mutant_id at $sha"
+fi
 build_start=$SECONDS
 for sub in ghostty ghostty-next; do
   [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"

@@ -12,6 +12,9 @@ Client side (the agent's host: the Linux VM or a laptop; nothing builds here):
                                                            `oracle.py diff --product app ...` hands its argv here
 Selection: --suite, --filter, --repeat, --retry-limit, --shuffle, --seed, --batch-limit, --config (bench, the
 default, or debug: oracle.py's --build of the run), --dry-run (plan only: the step builds nothing).
+Seeded faults (p15-oracle-026): `run --mutant P` and `diff --base SHA --head SHA --head-mutant P` build that side
+with tests/oracle/mutants/app/<name>.patch applied; the step applies the copy in its own checkout, so the patch must
+be in the commit's tree, with the same content as here.
 
 Each shard is one step: `cmux-ci run --class exclusive --label measure --no-supersede --script
 scripts/measure/oracle.sh --ref SHA --key oracle-<run>-<side>-s<i>of<N> --artifact artifacts/oracle/<key>.tar.gz
@@ -77,6 +80,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import oracle  # noqa: E402  (the sibling CLI: merge_runs, write_merged, DEFAULT_RETRY_LIMIT, new_run_id)
+import patch_mutants  # noqa: E402  (the app mutants' header checks, p15-oracle-026)
 
 SCRIPT = "scripts/measure/oracle.sh"
 # ci_step.go: measureClass and measureLabel. Every scripts/measure/ step runs alone on a worker that has a console.
@@ -229,6 +233,38 @@ def find_client(explicit: Optional[str]) -> str:
         raise UsageError(f"{candidate}: no cmux-ci client (install: python3 build-fleet/install-client.py "
                          "--prefix ~/.local from an hq checkout)")
     return candidate
+
+
+MUTANT_DIR = "tests/oracle/mutants/app"
+
+
+def mutant_extra(path: Optional[str], sha: str) -> Tuple[Tuple[str, str], ...]:
+    """The step arg of an app mutant (p15-oracle-026): oracle.sh applies `tests/oracle/mutants/app/<name>.patch` of
+    the step's own checkout before the build, so the patch must be in this checkout and in the commit's tree."""
+    if path is None:
+        return ()
+    rel = Path(path)
+    if rel.is_absolute() and rel.resolve().is_relative_to(REPO):
+        rel = rel.resolve().relative_to(REPO)
+    text = rel.as_posix()
+    if not re.fullmatch(rf"{MUTANT_DIR}/[a-z0-9][a-z0-9-]*\.patch", text):
+        raise UsageError(f"{path}: an app mutant is {MUTANT_DIR}/<name>.patch in this checkout")
+    mutant, errors = patch_mutants.parse(REPO / rel, "app")
+    if mutant is None or errors:
+        raise UsageError(f"{path}: " + "; ".join(errors or ["unreadable"]))
+
+    def blob(*argv: str) -> Optional[str]:
+        proc = subprocess.run(["git", "-C", str(REPO), *argv], check=False, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, text=True)
+        return proc.stdout.strip() if proc.returncode == 0 else None
+
+    committed = blob("rev-parse", "--verify", "--quiet", f"{sha}:{text}")
+    if committed is None:
+        raise UsageError(f"{text} is not in {sha[:12]}'s tree (or that commit is not here): the step applies "
+                         "the patch of its own checkout")
+    if committed != blob("hash-object", str(REPO / rel)):
+        raise UsageError(f"{text} here differs from {sha[:12]}'s copy, which is the one the step applies")
+    return (("mutant", text),)
 
 
 def resolve_sha(ref: str) -> str:
@@ -529,7 +565,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     selection = selection_from(args, retry_default=None)
     run_id = run_id_for(args, args.out)
     out = prepare_out(args, run_id)
-    side = Side("run", resolve_sha(args.ref))
+    sha = resolve_sha(args.ref)
+    side = Side("run", sha, mutant_extra(args.mutant, sha))
     make_shards(side, run_id=run_id, total=args.shards, selection=selection, out=out)
     write_fleet(out, fleet_record(run_id, [side]))
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.shards) as pool:
@@ -549,7 +586,10 @@ def diff_sides(args: argparse.Namespace) -> List[Side]:
             raise UsageError("--base and --head go together")
         if args.switch or args.arm:
             raise UsageError("--base/--head, --switch and --arm launch-config are separate diffs")
-        return [Side("base", resolve_sha(args.base)), Side("head", resolve_sha(args.head))]
+        head = resolve_sha(args.head)
+        return [Side("base", resolve_sha(args.base)), Side("head", head, mutant_extra(args.head_mutant, head))]
+    if args.head_mutant:
+        raise UsageError("--head-mutant goes with --base/--head (`--base SHA --head SHA` is one mutant's catch check)")
     if not args.ref:
         raise UsageError("--switch and --arm launch-config run one build: pass --ref SHA")
     sha = resolve_sha(args.ref)
@@ -672,7 +712,8 @@ def cmd_step(args: argparse.Namespace, rest: List[str]) -> int:
     seconds = round(time.monotonic() - started, 1)
     receipt = work / "run" / "receipt.json"
     record = {"schema": STEP_SCHEMA, "sha": args.ref, "shard": [index, total], "tag": args.tag,
-              "config": args.config, "host": host_meta(), "oracle_exit": code, "oracle_seconds": seconds,
+              "config": args.config, "mutant": args.mutant, "host": host_meta(), "oracle_exit": code,
+              "oracle_seconds": seconds,
               "build_seconds": args.build_seconds, "argv": argv[2:], "receipt": receipt.is_file(),
               "step_key": os.environ.get("CMUX_CI_STEP_KEY")}
     (work / "fleet-step.json").write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
@@ -706,6 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", allow_abbrev=False, help="one app run of a commit on the fleet, sharded, merged into one receipt")
     run.add_argument("--ref", required=True, help="the pushed commit (full SHA, or a ref this checkout resolves)")
+    run.add_argument("--mutant", help="build with tests/oracle/mutants/app/<name>.patch applied (p15-oracle-026)")
     add_selection_args(run)
     add_client_args(run)
     run.set_defaults(func=cmd_run)
@@ -717,6 +759,7 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--switch")
     diff.add_argument("--arm", choices=["launch-config"])
     diff.add_argument("--ref")
+    diff.add_argument("--head-mutant", help="build the head with tests/oracle/mutants/app/<name>.patch applied")
     add_selection_args(diff)
     add_client_args(diff)
     diff.set_defaults(func=cmd_diff)
@@ -731,6 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("--app", help='the tagged "cmux DEV <tag>.app"')
     step.add_argument("--build-seconds", type=int)
     step.add_argument("--dry-run", action="store_true")
+    step.add_argument("--mutant", help="the app mutant oracle.sh applied before the build (recorded only)")
     step.set_defaults(func=None)
     return parser
 

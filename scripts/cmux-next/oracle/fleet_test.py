@@ -268,6 +268,86 @@ class DiffTests(FleetHarness):
         self.assertNotIn("comparison", self.record(out))
 
 
+FIXTURE_SWIFT = "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift"
+FIXTURE_MUTANT = "tests/oracle/mutants/app/fixture-off-by-one.patch"
+
+
+class MutantTests(FleetHarness):
+    """App mutants (p15-oracle-026): the head step gets --mutant=PATH, oracle.sh checks it applies in its checkout."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        source = self.checkout / FIXTURE_SWIFT
+        source.parent.mkdir(parents=True)
+        source.write_text("func index(_ i: Int) -> Int {\n    i\n}\n")
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "swift"], check=True)
+        source.write_text("func index(_ i: Int) -> Int {\n    i + 1\n}\n")
+        body = subprocess.run(git + ["diff"], check=True, stdout=subprocess.PIPE, text=True).stdout
+        subprocess.run(git + ["checkout", "-q", "--", FIXTURE_SWIFT], check=True)
+        mutant = self.checkout / FIXTURE_MUTANT
+        mutant.parent.mkdir(parents=True, exist_ok=True)
+        mutant.write_text("Mutant: app/fixture-off-by-one\nSuite: actions\nExercises: index\nFault: off by one.\n\n" + body)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "mutant"], check=True)
+        self.sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, stdout=subprocess.PIPE,
+                                  text=True).stdout.strip()
+        self.saved_repo = fleet.REPO
+        fleet.REPO = self.checkout
+
+    def tearDown(self) -> None:
+        fleet.REPO = self.saved_repo
+        super().tearDown()
+
+    def test_the_head_step_alone_gets_the_mutant(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", self.sha, "--head", self.sha, "--head-mutant", FIXTURE_MUTANT,
+                          "--shards", "2", "--out", str(out), "--run-id", "m1")
+        self.assertEqual(code, 3, self.output)  # dry runs: both sides merge, nothing to compare
+        arg = f"--arg=--mutant={FIXTURE_MUTANT}"
+        by_side: dict = {}
+        for row in self.calls("run"):
+            key = row["args"][row["args"].index("--key") + 1]
+            by_side.setdefault(key.split("-")[2], []).append(arg in row["args"])
+        self.assertEqual(by_side, {"base": [False, False], "head": [True, True]})
+        record = self.record(out)
+        self.assertEqual(record["sides"]["head"]["args"], {"mutant": FIXTURE_MUTANT})
+        self.assertEqual(record["sides"]["base"]["args"], {})
+        step = json.loads((out / "shards" / "head" / "0" / "unpacked" / "fleet-step.json").read_text())
+        self.assertEqual(step["mutant"], "app/fixture-off-by-one")
+        base = json.loads((out / "shards" / "base" / "0" / "unpacked" / "fleet-step.json").read_text())
+        self.assertIsNone(base["mutant"])
+        self.assertNotIn("i + 1", (self.checkout / FIXTURE_SWIFT).read_text(), "a dry run applies nothing")
+
+    def test_a_mutant_that_does_not_apply_fails_its_step(self) -> None:
+        git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        (self.checkout / FIXTURE_SWIFT).write_text("func index(_ j: Int) -> Int {\n    j\n}\n")
+        subprocess.run(git + ["commit", "-q", "-am", "moved on"], check=True)
+        sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", sha, "--mutant", FIXTURE_MUTANT, "--out", str(out), "--run-id", "m2")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE, self.output)
+        log = (out / "shards" / "run" / "0" / "step.log").read_text()
+        self.assertIn("does not apply", log)
+
+    def test_mutant_paths_are_checked_before_any_submission(self) -> None:
+        for path, message in (("tests/oracle/mutants/daemon/x.patch", "an app mutant is"),
+                              ("../escape.patch", "an app mutant is"),
+                              ("tests/oracle/mutants/app/missing.patch", "unreadable")):
+            with self.subTest(path=path):
+                self.assertEqual(self.fleet("run", "--ref", self.sha, "--mutant", path, "--out", str(self.tmp / "o")),
+                                 fleet.EXIT_USAGE)
+                self.assertIn(message, self.output)
+        (self.checkout / FIXTURE_MUTANT).write_text((self.checkout / FIXTURE_MUTANT).read_text() + "\n")
+        self.assertEqual(self.fleet("run", "--ref", self.sha, "--mutant", FIXTURE_MUTANT), fleet.EXIT_USAGE)
+        self.assertIn("differs from", self.output)
+        self.assertEqual(self.fleet("diff", "--ref", self.sha, "--switch", "x", "--head-mutant", FIXTURE_MUTANT),
+                         fleet.EXIT_USAGE)
+        self.assertIn("goes with --base/--head", self.output)
+        self.assertEqual(self.calls("run"), [])
+
+
 class UnitTests(unittest.TestCase):
     def test_maclease_is_never_the_client(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
