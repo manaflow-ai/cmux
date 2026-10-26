@@ -102,7 +102,7 @@ extension AgentPaneView {
 
     /// Shown when automation would open Session Info without an explicit focus request.
     static var sessionInfoNeedsFocus: String {
-        "Opening Session Info requires focus."
+        String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
     }
 
     /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
