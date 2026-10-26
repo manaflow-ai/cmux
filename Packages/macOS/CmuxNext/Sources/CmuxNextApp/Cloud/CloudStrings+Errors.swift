@@ -30,19 +30,20 @@ extension CloudStrings {
         case .decoding: apiUnreadable
         case let .http(status, code, message, action, traceId):
             CloudAPIError.http(status: status, code: code, message: message,
-                               action: code.map { callerOnlyActions.contains($0) } == true ? nil : action, traceId: traceId)
+                               action: action.flatMap { isCallerOnly($0) ? nil : $0 }, traceId: traceId)
                 .text(trace: trace)
         }
     }
 
-    /// Server codes whose `action` addresses an API caller or the classic
-    /// `cmux vm` CLI ("List your rules with GET /api/vm/firewall", "Enroll
-    /// it with POST /api/vm/tunnel", "Run `cmux vm ls`"), not a person in
-    /// this app: their message and trace id still show, the action does not.
-    nonisolated static let callerOnlyActions: Set<String> = [
-        "vm_not_found", "vm_access_requires_pro", "vm_firewall_rule_not_found",
-        "vm_tunnel_not_found", "vm_attach_transport_unsupported",
-    ]
+    /// Whether a server `action` is written for an API caller or the classic
+    /// `cmux vm` CLI, not a person in this app: "List your rules with GET
+    /// /api/vm/firewall", "Enroll it with POST /api/vm/tunnel", "Request the
+    /// attach endpoint with transport …", "Run `cmux vm ls`"
+    /// (`web/services/vms/routeHelpers.ts`). Such a failure shows its
+    /// message and trace id without the action; the log keeps it.
+    nonisolated static func isCallerOnly(_ action: String) -> Bool {
+        ["cmux vm ", "/api/vm", "attach endpoint"].contains { action.contains($0) }
+    }
 
     /// The support reference after a Cloud server message.
     nonisolated static func trace(_ id: String) -> String {

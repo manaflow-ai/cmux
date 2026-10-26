@@ -25,23 +25,32 @@ struct CloudErrorTextTests {
             == "Cloud VM vm-1 is already resizing. Wait for the current resize to finish, then retry. \(CloudStrings.trace("abc123"))")
     }
 
-    /// The server's own payloads (`routeHelpers.ts`) whose action is written
-    /// for an API caller or the classic CLI: the app shows the message and
-    /// trace id without it; the log (`description`) keeps it.
+    /// The server's own actions (`routeHelpers.ts`) written for an API
+    /// caller or the classic `cmux vm` CLI: the app shows the message and
+    /// trace id without them; the log (`description`) keeps them.
     @Test(arguments: [
-        ("vm_firewall_rule_not_found", "This firewall rule is not in your Cloud VM network.",
-         "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
-        ("vm_tunnel_not_found", "This computer is not enrolled on your Cloud VM network.",
-         "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
-        ("vm_not_found", "Cloud VM vm-1 was not found.",
-         "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
+        ("vm_firewall_rule_not_found", "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
+        ("vm_tunnel_not_found", "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
+        ("vm_not_found", "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
+        ("vm_access_requires_pro", "Upgrade to Pro at https://cmux.com/pricing to reconnect vm-1, or delete it with `cmux vm rm vm-1`."),
+        ("vm_active_limit_exceeded", "Upgrade to cmux Pro at https://cmux.com/pricing for more active machines, or free a slot with `cmux vm rm <id>`."),
+        ("vm_network_full", "Delete machines you no longer use with `cmux vm rm <id>`, or revoke Macs you no longer use on the network."),
+        ("vm_image_unavailable", "A different machine kind (for example `cmux vm new --base`) may still be available."),
+        ("vm_cloud_service_unavailable", "Retry once. If it fails again, run `cmux vm ls` to check whether a VM was created."),
+        ("vm_attach_transport_unsupported", "Request the attach endpoint with transport \"cmux-remote\" (supported: cmux-remote), or update cmux."),
     ])
-    func anActionForAnAPICallerIsNotShown(code: String, message: String, action: String) {
-        let error = CloudAPIError.from(status: 404, data: Self.body(["error": code, "message": message, "action": action, "traceId": "t-1"]),
+    func anActionForAnAPICallerIsNotShown(code: String, action: String) {
+        let error = CloudAPIError.from(status: 409, data: Self.body(["error": code, "message": "It failed.", "action": action, "traceId": "t-1"]),
                                        headerCode: code)
-        #expect(error.description == "\(message) \(action) (trace t-1)")
-        #expect(CloudStrings.errorText(error) == "\(message) \(CloudStrings.trace("t-1"))")
-        #expect(CloudStrings.callerOnlyActions.contains(code))
+        #expect(error.description == "It failed. \(action) (trace t-1)")
+        #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
+    }
+
+    /// An action for a person stays, a checkout link under /api/billing included.
+    @Test func anActionForAPersonIsShown() {
+        let action = "Get more Cloud VM credits at https://cmux.com/api/billing/checkout?plan=pro, or ask a team admin to add some, then retry."
+        let error = CloudAPIError.http(status: 402, code: "vm_create_credits_required", message: "Out of credits.", action: action, traceId: nil)
+        #expect(CloudStrings.errorText(error) == "Out of credits. \(action)")
     }
 
     @Test func aBodyWithoutActionOrTraceReadsAsBefore() {
