@@ -3680,6 +3680,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/newtab_agent_identity.rs"]
+mod newtab_agent_identity;
+#[cfg(unix)]
 #[path = "cli/agent_session_start.rs"]
 mod agent_session_start;
 #[cfg(unix)]
