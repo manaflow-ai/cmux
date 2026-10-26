@@ -134,13 +134,13 @@ struct ThreadsControlTests {
             ThreadDeclaration("a.b.c", qos: .userInitiated),
             ThreadDeclaration("ops", match: .operationQueue, qos: .default),
         ])
-        #expect(registry.declaration(for: "a.b.c")?.qos == .userInitiated)
-        #expect(registry.declaration(for: "a.b.d")?.qos == .background)
-        #expect(registry.declaration(for: "a.x")?.qos == .utility)
+        #expect(registry.declaration(for: "a.b.c")?.policy == .fixed(.userInitiated))
+        #expect(registry.declaration(for: "a.b.d")?.policy == .fixed(.background))
+        #expect(registry.declaration(for: "a.x")?.policy == .fixed(.utility))
         #expect(registry.declaration(for: "b") == nil)
         #expect(registry.declaration(for: "") == nil)
-        #expect(registry.declaration(for: "ops")?.qos == .default)
-        #expect(registry.declaration(for: "ops :: NSOperation 0x600000c0c000 (QOS: DEFAULT)")?.qos == .default)
+        #expect(registry.declaration(for: "ops")?.policy == .fixed(.default))
+        #expect(registry.declaration(for: "ops :: NSOperation 0x600000c0c000 (QOS: DEFAULT)")?.policy == .fixed(.default))
         #expect(registry.declaration(for: "ops2") == nil)
     }
 
@@ -200,21 +200,116 @@ struct ThreadsControlTests {
         #expect(Set(names).count == names.count)
     }
 
-    /// Every app label threading-model.md registers has its row with the doc's match kind and QoS (the QoS the
-    /// parentheses after the label start with), and the registry declares nothing the doc does not (the main
-    /// thread aside).
+    /// Every app label threading-model.md registers has its row with the doc's match kind, policy (what the
+    /// parentheses after the label start with) and library (a `Library` bullet's), and the registry declares
+    /// nothing the doc does not (the main thread aside).
     @Test func theAppRegistryIsThreadingModelsList() throws {
         let labels = try Self.documentedLabels()
         #expect(labels.count > 50)
         for label in labels {
             let row = ThreadRegistry.app.rows.first { $0.name == label.name }
             #expect(row?.match == label.match, "\(label.name): the doc's match kind is \(label.match.rawValue)")
-            #expect(label.qos != nil, "\(label.name): the doc gives no QoS in the parentheses after it")
-            #expect(row?.qos == label.qos, "\(label.name): the doc declares \(label.qos?.rawValue ?? "none"), the registry \(row?.qos.rawValue ?? "no row")")
+            #expect(label.policy != nil, "\(label.name): the doc gives no QoS in the parentheses after it")
+            #expect(row?.policy == label.policy,
+                    "\(label.name): the doc declares \(label.policy?.name ?? "none"), the registry \(row?.policy.name ?? "no row")")
+            #expect(row?.library == label.library, "\(label.name): the doc's library is \(label.library ?? "none")")
+            #expect(row?.origin == (label.library == nil ? ThreadDeclaration.Origin.cmux : ThreadDeclaration.Origin.library))
         }
         let documented = Set(labels.map { $0.name })
         let undocumented = ThreadRegistry.app.rows.map(\.name).filter { $0 != ThreadRegistry.mainThreadName && !documented.contains($0) }
         #expect(undocumented.isEmpty, "rows not in threading-model.md: \(undocumented)")
+    }
+
+    /// A Ghostty renderer matches its library row at each of the surface's tiers, and the hidden tier, utility,
+    /// is the one the hidden run counts against; a tier outside the row's is a mismatch.
+    @Test func aGhosttyRendererMatchesItsVisibilityRow() throws {
+        let tiers: [ThreadQoS] = [.userInteractive, .userInitiated, .utility, .background]
+        let threads = tiers.enumerated().map { pair in
+            LiveThread(id: UInt64(pair.offset + 10), name: "renderer", label: nil, requestedQoS: pair.element,
+                       effectivePriority: 20, cpuNanos: 0)
+        }
+        let report = ThreadsControl.report(threads: threads, taskRole: "background", registry: .app, mainThreadID: 0)
+        let rows = try #require(report["threads"]?.arrayValue)
+        #expect(rows.map { $0["match"] } == [.bool(true), .bool(true), .bool(true), .bool(false)])
+        #expect(rows.allSatisfy { $0["declared"]?.stringValue == "by-visibility" })
+        #expect(rows.allSatisfy { $0["declared_hidden"]?.stringValue == "utility" })
+        #expect(rows.allSatisfy { $0["origin"]?.stringValue == "library" && $0["library"]?.stringValue == "GhosttyKit" })
+        let focusedFirst: JSONValue = .array([.string("user-interactive"), .string("user-initiated"), .string("utility")])
+        #expect(rows.first?["declared_tiers"] == focusedFirst)
+        #expect(report["mismatched"]?.intValue == 1)
+        #expect(report["hidden_mismatched"]?.intValue == 3)
+        #expect(report["undeclared"]?.intValue == 0)
+    }
+
+    /// A live thread named as Ghostty names its renderer, at utility (a hidden surface's tier), reads requested
+    /// utility, declared by-visibility, hidden tier utility, match true.
+    @Test func aHiddenGhosttyRendererThreadReadsUtility() async throws {
+        let parked = await ParkedThread.start(name: "renderer", qos: .utility)
+        defer { parked.release() }
+
+        let rows = try Self.rows(named: "renderer", in: ThreadsControl(registry: .app, mainThreadID: 0).report())
+        #expect(rows.count == 1)
+        let row = try #require(rows.first)
+        #expect(row["requested_qos"]?.stringValue == "utility")
+        #expect(row["declared"]?.stringValue == "by-visibility")
+        #expect(row["declared_hidden"]?.stringValue == "utility")
+        #expect(row["match"]?.boolValue == true)
+    }
+
+    /// The threads the linked libraries start (GhosttyKit, CEF, WebKit, Sentry, iroh, WebRTC) are each declared
+    /// by their library, at whatever tier the library picked: none reads declared null or counts as a mismatch.
+    @Test func libraryThreadsAreDeclaredByTheirLibrary() throws {
+        let named: [(name: String, library: String)] = [
+            ("io", "GhosttyKit"), ("Chrome_IOThread", "CEF"), ("ThreadPoolForegroundWorker", "CEF"),
+            ("ThreadPoolServiceThread", "CEF"), ("HangWatcher", "CEF"), ("WebCore: Scrolling", "WebKit"),
+            ("JavaScriptCore libpas scavenger", "WebKit"), ("SentryCrash Exception Handler (Primary)", "Sentry"),
+            ("io.sentry.app-hang-tracking", "Sentry"), ("async-compat/tokio-1", "iroh"), ("tokio-runtime-worker", "iroh"),
+            ("network_thread", "WebRTC"), ("worker_thread", "WebRTC"), ("signaling_thread", "WebRTC"),
+        ]
+        var threads: [LiveThread] = []
+        for (index, thread) in named.enumerated() {
+            // Ghostty's io thread reads a by-visibility tier; every other library row allows any tier.
+            let qos: ThreadQoS = index.isMultiple(of: 2) ? .userInteractive : .userInitiated
+            threads.append(LiveThread(id: UInt64(index + 10), name: thread.name, label: nil, requestedQoS: qos,
+                                      effectivePriority: 31, cpuNanos: 0))
+        }
+        threads.append(LiveThread(id: 99, name: "", label: "com.apple.WebKit.ProcessLauncher", requestedQoS: .default,
+                                  effectivePriority: 31, cpuNanos: 0))
+        let report = ThreadsControl.report(threads: threads, taskRole: "foreground", registry: .app, mainThreadID: 0)
+        let rows = try #require(report["threads"]?.arrayValue)
+        #expect(rows.map { $0["library"]?.stringValue } == named.map { $0.library } + ["WebKit"])
+        #expect(rows.allSatisfy { $0["origin"]?.stringValue == "library" })
+        #expect(report["undeclared"]?.intValue == 0)
+        #expect(report["mismatched"]?.intValue == 0)
+    }
+
+    /// A per-item queue (a lane slot, a process run) runs at any tier its item states below user-interactive.
+    @Test func aPerItemQueueTakesAnyTierBelowUserInteractive() {
+        let registry = ThreadRegistry.app
+        #expect(registry.problem(label: "com.cmuxterm.next.work.files.userBlocking.0", qos: .userInitiated) == nil)
+        #expect(registry.problem(label: "com.cmuxterm.next.work.cpu.1", qos: .background) == nil)
+        #expect(registry.problem(label: "com.cmuxterm.next.process.git", qos: .utility) == nil)
+        #expect(registry.problem(label: "com.cmuxterm.next.work.cpu.1", qos: .userInteractive) != nil)
+        #expect(registry.problem(label: "com.cmuxterm.next.work.cpu.1", qos: .unspecified) != nil)
+    }
+
+    /// The remote view's render queue is on the closed user-interactive list: its row is user-interactive, the
+    /// doc's closed list names it, and its checked serial queue is recorded with no problem.
+    @Test func theRemoteViewRenderQueueIsOnTheClosedList() throws {
+        #expect(ThreadRegistry.app.declaration(for: "cmux.remote-view.render")?.policy == .fixed(.userInteractive))
+        let doc = try Self.threadingModel()
+        let start = try #require(doc.range(of: "## Closed user-interactive list"))
+        let rest = doc[start.upperBound...]
+        let closedList = rest.range(of: "\n## ").map { rest[..<$0.lowerBound] } ?? rest
+        #expect(closedList.contains("| `cmux.remote-view.render` | app |"))
+
+        let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
+        #expect(queue.label == "cmux.remote-view.render")
+        let record = try #require(CheckedQueueLog.app.records.first {
+            $0.label == "cmux.remote-view.render" && $0.site.hasPrefix("CmuxNextControlTests/ThreadsControlTests.swift:")
+        })
+        #expect(record.problem == nil)
+        #expect(record.qos == .userInteractive)
     }
 
     @Test func kernelTiersMapToQoS() {
@@ -230,26 +325,31 @@ struct ThreadsControlTests {
     private struct DocumentedLabel {
         var name: String
         var match: ThreadDeclaration.Match
-        var qos: ThreadQoS?
+        var policy: ThreadDeclaration.Policy?
+        var library: String?
     }
 
+    /// The bullets that list other processes' threads (the daemon's Rust threads, the server helper's queues) and
+    /// the closing rule: not app rows.
+    private static let otherProcessBullets = ["Trace and hang watch", "Daemon maintenance clock", "Daemon request watchdog",
+                                              "Server helper", "Every "]
+
     /// The labels of threading-model.md's "Registered threads and queues" bullets, each with the parentheses
-    /// right after it: they start with `OperationQueue, ` for an OperationQueue name, then the QoS. The Rust
-    /// bullet (other processes) and the closing rule are not app rows; a backticked word inside parentheses is
-    /// not a label.
+    /// right after it: they start with `OperationQueue, ` for an OperationQueue name, then the policy (a QoS,
+    /// `per-item`, `set-by-library`, or `by-visibility: <qos> focused, <qos> visible, <qos> hidden`). A
+    /// `Library <name>` bullet's labels are that library's; a backticked word inside parentheses is not a label.
     private static func documentedLabels() throws -> [DocumentedLabel] {
-        let doc = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("plans/cmux-next/threading-model.md")
-        let text = try String(contentsOf: doc, encoding: .utf8)
+        let text = try threadingModel()
         let start = try #require(text.range(of: "## Registered threads and queues"))
         let rest = text[start.upperBound...]
         let section = rest.range(of: "\n## ").map { rest[..<$0.lowerBound] } ?? rest
         var labels: [DocumentedLabel] = []
         for bullet in section.components(separatedBy: "\n- ").dropFirst() {
-            guard !bullet.hasPrefix("Trace and hang watch"), !bullet.hasPrefix("Every "),
+            guard !otherProcessBullets.contains(where: { bullet.hasPrefix($0) }),
                   let colon = bullet.firstIndex(of: ":") else { continue }
+            let title = bullet[..<colon]
+            let library = title.hasPrefix("Library ")
+                ? String(title.dropFirst("Library ".count).prefix { $0 != " " }) : nil
             var body = bullet[bullet.index(after: colon)...]
             while let open = body.firstIndex(of: "`") {
                 let spanStart = body.index(after: open)
@@ -260,15 +360,45 @@ struct ThreadsControlTests {
                 var parts = note.split { ",;:".contains($0) }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 let isOperationQueue = parts.first == "OperationQueue"
                 if isOperationQueue { parts.removeFirst() }
-                let qos = parts.first.flatMap(ThreadQoS.init(rawValue:))
+                let policy = Self.policy(parts)
                 if let interpolation = span.firstIndex(of: "<") {
-                    labels.append(DocumentedLabel(name: String(span[..<interpolation]), match: .prefix, qos: qos))
+                    labels.append(DocumentedLabel(name: String(span[..<interpolation]), match: .prefix, policy: policy, library: library))
                 } else {
-                    labels.append(DocumentedLabel(name: String(span), match: isOperationQueue ? .operationQueue : .exact, qos: qos))
+                    labels.append(DocumentedLabel(name: String(span), match: isOperationQueue ? .operationQueue : .exact,
+                                                  policy: policy, library: library))
                 }
             }
         }
         return labels
+    }
+
+    /// plans/cmux-next/threading-model.md's text.
+    private static func threadingModel() throws -> String {
+        let doc = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plans/cmux-next/threading-model.md")
+        return try String(contentsOf: doc, encoding: .utf8)
+    }
+
+    /// The policy a label's note starts with; nil when it starts with none.
+    private static func policy(_ parts: [String]) -> ThreadDeclaration.Policy? {
+        guard let first = parts.first else { return nil }
+        switch first {
+        case "per-item": return .perItem
+        case "set-by-library": return .setByLibrary
+        case "by-visibility":
+            var tiers: [String: ThreadQoS] = [:]
+            for part in parts.dropFirst().prefix(3) {
+                let words = part.split(separator: " ")
+                guard words.count == 2, let qos = ThreadQoS(rawValue: String(words[0])) else { return nil }
+                tiers[String(words[1])] = qos
+            }
+            guard let focused = tiers["focused"], let visible = tiers["visible"], let hidden = tiers["hidden"] else { return nil }
+            return .byVisibility(focused: focused, visible: visible, hidden: hidden)
+        default:
+            return ThreadQoS(rawValue: first).map(ThreadDeclaration.Policy.fixed)
+        }
     }
 
     /// The text inside the parentheses that open right after `text`'s spaces, removed from `text`; empty when none

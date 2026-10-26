@@ -50,7 +50,14 @@ public struct ThreadsControl: Sendable {
     /// The report: each thread against its row, then each row and each undeclared checked queue with its live
     /// threads and the call sites that made it.
     ///
-    /// Counts: `mismatched` (a declared thread whose requested QoS was read and is not the row's),
+    /// A row's policy (``ThreadDeclaration/Policy``) gives the tiers its threads may ask for: one for a cmux row,
+    /// focused, visible and hidden for a Ghostty surface's threads, any below user-interactive for a per-item
+    /// queue, any for a thread whose library picks. `declared` is the policy's name (the QoS of a one-tier row),
+    /// `declared_tiers` its tiers and `declared_hidden` the tier it asks for while what it works for is hidden.
+    ///
+    /// Counts: `mismatched` (a declared thread whose requested QoS was read and is not one of the row's tiers),
+    /// `hidden_mismatched` (a declared thread whose row has a hidden tier and whose requested QoS is not it: the
+    /// number the RUN-3 hidden run reads, where every Ghostty surface thread must be at utility),
     /// `unknown_qos` (a declared thread the kernel gave no QoS for, as when it exits mid-read: never a
     /// mismatch), `undeclared` (every thread no row declares, system and library threads included),
     /// `undeclared_cmux` (of those, the ones whose name or label has a cmux prefix: the RUN-3 / MQ-15 number,
@@ -76,9 +83,10 @@ public struct ThreadsControl: Sendable {
             if let declaration {
                 live[declaration, default: 0] += 1
                 if let requested = thread.requestedQoS {
-                    let matches = declaration.qos == requested
+                    let matches = declaration.policy.allows(requested)
                     if !matches { counts.mismatched += 1 }
                     match = .bool(matches)
+                    if let hidden = declaration.policy.hidden, hidden != requested { counts.hiddenMismatched += 1 }
                 } else {
                     counts.unknownQoS += 1
                 }
@@ -88,6 +96,7 @@ public struct ThreadsControl: Sendable {
                 if undeclaredCmux { counts.undeclaredCmux += 1 }
                 if let label = thread.label { liveUndeclaredLabels[label, default: 0] += 1 }
             }
+            let declaredTiers: JSONValue = declaration.map { tiers($0.policy) } ?? .null
             rows.append(.object([
                 "tid": .number(Double(thread.id)),
                 "name": .string(thread.name),
@@ -96,9 +105,12 @@ public struct ThreadsControl: Sendable {
                 "requested_qos": nullable(thread.requestedQoS?.rawValue),
                 "effective_pri": .number(Double(thread.effectivePriority)),
                 "cpu_ms": .number(Double(thread.cpuNanos) / 1_000_000),
-                "declared": nullable(declaration?.qos.rawValue),
+                "declared": nullable(declaration?.policy.name),
+                "declared_tiers": declaredTiers,
+                "declared_hidden": nullable(declaration?.policy.hidden?.rawValue),
                 "declared_as": nullable(declaration?.name),
                 "origin": nullable(declaration?.origin.rawValue),
+                "library": nullable(declaration?.library),
                 "undeclared_cmux": .bool(undeclaredCmux),
                 "match": match,
             ]))
@@ -109,6 +121,7 @@ public struct ThreadsControl: Sendable {
             "undeclared": JSONValue(counts.undeclared),
             "undeclared_cmux": JSONValue(counts.undeclaredCmux),
             "mismatched": JSONValue(counts.mismatched),
+            "hidden_mismatched": JSONValue(counts.hiddenMismatched),
             "unknown_qos": JSONValue(counts.unknownQoS),
             "queue_problems": JSONValue(made.filter { $0.problem != nil }.count),
             "queues_not_recorded": JSONValue(droppedQueues),
@@ -121,6 +134,7 @@ public struct ThreadsControl: Sendable {
         var undeclared = 0
         var undeclaredCmux = 0
         var mismatched = 0
+        var hiddenMismatched = 0
         var unknownQoS = 0
     }
 
@@ -134,8 +148,10 @@ public struct ThreadsControl: Sendable {
                 "declared": .bool(true),
                 "match": .string(row.match.rawValue),
                 "prefix": .bool(row.isPrefix),
-                "qos": .string(row.qos.rawValue),
+                "qos": .string(row.policy.name),
+                "tiers": tiers(row.policy),
                 "origin": .string(row.origin.rawValue),
+                "library": nullable(row.library),
                 "live_threads": JSONValue(live[row] ?? 0),
                 "made": .array(made.filter { $0.declaredAs == row.name }.map(site)),
             ])
@@ -151,12 +167,18 @@ public struct ThreadsControl: Sendable {
                 "match": .null,
                 "prefix": .bool(false),
                 "qos": nullable(records.first?.qos.rawValue),
+                "tiers": .null,
                 "origin": .null,
+                "library": .null,
                 "live_threads": JSONValue(liveUndeclaredLabels[label] ?? 0),
                 "made": .array(records.map(site)),
             ]))
         }
         return entries
+    }
+
+    private static func tiers(_ policy: ThreadDeclaration.Policy) -> JSONValue {
+        .array(policy.tiers.map { .string($0.rawValue) })
     }
 
     private static func site(_ record: CheckedQueueRecord) -> JSONValue {
