@@ -93,6 +93,20 @@ void HostPageViews::Place(uint64_t token, const PageGeometry& geometry) {
   [page_window setFrame:NSMakeRect(geometry.screen_x, geometry.screen_y, geometry.width, geometry.height) display:NO];
 }
 
+// The page window follows its parent view, as in cmux the fork's page window
+// follows CEFHostView: its tracker re-reads the view on the parent view
+// geometry post (CEFHostView.postGeometryChange). Only on change (task 053).
+void HostPageViews::Resize(uint64_t token, int32_t width, int32_t height) {
+  auto found = windows_.find(token);
+  if (found == windows_.end()) return;
+  NSWindow* page_window = (__bridge NSWindow*)found->second;
+  const NSSize size = NSMakeSize(width, height);
+  if (NSEqualSizes(page_window.contentView.frame.size, size)) return;
+  [page_window setContentSize:size];
+  [NSNotificationCenter.defaultCenter postNotificationName:@"CmuxParentViewGeometryDidChange"
+                                                    object:page_window.contentView];
+}
+
 void HostPageViews::Close(uint64_t token) {
   auto found = windows_.find(token);
   if (found == windows_.end()) return;

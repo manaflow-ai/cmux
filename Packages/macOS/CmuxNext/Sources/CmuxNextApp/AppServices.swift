@@ -447,7 +447,8 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work),
+                keyRouter: keyRouter, work: work, dialogs: .shared,
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput)
         host.scriptFrames = pageScriptFrame
