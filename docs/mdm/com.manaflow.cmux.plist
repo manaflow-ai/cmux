@@ -605,13 +605,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Off: a found update waits, and one click downloads and installs it.</string>
+			<string>Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.</string>
 			<key>pfm_name</key>
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
+			<string>Download and Install Updates Automatically</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -708,7 +708,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>900</integer>
+			<integer>600</integer>
 			<key>pfm_description</key>
 			<string>A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.</string>
 			<key>pfm_name</key>
@@ -922,6 +922,27 @@
 			<string>Machine Color</string>
 			<key>pfm_type</key>
 			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
+			<key>pfm_name</key>
+			<string>ssh.linkAllowedHosts</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Always Allowed SSH Link Hosts</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1657,6 +1678,42 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>suggest</string>
+			<key>pfm_description</key>
+			<string>What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoArchive.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>suggest</string>
+				<string>quiet</string>
+				<string>groups</string>
+				<string>manual</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Idle Workspaces</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>3</integer>
+			<key>pfm_description</key>
+			<string>A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoArchive.idleDays</string>
+			<key>pfm_range_max</key>
+			<real>365</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Idle For</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>inbox</string>
 			<key>pfm_description</key>
 			<string>Inbox lists what needs you first, with the task beside it. Changes apply at once.</string>
@@ -2162,6 +2219,18 @@
 			<string>Dim Inactive Windows</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The glass takes the colors of your desktop picture and follows it when the picture or Space changes.</string>
+			<key>pfm_name</key>
+			<string>appearance.wallpaperTint</string>
+			<key>pfm_title</key>
+			<string>Tint with Desktop Wallpaper</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -3537,6 +3606,18 @@
 			<string>agentPane.display.fullWidth</string>
 			<key>pfm_title</key>
 			<string>Chat Full Width</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.vscodeMinimap</string>
+			<key>pfm_title</key>
+			<string>VS Code Minimap</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6978,6 +7059,24 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Character</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.</string>
+			<key>pfm_name</key>
+			<string>home.chiefEngine</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>local</string>
+				<string>hosted</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Engine</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

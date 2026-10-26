@@ -500,6 +500,10 @@ fn doctor_without_fix_changes_nothing() {
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
     );
     assert_eq!(results[2].fix.as_deref(), Some("Run `acpmux host update box`."));
+    assert_eq!(results[1].reason, Some("peer_version_skew"));
+    assert_eq!(results[1].data.as_ref().unwrap()["try"], "acpmux host update box");
+    assert_eq!(results[2].reason, Some("peer_version_skew"));
+    assert_eq!(results[2].data.as_ref().unwrap()["try"], "acpmux host update box");
 }
 
 #[test]
@@ -646,8 +650,8 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     std::fs::create_dir_all(&home).unwrap();
     let sh = Sh(home.clone());
     let ids = vec!["pi".to_string()];
-    assert_eq!(harness(&sh, &ids, &local, false).state, StepState::Fail);
-    let fixed = harness(&sh, &ids, &local, true);
+    assert_eq!(harness(&sh, "box", &ids, &local, false).state, StepState::Fail);
+    let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing)");
     let dir = home.join(".config/cmux/harnesses");
@@ -659,12 +663,12 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     );
     assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(harness(&sh, &ids, &local, false).state, StepState::Ok);
+    assert_eq!(harness(&sh, "box", &ids, &local, false).state, StepState::Ok);
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).unwrap();
-    let writable = harness(&sh, &ids, &local, false);
+    let writable = harness(&sh, "box", &ids, &local, false);
     assert_eq!(writable.state, StepState::Fail);
     assert!(writable.detail.contains("group- or other-writable"), "{writable:?}");
-    assert_eq!(harness(&sh, &ids, &local, true).state, StepState::Fixed);
+    assert_eq!(harness(&sh, "box", &ids, &local, true).state, StepState::Fixed);
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let _ = std::fs::remove_dir_all(&home);
 }
@@ -770,9 +774,9 @@ fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
 #[test]
 fn enroll_never_relinks_the_daemon_binary_while_another_update_runs() {
     // Re-review of #24232: `enroll --fix` linked ~/.local/bin/acpmux to the
-    // app's cmux-tui while another update of the host was mid-way; that
-    // update then checked the wrong binary and rolled a healthy build back.
-    // The link now takes the host's update lock.
+    // app's cmux-tui while the host's timer was mid-update; the timer then
+    // checked the wrong binary, rolled back and marked its healthy build as
+    // rolled back for good. The link now takes the host's update lock.
     let linked = RefCell::new(false);
     let fake = tui_only_host(&linked);
     fake.locked.set(true);

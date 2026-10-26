@@ -1816,7 +1816,16 @@ impl Brain {
             let log = self.log.clone();
             let message = message.to_owned();
             std::thread::spawn(move || {
-                if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
+                // The Chief's own tell is read now: acpmux stops the agent's current step
+                // for it, as the pane's Send now does (Lawrence 2026-10-26: "interrupt by
+                // default"; a long `cmux-ci wait` no longer holds it). A `queue` tell (a
+                // peer's message, an FYI) waits for the step.
+                let steered = if queue {
+                    agents.steer(&session, blocks.clone(), &prompt_id)
+                } else {
+                    agents.steer_now(&session, blocks.clone(), &prompt_id)
+                };
+                if let Err(e) = steered {
                     if !queue {
                         log(&format!(
                             "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
@@ -1876,7 +1885,9 @@ impl Brain {
         let answer = if steered && queue {
             format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
-            format!("sent to {id}; read between tool calls, else its turn restarts with it")
+            format!(
+                "sent to {id}; its current step stops so it reads it now (a running subagent or background shell runs on), else its turn restarts with it"
+            )
         } else {
             format!("sent to {id}; read after its current step")
         };
@@ -2170,10 +2181,21 @@ impl Brain {
     /// `text` with every mention of this Chief's subagents written as its link
     /// (`workspaces::link_subagents`): the user's reply shows them as links
     /// whether or not the model wrote one.
+    ///
+    /// Then the last pass (`reply_links::link_refs`): a bare cmux id (`ws_…`, `tab_…`,
+    /// `pane_…`) and a path that exists on this Mac become their `cmux://` and `file://` links
+    /// (Lawrence 2026-10-26: "reply with links to stuff properly").
     pub(super) fn link_subagents(&self, text: &str) -> String {
-        crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
+        let linked = crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
             self.state.sub(id).and_then(|(_, s)| s.session_id.clone())
-        })
+        });
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        // Paths only on a Chief host on the person's Mac: a cloud VM's paths are not files
+        // that Home or iOS can open as `file://`.
+        let mac = cfg!(target_os = "macos");
+        crate::reply_links::link_refs(&linked, &home, &|p| mac && p.exists())
     }
 
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its
