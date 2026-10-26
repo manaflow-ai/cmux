@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -13,7 +14,9 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonRecovery
 import CmuxNextFeed
+import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
@@ -326,6 +329,19 @@ final class AppServices {
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
+    /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
+    let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
+
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no
+    /// avatar of its own: its worn upload's first frame, else its pet character's.
+    func characterPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    }
+
+    /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
+    func wornUpload(of chief: String?) -> ChiefAvatarUploads.Upload? {
+        ChiefPetSettingsRows.wornUpload(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    }
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
@@ -348,6 +364,8 @@ final class AppServices {
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    /// The `cmux://session/<id>` question before a link opens a new agent tab.
+    private(set) lazy var sessionLinks = SessionLinkGate.app(self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
@@ -440,6 +458,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
+        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

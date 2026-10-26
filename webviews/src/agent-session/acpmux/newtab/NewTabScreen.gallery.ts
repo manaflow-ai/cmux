@@ -401,6 +401,16 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: reasoningChat(),
     },
+    "catalog-fast-menu": {
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
+      ready: newTab(),
+      snapshot: reasoningChat(),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+      },
+    },
     "reasoning-chip-stage": {
       note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
       ready: newTab({ template: "default" }),

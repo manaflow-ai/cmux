@@ -145,7 +145,11 @@ jobs:
             # This fixed script records its own source fences and the product's
             # actual parent; neither a fleet reservation nor a full app build is used.
             bash scripts/measure/pane-overflow-fade.sh "$product" >"$out/pane-fade.log" 2>&1 || {
-              cat "$out/pane-fade.log"; exit 1;
+              cat "$out/pane-fade.log"
+              if [ -f artifacts/pane-overflow-fade.tar.gz ]; then
+                cp artifacts/pane-overflow-fade.tar.gz "$out/"
+              fi
+              exit 1
             }
             cat "$out/pane-fade.log"
             cp artifacts/pane-overflow-fade.tar.gz "$out/"
@@ -199,7 +203,7 @@ jobs:
 
       - name: Keep exact receipts and rows
         if: always()
-        uses: actions/upload-artifact@043fb46a1d93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tipguard-blacksmith

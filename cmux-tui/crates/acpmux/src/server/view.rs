@@ -3,8 +3,11 @@
 //! without showing it, `_acpmux/view` changes that, and detaching or
 //! disconnecting lets go with the same visibility it held.
 //!
-//! Presence (`hub/presence.rs`): `_acpmux/typing` names its person in `_meta.acpmux.author`;
-//! detaching or disconnecting ends this connection's entries.
+//! Presence (`hub/presence.rs`): a visible attach is the owner viewing on this connection;
+//! `_acpmux/view` and `_acpmux/typing` name their person in `_meta.acpmux.author`. A view with
+//! an author changes only that person's presence: whether the chat counts as shown (`unread`)
+//! stays the owner's, so a link that carries other people attaches with `visible: false` and
+//! names each of them in `_acpmux/view`.
 
 use super::*;
 use crate::hub::presence::Who;
@@ -19,22 +22,34 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         s.meta().agent_session_id,
         hub.started_at,
     ));
-    match conn.subs.lock().unwrap_or_else(|e| e.into_inner()).insert(s.id.clone(), opts) {
+    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => hub.attach_count(s, 1, !hidden),
         Some(before) if before.remote => hub.attach_count(s, 1, !hidden),
         Some(before) if before.hidden != hidden => hub.set_visible(s, !hidden),
         Some(_) => {}
     }
+    // The owner always gets in (`presence::admit`).
+    if open(conn) {
+        let _ = hub.presence.view(&s.id, &conn.id, &Who::of(None), !hidden);
+    }
 }
 
 /// Whether presence may still change for `conn`; read under its subscriptions' lock, as every
 /// presence change of a connection is made. The connection's end is marked before
 /// `release_all` takes that lock, so a request still running then (an attach in flight) adds no
-/// entry that nothing would remove. A peer daemon's link stands for none of its clients
-/// (`hub/presence.rs`): it never makes an entry.
+/// entry that nothing would remove. A peer daemon's link never makes an entry ([`a_link`]).
 fn open(conn: &Conn) -> bool {
-    conn.origin != Origin::Peer && !*conn.ended.borrow()
+    !a_link(conn) && !*conn.ended.borrow()
+}
+
+/// Whether `conn` is another daemon's link, which stands for none of its clients
+/// (`hub/presence.rs`): served as Peer, or, added with the dashboard token, served as Web but
+/// named `acpmux-peer` in `initialize` (`peer.rs`). Any client may take that name; it only
+/// keeps that client out of presence.
+fn a_link(conn: &Conn) -> bool {
+    conn.origin == Origin::Peer || *conn.name.lock_or_recover() == crate::peer::CLIENT_NAME
 }
 
 /// Subscribe `conn` to a peer's chat `id` (`peer_forward.rs`), marked remote under the same lock
@@ -94,13 +109,20 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .get("visible")
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("visible must be true or false"))?;
+    let author = crate::author::author(params)?;
+    if author.is_some() && a_link(conn) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     // A peer's chat of the same raw id is not this one: its visibility is the peer's to count.
     let sub = subs
         .get_mut(&s.id)
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
-    if sub.hidden == visible {
+    if open(conn) {
+        hub.presence.view(&s.id, &conn.id, &Who::of(author.as_ref()), visible)?;
+    }
+    if author.is_none() && sub.hidden == visible {
         sub.hidden = !visible;
         // Under the lock, so a detach racing this one counts the same visibility.
         hub.set_visible(&s, visible);
@@ -117,7 +139,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("on must be true or false"))?;
     let author = crate::author::author(params)?;
-    if conn.origin == Origin::Peer {
+    if a_link(conn) {
         return Err(crate::hub::presence::peer_unsupported());
     }
     let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());

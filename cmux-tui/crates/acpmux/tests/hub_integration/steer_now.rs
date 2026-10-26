@@ -220,3 +220,24 @@ async fn only_the_sender_takes_back_a_persons_steer() {
     let (_, seen) = c.response(turn).await;
     assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
 }
+
+/// A steer that asks to be read now when it is sent (`_meta.acpmux.steerNow`): the Chief's tell
+/// (Lawrence, 2026-10-26: a Chief message lands in the agent's chat "with interrupt by default").
+/// It stops the agent's current step as the pane's Send now does, without a second request, and
+/// the turn runs on. A steer without it still waits for the step (the tests above).
+#[tokio::test]
+async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
+    let (hub, mut c, id) = claude_hub().await;
+    let turn = long_step(&mut c, &id).await;
+    let mut a = connect(&hub).await;
+    let mut steer = prompt(&id, "p-now", "PINEAPPLE", true);
+    steer["_meta"]["acpmux"]["steerNow"] = json!(true);
+    a.send(method::SESSION_PROMPT, steer).await;
+    let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-now").await;
+    assert_eq!(accepted["steer"], true, "{accepted}");
+    // The long step runs until it is stopped: without steerNow the turn never ends.
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(20), c.response(turn)).await;
+    let (answer, seen) = ended.expect("steerNow did not stop the step: the turn still runs");
+    assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+}

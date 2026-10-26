@@ -177,3 +177,25 @@ export const clipReply = (text: string) => {
   while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
   return `${out.join("")}\n[... cut]`
 }
+
+/** cmux public ids the last reply pass links: prefix -> deeplink kind (DeepLink `.workspace`, `.tab`, `.pane`). */
+const ID_KINDS: Readonly<Record<string, string>> = { ws: "workspace", tab: "tab", pane: "pane" }
+/** Code fences, code spans and Markdown links: left as written. */
+const KEEP = /```[\s\S]*?(?:```|$)|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)/g
+const BARE_ID = /(^|[\s(*_"'|>])((ws|tab|pane)_[0-9a-f]{32})(?![A-Za-z0-9_/-])/g
+
+/**
+ * The last pass over a Cloud Chief reply (optchat-chief reply_links.rs, Lawrence 2026-10-26: "reply with links to
+ * stuff properly"): a bare cmux id (`ws_…`, `tab_…`, `pane_…`) becomes its `cmux://` link. Code, existing links and
+ * URLs stay. Paths are not linked: the Chief's files are on its VM, not the person's Mac.
+ */
+export const linkIds = (text: string): string => {
+  const link = (part: string) => part.replace(BARE_ID, (_m, pre: string, id: string, kind: string) => `${pre}[${ID_KINDS[kind]}](cmux://${ID_KINDS[kind]}/${id})`)
+  let out = ""
+  let at = 0
+  for (const m of text.matchAll(KEEP)) {
+    out += link(text.slice(at, m.index)) + m[0]
+    at = m.index + m[0].length
+  }
+  return out + link(text.slice(at))
+}

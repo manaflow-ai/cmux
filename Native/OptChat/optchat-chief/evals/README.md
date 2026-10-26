@@ -54,7 +54,7 @@ Add a case = add a file. Never edit another owner's file.
       "text": "the new message (kind defaults to user; any history kind works, e.g. work for a subagent report)",
       "checks": [
         {"type": "reply_matches", "re": "\\[[^\\]]+\\]\\(cmux://workspace/ws_abc\\)"},
-        {"type": "reply_not_matches", "re": "(?<!\\()ws_[0-9a-f]{6,}(?![^(]*\\))"},
+        {"type": "no_raw_ids"},
         {"type": "called", "cmd": "chief", "match": "spawn"},
         {"type": "not_called", "cmd": "cmux", "match": "workspace close"},
         {"type": "max_words", "n": 80},
@@ -81,7 +81,7 @@ Add a case = add a file. Never edit another owner's file.
   they are refused (the reply ledger), and a turn that ends unanswered gets
   the brain's `[no reply]` retry turn (counted in `retry_turns`, +5 s).
 - Checks (all posted text of the turn, retry included): `reply_matches` /
-  `reply_not_matches` (Rust `regex`), `no_raw_ids` (no ws_/tab_/pane_ id,
+  `reply_not_matches` (Rust `regex` crate: no look-around or backreferences), `no_raw_ids` (no ws_/tab_/pane_ id,
   sha, URL, path or #NNN outside a Markdown link), `posted`, `silent`
   (nothing posted), `called` / `not_called` (`cmd`, `match` substring and/or
   `re`), `max_calls` (`cmd`, `n`), `max_words`, `no_question` (no line ends

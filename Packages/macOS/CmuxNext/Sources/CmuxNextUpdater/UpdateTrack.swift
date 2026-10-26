@@ -21,6 +21,17 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         }
         return false
     }
+
+    /// `updates.downloadAutomatically` for an install that never set it (claude-sr2 2026-10-26,
+    /// relaying Leo: "i also feel like the forced auto download for updates is convienient for me,
+    /// maybe better as an opt in for normal users"): on in the dogfood apps (NIGHTLY, the tip app
+    /// and DEV builds), off in stable and RC, where a found update waits for a click.
+    public var downloadsAutomaticallyByDefault: Bool {
+        switch self {
+        case .nightly, .development: true
+        case .stable, .rc: false
+        }
+    }
 }
 
 /// Why Sparkle does not run in this process. The read-only probe still works.
