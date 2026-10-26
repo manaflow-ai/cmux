@@ -549,7 +549,7 @@ html[data-cmux-page="changelog"] {
 /* Changes with clips (SpanNews.tsx): each clip at its own shape, uncut (whats-new-clips.py already
    cropped it to where the feature happens), on the page's glass, with its caption. The frame keeps
    no aspect ratio of its own; the clip's width and height (the file's) give the box its shape. */
-.cln-clips { display: grid; gap: 40px; margin: 24px 0 0; }
+.cln-clips { display: grid; gap: 32px; margin: 24px 0 0; }
 .cln-clip { display: grid; gap: 12px; min-width: 0; }
 /* A clip is never drawn larger than it was recorded (a narrow sidebar crop stays sharp), and never
    wider than its column. */
@@ -575,7 +575,7 @@ html[data-cmux-page="changelog"] {
   text-wrap: pretty;
 }
 /* Alternate (default): the clip beside its words, sides taking turns, like a product page. */
-.cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 28px; align-items: center; }
+.cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: center; }
 .cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 2; }
 /* Stack: one change after another, the clip as wide as the column, its words under it. */
 .cln-clips-stack .cln-clip { max-width: 760px; }

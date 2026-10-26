@@ -25,8 +25,18 @@ const strings = {
   format: (key: string, ...args: string[]) => `${key} ${args.join(" ")}`,
 };
 
-const picture = { light: "data:image/webp;base64,UklGRg==", dark: "data:image/webp;base64,UklGRg==", alt: "", video: false };
-const screenshot = { light: "data:image/png;base64,iVBORw==", dark: "data:image/png;base64,iVBORw==", alt: "", video: false };
+const picture = {
+  light: "data:image/webp;base64,UklGRg==",
+  dark: "data:image/webp;base64,UklGRg==",
+  alt: "",
+  video: false,
+};
+const screenshot = {
+  light: "data:image/png;base64,iVBORw==",
+  dark: "data:image/png;base64,iVBORw==",
+  alt: "",
+  video: false,
+};
 const clip = { light: "media/b.mp4", dark: "media/b.mp4", alt: "", video: true };
 
 function item(id: string, category: ReleaseItem["category"], extra: Partial<ReleaseItem> = {}): ReleaseItem {
@@ -49,7 +59,10 @@ test("every change with a clip shows it with its caption; the rest of New and Im
   const captioned = { ...picture, alt: "Archive a workspace from its menu." };
   const v = view(item("hero", "new", { media: captioned }), [
     { category: "new", items: [item("n1", "new"), item("n2", "new", { media: clip })] },
-    { category: "improved", items: [item("i1", "improved", { media: picture }), item("i2", "improved", { media: picture })] },
+    {
+      category: "improved",
+      items: [item("i1", "improved", { media: picture }), item("i2", "improved", { media: picture })],
+    },
     { category: "fixed", items: fixes },
   ]);
   expect(clipItems(v).map((i) => i.id)).toEqual(["hero", "n2", "i1", "i2"]);
@@ -97,7 +110,7 @@ test("a pull request's screenshot is not a clip: it leads as before", () => {
   expect([...doc.querySelectorAll(".cln-clip .cln-clip-title")].map((t) => t.textContent)).toEqual(["Title n2"]);
   expect(doc.body.textContent).toContain("Title hero");
   expect(doc.querySelector(`.cln-clip img[src="${screenshot.light}"]`)).toBeNull();
-  expect(doc.querySelector(`img[src="${screenshot.light}"]`)).not.toBeNull();  // the hero keeps its picture
+  expect(doc.querySelector(`img[src="${screenshot.light}"]`)).not.toBeNull(); // the hero keeps its picture
 });
 
 test("the lead layout: the changes with pictures lead, up to three; the rest are cards; Fixed is one line", () => {
