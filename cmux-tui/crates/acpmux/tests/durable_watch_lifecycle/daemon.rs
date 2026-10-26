@@ -98,9 +98,7 @@ impl Daemon {
             "_meta": {"acpmux": {"name": name}}}),
             )
             .await;
-        let id = s["sessionId"].as_str().unwrap().to_owned();
-
-        id
+        s["sessionId"].as_str().unwrap().to_owned()
     }
     pub async fn peer(&self, b: &Daemon) {
         self.peer_as(b, true).await;
