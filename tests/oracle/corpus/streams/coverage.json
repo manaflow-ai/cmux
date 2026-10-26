@@ -210,7 +210,7 @@
       "cases": {
         "case": "streams/sidebar-view-attach-ok"
       },
-      "scenario": "attach to the fixture sidebar view",
+      "scenario": "attach to the sidebar view of a configured plugin",
       "connections": [
         "main",
         "viewer"

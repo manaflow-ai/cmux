@@ -17,9 +17,19 @@ same stream for asyncio). The log keeps each raw item, which is what the fold re
 whose shape it cannot apply. `EventLog.record()` is the trace
 member `eventLogs[n]` (invariants.py):
 
-    {"name": "driver" | <step id>, "connection"?: <case connection>,
+    {"name": "driver" | <step id>, "connection"?: <case connection>, "openedAt"?: <step id>,
+     "endedAt"?: {"step": <step id>, "checkpoint"?: <checkpoint>},
      "items": [{"sequence": <stream item sequence>, "item": <raw SessionEventItem>}],
-     "end"?: {"reason": "completed|canceled|closed|gap|error|timeout", "cursor"?: Cursor}}
+     "end"?: {"reason": "completed|canceled|closed|gap|error" | ORACLE_TEARDOWN, "cursor"?: Cursor}}
+
+`openedAt` is the step during which the stream opened: that step's `before` checkpoint and every checkpoint of an
+earlier step were taken before the stream existed (a client connecting changes the session without moving
+its revision, so the cursor alone cannot tell). `endedAt` ({"step", "checkpoint"?}) is where the driver saw
+the end: the checkpoint whose capture read it, or with no checkpoint the step whose handler closed the
+connection; that checkpoint (or the step's checkpoints after `before`) and every later one come after the
+end. `end` is the end the daemon or the SDK reported (StreamEnd.reason; `closed` when the connection failed). A
+stream still open when the oracle cancels it at teardown, after every checkpoint, ends with ORACLE_TEARDOWN,
+which I8 reads as open: a daemon that stopped delivering is then a violation, never a skipped cut.
 
 `SessionFold` is the client model: a snapshot item resets it, a delta applies its changes in order after it
 checks the delta's generation and `previous_revision` (the protocol's gap rule, the same checks as the Rust
@@ -49,6 +59,10 @@ REPO = HERE.parents[2]
 SDK = REPO / "cmux-tui" / "bindings" / "python"
 
 STREAM = "session.events"
+# The end reason of a log the oracle canceled at teardown, not one the stream reported.
+ORACLE_TEARDOWN = "oracle_teardown"
+# Seconds `read_queued` waits for an item the SDK does not hold yet.
+QUEUED_WAIT_S = 0.001
 SELECTORS = {"machine": "current", "session": "current"}
 
 # ResourceKind -> the ResourceSnapshot array that holds it. machine and session are single objects.
@@ -414,31 +428,55 @@ class EventLog:
     snapshot with the catalog's `stream_revision` field, so it cannot read today's daemon; the fold checks the
     item shape it reads."""
 
-    def __init__(self, connection: Any, name: str = "driver", case_connection: Optional[str] = None):
+    def __init__(self, connection: Any, name: str = "driver", case_connection: Optional[str] = None,
+                 selectors: Mapping[str, Any] = SELECTORS, timeout: Optional[float] = None,
+                 opened_at: Optional[str] = None):
         if str(SDK) not in sys.path:
             sys.path.insert(0, str(SDK))
         self.name = name
         self.case_connection = case_connection
+        self.opened_at = opened_at
         self.items: List[Dict[str, Any]] = []
         self.end: Optional[Dict[str, Any]] = None
+        # The first checkpoint the driver took after it saw the end ({"step", "checkpoint"?}); see the module doc.
+        self.ended_at: Optional[Dict[str, str]] = None
         from cmux.errors import CmuxError, TimeoutError as SdkTimeout
 
         self._timeout = SdkTimeout
         # StreamError (an error or gap end) and ProtocolError (a connection failure) both end the log.
         self._stream_error = CmuxError
-        self._stream = connection.open_stream(STREAM, SELECTORS, copy.deepcopy)
+        self._stream = connection.open_stream(STREAM, dict(selectors), copy.deepcopy, timeout=timeout)
+
+    @property
+    def stream(self) -> Any:
+        """The SDK's ResourceStream (its id names the stream in stream.cancel)."""
+        return self._stream
 
     def read_until(self, generation: str, revision: int, timeout: float) -> bool:
-        """Read items until one carries cursor (generation, >= revision). False when the stream ended or
-        `timeout` seconds passed first; the stream stays open after a timeout."""
+        """Read items until one carries cursor (generation, >= revision), then what is already queued. False when
+        the stream ended or `timeout` seconds passed first; the stream stays open after a timeout."""
+        reached = self._read(lambda: self._reached(generation, revision), timeout)
+        self.read_queued()
+        return reached
+
+    def read_queued(self) -> None:
+        """Read what the SDK already holds, an end included, without waiting for more."""
+        self._read(lambda: False, QUEUED_WAIT_S)
+
+    def read_to_end(self, timeout: float) -> bool:
+        """Read what the stream still holds after its connection closed (it then ends at once); False when it
+        did not end within `timeout` seconds."""
+        self._read(lambda: False, timeout)
+        return self.end is not None
+
+    def _read(self, done: Callable[[], bool], timeout: float) -> bool:
+        """Read until `done()`, the stream's end or `timeout` seconds; True when `done()` held."""
         import time
 
-        if self._reached(generation, revision):
-            return True
         deadline = time.monotonic() + timeout
-        while self.end is None:
+        while not done():
             left = deadline - time.monotonic()
-            if left <= 0:
+            if self.end is not None or left <= 0:
                 return False
             try:
                 value = self._stream.next(left)
@@ -448,9 +486,7 @@ class EventLog:
                 self._ended()
                 return False
             self.items.append({"sequence": str(value.sequence), "item": value.item})
-            if self._reached(generation, revision):
-                return True
-        return False
+        return True
 
     def _reached(self, generation: str, revision: int) -> bool:
         if not self.items:
@@ -470,14 +506,23 @@ class EventLog:
         out: Dict[str, Any] = {"name": self.name, "items": copy.deepcopy(self.items)}
         if self.case_connection:
             out["connection"] = self.case_connection
+        if self.opened_at:
+            out["openedAt"] = self.opened_at
         if self.end is not None:
             out["end"] = dict(self.end)
+        if self.ended_at is not None:
+            out["endedAt"] = dict(self.ended_at)
         return out
 
     def close(self) -> None:
+        """The oracle's teardown cancel. A stream that ended keeps the end it reported."""
+        self.read_queued()
         if self.end is None:
-            self._stream.cancel()
-            self.end = {"reason": "canceled"}
+            self.end = {"reason": ORACLE_TEARDOWN}
+            try:
+                self._stream.cancel()
+            except self._stream_error:
+                pass  # the connection is already gone; the log stays as read
 
 
 # ---------------------------------------------------------------------------------------------- self test
@@ -587,7 +632,9 @@ class EventLogSelfTest(unittest.TestCase):
 
         class FakeStream:
             def __init__(self, decode: Callable[[Any], Any]):
-                self.script: List[Any] = [decode(first), SdkTimeout("quiet"), decode(later), StreamError("gap")]
+                # Each read_until ends with a read of what is queued: the quiet reads after an item.
+                self.script: List[Any] = [decode(first), SdkTimeout("queued"), SdkTimeout("quiet"),
+                                          SdkTimeout("queued"), decode(later), StreamError("gap")]
                 self.end: Any = None
                 self.canceled = False
 
@@ -597,7 +644,7 @@ class EventLogSelfTest(unittest.TestCase):
                     self.end = SimpleNamespace(reason="gap", cursor=None)
                 if isinstance(value, Exception):
                     raise value
-                return SimpleNamespace(sequence=str(4 - len(self.script)), item=value)
+                return SimpleNamespace(sequence=str(6 - len(self.script)), item=value)
 
             def cancel(self) -> None:
                 self.canceled = True
@@ -605,7 +652,8 @@ class EventLogSelfTest(unittest.TestCase):
         streams: List[FakeStream] = []
 
         class FakeConnection:
-            def open_stream(self, operation: str, params: Mapping[str, Any], decode: Callable[[Any], Any]) -> Any:
+            def open_stream(self, operation: str, params: Mapping[str, Any], decode: Callable[[Any], Any],
+                            timeout: Optional[float] = None) -> Any:
                 assert (operation, dict(params)) == (STREAM, SELECTORS)
                 streams.append(FakeStream(decode))
                 return streams[-1]
@@ -617,13 +665,21 @@ class EventLogSelfTest(unittest.TestCase):
         self.assertFalse(log.read_until(generation, revision + 1, 1.0), "a quiet stream times out")
         self.assertIsNone(log.end, "a timeout leaves the stream open")
         self.assertTrue(log.read_until(generation, revision + 1, 1.0))
+        self.assertEqual(log.end, {"reason": "gap"}, "the end already queued is read with the item")
         self.assertFalse(log.read_until(generation, revision + 2, 1.0))
         record = log.record()
         self.assertEqual((record["name"], record["connection"], record["end"]), ("open", "viewer", {"reason": "gap"}))
-        self.assertEqual([entry["sequence"] for entry in record["items"]], ["1", "3"])
+        self.assertEqual([entry["sequence"] for entry in record["items"]], ["1", "5"])
         log.close()
         self.assertFalse(streams[0].canceled, "an ended stream is not canceled again")
+        self.assertEqual(log.record()["end"], {"reason": "gap"}, "the reported end stays")
         self.assertEqual(_fold(record).revision, revision + 1)
+        still_open = EventLog(FakeConnection())
+        self.assertTrue(still_open.read_until(generation, revision, 1.0))
+        still_open.close()
+        self.assertTrue(streams[1].canceled)
+        self.assertEqual(still_open.record()["end"], {"reason": ORACLE_TEARDOWN},
+                         "the oracle's cancel is not a reported end (I8 reads it as open)")
 
 
 def _wire_snapshot() -> Dict[str, Any]:

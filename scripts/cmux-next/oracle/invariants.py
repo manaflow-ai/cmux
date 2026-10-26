@@ -42,12 +42,15 @@ I8 folds each `eventLogs` entry (event_log.py SessionFold: a snapshot item reset
 generation and previous_revision check) up to each checkpoint's `daemon.session.cursor` and compares the fold
 with the facet's session: both through the schema's capture and volatile rules, rows keyed by id (the order
 of rows is the daemon's, not state), `clients/*/self` out (it names the asking connection, and the facet and
-the stream are two connections). A difference names its snapshot pointer and the last event that set the
-differing row (stream item sequence and change index), or the snapshot item when no event touched it, as
-components/sync's FakeServerVerifier compares a client's synced model with the server's at the same
-progress marker. A log that broke its own protocol (a gap, a delta before a snapshot) is an I8 violation
-`in` the event log; a cut the log never reached is a violation unless the stream ended (then not checked),
-and a cut before the stream opened is not compared.
+the stream are two connections). A difference names its snapshot pointer, the first differing event (the
+stream item that brought the fold to the cut where the difference first shows) and, as context, the last
+event that set the differing row (stream item sequence and change index) or the snapshot item when no event
+touched it, as components/sync's FakeServerVerifier compares a client's synced model with the server's at
+the same progress marker. A log that broke its own protocol (a gap, a delta before a snapshot) is an I8
+violation `in` the event log; a cut the log never reached is a violation unless the stream ended (then not
+checked; the oracle's own teardown cancel, event_log.ORACLE_TEARDOWN, is no end). A cut before the log's
+first snapshot item (an earlier generation, as after a daemon restart, or a lower revision of its own) is
+not compared.
 
 The checks run on raw checkpoints, before normalize.py: I4 pairs the cut by the raw sequences that the
 canonical form drops (x-oracle-volatile), and ids of one run need no relabeling to be compared with
@@ -70,10 +73,11 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
 Step fields missing from the trace come from the case (`--case`), matched by step id; so does
 `allow_crashes` when the trace has none.
 
-Not run by any run yet: the driver protocol of oracle.py (017) returns canonical checkpoints only, and no
-driver writes this trace (raw checkpoints, replies, layoutCounters, teardown). A follow-up of 017, 023 and
-047 carries those fields in the driver result and makes `perform_run` turn a violation into a case
-Failure; until then `invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
+The daemon driver (driver_daemon.py) writes this trace as its result's `trace` (raw checkpoints, replies,
+eventLogs; no layoutCounters or teardown record) and fails a case on an I8 violation. The driver protocol of
+oracle.py (017) keeps canonical checkpoints only: a follow-up of 017, 023 and 047 carries the trace in every
+driver result and makes `perform_run` turn any violation into a case Failure; `invariants.py check` runs on a
+trace file and `--selftest` on synthetic traces.
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
 "in": "snapshot"|"step"|"teardown"|"eventLog", "pointer", "message"}], "notChecked": [{"invariant", "step",
@@ -236,6 +240,11 @@ class Report:
 
 def escape(token: Any) -> str:
     return str(token).replace("~", "~0").replace("/", "~1")
+
+
+def position(state: "State") -> Tuple[int, int]:
+    """A checkpoint's place in case order: (step index, checkpoint order)."""
+    return state.step.index, CHECKPOINT_ORDER.index(state.checkpoint)
 
 
 def pointer(*tokens: Any) -> str:
@@ -940,14 +949,62 @@ class Checker:
         for n, log in enumerate(self.trace.event_logs):
             self.i8_log(n, log, cuts)
 
+    @staticmethod
+    def cuts_before_log(items: List[Any], cuts: List[Tuple[State, Mapping[str, Any], str, int]]) -> Optional[Set[int]]:
+        """The indexes of the cuts that come before the log's first snapshot item (generation g, revision r): a
+        cut in the same generation at a lower revision, and every cut before the first cut of g (an earlier
+        generation: case order is time order). A log whose first item is no snapshot skips nothing (the fold
+        reports it). None: no cut is in a generation the log has a snapshot of, so no cut can be compared."""
+        first = items[0].get("item") if items and isinstance(items[0], Mapping) else None
+        if not isinstance(first, Mapping) or first.get("kind") != "snapshot":
+            return set()
+        cursor = first.get("cursor")
+        start = event_log.revision_of(cursor)
+        if start is None:
+            return set()
+        opened = str(cursor.get("generation"))
+        logged = {str((entry.get("item") or {}).get("cursor", {}).get("generation"))
+                  for entry in items if isinstance(entry, Mapping) and isinstance(entry.get("item"), Mapping)
+                  and entry["item"].get("kind") == "snapshot" and isinstance(entry["item"].get("cursor"), Mapping)}
+        first_cut = next((k for k, cut in enumerate(cuts) if cut[2] == opened), None)
+        if first_cut is None:
+            first_cut = next((k for k, cut in enumerate(cuts) if cut[2] in logged), None)
+        if first_cut is None:
+            return None
+        return set(range(first_cut)) | {k for k, cut in enumerate(cuts) if cut[2] == opened and cut[3] < start}
+
     def i8_log(self, n: int, log: Mapping[str, Any], cuts: List[Tuple[State, Mapping[str, Any], str, int]]) -> None:
         """Fold one log forward through the cuts in case order and compare at each cut it reaches."""
         name = log.get("name", n)
         items = log["items"]
+        before_log = self.cuts_before_log(items, cuts)
+        if before_log is None:
+            self.skip("I8", cuts[0][0].step, f"event log {name} has no snapshot item in the generation of any cut")
+            return
+        # Where the stream opened and where its end was seen, as case positions (step index, checkpoint order):
+        # a cut before the first or at or after the second is not compared (event_log.py: openedAt, endedAt).
+        steps = {step.id: step.index for step in self.trace.steps}
+        if log.get("openedAt") in steps:
+            opened = (steps[log["openedAt"]], CHECKPOINT_ORDER.index("turn"))
+            before_log |= {k for k, cut in enumerate(cuts) if position(cut[0]) < opened}
+        end = log.get("end")
+        # The oracle's own cancel at teardown comes after every cut: the stream was open at each of them.
+        if not isinstance(end, Mapping) or end.get("reason") == event_log.ORACLE_TEARDOWN:
+            end = None
+        seen = log.get("endedAt") if end is not None else None
+        ended = None
+        if isinstance(seen, Mapping) and seen.get("step") in steps:
+            checkpoint = seen.get("checkpoint")
+            ended = (steps[seen["step"]], CHECKPOINT_ORDER.index(checkpoint if checkpoint in CHECKPOINT_ORDER else "turn"))
         fold = event_log.SessionFold()
         pos, before = 0, None
         reported: Optional[str] = None
-        for state, session, generation, revision in cuts:
+        for k, (state, session, generation, revision) in enumerate(cuts):
+            if k in before_log:
+                continue
+            if ended is not None and position(state) >= ended:
+                self.skip("I8", state.step, f"event log {name} ended ({end.get('reason')}) before this checkpoint")
+                return
             while pos < len(items) and not (fold.generation == generation and fold.revision is not None
                                              and fold.revision >= revision):
                 before = fold.revision
@@ -961,7 +1018,7 @@ class Checker:
                 pos += 1
             if fold.generation == generation and fold.revision == revision:
                 self.checked("I8")
-                found = self.fold_difference(fold, session)
+                found = self.fold_difference(fold, session, pos - 1, items[pos - 1])
                 # One difference that persists over later cuts is reported where it first shows (as I5).
                 if found is not None and found[2] != reported:
                     self.violate("I8", state.step, state.checkpoint, found[0], f"event log {name}: {found[1]}")
@@ -969,15 +1026,14 @@ class Checker:
                 continue
             if fold.generation == generation and fold.revision is not None and fold.revision > revision:
                 if fold.base_revision is not None and revision < fold.base_revision:
-                    continue  # a cut before this stream opened
+                    continue  # a cut before the snapshot item this log reset to after a generation change
                 self.checked("I8")
                 self.violate("I8", state.step, state.checkpoint, "/daemon/session/cursor/revision",
                              f"event log {name} has no item at revision {revision}: stream item "
                              f"{items[pos - 1].get('sequence')} goes from {before} to {fold.revision}")
                 continue
-            end = log.get("end")
             at = f"generation {fold.generation} revision {fold.revision}" if fold.revision is not None else "no item"
-            if isinstance(end, Mapping):
+            if end is not None:
                 self.skip("I8", state.step, f"event log {name} ended ({end.get('reason')}) at {at}, before the "
                                             f"cut at generation {generation} revision {revision}")
             else:
@@ -985,7 +1041,7 @@ class Checker:
                 self.violate("I8", state.step, state.checkpoint, "/daemon/session/cursor/revision",
                              f"event log {name} stops at {at} while open; the daemon facet is at generation "
                              f"{generation} revision {revision}: session.events did not deliver the change")
-            return
+            return  # the log has nothing after this cut: every later cut is the same finding
 
     def fold_model(self, session: Mapping[str, Any], *, wire: bool) -> Dict[str, Any]:
         model = event_log.keyed(self.projector.daemon_session(session, wire=wire))
@@ -994,9 +1050,11 @@ class Checker:
                 row.pop("self", None)  # names the asking connection: the stream and the facet are two
         return model
 
-    def fold_difference(self, fold: "event_log.SessionFold", session: Mapping[str, Any]
-                        ) -> Optional[Tuple[str, str, str]]:
-        """(facet pointer, message, identity) of the first difference between the fold and the facet's session."""
+    def fold_difference(self, fold: "event_log.SessionFold", session: Mapping[str, Any], arrived: int,
+                        entry: Mapping[str, Any]) -> Optional[Tuple[str, str, str]]:
+        """(facet pointer, message, identity) of the first difference between the fold and the facet's session.
+        The first differing event is `entry`, log item `arrived`: the item that brought the fold to this cut,
+        where the difference first shows. The last event that set the differing row is context."""
         found = first_difference(self.fold_model(fold.render(), wire=True), self.fold_model(session, wire=False))
         if found is None:
             return None
@@ -1006,9 +1064,11 @@ class Checker:
         if path is None:  # the fold has a row the daemon does not: point at its table
             path = event_log.row_index(session, tokens[:-1]) or tokens[:-1]
         where = pointer("daemon", "session", *path)
+        kind = (entry.get("item") or {}).get("kind") if isinstance(entry, Mapping) else None
+        first = f"first differing event stream item {entry.get('sequence')} (items/{arrived}, {kind})"
         event = fold.event_for(event_log.touched_key(tokens))
         message = (f"{at.lstrip('/')}: fold {json.dumps(mine, sort_keys=True)[:120]}, daemon "
-                   f"{json.dumps(theirs, sort_keys=True)[:120]}; {event}")
+                   f"{json.dumps(theirs, sort_keys=True)[:120]}; {first}; row: {event}")
         return where, message, f"{at}={json.dumps(mine, sort_keys=True)}|{json.dumps(theirs, sort_keys=True)}"
 
     # I17 ----------------------------------------------------------------------------------------------
@@ -1415,7 +1475,8 @@ def i8_walks(seeds: Iterable[int], schema: Mapping[str, Any]) -> List[str]:
         log["items"][item]["item"]["changes"][change]["value"]["oracle_corrupt"] = True
         found = [v for v in Checker(load_trace(doc), projector).run().violations if v.invariant == "I8"]
         named = f"last event stream item {item} (items/{item}, change {change})"
-        if not found or found[0].step != f"s{item}" or named not in found[0].message:
+        first = f"first differing event stream item {item} (items/{item}, delta)"
+        if not found or found[0].step != f"s{item}" or named not in found[0].message or first not in found[0].message:
             failures.append(f"seed {seed}: corrupting items/{item} change {change} gave "
                             f"{[v.to_json() for v in found][:1]}")
     return failures
@@ -1801,8 +1862,25 @@ class InvariantsSelfTest(unittest.TestCase):
                          [("s1", "settled", f"/daemon/session/tabs/{self.tab_index(walk[1], TAB1)}/name")],
                          "the difference that persists at s2 is reported once")
         self.assertIn('fold null, daemon "one"', found[0].message)
-        self.assertIn("no event since stream item 0 (items/0, snapshot)", found[0].message)
+        self.assertIn("first differing event stream item 1 (items/1, delta)", found[0].message)
+        self.assertIn("row: no event since stream item 0 (items/0, snapshot)", found[0].message)
         self.assertEqual(report.checked["I8"], 3)
+
+    def test_i8_a_dropped_delete_names_the_delta_of_the_cut(self) -> None:
+        added = _add_tab(_bump_sequences(self.base, 1), PANE1, TAB3, TERM3)
+        closed = _bump_sequences(added, 1)
+        session = closed["facets"]["daemon"]["session"]
+        session["tabs"] = [t for t in session["tabs"] if t["id"] != TAB3]
+        session["terminals"] = [t for t in session["terminals"] if t["id"] != TERM3]
+        walk = [self.base, added, closed]
+        log = _log(*walk)
+        changes = log["items"][2]["item"]["changes"]
+        changes[:] = [c for c in changes if not (c["kind"] == "delete" and c["resource"] == "tab")]
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s2"])
+        self.assertIn("first differing event stream item 2 (items/2, delta)", found[0].message)
+        self.assertIn("row: last event stream item 1 (items/1, change", found[0].message,
+                      "the create is context, not the first differing event")
 
     def test_i8_a_wrong_value_names_the_event_that_set_it(self) -> None:
         walk = self.i8_walk()
@@ -1837,6 +1915,66 @@ class InvariantsSelfTest(unittest.TestCase):
         report = self.i8_check([ended], *walk)
         self.assertEqual(self.i8_of(report), [])
         self.assertEqual([(n.invariant, n.step) for n in report.not_checked if n.invariant == "I8"], [("I8", "s1")])
+        canceled_by_oracle = {**_log(walk[0]), "end": {"reason": event_log.ORACLE_TEARDOWN}}
+        found = self.i8_of(self.i8_check([canceled_by_oracle], *walk))
+        self.assertEqual([(v.step, v.pointer) for v in found], [("s1", "/daemon/session/cursor/revision")],
+                         "the oracle's teardown cancel is no end: the stream was open at every cut")
+        self.assertIn("did not deliver", found[0].message)
+
+    def with_watcher(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """The snapshot at the same revision with one more client: a connection opened, the revision did not move."""
+        snap = copy.deepcopy(snapshot)
+        clients = snap["facets"]["daemon"]["session"]["clients"]
+        clients.append({**copy.deepcopy(clients[0]), "id": "client_000000000000000000000000000000c9",
+                        "attached_terminal_ids": [], "sizes": []})
+        return snap
+
+    def test_i8_skips_cuts_before_the_log_opened_and_after_its_end_was_seen(self) -> None:
+        watched = self.with_watcher(self.base)
+        renamed = _set_tab_name(watched, TAB1, "one")
+        detached = copy.deepcopy(renamed)
+        detached["facets"]["daemon"]["session"]["clients"].pop()
+        walk = [self.base, watched, renamed, detached]
+        log = {**_log(watched, renamed, name="open"), "end": {"reason": "error"}}
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s0", "s3"],
+                         "same revision, other clients: only the steps tell when the stream existed")
+        log.update(openedAt="s1", endedAt={"step": "s3", "checkpoint": "settled"})
+        report = self.i8_check([log], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 2)
+        self.assertEqual([n.step for n in report.not_checked if n.invariant == "I8"], ["s3"])
+        log["end"] = {"reason": event_log.ORACLE_TEARDOWN}
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s3"], "the oracle's own cancel has no place in the case")
+
+    def restarted(self, snapshot: Dict[str, Any], generation: str, by: int = 3) -> Dict[str, Any]:
+        snap = _bump_sequences(snapshot, by)
+        session = snap["facets"]["daemon"]["session"]
+        session["cursor"]["generation"] = session["session"]["generation"] = generation
+        return snap
+
+    def test_i8_a_log_opened_after_a_restart_skips_the_cuts_before_it(self) -> None:
+        s1 = _set_tab_name(self.base, TAB1, "one")
+        s2 = self.restarted(s1, "gen-after-restart")
+        s3 = _set_tab_name(s2, TAB2, "two")
+        walk = [self.base, s1, s2, s3]
+        report = self.i8_check([_log(s2, s3, name="after-restart")], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 2, "the two cuts after the restart are compared")
+        dropped = _log(s2, s3, name="after-restart")
+        index, _ = self.tab_change(dropped, 1)
+        del dropped["items"][1]["item"]["changes"][index]
+        found = self.i8_of(self.i8_check([dropped], *walk))
+        self.assertEqual([v.step for v in found], ["s3"], "a cut after the restart is still checked")
+        late = _set_tab_name(s2, TAB1, "late")
+        report = self.i8_check([_log(late, name="late")], self.base, s1, s2, late)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 1, "a cut of the log's generation below its snapshot is skipped")
+        other = self.restarted(s1, "never-cut")
+        report = self.i8_check([_log(other, name="elsewhere")], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual([n.invariant for n in report.not_checked if "elsewhere" in n.reason], ["I8"])
 
     def test_i8_skips_cuts_before_the_stream_and_the_asking_connection(self) -> None:
         walk = self.i8_walk()
