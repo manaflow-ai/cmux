@@ -3,6 +3,8 @@
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Palette"], "wait": 2, "shot": false},
+    {"title": "Show the workspace, not Home", "cmux": ["action", "run", "selectWorkspaceByNumber", "--arg", "index=1"], "wait": 1.5,
+     "shot": false, "optional": "no workspace to select"},
     {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4, "shot": false,
      "optional": "agent backend unavailable on this runner"},
     {"title": "Close the machine picker", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 0.5, "shot": false,
