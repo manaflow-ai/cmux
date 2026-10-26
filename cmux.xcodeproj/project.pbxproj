@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		IC000013 /* AppIcon-Debug.icon in Resources */ = {isa = PBXBuildFile; fileRef = IC000003 /* AppIcon-Debug.icon */; };
+		IC000014 /* AppIcon-Nightly.icon in Resources */ = {isa = PBXBuildFile; fileRef = IC000004 /* AppIcon-Nightly.icon */; };
+		IC000015 /* AppIcon-RC.icon in Resources */ = {isa = PBXBuildFile; fileRef = IC000005 /* AppIcon-RC.icon */; };
+		IC000012 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = IC000002 /* AppIcon.icon */; };
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
@@ -28,7 +32,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
+		IC000003 /* AppIcon-Debug.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "AppIcon-Debug.icon"; sourceTree = "<group>"; };
+		IC000004 /* AppIcon-Nightly.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "AppIcon-Nightly.icon"; sourceTree = "<group>"; };
+		IC000005 /* AppIcon-RC.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "AppIcon-RC.icon"; sourceTree = "<group>"; };
+		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C0DEC0DE0000000000000012 /* cmux-cua */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "cmux-cua"; path = "skills/cmux-cua"; sourceTree = SOURCE_ROOT; };
 		CE7A00000000000000000004 /* cmux-next.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux-next.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -130,6 +137,9 @@
 				CE7A00000000000000000022 /* Resources */,
 				A5001101 /* Assets.xcassets */,
 				IC000002 /* AppIcon.icon */,
+				IC000003 /* AppIcon-Debug.icon */,
+				IC000004 /* AppIcon-Nightly.icon */,
+				IC000005 /* AppIcon-RC.icon */,
 				A5001017 /* ghostty.h */,
 				A5001042 /* Products */,
 				CE7A00000000000000000021 /* App */,
@@ -242,6 +252,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				IC000013 /* AppIcon-Debug.icon in Resources */,
+				IC000014 /* AppIcon-Nightly.icon in Resources */,
+				IC000015 /* AppIcon-RC.icon in Resources */,
+				IC000012 /* AppIcon.icon in Resources */,
 				CE7A00000000000000000015 /* Assets.xcassets in Resources */,
 				CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */,
 				CE7A0000000000000000001D /* LICENSE in Resources */,
