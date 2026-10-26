@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 
 /// Where libghostty and the shells find Ghostty's resources (themes, shell integration):

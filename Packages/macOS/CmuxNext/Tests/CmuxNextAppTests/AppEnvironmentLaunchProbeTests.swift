@@ -17,6 +17,7 @@ struct AppEnvironmentLaunchProbeTests {
     /// What a lane found on a Mac with Ghostty's terminfo installed and this build's helper.
     nonisolated static let found = GhosttyLaunchProbe(resources: "/probe/Resources/ghostty", binary: "/probe/Resources/bin/ghostty",
                                                       terminfoInstalled: true)
+    static let work = BackgroundWork(label: "test.ghostty-probe")
     nonisolated static let login: @Sendable () async -> [String: String]? = { ["PATH": "/usr/bin:/bin", "SHELL": "/bin/zsh"] }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
@@ -37,7 +38,7 @@ struct AppEnvironmentLaunchProbeTests {
     @Test("A shell's env carries what the launch read found: helper, TERM and resources")
     func aShellsEnvCarriesTheLaunchRead() async {
         var environment = AppEnvironment.current([:])
-        environment.ghosttyProbe = GhosttyLaunchProbe.start(on: BackgroundWork(label: "test.ghostty-probe")) { Self.found }
+        environment.ghosttyProbe = GhosttyLaunchProbe.start(on: Self.work) { Self.found }
         let env = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil })()
         #expect(env["GHOSTTY_BIN"] == "/probe/Resources/bin/ghostty")
         #expect(env["TERM"] == "xterm-ghostty")
