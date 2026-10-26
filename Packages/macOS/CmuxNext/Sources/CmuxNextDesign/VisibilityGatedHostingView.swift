@@ -167,6 +167,7 @@ public import SwiftUI
         guard isGated else { return body() }
         attachHosting()
         defer { hosting.removeFromSuperview() }
+        // sync-layout: a snapshot draws in this call, and the hosting view just came back unlaid out.
         layoutSubtreeIfNeeded()
         return body()
     }
