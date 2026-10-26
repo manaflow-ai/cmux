@@ -328542,55 +328542,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on your iPhone with the same account and it connects automatically. No QR code is needed."
+            "value": "Sign in to cmux on your iPhone with the same account to connect automatically, or open pairing to scan this Mac’s Tailscale QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneのcmuxに同じアカウントでサインインすると、自動的に接続されます。QRコードは不要です。"
+            "value": "iPhoneのcmuxに同じアカウントでサインインすると自動的に接続されます。または、ペアリングを開いてこのMacのTailscale QRコードをスキャンしてください。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 iPhone 上使用同一账户登录 cmux，即可自动连接。无需二维码。"
+            "value": "在 iPhone 上使用同一账户登录 cmux 即可自动连接，或打开配对以扫描这台 Mac 的 Tailscale 二维码。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melden Sie sich in cmux auf Ihrem iPhone mit demselben Konto an, dann verbindet es sich automatisch. Ein QR-Code ist nicht nötig."
+            "value": "Melde dich auf deinem iPhone mit demselben Konto bei cmux an, um dich automatisch zu verbinden, oder öffne die Kopplung, um den Tailscale-QR-Code dieses Macs zu scannen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous à cmux sur votre iPhone avec le même compte et la connexion se fait automatiquement. Aucun code QR n’est nécessaire."
+            "value": "Connectez-vous à cmux sur votre iPhone avec le même compte pour vous connecter automatiquement, ou ouvrez le jumelage pour scanner le code QR Tailscale de ce Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول إلى cmux على iPhone بالحساب نفسه وسيتصل تلقائيًا. لا حاجة إلى رمز QR."
+            "value": "سجّل الدخول إلى cmux على iPhone بالحساب نفسه للاتصال تلقائيًا، أو افتح الاقتران لمسح رمز QR الخاص بـ Tailscale على هذا الـ Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicie sesión en cmux en su iPhone con la misma cuenta y se conectará automáticamente. No se necesita ningún código QR."
+            "value": "Inicia sesión en cmux en tu iPhone con la misma cuenta para conectarte automáticamente, o abre la vinculación para escanear el código QR de Tailscale de este Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 iPhone 上以相同帳戶登入 cmux，即會自動連線。不需要 QR 碼。"
+            "value": "在 iPhone 上以相同帳戶登入 cmux 即可自動連線，或開啟配對以掃描這台 Mac 的 Tailscale QR 碼。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone의 cmux에 동일한 계정으로 로그인하면 자동으로 연결됩니다. QR 코드는 필요하지 않습니다."
+            "value": "iPhone의 cmux에 동일한 계정으로 로그인하여 자동으로 연결하거나, 페어링을 열어 이 Mac의 Tailscale QR 코드를 스캔하세요."
           }
         }
       }
@@ -329250,55 +329250,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apply saves the port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, cmux chooses an available port."
+            "value": "Apply saves the TCP port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, choose another port. Iroh connects independently."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anwenden speichert den Port für den nächsten Kopplungsstart. Bestehende Verbindungen bleiben erhalten. Um den neuen Port zu verwenden, schalten Sie die iOS-Kopplung aus und wieder ein. Ist der Port nicht verfügbar, wählt cmux einen verfügbaren Port."
+            "value": "Anwenden speichert den TCP-Port für den nächsten Kopplungsstart. Bestehende Verbindungen bleiben bestehen. Um den neuen Port zu verwenden, schalte die iOS-Kopplung aus und wieder ein. Ist der Port nicht verfügbar, wähle einen anderen. Iroh verbindet sich unabhängig davon."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Appliquer enregistre le port pour le prochain démarrage du jumelage. Les connexions actuelles restent actives. Pour utiliser le nouveau port, désactivez puis réactivez le jumelage iOS. Si le port est indisponible, cmux en choisit un disponible."
+            "value": "Appliquer enregistre le port TCP pour le prochain jumelage. Les connexions actuelles sont maintenues. Pour utiliser le nouveau port, désactivez puis réactivez le jumelage iOS. Si le port est indisponible, choisissez-en un autre. Iroh se connecte indépendamment."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحفظ تطبيق المنفذ لبدء الاقتران القادم. تستمر الاتصالات الحالية. لاستخدام المنفذ الجديد، أوقف اقتران iOS ثم شغّله مجددًا. إذا لم يكن المنفذ متاحًا، يختار cmux منفذًا متاحًا."
+            "value": "يحفظ «تطبيق» منفذ TCP لبدء الاقتران التالي. تستمر الاتصالات الحالية. لاستخدام المنفذ الجديد، أوقف اقتران iOS ثم شغّله مجددًا. إذا لم يكن المنفذ متاحًا، فاختر منفذًا آخر. يتصل Iroh بشكل مستقل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplicar guarda el puerto para el próximo inicio de la vinculación. Las conexiones actuales continúan. Para usar el nuevo puerto, desactiva y vuelve a activar la vinculación con iOS. Si el puerto no está disponible, cmux elige uno disponible."
+            "value": "Aplicar guarda el puerto TCP para el siguiente inicio de vinculación. Las conexiones actuales continúan. Para usar el nuevo puerto, desactiva y vuelve a activar la vinculación con iOS. Si el puerto no está disponible, elige otro. Iroh se conecta de forma independiente."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点按“应用”会保存端口，在下次启动配对时生效。当前连接会保持。要使用新端口，请关闭再开启 iOS 配对。如果端口不可用，cmux 会选择一个可用端口。"
+            "value": "“应用”会保存 TCP 端口，供下次启动配对时使用。当前连接会继续保持。要使用新端口，请关闭再开启 iOS 配对。如果端口不可用，请选择其他端口。Iroh 独立连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按一下「套用」會儲存連接埠，在下次啟動配對時生效。目前的連線會維持。若要使用新連接埠，請關閉再開啟 iOS 配對。如果連接埠無法使用，cmux 會選擇可用的連接埠。"
+            "value": "「套用」會儲存 TCP 連接埠，供下次啟動配對時使用。目前的連線會繼續保持。若要使用新連接埠，請關閉再開啟 iOS 配對。如果連接埠無法使用，請選擇其他連接埠。Iroh 獨立連線。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "적용을 누르면 다음 페어링 시작에 사용할 포트가 저장됩니다. 현재 연결은 유지됩니다. 새 포트를 사용하려면 iOS 페어링을 껐다가 다시 켜세요. 해당 포트를 사용할 수 없으면 cmux가 사용 가능한 포트를 선택합니다."
+            "value": "적용하면 다음 페어링 시작에 사용할 TCP 포트가 저장됩니다. 현재 연결은 유지됩니다. 새 포트를 사용하려면 iOS 페어링을 껐다가 다시 켜세요. 포트를 사용할 수 없으면 다른 포트를 선택하세요. Iroh는 독립적으로 연결됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「適用」で次回のペアリング開始用のポートを保存します。現在の接続は維持されます。新しいポートを使うには、iOS ペアリングをオフにしてからオンにしてください。ポートが使用できない場合、cmux が使用可能なポートを選択します。"
+            "value": "「適用」で次回のペアリング開始時に使うTCPポートを保存します。現在の接続は維持されます。新しいポートを使うには、iOSペアリングをオフにしてからオンにしてください。ポートが使用できない場合は、別のポートを選んでください。Irohは独立して接続します。"
           }
         }
       }
@@ -329604,55 +329604,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred port for IROH connections, 1–65535."
+            "value": "TCP port for Tailscale pairing, 1–65535."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bevorzugter Port für IROH-Verbindungen, 1–65535."
+            "value": "TCP-Port für die Kopplung über Tailscale, 1–65535."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port préféré pour les connexions IROH, de 1 à 65535."
+            "value": "Port TCP pour le jumelage via Tailscale, de 1 à 65535."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المنفذ المفضل لاتصالات IROH، من 1 إلى 65535."
+            "value": "منفذ TCP للاقتران عبر Tailscale، من 1 إلى 65535."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto preferido para conexiones IROH, entre 1 y 65535."
+            "value": "Puerto TCP para vincular mediante Tailscale, de 1 a 65535."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 连接的首选端口，范围为 1–65535。"
+            "value": "用于 Tailscale 配对的 TCP 端口，范围为 1–65535。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 連線的偏好連接埠，範圍為 1–65535。"
+            "value": "用於 Tailscale 配對的 TCP 連接埠，範圍為 1–65535。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 연결에 사용할 기본 포트(1–65535)입니다."
+            "value": "Tailscale 페어링용 TCP 포트입니다. 범위는 1–65535입니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 接続に使用する優先ポート（1〜65535）。"
+            "value": "Tailscaleペアリング用のTCPポート（1〜65535）。"
           }
         }
       }

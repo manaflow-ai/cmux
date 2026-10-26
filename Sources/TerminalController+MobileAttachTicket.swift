@@ -5,7 +5,9 @@ import Foundation
 
 extension TerminalController {
     @MainActor
-    func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
+    func v2MobileAttachTicketCreate(
+        params: [String: Any], transportRouteKind: CmxAttachTransportKind? = nil
+    ) async -> V2CallResult {
         // `DisableRemoteControl` (MDM): no pairing material is minted while the
         // Mac may not host a phone, rather than relying on the route set
         // happening to be empty.
@@ -108,6 +110,7 @@ extension TerminalController {
                 routeID: routeID,
                 routeKind: routeKind,
                 target: target,
+                transportRouteKind: transportRouteKind,
                 pairingURLScheme: pairingURLScheme
             )
             return .ok(payload)

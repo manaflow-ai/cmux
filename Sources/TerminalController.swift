@@ -15569,15 +15569,18 @@ class TerminalController {
             ])
 #endif
         case "mobile.attach_ticket.create":
-            result = await v2MobileAttachTicketCreate(params: request.params)
+            result = await v2MobileAttachTicketCreate(
+                params: request.params,
+                transportRouteKind: executionContext?.authorization == .stackBearer ? .tailscale : nil
+            )
         case "mobile.workspace.list":
             // The v2 method carries the authenticated host identity with the
             // workspace snapshot so a cold reconnect does not need a second
             // relay round trip. Older clients continue using `workspace.list`.
-            result = v2MobileWorkspaceListWithHostStatus(params: request.params)
+            result = v2MobileWorkspaceListWithHostStatus(params: request.params, hostDeviceID: executionContext?.hostDeviceID)
         case "workspace.list":
             result = v2Bool(request.params, "include_host_status") == true
-                ? v2MobileWorkspaceListWithHostStatus(params: request.params)
+                ? v2MobileWorkspaceListWithHostStatus(params: request.params, hostDeviceID: executionContext?.hostDeviceID)
                 : v2MobileWorkspaceList(params: request.params)
         case "mobile.workspace.changes.summary",
              "mobile.workspace.changes.files",
@@ -15747,7 +15750,7 @@ class TerminalController {
     /// let the client use its legacy fallback request.
     @MainActor
     private func v2MobileWorkspaceListWithHostStatus(
-        params: [String: Any]
+        params: [String: Any], hostDeviceID: String? = nil
     ) -> V2CallResult {
         let workspaceResult = v2MobileWorkspaceList(params: params)
         guard case let .ok(workspacePayload) = workspaceResult,
@@ -15755,7 +15758,7 @@ class TerminalController {
             return workspaceResult
         }
         guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
-            includeIdentity: true
+            includeIdentity: true, deviceID: hostDeviceID
         ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
             return workspaceResult
         }

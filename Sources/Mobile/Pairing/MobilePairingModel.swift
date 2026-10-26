@@ -6,9 +6,8 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in, and on explicit pairing opt-in before starting the v2 IROH host. v2 pairing
-/// uses the signed-in account and device identity, so it has no QR or address
-/// to display.
+/// in, and on explicit pairing opt-in before starting the mobile host. A ready
+/// Tailscale listener offers a compatibility QR; Iroh uses account discovery.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -26,7 +25,7 @@ final class MobilePairingModel {
         case pairingDisabled
         /// Signed in; bringing the v2 IROH listener up.
         case preparing
-        /// The v2 IROH listener is ready for the signed-in iPhone.
+        /// A mobile transport is ready for the signed-in iPhone.
         case ready(Ready)
         /// A phone has attached to the listener; show a paired/success state.
         /// Carries the state to restore when the connection count falls back to
@@ -39,8 +38,8 @@ final class MobilePairingModel {
         case failed(String)
     }
 
-    /// Pairing status. Legacy fields remain for source compatibility with old
-    /// previews; v2 always leaves them empty and sets ``v2Only``.
+    /// Pairing status. Tailscale carries a QR and manual address; an Iroh-only
+    /// host leaves those fields empty and uses account discovery.
     struct Ready: Equatable {
         /// Legacy attach URL. Empty for v2.
         let attachURL: String
@@ -363,12 +362,33 @@ final class MobilePairingModel {
         }
     }
 
-    /// Relay binding may finish from cache before v2 setup. Keep preparing until
-    /// the runtime confirms registration for the current account and team.
+    /// A Tailscale QR requires the TCP listener's published routes. Iroh-only
+    /// readiness requires registration for the current account and team.
     static func v2StatusTransition(
         _ status: MobileHostServiceStatus,
-        baselineConnectionCount: Int
+        baselineConnectionCount: Int,
+        macUserID: String? = nil,
+        pairingURLScheme: CmxPairingURLScheme? = CmxPairingURLSchemeResolver().resolved
     ) -> State {
+        if status.tailscaleIsRunning,
+           let plan = PairingRoutePlan.make(routes: status.tailscaleRoutes),
+           let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(from: status.tailscaleRoutes),
+           let ticket = try? CmxAttachTicket(
+               workspaceID: "", terminalID: nil, macDeviceID: "", macDisplayName: "",
+               macUserID: macUserID,
+               macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+               routes: routes, expiresAt: nil, authToken: nil
+           ),
+           let attachURL = CmxPairingQRCode().encode(
+               ticket, routeDisclosureMode: plan.disclosureMode, pairingURLScheme: pairingURLScheme
+           ) {
+            let ready = State.ready(Ready(
+                attachURL: attachURL, tailscaleLines: tailscaleLines(routes),
+                manualEntry: CmxManualPairingEntry.best(in: routes),
+                reachableViaIroh: status.isPairingReady
+            ))
+            return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+        }
         guard status.isRunning else {
             return .failed(preparationFailureMessage(detail: status.lastErrorDescription))
         }
@@ -386,7 +406,11 @@ final class MobilePairingModel {
 
     /// A retry starts in `refresh`; repeated pending status cannot hide an error.
     func receiveHostStatus(_ status: MobileHostServiceStatus, baselineConnectionCount: Int) {
-        let next = Self.v2StatusTransition(status, baselineConnectionCount: baselineConnectionCount)
+        let next = Self.v2StatusTransition(
+            status, baselineConnectionCount: baselineConnectionCount,
+            macUserID: coordinator?.currentUser?.id,
+            pairingURLScheme: CmxPairingURLScheme(iOSBundleIdentifier: selectedIOSAppTarget.bundleIdentifier)
+        )
         if case .failed = state, next == .preparing { return }
         if next != state { state = next }
     }

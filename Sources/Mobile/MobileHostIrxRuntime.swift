@@ -1031,7 +1031,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
     }
 
-    private static func listenerFailureDescription(_ error: any Error) -> String {
+    nonisolated private static func listenerFailureDescription(_ error: any Error) -> String {
         if let error = error as? IrxEndpointError {
             switch error {
             case .noUsableRelayCredential:
@@ -1049,19 +1049,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     localized: "mobile.pairing.error.noDirectAddress",
                     defaultValue: "The secure pairing endpoint is running, but this Mac has no direct network address. Check Tailscale or your network connection."
                 )
-            case .bindFailed(let description):
-                return description
+            case .bindFailed:
+                break
             }
         }
-        if let description = (error as? LocalizedError)?.errorDescription,
-           !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return description
-        }
+        // Native relay failures can contain endpoint details. Keep those in
+        // diagnostics and present the localized recovery message to the user.
         return String(
-            localized: "mobile.pairing.error.transportDetails",
-            defaultValue: "Secure pairing failed: %@",
-            comment: "The placeholder contains a safe transport diagnostic."
-        ).replacingOccurrences(of: "%@", with: String(describing: error))
+            localized: "mobile.pairing.error.preparationFailed",
+            defaultValue: "Pairing could not finish. Check your connection and try again."
+        )
     }
 
     private func publishRoute(relayURL: String?) {
