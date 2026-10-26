@@ -1,6 +1,7 @@
 public import AppKit
 import CoreImage
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// The one material behind a window's content (``WindowMaterial``) and the
@@ -191,14 +192,7 @@ public final class WindowMaterialView: NSView {
     /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through
     /// `owner` (a window's parent or sheet parent).
     static func family<W: AnyObject>(of window: W, holds key: W?, owner: (W) -> W?) -> Bool {
-        var next = key
-        // Window chains are a few levels deep; the bound guards a cycle.
-        for _ in 0..<32 {
-            guard let current = next else { return false }
-            if current === window { return true }
-            next = owner(current)
-        }
-        return false
+        WindowEvents.family(of: window, holds: key, owner: owner)
     }
 
     /// A window looks inactive only once its family held the keyboard and then lost it to another
