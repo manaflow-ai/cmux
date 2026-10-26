@@ -67,7 +67,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await Self.keyedStart(cwd, harness, approvals: approvals,
-                                                            servesKeyedReason: servesKeyedReason, start: start)
+                                                            servesKeyedReason: servesKeyedReason, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
@@ -86,11 +86,15 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         return handshake
     }
 
+    /// A start with no step to check first (the page's own first send). A named function, not a
+    /// default `{}`: an async closure default argument can overrun its context (cx-bsue).
+    @Sendable static func proceedAlways() async throws {}
+
     /// Starts the new chat now, as the page's first send would (`cmux cloud start-session`): the
     /// same keyed start, in `cwd` (nil: the tab's seed folder, then its workspace's) with `harness`.
     /// `proceed` runs before each step that changes that machine (a keyed restart, each start
     /// try): its throw stops the start there, and what it threw is what this throws.
-    func startNow(cwd: String?, harness: String, proceed: @escaping @Sendable () async throws -> Void = {}) async throws -> AgentTabRemoteStart.Started {
+    func startNow(cwd: String?, harness: String, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
         return try await Self.keyedStart(cwd, harness, approvals: approvals, servesKeyedReason: servesKeyedReason, proceed: proceed, start: start)
     }
@@ -102,7 +106,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// restart; after the restart (or without one) the chat starts as it is.
     private static func keyedStart(
         _ cwd: String?, _ harness: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
-        proceed: @escaping @Sendable () async throws -> Void = {},
+        proceed: @escaping @Sendable () async throws -> Void,
         start unchecked: @escaping @Sendable (String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> AgentTabRemoteStart.Started
     ) async throws -> AgentTabRemoteStart.Started {
         let start = { @Sendable (cwd: String?, harness: String?, key: AgentSessionAttachClient.PersonKey?) in
