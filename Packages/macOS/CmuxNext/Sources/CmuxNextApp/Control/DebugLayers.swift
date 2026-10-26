@@ -11,7 +11,7 @@ import CmuxNextSettings
 /// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
 /// Each shown Chromium page counts the `CALayerHost` layers (the class Chromium shows its
 /// GPU output with) in three trees: the pane's own (`hosted_layer_hosts`: only the app's
-/// `CEFHostedPageView` host, so it proves nothing about the fork), the context that host shows
+/// `ChromiumHostPageView` host, so it proves nothing about the fork), the context that host shows
 /// (`hosted_context_layer_hosts`: the hosted `CAContext` lives in this process, so its layers are
 /// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
 /// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
@@ -186,7 +186,7 @@ enum DebugLayers {
     }
 
     /// `CALayerHost` layers in the context the first `CALayerHost` under `layer` shows (the pane's
-    /// `CEFHostedPageView`); nil without one, or when that context is not in this process. Every
+    /// `ChromiumHostPageView`); nil without one, or when that context is not in this process. Every
     /// QuartzCore SPI message (``QuartzLayerHostingSPI``) is sent only after `responds(to:)` proved the
     /// receiver implements it, so an OS without it gives nil, never an unrecognized selector.
     private static func hostedContextLayerHostCount(_ layer: CALayer?) -> Int? {
