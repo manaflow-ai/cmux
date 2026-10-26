@@ -87,13 +87,15 @@ private struct ComputerVisibilityRow: View {
     var body: some View {
         HStack(spacing: item.isVisible ? 8 : 12) {
             leadingContent
-            ComputerVisibilityToggle(
-                computerID: item.id,
-                computerName: item.name,
-                isVisible: item.isVisible,
-                isDisabled: isBusy,
-                setVisible: setVisible
-            )
+            if item.visibleComputer?.isDirectoryOnly != true {
+                ComputerVisibilityToggle(
+                    computerID: item.id,
+                    computerName: item.name,
+                    isVisible: item.isVisible,
+                    isDisabled: isBusy,
+                    setVisible: setVisible
+                )
+            }
         }
         .padding(.vertical, item.isVisible ? 0 : 4)
         // A toggle that moves a row across sections (Computers screen) is a
@@ -284,7 +286,7 @@ struct ComputerVisibilityRows: View {
     private func setVisibility(_ visible: Bool, for item: ComputerVisibilityRowItem) {
         switch item {
         case .visible(let computer):
-            guard !visible else { return }
+            guard !visible, !computer.isDirectoryOnly else { return }
             hide(computer)
         case .hidden(let computer):
             guard visible else { return }

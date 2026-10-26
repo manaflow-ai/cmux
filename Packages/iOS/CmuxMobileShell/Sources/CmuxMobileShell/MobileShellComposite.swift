@@ -3247,6 +3247,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Connect a directory-only Mac after the user has supplied a private path.
+    /// Discovery rows are intentionally not persisted before host admission, so
+    /// this is the UI bridge from the Computers detail back into the same
+    /// authenticated first-pair path used by automatic recovery.
+    @discardableResult
+    public func connectDiscoveredIrohMac(
+        macDeviceID: String,
+        instanceTag: String?,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
+    ) async -> Bool {
+        guard !Task.isCancelled, let scope = await currentScopeSnapshot() else { return false }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        guard let candidate = discoveredIrohMacs.first(where: {
+            cmxCanonicalDeviceID($0.deviceID) == canonicalDeviceID
+                && ($0.instanceTag == (instanceTag ?? ""))
+        }) else {
+            return false
+        }
+        let attemptID = beginPairingAttempt(method: "manual")
+        defer { finishConnectionOwningPairingAttempt(attemptID) }
+        let connected = await connectAccountDiscoveredIrohMac(
+            candidate,
+            accountID: scope.userID,
+            directOnlyDialCandidates: directOnlyDialCandidates,
+            ifStillCurrent: { [weak self] in
+                guard let self else { return false }
+                return !Task.isCancelled && self.isCurrentPairingAttempt(attemptID)
+                    && self.identityProvider?.currentUserID == scope.userID
+                    && self.secondaryAggregationScopeGeneration == scope.generation
+            }
+        )
+        guard !Task.isCancelled, isCurrentPairingAttempt(attemptID),
+              await currentScopeSnapshot() == scope else { return false }
+        if connected {
+            await loadPairedMacs(forceRefresh: true)
+            guard isCurrentPairingAttempt(attemptID) else { return false }
+            recordPairingSucceeded()
+        } else {
+            recordFailureForCurrentConnectionError(phase: "connect")
+        }
+        return connected
+    }
+
+
     /// On launch (after StackAuth has bootstrapped), call this to reconnect
     /// to the last-active paired Mac. Pulls (route, displayName, macDeviceID)
     /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
