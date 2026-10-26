@@ -149,6 +149,7 @@
     "WebRTC": {"layer": "core", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "WebRTC binary"},
     "CmuxHomeCoreTestSupport": {"layer": "core", "package": "Packages/Shared/CmuxHomeCore", "note": "test helper declared as a regular target"},
     "CmuxFuzzSupport": {"layer": "core", "package": "Packages/Shared/CmuxFuzzSupport", "note": "seeded property-test support; only test targets depend on it"},
+    "CmuxSafeConcurrency": {"layer": "core", "package": "Packages/Shared/CmuxSafeConcurrency", "note": "portable Mutex (os_unfair_lock) and the shared concurrency primitives; Foundation-free"},
 
     "CmuxAppAttest": {"layer": "service", "package": "Packages/Shared/CmuxAppAttest", "note": "DeviceCheck / App Attest calls"},
     "CmuxAuthRuntime": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "Stack auth runtime: keychain, SQLite, web sign-in"},
