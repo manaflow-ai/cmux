@@ -659,4 +659,33 @@ mod tests {
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
     }
+    #[test]
+    fn inline_parts_validate_companion_relation() {
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let file =
+            json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});
+        let blocks = vec![
+            image.clone(),
+            file.clone(),
+            json!({"type": "text", "text": "between"}),
+            image,
+            file,
+        ];
+        let display = json!([
+            {"kind": "file", "blockIndex": 1, "companionOf": 0},
+            {"kind": "file", "blockIndex": 4, "companionOf": 3}
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["id"], parts[3]["id"], "same bytes, distinct block identities");
+        assert_eq!(parts[0]["blockIndex"], 0);
+        assert_eq!(parts[1]["companionOf"], 0);
+        assert_eq!(parts[3]["blockIndex"], 3);
+        assert_eq!(parts[4]["companionOf"], 3);
+        assert_eq!(parts[1]["uri"], "file:///tmp/one.png", "the file is still delivered");
+        for (block, target) in [(1, 2), (1, 99), (1, -1), (0, 3)] {
+            let invalid = json!([{"kind": if block == 0 { "image" } else { "file" }, "blockIndex": block, "companionOf": target}]);
+            let parts = inline_parts(&blocks, &[], Some(&invalid));
+            assert!(parts.iter().all(|part| part.get("companionOf").is_none()));
+        }
+    }
 }
