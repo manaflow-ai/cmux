@@ -169,6 +169,7 @@ export function SentMessageLine({
     <>
       {/* A div, not a button: the target inside it is a button of its own. */}
       <div
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="button"
         tabIndex={0}
         className={`cv-tool is-toggle cv-subsession cv-sent${state === "sending" ? " is-live" : " is-strong"}`}
