@@ -4,7 +4,7 @@ import type { Env } from "../env.ts"
 import type { Principal } from "@cmux/ownership"
 import { liveFrame, postWork, runChanged } from "./brain-io.ts"
 import type { BrainConfig } from "./brain-store.ts"
-import { replyTarget } from "./brain-text.ts"
+import { oneLine, replyTarget } from "./brain-text.ts"
 import { effectRefusal } from "./effect-policy.ts"
 import { readRun, readSteps } from "./brain-runs.ts"
 import { workspaceNote, type OpenedWorkspace } from "./brain-spawn-workspace.ts"
@@ -275,7 +275,7 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
     const report = r.report?.trim() || "(no report)"
     // The full report goes only to the Chief; members see a short preview in the Chief's own line or a DM,
     // and only the status in a channel or group (the Chief decides what of a report the room sees).
-    const shown = r.kind === "chief" || r.kind === "dm" ? clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES_SHOWN) : `${r.name}: ${r.state === "done" ? "done" : "failed"}`
+    const shown = oneLine(r.kind) ? clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES_SHOWN) : `${r.name}: ${r.state === "done" ? "done" : "failed"}`
     const res = await postWork(env, principal, {
       conversation: r.conversation,
       key: `spawn-report:${principal.agent}:${childKey(r.conversation, r.n)}`,
@@ -400,7 +400,7 @@ export const postOutcomes = async (env: Env, sql: SqlStorage, transaction: (f: (
       session: `agent_${o.session}`.slice(0, 200),
       host,
       status: o.status,
-      preview: r.kind === "chief" || r.kind === "dm" ? clipBytes(text, PREVIEW_BYTES_SHOWN) : `${r.label}: agent turn ${o.status}`,
+      preview: oneLine(r.kind) ? clipBytes(text, PREVIEW_BYTES_SHOWN) : `${r.label}: agent turn ${o.status}`,
       ...(r.thread_root ? { thread_root: r.thread_root } : {})
     }).catch((e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) }))
     if (!res.ok && res.code === "owner.unreachable") {

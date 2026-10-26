@@ -22,9 +22,12 @@ public struct HomeGroupInfo: Hashable, Sendable {
     /// When the group's Chiefs answer (the Chiefs Reply row); nil hides the row (a DM, a group
     /// without a Chief, or a local group, whose owner has no such setting).
     public var chiefReplies: ChiefReplyPolicy?
+    /// Add People… and Remove are offered: in a group, and in my Cloud Chief's conversation, which
+    /// I share with teammates (cmux#25569).
+    public var canAddPeople: Bool
 
     public init(conversation: ConversationID, isGroup: Bool, title: String, displayTitle: String, members: [HomeGroupMember],
-                canMute: Bool, muted: Bool, memberCount: Int? = nil, chiefReplies: ChiefReplyPolicy? = nil) {
+                canMute: Bool, muted: Bool, memberCount: Int? = nil, chiefReplies: ChiefReplyPolicy? = nil, canAddPeople: Bool? = nil) {
         self.conversation = conversation
         self.isGroup = isGroup
         self.title = title
@@ -34,6 +37,7 @@ public struct HomeGroupInfo: Hashable, Sendable {
         self.muted = muted
         self.memberCount = memberCount
         self.chiefReplies = chiefReplies
+        self.canAddPeople = canAddPeople ?? isGroup
     }
 
     /// The members list's header: "Members", or "5,000 members" for a large group.

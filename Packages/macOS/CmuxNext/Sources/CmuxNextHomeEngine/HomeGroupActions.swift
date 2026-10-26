@@ -39,7 +39,15 @@ public struct HomeGroupActions: Sendable {
         let title = row.summary.title.isHomeInternalID ? "" : row.summary.title
         return HomeGroupInfo(conversation: id, isGroup: row.kind == .group, title: title, displayTitle: row.title,
                              members: ordered, canMute: muting.canMute(id), muted: muting.isMuted(id) || row.summary.muted,
-                             memberCount: row.summary.memberCount, chiefReplies: Self.chiefReplies(of: row))
+                             memberCount: row.summary.memberCount, chiefReplies: Self.chiefReplies(of: row),
+                             canAddPeople: row.kind == .group || Self.isMyCloudChief(row, me: me))
+    }
+
+    /// My Cloud Chief's own conversation: I share it with teammates there (cmux#25569); the owner
+    /// takes only people of a shared team, never another agent.
+    static func isMyCloudChief(_ row: InboxRow, me: ParticipantID?) -> Bool {
+        guard row.summary.owner == .cloud, let me else { return false }
+        return row.summary.isMyChiefLine(me: me)
     }
 
     /// The Chiefs Reply setting the group info shows: nil for a DM, a group without a Chief, or a
@@ -51,8 +59,10 @@ public struct HomeGroupActions: Sendable {
 
     /// The people the user can add to `id`: contacts not already in it.
     public func addable(to id: ConversationID) -> [HomeContact] {
-        let present = Set(store.rows.first { $0.id == id }?.summary.participants.map(\.id) ?? [])
-        return contacts().filter { !present.contains($0.id) }
+        let row = store.rows.first { $0.id == id }
+        let present = Set(row?.summary.participants.map(\.id) ?? [])
+        let peopleOnly = row?.kind == .chief
+        return contacts().filter { !present.contains($0.id) && !(peopleOnly && $0.source == .agent) }
     }
 
     /// The names in a comma-separated list (`--people "Aziz, leo@example.com"`), trimmed, without empties.
