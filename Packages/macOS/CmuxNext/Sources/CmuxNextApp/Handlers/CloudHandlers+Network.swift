@@ -71,7 +71,7 @@ extension CloudHandlers {
         guard let address = session.machine.address?.ipv4 ?? session.machine.address?.ipv6, CloudMachineEnrollment.isAddress(address) else {
             throw ActionFailure(message: CloudStrings.enrollNoAddress)
         }
-        guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
+        guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
         guard let binary = cloud.binary, let hub = cloud.hub else { throw ActionFailure(message: CloudStrings.noClient) }
         let keyPath = (invocation["sshKey"]?.stringValue ?? "~/.ssh/id_ed25519.pub").replacingOccurrences(of: "^~(?=/)", with: NSHomeDirectory(), options: .regularExpression)
         // Every path lands in ssh_config, and the cli path in ProxyCommand's shell line.
