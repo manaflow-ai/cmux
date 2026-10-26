@@ -1,8 +1,9 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHost
+import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// The CEF raw DevTools relay for the browser host: an agent's first touch
 /// makes the tab's page agent-ready (marked, rebuilt when a password could
@@ -28,6 +29,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
               tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
@@ -66,6 +68,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:
+                // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
                 guard let model = services.locateTab(key)?.0 else { return nil }
                 _ = cache.browser(for: model)
             default:
@@ -73,25 +76,20 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
                 return nil
             }
             if let page = cache.existingBrowser(key)?.tab as? CEFTab, page.isAgentDriven { return page }
-            await nextPageInstall()
+            await Self.nextPageInstall(of: cache.pageInstalls, on: services.mainWork)
             installs += 1
         }
         return nil
     }
 
-    /// Resumes at the next page install anywhere in the app (`pageInstalls`),
+    /// Resumes at the next page install anywhere in the app (`installs`),
     /// or when the waiting task is cancelled (the provider's prepare deadline).
-    private func nextPageInstall() async {
-        guard let services else { return }
-        let installs = services.cache.pageInstalls
-        let installed = OneShot<Bool>()
-        withObservationTracking {
-            _ = installs.revision
-        } onChange: {
-            installed.resolve(true)
+    /// An agent's wait: its observation flushes as automation work on `mainWork`.
+    static func nextPageInstall(of installs: PageInstallCounter, on mainWork: MainWorkScheduler) async {
+        let seen = installs.revision
+        _ = await ControlConditionWait(on: mainWork, owner: "AppDevToolsRelay.pageInstall").until {
+            installs.revision != seen
         }
-        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
-        _ = await installed.wait(cancelled: false)
     }
 
     func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool {
