@@ -306,6 +306,8 @@ export class EditorStore {
       this.recovered = null;
       this.view.replaceText(recovered);
       this.edited();
+      // Replacing the whole text moves the cursor off the line the load revealed.
+      if (document.location) this.view.reveal?.(document.location);
     }
   }
 
