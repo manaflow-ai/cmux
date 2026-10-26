@@ -33,7 +33,7 @@ class SampleTests(unittest.TestCase):
         clock = Clock()
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "s.csv")
-            code = MODULE.sample("t", minutes, out, read=read, now=clock.now, sleep=clock.sleep)
+            code = MODULE.sample("t", minutes, out, read=read, now=clock.now, wall=clock.now, sleep=clock.sleep)
             with open(out, encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
         return code, rows, clock
@@ -47,6 +47,14 @@ class SampleTests(unittest.TestCase):
         self.assertEqual(rows[0]["remaining"], "5000")
         self.assertEqual(rows[1]["remaining"], "4993")
         self.assertTrue(all(s == MODULE.SAMPLE_SECONDS for s in clock.slept))
+
+    def test_the_last_sleep_ends_at_the_deadline(self):
+        left = iter(range(5000, 0, -1))
+        code, rows, clock = self.run_sample(
+            lambda token: {"remaining": next(left), "used": 0, "limit": 5000, "reset": 1}, minutes=0.1)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(clock.slept, [MODULE.SAMPLE_SECONDS, 1])
 
     def test_stops_after_repeated_failures(self):
         def fail(token):

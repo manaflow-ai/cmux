@@ -46,8 +46,10 @@ def read_core(token: str) -> dict[str, int]:
 
 def sample(token: str, minutes: float, out: str, *,
            read: Callable[[str], dict[str, int]] = read_core,
-           now: Callable[[], float] = time.time,
+           now: Callable[[], float] = time.monotonic,
+           wall: Callable[[], float] = time.time,
            sleep: Callable[[float], None] = time.sleep) -> int:
+    # The deadline and pacing use the monotonic clock, so a clock change neither stretches nor cuts the window.
     deadline = now() + minutes * 60
     rows = failures = 0
     buckets: set[int] = set()
@@ -66,7 +68,7 @@ def sample(token: str, minutes: float, out: str, *,
                     break
             else:
                 failures = 0
-                stamp = dt.datetime.fromtimestamp(started, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                stamp = dt.datetime.fromtimestamp(wall(), dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 writer.writerow({"time": stamp, **core})
                 handle.flush()
                 rows += 1
@@ -74,7 +76,7 @@ def sample(token: str, minutes: float, out: str, *,
                     buckets.add(core["reset"])
                     reset = dt.datetime.fromtimestamp(core["reset"], dt.timezone.utc).strftime("%H:%M:%SZ")
                     print(f"token-budget: {stamp} bucket resets {reset}: {core['remaining']} of {core['limit']} left")
-            sleep(max(0.0, SAMPLE_SECONDS - (now() - started)))
+            sleep(max(0.0, min(SAMPLE_SECONDS - (now() - started), deadline - now())))
     print(f"token-budget: {rows} reads written to {out}")
     return 0 if rows else 1
 
