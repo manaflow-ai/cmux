@@ -102,6 +102,11 @@ pub struct NewRequest {
     /// A sub-session's folder as its start checked it (`subsession_guard.rs`): its harness
     /// spawns only while `cwd` still leads to that very folder.
     pub checked_cwd: Option<super::subsession_guard::CheckedFolder>,
+    /// An adopt admitted with no room taken because a session held its
+    /// conversation (`admission::admit_adopt`): it only attaches to that
+    /// session. If the holder is gone by the insert, nothing is made and the
+    /// error says so (`admission::holder_gone`), so the caller asks for room.
+    pub attach_only: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
