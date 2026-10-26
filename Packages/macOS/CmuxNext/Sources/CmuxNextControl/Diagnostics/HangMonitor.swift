@@ -61,7 +61,7 @@ struct HangMonitor {
         let threadName = ThreadStackSampler.threadName(overdue.port)
         details["thread"] = .string(threadName)
         if let crashKeys {
-            crashKeys.setCrashKey(.lastThreadHangPort, UInt64(overdue.port))
+            crashKeys.setCrashKey(.lastThreadHangPort, UInt64(truncatingIfNeeded: overdue.port))
             crashKeys.setCrashKey(.lastThreadHangUptime, overdue.deadlineNanos)
             details["crash_keys"] = .object(Dictionary(uniqueKeysWithValues: Self.dumpedKeys.map {
                 ("\($0.name)", JSONValue(Int(clamping: crashKeys.crashKey($0))))
