@@ -666,6 +666,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
@@ -1251,6 +1255,10 @@ lane = "linux-guard"
 path = "tests/test_run_checks_concurrently.py"
 lane = "linux-guard"
 serial = true
+
+[[test]]
+path = "tests/test_cmux_next_dev_release_host_root.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
