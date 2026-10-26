@@ -22,8 +22,8 @@ public import CmuxNextCompat
 ///   joins the release when that limit is under 100 %.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
-/// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or polls: the
-/// pressure events and the slicer's frames are its only inputs.
+/// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
+/// schedule: the pressure events and the slicer's frames are its only inputs.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
