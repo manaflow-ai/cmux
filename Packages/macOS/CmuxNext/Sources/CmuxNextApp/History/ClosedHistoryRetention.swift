@@ -106,6 +106,6 @@ final class ClosedHistoryRetention {
     private func recheck(_ machine: String, after delay: Duration) {
         let timer = deadlines[machine] ?? DemandTimer(owner: "closed-retention")
         deadlines[machine] = timer
-        timer.schedule(after: delay) { @MainActor [weak self] in self?.check([machine]) }
+        timer.scheduleOnMain(after: delay) { [weak self] in self?.check([machine]) }
     }
 }

@@ -93,7 +93,7 @@ public final class QuitUnsavedRegistry {
         let timer = DemandTimer(owner: "quit-flush", clock: clock)
         let result: QuitFlushOutcome.Result = await withCheckedContinuation { continuation in
             let once = QuitFlushOnce(continuation)
-            timer.schedule(after: deadline) { @MainActor in once.resume(.timedOut) }
+            timer.scheduleOnMain(after: deadline) { once.resume(.timedOut) }
             Task { @MainActor in
                 do {
                     try await participant.flushForQuit()
