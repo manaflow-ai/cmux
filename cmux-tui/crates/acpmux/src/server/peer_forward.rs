@@ -165,9 +165,10 @@ async fn forward_inner(
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
-        // Typing is this daemon's own chats only (`hub/presence.rs`): forwarded, whatever the
-        // peer serves this link as, one entry there would stand for every client here.
-        if m == method::MUX_TYPING {
+        // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
+        // forwarded, whatever the peer serves this link as, one entry there would stand for
+        // every client here.
+        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
             return Err(crate::hub::presence::peer_unsupported());
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };

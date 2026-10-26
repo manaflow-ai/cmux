@@ -799,6 +799,7 @@
             "rows" : [
               "agentPane.display.width",
               "agentPane.display.fullWidth",
+              "agentPane.display.vscodeMinimap",
               "agentPane.display.font.preset",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
@@ -18346,6 +18347,65 @@
       "title" : {
         "key" : "settings.agentPane.display.fullWidth",
         "text" : "Chat Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.vscodeMinimap.help",
+        "text" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.vscodeMinimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "vscode",
+        "vs code",
+        "code",
+        "map",
+        "overview",
+        "scroll",
+        "scrollbar",
+        "right",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "vscodeMinimap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.vscodeMinimap",
+        "text" : "VS Code Minimap"
       },
       "validation" : "portable"
     },
