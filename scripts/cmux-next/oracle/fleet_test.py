@@ -14,10 +14,12 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -272,8 +274,8 @@ FIXTURE_SWIFT = "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift"
 FIXTURE_MUTANT = "tests/oracle/mutants/app/fixture-off-by-one.patch"
 
 
-class MutantTests(FleetHarness):
-    """App mutants (p15-oracle-026): the head step gets --mutant=PATH, oracle.sh checks it applies in its checkout."""
+class MutantFixture(FleetHarness):
+    """A checkout with one committed Swift source and an app mutant of it (p15-oracle-026)."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -299,6 +301,10 @@ class MutantTests(FleetHarness):
     def tearDown(self) -> None:
         fleet.REPO = self.saved_repo
         super().tearDown()
+
+
+class MutantTests(MutantFixture):
+    """App mutants (p15-oracle-026): the head step gets --mutant=PATH, oracle.sh checks it applies in its checkout."""
 
     def test_the_head_step_alone_gets_the_mutant(self) -> None:
         out = self.tmp / "out"
@@ -346,6 +352,141 @@ class MutantTests(FleetHarness):
                          fleet.EXIT_USAGE)
         self.assertIn("goes with --base/--head", self.output)
         self.assertEqual(self.calls("run"), [])
+
+
+# The build oracle.sh runs, stubbed: it records whether the fault is in the source it compiles, then acts as
+# STUB_RELOAD says (ok: prints an app path; fail: a failed build; hang: waits to be signalled; lock: leaves
+# .git/index.lock, as a concurrent git command would, so the revert cannot write the index).
+STUB_RELOAD = r'''#!/usr/bin/env bash
+set -eu
+grep -c "i + 1" "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift" >"$STUB_LOG/reload-saw" || true
+case "$STUB_RELOAD" in
+  ok | lock)
+    [[ "$STUB_RELOAD" == ok ]] || : >.git/index.lock
+    mkdir -p "$STUB_LOG/cmux DEV oracle.app"
+    printf 'App path:\n  %s\n' "$STUB_LOG/cmux DEV oracle.app" ;;
+  fail) echo "error: stub build failed"; exit 1 ;;
+  hang) : >"$STUB_LOG/reload-started"; sleep 60 ;;
+esac
+'''
+# fleet.py step, stubbed: its argv is the record under test.
+STUB_STEP = r'''import json, os, sys
+open(os.path.join(os.environ["STUB_LOG"], "step.json"), "w").write(json.dumps(sys.argv[1:]))
+'''
+
+
+class MutantBuildTests(MutantFixture):
+    """oracle.sh without --dry-run: the mutant is in the build, the reused checkout is clean after every exit."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.stub_log = self.tmp / "stub"
+        self.stub_log.mkdir()
+        reload = self.checkout / "scripts" / "reload.sh"
+        reload.write_text(STUB_RELOAD)
+        reload.chmod(0o755)
+        (self.checkout / "scripts" / "cmux-next" / "oracle" / "fleet.py").write_text(STUB_STEP)
+        for sub in ("ghostty", "ghostty-next"):
+            (self.checkout / sub).mkdir()
+            (self.checkout / sub / ".git").write_text("gitdir: elsewhere\n")
+        (self.checkout / "GhosttyKit.xcframework").mkdir()
+        (self.checkout / "GhosttyKit.xcframework" / "Info.plist").write_text("")
+
+    def start(self, reload: str, *, mutant: bool = True) -> subprocess.Popen:
+        argv = ["bash", "scripts/measure/oracle.sh", "--shard=0/1", "--artifact=artifacts/oracle/s.tar.gz"]
+        argv += [f"--mutant={FIXTURE_MUTANT}"] if mutant else []
+        env = {**os.environ, "STUB_LOG": str(self.stub_log), "STUB_RELOAD": reload, "TMPDIR": str(self.tmp)}
+        return subprocess.Popen(argv, cwd=self.checkout, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, start_new_session=True)
+
+    def build(self, reload: str, *, mutant: bool = True) -> subprocess.CompletedProcess:
+        proc = self.start(reload, mutant=mutant)
+        out, _ = proc.communicate(timeout=60)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out)
+
+    def killed_during_build(self, signal_number: int) -> subprocess.CompletedProcess:
+        proc = self.start("hang")
+        started = self.stub_log / "reload-started"
+        deadline = time.monotonic() + 30
+        while not started.exists() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(started.exists(), "the stub build never started")
+        os.killpg(proc.pid, signal_number)
+        out, _ = proc.communicate(timeout=60)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out)
+
+    def saw_fault(self) -> bool:
+        return (self.stub_log / "reload-saw").read_text().strip() == "1"
+
+    def journal(self) -> Path:
+        return self.checkout / ".git" / "oracle-mutant-files"
+
+    def assert_clean(self) -> None:
+        status = subprocess.run(["git", "-C", str(self.checkout), "status", "--porcelain", "--", "Packages"],
+                                check=True, stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(status, "")
+        self.assertFalse(self.journal().exists())
+
+    def step_args(self) -> dict:
+        argv = json.loads((self.stub_log / "step.json").read_text())
+        return {name[2:]: value for name, value in zip(argv, argv[1:]) if name in ("--mutant", "--source-diff")}
+
+    def test_the_build_compiles_the_fault_and_the_checkout_is_clean_after(self) -> None:
+        result = self.build("ok")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assertIn("reverted mutant app/fixture-off-by-one", result.stdout)
+        args = self.step_args()
+        self.assertEqual(args["mutant"], "app/fixture-off-by-one")
+        self.assertRegex(args["source-diff"], r"^[0-9a-f]{64}$")
+        self.assert_clean()
+        clean = self.build("ok", mutant=False)
+        self.assertEqual(clean.returncode, 0, clean.stdout)
+        self.assertFalse(self.saw_fault())
+        self.assertEqual(self.step_args(), {"source-diff": "none"})
+
+    def test_a_failed_build_reverts_the_fault(self) -> None:
+        result = self.build("fail")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assert_clean()
+
+    def test_term_during_the_build_reverts_the_fault(self) -> None:
+        result = self.killed_during_build(signal.SIGTERM)
+        self.assertEqual(result.returncode, 128 + signal.SIGTERM, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assert_clean()
+
+    def test_the_next_build_restores_what_a_killed_step_left(self) -> None:
+        self.killed_during_build(signal.SIGKILL)
+        self.assertIn("i + 1", (self.checkout / FIXTURE_SWIFT).read_text(), "SIGKILL runs no trap")
+        self.assertTrue(self.journal().exists())
+        result = self.build("ok", mutant=False)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("restored the files a killed mutant step left changed", result.stdout)
+        self.assertFalse(self.saw_fault(), "the clean build compiled the leftover fault")
+        self.assertEqual(self.step_args(), {"source-diff": "none"})
+        self.assert_clean()
+
+    def test_a_changed_product_source_is_refused_before_the_build(self) -> None:
+        (self.checkout / FIXTURE_SWIFT).write_text("func index(_ i: Int) -> Int {\n    i * 2\n}\n")
+        result = self.build("ok", mutant=False)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tracked product sources differ from HEAD", result.stdout)
+        self.assertIn(FIXTURE_SWIFT, result.stdout)
+        self.assertFalse((self.stub_log / "reload-saw").exists(), "nothing was built")
+        self.assertIn("i * 2", (self.checkout / FIXTURE_SWIFT).read_text(), "the edit is not discarded")
+
+    def test_a_revert_that_fails_fails_the_step(self) -> None:
+        result = self.build("lock")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("could not revert mutant app/fixture-off-by-one", result.stdout)
+        self.assertTrue(self.journal().exists(), "the journal stays for the next build")
+        (self.checkout / ".git" / "index.lock").unlink()
+        again = self.build("ok", mutant=False)
+        self.assertEqual(again.returncode, 0, again.stdout)
+        self.assertFalse(self.saw_fault())
+        self.assert_clean()
 
 
 class UnitTests(unittest.TestCase):

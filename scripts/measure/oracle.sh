@@ -18,6 +18,12 @@
 #   --dry-run         plan the shard and write its receipt; build and launch nothing
 #   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout (p15-oracle-026):
 #                     applied to the checkout before the build and reverted on exit; a dry run only checks it applies
+# The checkout is the worker's reused one, so a build runs only on clean product sources (no tracked change under
+# Packages or cmux-tui), and fleet-step.json records the sha256 of what was built over HEAD ("none" when clean).
+# The files a mutant changes are journaled in the git dir before `git apply`. The exit trap restores them from
+# HEAD and fails the step when it cannot; a step killed past its traps leaves the journal, and the next build in
+# this checkout restores those files first (Chrome's bot_update likewise resets the checkout before it applies a
+# patch: depot_tools recipes/recipe_modules/bot_update/resources/bot_update.py).
 # On exit, TERM, INT or HUP (a cancelled step) the script ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle). It never touches /Applications/cmux.app.
 set -euo pipefail
@@ -58,6 +64,18 @@ sha="$(git rev-parse HEAD)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/oracle-step.XXXXXX")"
 app=""
 mutant_applied=0
+guarded=(Packages cmux-tui)
+journal="$(git rev-parse --git-path oracle-mutant-files)"
+# Restores the journaled mutant files from HEAD and drops the journal; fails, keeping it, when one does not restore.
+restore_mutant_files() {
+  [[ -f "$journal" ]] || return 0
+  local file failed=0
+  while IFS= read -r file; do
+    [[ -z "$file" ]] || git checkout -q HEAD -- "$file" || failed=1
+  done <"$journal"
+  [[ "$failed" == 0 ]] || return 1
+  rm -f "$journal"
+}
 # shellcheck disable=SC2329 # run by the traps below
 cleanup() {
   trap - EXIT TERM INT HUP
@@ -65,16 +83,20 @@ cleanup() {
     python3 scripts/cmux-next/tag_teardown.py "$app" || true
   fi
   if [[ "$mutant_applied" == 1 ]]; then
-    git apply -R "$mutant" || echo "oracle.sh: could not revert mutant $mutant_id; the checkout keeps it" >&2
+    if ! restore_mutant_files; then
+      echo "oracle.sh: could not revert mutant $mutant_id; the checkout keeps it (journal $journal)" >&2
+      return 1
+    fi
+    echo "oracle.sh: reverted mutant $mutant_id"
   fi
 }
 # shellcheck disable=SC2329 # run by the traps below
 on_signal() {
   echo "oracle.sh: signal $1; ending the tag's app and daemons" >&2
-  cleanup
+  cleanup || true
   exit $((128 + $2))
 }
-trap cleanup EXIT
+trap 'cleanup || exit 1' EXIT
 trap 'on_signal TERM 15' TERM
 trap 'on_signal INT 2' INT
 trap 'on_signal HUP 1' HUP
@@ -88,11 +110,30 @@ if [[ "$dry_run" == 1 ]]; then
   exec "${step[@]}" --dry-run ${args[@]+"${args[@]}"}
 fi
 
+if [[ -f "$journal" ]]; then
+  if ! restore_mutant_files; then
+    echo "oracle.sh: the files a killed mutant step left changed ($journal) do not restore from HEAD" >&2
+    exit 1
+  fi
+  echo "oracle.sh: restored the files a killed mutant step left changed"
+fi
+dirty="$(git diff --name-only HEAD -- "${guarded[@]}")"
+if [[ -n "$dirty" ]]; then
+  echo "oracle.sh: refusing to build $sha: tracked product sources differ from HEAD:" >&2
+  echo "$dirty" >&2
+  exit 1
+fi
 if [[ -n "$mutant" ]]; then
-  git apply "$mutant"
+  git apply --numstat "$mutant" | cut -f3 >"$journal"
   mutant_applied=1
+  git apply "$mutant"
   echo "oracle.sh: applied mutant $mutant_id at $sha"
 fi
+source_diff="$(git diff HEAD -- "${guarded[@]}" | python3 -I -c '
+import hashlib, sys
+diff = sys.stdin.buffer.read()
+print(hashlib.sha256(diff).hexdigest() if diff else "none")')"
+step+=(--source-diff "$source_diff")
 build_start=$SECONDS
 for sub in ghostty ghostty-next; do
   [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"

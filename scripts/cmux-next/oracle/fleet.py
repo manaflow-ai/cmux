@@ -712,7 +712,8 @@ def cmd_step(args: argparse.Namespace, rest: List[str]) -> int:
     seconds = round(time.monotonic() - started, 1)
     receipt = work / "run" / "receipt.json"
     record = {"schema": STEP_SCHEMA, "sha": args.ref, "shard": [index, total], "tag": args.tag,
-              "config": args.config, "mutant": args.mutant, "host": host_meta(), "oracle_exit": code,
+              "config": args.config, "mutant": args.mutant, "source_diff_sha256": args.source_diff,
+              "host": host_meta(), "oracle_exit": code,
               "oracle_seconds": seconds,
               "build_seconds": args.build_seconds, "argv": argv[2:], "receipt": receipt.is_file(),
               "step_key": os.environ.get("CMUX_CI_STEP_KEY")}
@@ -775,6 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("--build-seconds", type=int)
     step.add_argument("--dry-run", action="store_true")
     step.add_argument("--mutant", help="the app mutant oracle.sh applied before the build (recorded only)")
+    step.add_argument("--source-diff", help="sha256 of the built sources' diff over the ref, or none (recorded only)")
     step.set_defaults(func=None)
     return parser
 
