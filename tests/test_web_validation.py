@@ -44,6 +44,44 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
 
 
 class WebValidationTests(unittest.TestCase):
+    @staticmethod
+    def _ci_web_job_block(workflow: str, job: str) -> str:
+        start = workflow.index(f"  {job}:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        return workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+
+    def test_react_apps_check_runs_the_entire_package_chain_and_fails_red(self):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        block = self._ci_web_job_block(workflow, "react-apps-check-shard")
+        step_start = block.index("      - name: Check webviews (Oxlint, Oxfmt, type check)")
+        next_step = block.find("\n      - name:", step_start + 1)
+        step = block[step_start:] if next_step < 0 else block[step_start:next_step]
+        package = json.loads((ROOT / "webviews/package.json").read_text())
+        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+
+        # The runner must derive the command list from the package script. A stale
+        # hand-written list was how check:layers disappeared from CI.
+        self.assertIn('require("./package.json").scripts.check.split("&&")', step)
+        self.assertIn("while IFS= read -r piece", step)
+        self.assertIn('PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece"', step)
+        self.assertIn('echo "::error title=webviews check::$piece"', step)
+        self.assertIn('exit "$status"', step)
+        self.assertNotIn("for check in check:", step)
+        self.assertNotIn("warn-only", step)
+        self.assertNotIn("CMUX_NEXT_STYLE_GUARDS", step)
+        self.assertGreaterEqual(len(parts), 10)
+
+    def test_react_apps_checks_are_required_on_feat_base_and_feat_prs(self):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        for job in ("react-apps-check-shard", "react-apps-base-check", "react-doctor", "react-apps-check"):
+            with self.subTest(job=job):
+                block = self._ci_web_job_block(workflow, job)
+                self.assertRegex(block, r"react_apps == 'true'.*github\.(?:ref|base_ref) == '.*feat-cmux-next'")
+        aggregate = self._ci_web_job_block(workflow, "react-apps-check")
+        self.assertIn("GITHUB_REF", aggregate)
+        self.assertIn("GITHUB_BASE_REF", aggregate)
+        self.assertIn("base_push", aggregate)
+
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (
             "web/app/api/coderouter/new/route.ts", "web/services/coderouter/accounts.ts",
