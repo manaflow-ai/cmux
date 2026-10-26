@@ -13,7 +13,8 @@ import AppKit
 final class MarkdownOverlay {
     /// Hosts that install overlays (appkit-native, catalyst) set this at launch;
     /// headless renders (evidence, tests) draw every block into the bitmap.
-    static var active = false
+    /// cmux: a let (no shared mutable state for the render queues): Home installs no overlay host, nothing sets it.
+    static let active = false
     static func usesOverlay(_ r: MDRegion) -> Bool { active && r.scrollable }
 
     final class RegionLayers {
