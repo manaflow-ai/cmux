@@ -184,6 +184,11 @@ struct HomeChiefDefaultTests {
         // What the person opened themselves is never replaced, by a Chief or by this stretch.
         #expect(TopHomePageView.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: "conv_hosted",
                                          composing: false, rows: Self.cloudLedRows, home: home).open == nil)
+        // Not even when what they opened is a cloud Chief the row excludes: the page followed the
+        // Hosted Chief, they opened the placed one, and this stretch leaves it where it is.
+        #expect(TopHomePageView.followUp(chief: nil, shown: HomeChiefRosterTests.placed, followed: "conv_hosted",
+                                         composing: false, rows: withDM, home: home)
+            == .init(open: nil, followed: "conv_hosted"))
     }
 
     /// The New Message page is never closed by the Engine row: `show(_:)` would leave it, dropping
@@ -200,6 +205,12 @@ struct HomeChiefDefaultTests {
         #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
                                          rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local",
                 "with no New Message page it moves, so the test above fails for its own reason")
+        // Nor when this Mac's Chief arrives while the page is still being written on.
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: true,
+                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_local"),
+                "the arriving Chief is followed from now on, but nothing closes New Message for it")
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
     }
 
     @Test func theEngineSettingForcesEitherChief() async throws {

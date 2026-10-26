@@ -299,20 +299,22 @@ final class TopHomePageView: NSView {
     /// Chief at all, and the Chief that arrives after it must still open.
     static func followUp(chief: String?, shown: ConversationID?, followed: String?, composing: Bool,
                          rows: [InboxRow], home: HomeService) -> ChiefFollowUp {
+        // Only what the page opened itself is ever replaced: the conversation the person picked
+        // stays, and so does the New Message page, which `show(_:)` would leave.
+        let mine = !composing && (shown == nil || shown?.rawValue == followed)
         guard let chief else {
             // No Chief to open: This Mac was picked while its Chief is not listed yet. The cloud
             // Chief on screen is one the Engine row now excludes, so the page leaves it for the
             // first conversation the row allows. `followed` stays whatever it was, so the Chief
             // that arrives next still replaces what this left behind.
-            guard !composing, let next = replacementForExcluded(shown: shown, rows: rows, home: home) else {
-                // Nothing the row allows is listed, or the New Message page is up (which nothing
-                // here may close): the excluded conversation stays rather than leave an empty
-                // window, as it does when the person opens one themselves.
+            guard mine, let next = replacementForExcluded(shown: shown, rows: rows, home: home) else {
+                // Nothing the row allows is listed, the person is on a conversation of their own,
+                // or the New Message page is up: what is shown stays, rather than leave an empty
+                // window or take the person off what they opened.
                 return ChiefFollowUp(open: nil, followed: followed)
             }
             return ChiefFollowUp(open: next, followed: next.rawValue)
         }
-        let mine = shown == nil || shown?.rawValue == followed
         return ChiefFollowUp(open: mine ? ConversationID(chief) : nil, followed: chief)
     }
 

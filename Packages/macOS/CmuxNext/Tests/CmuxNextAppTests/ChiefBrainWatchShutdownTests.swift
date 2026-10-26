@@ -207,6 +207,55 @@ import Testing
         watch.stop()
     }
 
+    /// A watched host whose lock does not name it yet is found by reading the lock, and that read
+    /// must come **after** the lock's own source is armed: a lock created empty names nobody, and
+    /// the pid the host writes right after would raise its event on a source that does not exist
+    /// yet. Nothing reads the lock again after that, so Auto would read "no local Chief" and stay
+    /// on the Hosted one for the whole launch (review of #23984).
+    ///
+    /// The interleaving is deterministic here because the read itself calls `isChiefHost`: this
+    /// one writes the host's pid while the watch is inside that read, which is exactly the window.
+    @Test func aPidWrittenDuringTheLockReadIsStillHeard() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let lock = state.appendingPathComponent("host.lock")
+        let brain = Process()
+        brain.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        brain.arguments = ["30"]
+        try brain.run()
+        defer { brain.terminate() }
+        let pid = brain.processIdentifier
+        var raced = false
+        let isHost: (pid_t) -> Bool = { asked in
+            // The lock the watch is reading names a pid that is not a host; the real host writes
+            // its own pid into it now, inside this read.
+            if asked != pid, !raced {
+                raced = true
+                try? Data("\(pid)\n".utf8).write(to: lock)
+            }
+            return asked == pid
+        }
+        var seen: [pid_t?] = []
+        let watch = ChiefBrainWatch(home: home, restart: { nil }, watching: { seen.append($0) }, isChiefHost: isHost)
+        // The shell printed the pid and no lock exists yet, so the watch waits for one.
+        watch.watch(pid)
+        #expect(seen == [pid], "the pid is watched at once")
+
+        // The host creates its lock, still naming the earlier pid; the read of it races the write.
+        try Data("999999\n".utf8).write(to: lock)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while seen.count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(raced, "the write landed inside the watch's read")
+        #expect(seen == [pid, pid], "the reader is told again once the lock names the host")
+        watch.stop()
+    }
+
     /// ``ChiefBrainWatch.armOnLock`` hops to the main actor, so a folder event can be queued before
     /// the lock file's event finds the host and run after it. Such a late arm must open nothing:
     /// otherwise every folder change for the rest of the host's life reopens both descriptors and

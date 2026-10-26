@@ -55,7 +55,6 @@ public final class ChiefBrainWatch {
         guard !stopped else { return }
         source?.cancel()
         source = nil
-        // One lock read per call, whether or not `pid` was given: the answer below is the same one.
         let locked = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost)
         guard let pid = pid ?? locked else {
             logger.info("chief brain watch: no host process to watch")
@@ -72,8 +71,16 @@ public final class ChiefBrainWatch {
             pendingLockPID = nil
             cancelLockSources()
         } else {
-            pendingLockPID = pid
+            // Arm before reading again, and read again: the host writes its pid a moment after the
+            // launch printed it, and a write that lands between a read and the arming would raise
+            // its event on a source that does not exist yet, with nothing left to read the lock.
             ensureLockSources()
+            if ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pid {
+                pendingLockPID = nil
+                cancelLockSources()
+            } else {
+                pendingLockPID = pid
+            }
         }
         setWatched(pid)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
@@ -156,10 +163,11 @@ public final class ChiefBrainWatch {
         // A host is watched, but its lock did not name it yet. Once it does, a reader that reads
         // the lock (Home's default Chief) hears it; the pid has not changed, so ``setWatched`` would
         // drop it and `watching` is told directly.
-        guard ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pending else {
-            if folder { ensureLockSources() }
-            return
-        }
+        //
+        // The arming comes first: a lock created empty is read as naming nobody, and the pid the
+        // host writes a moment later would raise its event on a file source that did not exist yet.
+        if folder { ensureLockSources() }
+        guard ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pending else { return }
         pendingLockPID = nil
         cancelLockSources()
         watching?(pending)
