@@ -59,12 +59,26 @@ extension CEFDevToolsController {
     /// Host mode: the view DevTools shows in, made once per tab with its own wire token.
     func hostedPage(for tab: CEFTab) -> ChromiumHostPageView {
         if let hostedPage { return hostedPage }
-        // No input route to the host yet (tasks 041 and 042): the page view takes no input, as the pane's.
+        // No input route to the host yet (tasks 041 and 042): the page view takes no input, as the
+        // pane's. Its input method ops go to the host for the DevTools browser, as the pane's do.
         let page = ChromiumHostPageView(frame: .zero, inputTarget: .pageWindow)
         page.wireToken = tab.runtime.mintPageViewToken()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        #endif
         hostedPage = page
         return page
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Host mode: sends the DevTools page view's input method op to the host's IME exports for the
+    /// DevTools browser (``CEFPaneHost/sendTextInput(_:)``); nothing goes while no DevTools is open
+    /// or when the host's shim lacks an IME op.
+    func sendTextInput(_ op: ChromiumHostTextInputOp) {
+        guard let browser = devToolsBrowserID, let ime = tab?.runtime.shim?.textInput, ime.isComplete else { return }
+        ime.send(op, browser: browser)
+    }
+    #endif
 
     /// Host mode: puts ``hostedPage`` at the bottom of `host`, filling it, under the divider's
     /// and every other subview.
