@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextLaunch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -94,8 +95,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true
         }
     }
-    /// The window's saved picture over this view while the launch builds it under it (p08-startup-060); nil once gone.
-    var launchPicture: LaunchPictureCover?
+    /// The launch picture's regions while the launch builds this view behind it (p08-startup-060); its layout keeps
+    /// each part on its area. The picture's phase owns them.
+    weak var launchPictureRegions: LaunchPictureRegions?
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`).
     var rightPanelWidth: CGFloat = 0 {
@@ -238,6 +240,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// window's overlay host. The sidebar's resize band gets a catcher panel
     /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        launchPictureRegions?.layout() // the panes' frames are final at the pass's end
         // Before the guard: the band's catcher needs no overlay host.
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
@@ -258,7 +261,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
-        if launchPicture?.layout() == false { launchPicture = nil }
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

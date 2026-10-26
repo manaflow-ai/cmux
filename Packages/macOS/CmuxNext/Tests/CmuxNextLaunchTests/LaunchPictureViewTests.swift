@@ -163,7 +163,9 @@ struct LaunchPictureViewTests {
         #expect(phase.picture == nil && phase.window == nil, "no picture shows on today's path")
     }
 
-    @Test func theLiveWindowIsBuiltBehindThePictureWhichLeavesWhenEveryRegionShowed() throws {
+    /// The picture goes over the live root and leaves region by region (p08-startup-060): it stays while a region
+    /// has no content, and the work that adopts the window waits for its live views, not for the picture.
+    @Test func theLiveWindowIsBuiltBehindThePictureWhichLeavesWhenEveryRegionLeft() throws {
         let marks = Marks()
         let phase = Self.phase(marks)
         let window = Self.window()
@@ -174,16 +176,21 @@ struct LaunchPictureViewTests {
         var restored = false
         phase.whenBuilt { restored = true }
         let reveal = LaunchReveal()
-        phase.adopt(root: root, reveal: reveal)
-        #expect(restored && phase.isBuilt)
+        let regions = try #require(phase.adopt(root: root, reveal: reveal))
+        #expect(!restored && !phase.isBuilt, "the live views behind the picture are not built yet")
         let picture = try #require(phase.picture)
         #expect(root.subviews.last === picture, "the picture covers the live root")
         #expect(picture.frame == root.bounds)
-        reveal.markReady(.sidebar)
-        reveal.markReady(.tabs)
+        let sidebar = regions.add { _ in CGRect(x: 0, y: 0, width: 240, height: 720) }
+        let pane = regions.add { _ in CGRect(x: 240, y: 0, width: 860, height: 690) }
+        regions.seal()
+        regions.leave(sidebar)
         #expect(picture.superview === root, "the picture stays while a region has no content")
-        reveal.markReady(.pane)
+        #expect(!regions.covers(CGPoint(x: 100, y: 300)) && regions.covers(CGPoint(x: 600, y: 300)))
+        regions.leave(pane)
         #expect(picture.superview == nil && phase.picture == nil)
+        phase.buildFinished()
+        #expect(restored && phase.isBuilt)
         #expect(marks.all == ["launch_picture_shown", "launch_picture_removed"])
     }
 }

@@ -16,7 +16,8 @@ import Foundation
 /// With `savedWindowPicture` the saved window's first frame is its picture
 /// from the last quit (p08-startup-059, `LaunchPicturePhase`): the window at
 /// its saved frame, its live material and the picture, nothing else; its
-/// controller is built behind the picture after that frame.
+/// controller and live views are built behind the picture after that frame,
+/// slice by slice (`buildUnderPicture`, p08-startup-060).
 struct LaunchSnapshotWindow {
     let manager: WindowManager
 
@@ -114,7 +115,7 @@ struct LaunchSnapshotWindow {
                 manager.states[window.id] = nil
                 return phase.skip()
             }
-            phase.adopt(root: manager.makeController(for: window, in: shell).root, reveal: services.launchReveal)
+            manager.buildUnderPicture(window, in: shell, phase: phase)
         }
     }
 

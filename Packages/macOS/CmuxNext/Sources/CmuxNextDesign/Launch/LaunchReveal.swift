@@ -26,10 +26,10 @@ public import CmuxNextDesignTokens
 /// composition root (`AppDelegate`) and passes it by init; there is no
 /// shared instance.
 ///
-/// A region under the window's saved picture (``LaunchPictureCover``,
+/// A region under the window's saved picture (`LaunchPicturePhase`,
 /// p08-startup-060) needs no fade of its own: its views show at once under
 /// the picture, and the picture's part over the region is what fades, at the
-/// region's first content (``whenProduced(_:_:)``).
+/// region's first content.
 @MainActor
 @Observable
 public final class LaunchReveal {
@@ -41,7 +41,7 @@ public final class LaunchReveal {
     /// without adding it here, so its data landing later still counts for `onRevealed`.
     @ObservationIgnored private var produced: Set<LaunchRegion> = []
     @ObservationIgnored private var producedWaiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
-    /// Regions under a saved picture's part, by the number of parts over them (``LaunchPictureCover``).
+    /// Regions under the launch picture, by the number of covers over them (``coverBegan(_:)``).
     @ObservationIgnored private var covered: [LaunchRegion: Int] = [:]
     @ObservationIgnored private var reportedReveal = false
     @ObservationIgnored private let deadlineTimer: DemandTimer
@@ -123,17 +123,17 @@ public final class LaunchReveal {
     }
 
     /// Every region shows (the hold deadline, a picture's bound), without counting as produced.
-    func showAll() {
+    public func showAll() {
         for region in LaunchRegion.allCases { show(region) }
     }
 
-    /// A saved picture's part now lies over `regions` (``LaunchPictureCover``).
-    func coverBegan(_ regions: Set<LaunchRegion>) {
+    /// The launch picture now lies over `regions`: their views show with no fade of their own.
+    public func coverBegan(_ regions: Set<LaunchRegion>) {
         for region in regions { covered[region, default: 0] += 1 }
     }
 
-    /// A saved picture's part over `regions` left.
-    func coverEnded(_ regions: Set<LaunchRegion>) {
+    /// The launch picture over `regions` left.
+    public func coverEnded(_ regions: Set<LaunchRegion>) {
         for region in regions { covered[region] = max(0, covered[region, default: 0] - 1) }
     }
 

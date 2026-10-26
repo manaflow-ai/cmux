@@ -7,8 +7,10 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextLaunch
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
@@ -53,6 +55,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
+    /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
+    private var launchReleased = false
+    /// The launch window's build holds its content until its own slice (`showForLaunch`), so no turn builds every pane.
+    private var launchHeld: Bool { !launchReleased && state.map { services.windows.holdsLaunchContent(of: $0.id) } == true }
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
     /// suspended. Not ``isVisible``, which is the layout's viewport presence.
     let visibilityNode: VisibilityNode
@@ -437,7 +443,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Content
 
     func showSelected() {
-        guard !isSuspended else { return } // `resume`'s apply shows the selection then
+        guard !isSuspended, !launchHeld else { return } // `resume`'s apply shows the selection then, or the launch's slice
         let key = stripModel.selectedID?.rawValue, previous = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
@@ -543,7 +549,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {
-        guard let key = stripModel.selectedID?.rawValue else { return true }
+        guard !launchHeld, let key = stripModel.selectedID?.rawValue else { return true } // a held pane makes nothing now
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
     }
@@ -582,4 +588,36 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
 
     var orderedIDs: [StripTabID] { stripModel.orderedTabs.map(\.id) }
+}
+
+/// One pane of the launch window as its build behind the picture shows it, focused pane first (p08-startup-060).
+extension PaneController: LaunchWindowPane {
+    func showForLaunch() {
+        launchReleased = true
+        services.presentation.cancel(self)
+        showSelected()
+    }
+
+    /// The build ended before this pane's slice (another screen, scrolled away): it shows as usual now.
+    func releaseFromLaunch() {
+        guard !launchReleased else { return }
+        launchReleased = true
+        services.presentation.setNeedsShowSelected(self)
+    }
+
+    /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or
+    /// internal page's first paint (each content's `createTabFirstFrame`); native content at its commit.
+    func whenLaunchContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        switch currentContent {
+        case .terminal(let entry)? where showsLiveTerminal: return entry.session.whenContentFrameDrawn(drawn)
+        case let content? where !content.isTerminal: return content.createTabFirstFrame.wait { _ in drawn() }
+        default:
+            drawn()
+            return nil
+        }
+    }
+
+    func launchArea(in picture: NSView) -> CGRect {
+        view.window == nil || view.isHiddenOrHasHiddenAncestor ? .zero : view.convert(view.bounds, to: picture)
+    }
 }

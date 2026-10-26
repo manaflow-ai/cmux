@@ -6,8 +6,9 @@ public import CmuxNextWakeups
 /// The launch window while its saved picture is its first frame (p08-startup-059, plans/cmux-next/chrome-parity/
 /// p08-startup.md section 3A, P2): the window at its saved frame, its live `WindowMaterialView` and one
 /// ``LaunchPictureView``. Nothing else of the window exists in that frame; once it is committed the window's
-/// controller is built in the same window behind the picture (an afterFirstFrame post), and the picture leaves when
-/// the launch reveal shows every region, at most ``bound`` later.
+/// controller is built in the same window behind the picture (afterFirstFrame posts, `LaunchWindowBuild`), and the
+/// picture leaves region by region at each region's first meaningful content (``LaunchPictureRegions``,
+/// p08-startup-060), all of it at most ``bound`` later.
 ///
 /// Chrome shows the first restored tab's saved capture until its live page paints and lets the tab load as usual
 /// when the capture is not ready (chrome/android/java/src/org/chromium/chrome/browser/paint_preview/
@@ -18,14 +19,16 @@ public import CmuxNextWakeups
 ///    at most ``wait`` (a `MainDeadline`). The main thread never waits.
 /// 2. The caller takes the picture and matches its meta; then ``show(_:in:scope:present:startup:build:)``, or
 ///    ``skip()`` for today's path (no picture, none in time, another window's, a mismatch).
-/// 3. ``adopt(root:reveal:)``: the controller was built in the window; the picture goes over its root.
+/// 3. ``adopt(root:reveal:)``: the controller was built in the window; the picture goes over its root and its
+///    regions are handed out. ``buildFinished()`` once the live views behind it are built.
 ///
 /// ```swift
 /// let phase = LaunchPicturePhase(deadlines: deadlines) { DebugTimings.markLaunch($0) }
 /// phase.start({ _ = await pictures.frontFinished() }, on: work, mainWork: mainWork) { _ in
 ///     guard let front = pictures.takeFront(), matches(front) else { return phase.skip(); makeController() }
 ///     phase.show(front.image, in: window, scope: scope, present: { window.orderFront(nil) }, startup: startup) {
-///         phase.adopt(root: makeController(in: window).root, reveal: reveal)
+///         let regions = phase.adopt(root: makeController(in: window).root, reveal: reveal)
+///         build(behind: regions) { phase.buildFinished() }
 ///     }
 /// }
 /// ```
@@ -40,14 +43,19 @@ public final class LaunchPicturePhase {
     public private(set) weak var window: NSWindow?
     /// The picture on screen; nil before it shows and once it left.
     public private(set) var picture: LaunchPictureView?
-    /// The window's controller exists (``adopt(root:reveal:)`` or ``skip()``): work that adopts it may run.
+    /// The window's controller and its live views exist (``buildFinished()``, or ``skip()``): work that adopts the
+    /// window may run.
     public private(set) var isBuilt = false
+    /// The picture's regions once it is over the live root; nil before and once it left.
+    public private(set) var regions: LaunchPictureRegions?
 
     private let waitDeadline: MainDeadline
     private let boundDeadline: MainDeadline
     private let mark: (String) -> Void
     private var decide: (@MainActor (Bool) -> Void)?
     private var builtWaiters: [@MainActor () -> Void] = []
+    private var removedWaiters: [@MainActor () -> Void] = []
+    private weak var reveal: LaunchReveal?
 
     /// - Parameters:
     ///   - deadlines: The app's deadline scheduler: the wait and the bound are `MainDeadline`s on it.
@@ -110,31 +118,59 @@ public final class LaunchPicturePhase {
         built()
     }
 
-    /// The controller was built in the picture's window: the picture stays over `root` (its last subview) until
-    /// `reveal` shows every region, or ``bound``.
-    public func adopt(root: NSView, reveal: LaunchReveal) {
-        guard let picture, !isBuilt else { return }
+    /// The controller was built in the picture's window: the picture stays over `root` (its last subview) and leaves
+    /// region by region through the returned regions (the caller adds a part per region), all of it at ``bound``.
+    /// Every launch region counts as covered while it shows (``LaunchReveal/coverBegan(_:)``): its views show at once
+    /// under it, so the picture's fade is the only one. Nil when no picture shows.
+    public func adopt(root: NSView, reveal: LaunchReveal) -> LaunchPictureRegions? {
+        guard let picture, !isBuilt, regions == nil else { return nil }
         picture.frame = root.bounds
         picture.autoresizingMask = [.width, .height]
         root.addSubview(picture)
-        built()
-        reveal.whenReady(.sidebar) { [weak self] in
-            reveal.whenReady(.tabs) { reveal.whenReady(.pane) { self?.remove() } }
-        }
-        boundDeadline.schedule(after: Self.bound) { [weak self] in self?.remove() }
+        self.reveal = reveal
+        reveal.coverBegan(Set(LaunchRegion.allCases))
+        let regions = LaunchPictureRegions(picture: picture) { [weak self] in self?.remove() }
+        self.regions = regions
+        boundDeadline.schedule(after: Self.bound) { [weak self] in self?.expire() }
+        return regions
     }
 
-    /// The picture leaves in one frame (p08-startup-060 takes it out region by region through the Motion gate).
+    /// The live views behind the picture are built: work waiting for the window (``whenBuilt(_:)``) runs.
+    public func buildFinished() {
+        guard !isBuilt else { return }
+        built()
+    }
+
+    /// The bound: every region shows, data or not, and the rest of the picture fades out with it.
+    private func expire() {
+        reveal?.showAll()
+        regions?.leaveAll()
+    }
+
+    /// The picture leaves at once, in one frame (its window closed, resized or went full screen; the last region
+    /// left).
     public func remove() {
         guard let picture else { return }
         self.picture = nil
         window = nil
+        regions = nil
         boundDeadline.cancel()
+        reveal?.coverEnded(Set(LaunchRegion.allCases))
+        reveal = nil
         picture.removeFromSuperview()
         mark("launch_picture_removed")
+        let waiting = removedWaiters
+        removedWaiters = []
+        for work in waiting { work() }
     }
 
-    /// Runs `work` once the window has its controller: at once when it has, or when no picture is in its way.
+    /// Runs `work` once the picture left (at once when none shows).
+    public func whenRemoved(_ work: @escaping @MainActor () -> Void) {
+        if picture == nil { work() } else { removedWaiters.append(work) }
+    }
+
+    /// Runs `work` once the window has its controller and live views: at once when it has, or when no picture is in
+    /// its way.
     public func whenBuilt(_ work: @escaping @MainActor () -> Void) {
         if isBuilt { work() } else { builtWaiters.append(work) }
     }
