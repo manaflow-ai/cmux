@@ -141,8 +141,7 @@ enum HistoryControl {
         }
         if let model = find() { return model }
         _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
-            for await found in ObservationStream({ find() != nil }) where found { return true }
-            return false
+            await ControlConditionWait(on: services.mainWork, owner: "debug.history_page_model").until { find() != nil }
         }
         return find()
     }

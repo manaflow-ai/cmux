@@ -14,6 +14,7 @@ final class FilesPaneHistory: PageHistory {
     @discardableResult
     func goBack() -> Bool {
         guard model.canGoBack else { return false }
+        // main-hop-allow: the person's Back, userBlocking rest (p06 rule 2): goBack is FileBrowserModel's main-actor async listing (off main); this task only starts it
         Task { await model.goBack() }
         return true
     }
@@ -21,6 +22,7 @@ final class FilesPaneHistory: PageHistory {
     @discardableResult
     func goForward() -> Bool {
         guard model.canGoForward else { return false }
+        // main-hop-allow: the person's Forward, userBlocking rest (p06 rule 2): goForward is FileBrowserModel's main-actor async listing (off main); this task only starts it
         Task { await model.goForward() }
         return true
     }
