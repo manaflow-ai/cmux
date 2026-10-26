@@ -106,6 +106,7 @@ fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // wakeup-allow: cli-only the short-lived hook process's one bound on tmux; tmux's exit ends the wait first
     match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(Some(status)) if status.success() => {}
         _ => {
