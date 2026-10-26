@@ -1398,6 +1398,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Files: `CmuxNextApp/Control/ControlSnapshotPublisher.swift`, ControlSnapshotLazyPublishTests.
 - Change: publishNow runs as background behind a dirty flag. A fresh-snapshot reader promotes it
   to automation for its request. The 2 tracking loops become `ServiceObservation(.background)`.
+- Deviation (as built): the 2 loops are not `ServiceObservation`s. They are one shared one-shot
+  tracking with a dirty bit (`DirtyTracking` in the publisher file). It arms again only when a
+  publish reads, and it calls the publisher on the first change. `ServiceObservation` is wrong here
+  for 2 reasons. It reads again on every flush, and the topology read is the whole build. It also
+  flushes a person-caused change in the input-response pass, and here the reader's need sets the
+  class, not the cause. A reader that waits raises the pending publish to automation through the
+  store's `waiterAdded` hook, also when it starts to wait after the change (`action.run`,
+  `after: "sync"`). A model change does not mark the store stale. Only a work-queue frame does, so
+  a plain read gets the last published value. `system.ping`, `debug.hangs` and `debug.queue`
+  (`readingLastPublished()`) never wait for a build, and `fresh(deadline:)` is bounded by the
+  request deadline.
 - Acceptance: 50 changes in a frame → 1 publish; never inside an input-response window.
 - Test phase: fleet ControlSnapshotLazyPublishTests; sidebar-churn-typing.py.
 
