@@ -80,18 +80,34 @@ extension PageWebView {
         freezePage()
     }
 
-    /// The tab closed: cancels subscriptions and stops the bridge.
+    /// The tab closed: cancels subscriptions, stops the bridge and ends the engine page.
     public func close() {
+        closeRoutes()
+        closeEngine()
+    }
+
+    /// The first half of ``close()``, which ``WebUIHost/close(_:)`` runs in the close's turn: the routes,
+    /// subscriptions, pending calls and bridge end, so nothing serves a page no tab shows. It asks the
+    /// engine page nothing.
+    func closeRoutes() {
         _ = claimState.end()
         firstShowStart = nil // a page closed before it showed never starts
         firstShowWatch = nil
-        router.close()
+        router.end()
         webKitPieces?.bridge.uninstall()
-        endChromium()
-        chromiumRecovery = nil
         userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
         traceOpenEnd(.closedBeforePaint)
+    }
+
+    /// The second half of ``close()``: the Chromium page ends (a WebKit page has no engine page to end; its
+    /// view goes with its last owner). ``WebUIHost/close(_:)`` runs it at its retirer's deadline.
+    func closeEngine() {
+        endChromium()
+        chromiumRecovery = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        censusState.engineClosed?()
+        #endif
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be acknowledged (or its fallback reload to finish).
@@ -125,8 +141,10 @@ extension PageWebView {
     }
 
     /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now,
-    /// when it shows, or not at all once it keeps crashing.
+    /// when it shows, or not at all once it keeps crashing. A closed page waiting for its engine close
+    /// (``WebUIHost/close(_:)``) never reloads.
     func contentProcessTerminated() {
+        guard !router.isEnded else { return }
         crash.crashed(self)
     }
 
