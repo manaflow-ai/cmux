@@ -19,7 +19,10 @@ import os
 /// could wait on the blocked Chromium thread.
 public nonisolated final class QuitDeadline: Sendable {
     /// The engines' close wait (3 s, `CEFEngine.shutdown`) and Chromium's
-    /// own 10 s shutdown watchdog, with room for a loaded machine.
+    /// own 10 s shutdown watchdog, with room for a loaded machine. The
+    /// background lanes' block-shutdown saves drain alongside the engine
+    /// stop, not in front of it, so they take none of this from Chromium
+    /// (`QuitCompletion`).
     public static let engineStopLimit: Duration = .seconds(15)
 
     private let armed = Atomic<Bool>(false)

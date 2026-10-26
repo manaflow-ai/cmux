@@ -38,12 +38,30 @@ public enum MayBlockShutdown: Sendable {
     case blockShutdown
 }
 
+/// Where a ``MayBlockRunner`` item was posted: the caller's `#fileID` and `#line`, which name a slow
+/// ``MayBlockShutdown/blockShutdown`` item in Debug (BackgroundWork's overrun record).
+public struct MayBlockCallSite: Sendable {
+    /// The caller's `#fileID` (`<module>/<file>.swift`).
+    public let fileID: StaticString
+    /// The caller's `#line`.
+    public let line: UInt
+
+    /// The site of the caller, or of `fileID` and `line` when a wrapper passes its own caller's on.
+    public init(fileID: StaticString = #fileID, line: UInt = #line) {
+        self.fileID = fileID
+        self.line = line
+    }
+}
+
 /// Runs work that may block off the main thread and off Swift's cooperative pool, for a module below
 /// CmuxNextWakeups: Chrome's `base::ThreadPool::PostTask` with the `MayBlock` trait
 /// (base/task/thread_pool.h), cut to the two lanes those modules use.
 ///
 /// The app's one `BackgroundWork` conforms. The composition root (AppServices) passes it by `init`; a module
 /// never builds its own runner. Tests pass a fake or their own `BackgroundWork`.
+///
+/// Callers use the overloads in the extension, which take the call site from `#fileID` and `#line`; the
+/// requirements take it as a ``MayBlockCallSite``.
 ///
 /// ```swift
 /// let bytes = try await runner.runFiles(.userVisible) { try read(url) }
@@ -55,31 +73,41 @@ public protocol MayBlockRunner: Sendable {
     ///
     /// - Throws: what `body` throws; `CancellationError` when the caller is cancelled before the item
     ///   starts or shutdown dropped it. A started item runs to its end.
-    func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
+    func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                                _ body: @escaping @Sendable () throws -> T) async throws -> T
 
     /// Runs `body` on the system lane (a synchronous call that waits on a daemon, another process or the
     /// network: Security, Launch Services, host resolution) and returns its result.
     ///
-    /// - Throws: as ``runFiles(_:shutdown:_:)``.
-    func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
+    /// - Throws: as ``runFiles(_:shutdown:site:_:)``.
+    func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                                 _ body: @escaping @Sendable () throws -> T) async throws -> T
 
     /// Queues `body` on the files lane at `priority` and returns at once; nothing awaits it, so nothing
     /// boosts it. A save whose loss loses data states ``MayBlockShutdown/blockShutdown``.
-    func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, _ body: @escaping @Sendable () -> Void)
+    func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                   _ body: @escaping @Sendable () -> Void)
 }
 
 extension MayBlockRunner {
-    /// ``runFiles(_:shutdown:_:)`` with ``MayBlockShutdown/skipOnShutdown``: reads and work a later launch redoes.
-    public func runFiles<T: Sendable>(_ priority: MayBlockPriority,
+    /// ``runFiles(_:shutdown:site:_:)`` at the caller's site; the default ``MayBlockShutdown/skipOnShutdown`` is
+    /// for reads and work a later launch redoes.
+    public func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                      fileID: StaticString = #fileID, line: UInt = #line,
                                       _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await runFiles(priority, shutdown: .skipOnShutdown, body)
+        try await runFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
     }
 
-    /// ``runSystem(_:shutdown:_:)`` with ``MayBlockShutdown/skipOnShutdown``.
-    public func runSystem<T: Sendable>(_ priority: MayBlockPriority,
+    /// ``runSystem(_:shutdown:site:_:)`` at the caller's site; default ``MayBlockShutdown/skipOnShutdown``.
+    public func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                       fileID: StaticString = #fileID, line: UInt = #line,
                                        _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await runSystem(priority, shutdown: .skipOnShutdown, body)
+        try await runSystem(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
+    }
+
+    /// ``postFiles(_:shutdown:site:_:)`` at the caller's site.
+    public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
+                          fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
+        postFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
     }
 }
