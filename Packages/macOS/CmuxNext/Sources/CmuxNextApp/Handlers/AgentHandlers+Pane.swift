@@ -53,6 +53,9 @@ extension AgentHandlers {
             return true
         }
         let shown = services.paneController(for: place.pane)
+        // The docked agent chat gets no strip tabs: a script aimed at it keeps New Agent Chat's
+        // own placement (`NewChatPlacement`), as before.
+        if let shown, ChatColumnPlacement.resolve(from: shown, services: services) == .dockChat { return false }
         if let shown, invocation.allowsViewChange {
             guard target.kind == .workspace else { return false }
             openNewAgentChat(in: shown, invocation: invocation, context: context)

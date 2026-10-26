@@ -24,7 +24,7 @@ struct AgentChatInUnshownPaneTests {
             _ = try await WorkspaceCreation.create(key, name: "unshown", on: connection, repair: services.emptyWorkspaces) { workspace in
                 try await connection.createTerminal(in: workspace, cwd: nil)
             }
-            let pane = try #require(await AgentSessionWorkspace.mirroredPane(of: key, in: services.daemon.store))
+            let pane = try #require(await services.daemon.store.firstPane(mirroring: key))
             let workspace = try #require(services.daemon.store.workspaces.first { $0.key == key })
             #expect(services.paneController(for: pane) == nil, "no window shows the new workspace")
             #expect(window.state.workspaceID == shown)
