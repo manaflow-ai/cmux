@@ -81,6 +81,9 @@ export function playResize(node: HTMLElement, from: number): void {
   const ms = foldMs(node);
   const to = node.getBoundingClientRect().height;
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
+  // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
+  const row = node.closest(".acpmux-row");
+  if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
   node.style.overflow = "hidden";
   // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
   const animation = node.animate(
