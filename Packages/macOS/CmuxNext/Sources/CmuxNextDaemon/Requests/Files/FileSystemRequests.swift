@@ -20,7 +20,7 @@ public nonisolated struct FileSystemReadRequest: DaemonRequest {
     public init(path: String, offset: UInt64 = 0, maxBytes: Int = maximumBytes) {
         self.path = path
         self.offset = offset
-        self.maxBytes = UInt64(max(0, maxBytes))
+        self.maxBytes = UInt64(clamping: maxBytes)
     }
 
     /// `{text, encoding: "utf-8"}` or `{bytes_base64, encoding: "base64"}` (bytes that are not

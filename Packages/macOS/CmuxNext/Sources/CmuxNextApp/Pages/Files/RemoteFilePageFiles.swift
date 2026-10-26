@@ -58,9 +58,7 @@ final class RemoteFilePageFiles: FilePageFiles {
     /// (its revision moved) is read once more, so the pair always matches.
     func load(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> (snapshot: FileSnapshot, revision: String) {
         let path = canonical(url).path
-        var attempt = 0
-        while true {
-            attempt += 1
+        for attempt in 1...2 {
             let before = try await stat(path)
             let reply: FileSystemReadRequest.Response
             do {
@@ -76,6 +74,7 @@ final class RemoteFilePageFiles: FilePageFiles {
             }
             return (snapshot, after.revision)
         }
+        throw .notFile
     }
 
     private func stat(_ path: String) async throws(FileOpenFailure) -> FileSystemStatRequest.Response {
@@ -214,18 +213,23 @@ final class RemoteFileChangeWatch: FilePageWatching {
 
     func start() {
         guard poll == nil else { return }
+        schedule()
+    }
+
+    /// One poll after ``interval``, which schedules the next.
+    private func schedule() {
         let clock = clock
-        // task-owner: the tab's poll of its file on the machine; stop() cancels it
+        // task-owner: the tab's next poll of its file on the machine; stop() cancels it
         poll = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await clock.sleep(for: Self.interval) // wakeup-allow: the daemon has no file events; one stat per interval while the tab shows a file of another machine
-                } catch {
-                    return
-                }
-                guard let self else { return }
-                await self.check()
+            do {
+                try await clock.sleep(for: Self.interval) // wakeup-allow: the daemon has no file events; one stat per interval while the tab shows a file of another machine
+            } catch {
+                return
             }
+            guard let self, !Task.isCancelled else { return }
+            await self.check()
+            guard !Task.isCancelled, self.poll != nil else { return }
+            self.schedule()
         }
     }
 
