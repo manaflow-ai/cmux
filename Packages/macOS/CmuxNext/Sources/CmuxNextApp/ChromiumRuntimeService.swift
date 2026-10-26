@@ -7,7 +7,7 @@ import Foundation
 /// app build ships without the CEF runtime and a pin
 /// (`Contents/Resources/cef-runtime.json`) names the pack to download.
 ///
-/// At launch ``make(bundle:environment:applicationSupport:)`` picks the
+/// At launch ``make(bundle:environment:applicationSupport:sanitizer:)`` picks the
 /// runtime: the embedded one (builds that still bundle CEF), the pinned pack
 /// when it is installed, or an older compatible pack while the pinned one
 /// downloads. With none, tabs open in WebKit and the ``source`` reports
@@ -31,6 +31,8 @@ final class ChromiumRuntimeService {
         case downloading
         /// No runtime and no pin (fleet and CI builds).
         case none
+        /// Off in a sanitizer build (``SanitizerRuntime``): neither the embedded runtime nor a pack loads.
+        case sanitizer
     }
 
     /// The runtime ``CEFEngine`` reads.
@@ -73,13 +75,20 @@ final class ChromiumRuntimeService {
         prefetch = DemandTimer(owner: "chromium-runtime.prefetch", clock: clock)
     }
 
-    /// The service for this app: the embedded runtime when present, else the
-    /// bundled pin with the URLSession, tar, code-signature and path-monitor
+    /// The service for this app: none in a sanitizer build that did not ask
+    /// for Chromium, else the embedded runtime when present, else the bundled
+    /// pin with the URLSession, tar, code-signature and path-monitor
     /// implementations.
+    ///
+    /// - Parameter sanitizer: The process's sanitizer runtime; nil detects it from `environment`.
     static func make(bundle: Bundle = .main,
                      environment: [String: String] = ProcessInfo.processInfo.environment,
-                     applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+                     applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                     sanitizer: SanitizerRuntime? = nil)
         -> ChromiumRuntimeService {
+        guard (sanitizer ?? .detect(environment: environment)).loadsChromium else {
+            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil), origin: .sanitizer, installer: nil, mainBundle: bundle.bundleURL)
+        }
         if let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment) {
             return ChromiumRuntimeService(source: CEFRuntimeSource(layout: layout), origin: .bundled, installer: nil, mainBundle: bundle.bundleURL)
         }

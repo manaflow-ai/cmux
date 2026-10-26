@@ -240,7 +240,8 @@ BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
 PERF_LAB_MEASURE_VERSION = 1
 # The configs each kind of bundle can be. A bench-hooks executable is `bench` or `bench-checks` (bench plus
 # CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart.
-BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",)}
+# A sanitizer bundle (reload.sh --config asan|tsan|ubsan) has none: its timings measure the sanitizer.
+BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",), "sanitizer": ()}
 
 
 class RecordError(RuntimeError):
@@ -250,9 +251,12 @@ class RecordError(RuntimeError):
 
 def bundle_kind(app, binary):
     """`debug` when Xcode's `<name>.debug.dylib` is beside the main executable (a Debug build keeps its code there),
-    `bench-hooks` when the executable carries the bench-hooks marker, else `release`."""
+    `sanitizer` when the bundle embeds a sanitizer runtime, `bench-hooks` when the executable carries the bench-hooks
+    marker, else `release`."""
     if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
         return "debug"
+    if glob.glob(os.path.join(app, "Contents/Frameworks/libclang_rt.*_osx_dynamic.dylib")):
+        return "sanitizer"
     import mmap
     with open(binary, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
@@ -266,6 +270,8 @@ def build_config(app, binary, stated=None):
     the bundle can be; a bench-hooks bundle needs it, since `bench` and `bench-checks` results never share a series."""
     kind = bundle_kind(app, binary)
     allowed = BUNDLE_CONFIGS[kind]
+    if not allowed:
+        raise RecordError(f"bench-launch: {app} is a {kind} build; its timings are never a perf result")
     if stated is None and len(allowed) == 1:
         return allowed[0]
     if stated is None:
