@@ -247,7 +247,7 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
             keep(&dir, paths.target, &bytes)?;
             Step::Current(embedded_build(&bytes))
         }
-        _ if downloads.join(&sha).join(ROLLED_BACK).exists() => {
+        _ if downloads.join(&sha).join(ROLLED_BACK).is_file() => {
             return Ok(Prepared::RolledBackBefore(feed.commit));
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
@@ -266,7 +266,7 @@ fn prune(downloads: &Path, keep: &str) {
             continue;
         }
         let dir = entry.path();
-        if !dir.join(ROLLED_BACK).exists() {
+        if !dir.join(ROLLED_BACK).is_file() {
             let _ = std::fs::remove_dir_all(&dir);
             continue;
         }
