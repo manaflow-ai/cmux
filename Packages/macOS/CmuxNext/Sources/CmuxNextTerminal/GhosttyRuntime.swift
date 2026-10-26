@@ -51,18 +51,19 @@ public final class GhosttyRuntime {
     /// handled.
     public var appActionHandler: ((TerminalHostAction) -> Bool)?
 
-    /// Fires after a config reload so hosts can re-read derived values such
-    /// as ``backgroundColor``.
+    /// Fires after a config change so hosts can re-read derived values such
+    /// as ``backgroundColor``, and after a soft reload so surfaces with their
+    /// own theme take it back.
     public var onConfigChange: (() -> Void)?
+    /// The services' handlers (``addConfigChangeHandler(_:)``), in the order added.
+    private var configChangeHandlers: [@MainActor () -> Void] = []
 
-    /// Runs `handler` after each config change, after the handlers added before it: for services
-    /// that re-read the config whether or not a terminal shows. Views observe ``configRevision``.
+    /// Runs `handler` after each config change, once ``configRevision`` counts it, after the
+    /// handlers added before it: for services that re-read the config whether or not a terminal
+    /// shows. A soft reload (`reload_config` with `soft`) changes no config and runs none.
+    /// Views observe ``configRevision``.
     public func addConfigChangeHandler(_ handler: @escaping @MainActor () -> Void) {
-        let previous = onConfigChange
-        onConfigChange = {
-            previous?()
-            handler()
-        }
+        configChangeHandlers.append(handler)
     }
 
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
@@ -161,6 +162,7 @@ public final class GhosttyRuntime {
         themeConfigs.removeAll()
         onConfigChange?()
         configRevision.bump()
+        for handler in configChangeHandlers { handler() }
     }
 
     /// Test hook: when set, only this file (plus its `config-file` includes)

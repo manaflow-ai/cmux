@@ -3,6 +3,7 @@ import CmuxNextBrowser
 @testable import CmuxNextDaemon
 import CmuxNextInput
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Both engines and the App ask one set of incognito profiles (`BrowserSharedStores`): a second
 /// set would answer "not off the record" for an incognito profile, and its data would go to disk.
@@ -11,6 +12,7 @@ import Testing
         let stores = BrowserSharedStores.inMemory()
         let cache = TabContentCache(daemon: DaemonService(),
                                     cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
+                                    mainWork: .still(),
                                     fileInput: NoFileInput())
         let profile = stores.offTheRecord.begin()
 

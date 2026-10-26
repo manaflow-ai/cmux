@@ -13,7 +13,7 @@ extension TabContentCache {
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers)
         let key = tab.id
         // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
-        if let services = pageRequests.services { session.view.followConfig(node(for: key), on: services.mainWork) }
+        session.view.followConfig(node(for: key), on: mainWork)
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
         } else {

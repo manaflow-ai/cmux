@@ -10,6 +10,7 @@ import CmuxNextMemory
 import Foundation
 import IOSurface
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Critical memory pressure reaches evicted terminals' last frames on two paths in one turn (the
 /// warm set's budget, `WarmSetRelease`, and the memory coordinator's limit).
@@ -36,7 +37,7 @@ struct TerminalLastFramesPressureTests {
     }
 
     @Test func criticalPressureDropsTheFramesOnTheReleaseSliceNotInTheEventsTurn() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), mainWork: .still(), fileInput: NoFileInput())
         let kernel = ManualMemoryPressureSource()
         let slices = HeldSlices()
         let pressure = MemoryPressureEvents(source: kernel)

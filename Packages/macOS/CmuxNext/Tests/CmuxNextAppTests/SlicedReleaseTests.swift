@@ -9,6 +9,7 @@ import CmuxNextInput
 import CmuxNextMemory
 @testable import CmuxNextTerminal
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Memory pressure releases the terminal warm set and the parked workspaces through the app's memory
 /// coordinator, one surface close and one workspace teardown per release slice, on frames after the
@@ -255,6 +256,7 @@ private final class SlicedReleaseRig {
         let cache = given ?? TabContentCache(
             daemon: DaemonService(),
             cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
+            mainWork: .still(),
             fileInput: NoFileInput())
         cache.ledger = SurfaceLedger(capacity: Self.normalCapacity) { clock.instant }
         self.clock = clock
