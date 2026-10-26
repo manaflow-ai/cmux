@@ -124,9 +124,10 @@ Add a case = add a file. Never edit another owner's file.
 runs, with `--repeat` folded into one id) and each group's pass rate
 (`group_pass_rate`). Every run prints the pass rate per group. With
 `--baseline` naming an earlier run's directory or `summary.json`, it also
-prints, and writes to `diff.md` and `diff.json`, the pass rate per group and
-in total before and after, and the cases that regressed, improved, are new
-or are missing. Summaries from before `case_results` diff by group only.
+prints, and writes to `diff.md` and `diff.json`, the pass rate per group
+before and after, the total over the groups both runs have (an `--only` run
+compares like for like), the cases that regressed, improved, are new or are
+missing, and the groups this run left out. Summaries from before `case_results` diff by group only.
 The diff is a report; the exit code still follows `--min-pass`.
 
     evals/run.sh --out /tmp/before            # on the old commit

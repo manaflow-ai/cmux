@@ -1329,36 +1329,38 @@ fn summary_groups(s: &Value) -> BTreeMap<String, (u32, u32)> {
     groups
 }
 
-/// This run against a baseline summary: pass rate per group (and in
-/// total) before and after, and the cases whose pass rate went down or up.
-/// A case or group on one side only is listed as added or removed.
+/// This run against a baseline summary: pass rate per group before and
+/// after, the total over the groups both runs have (so an `--only` run is
+/// compared like for like), and the cases whose pass rate went down or up.
+/// A group only the baseline ran is named in `groups_not_run`; a case only
+/// one side ran is `added` or, within a group this run has, `removed`.
 fn baseline_diff(now: &Value, base: &Value) -> Value {
     let (gn, gb) = (summary_groups(now), summary_groups(base));
-    let names: std::collections::BTreeSet<&String> = gn.keys().chain(gb.keys()).collect();
     let side = |g: Option<&(u32, u32)>| {
         g.map_or(
             Value::Null,
             |(p, n)| json!({"passed": p, "runs": n, "rate": rate(*p, *n)}),
         )
     };
+    let delta = |a: &(u32, u32), b: &(u32, u32)| {
+        ((rate(b.0, b.1) - rate(a.0, a.1)) * 1000.0).round() / 1000.0
+    };
     let mut groups = serde_json::Map::new();
-    for name in names {
-        let (a, b) = (gb.get(name), gn.get(name));
-        let delta = match (a, b) {
-            (Some(a), Some(b)) => {
-                json!(((rate(b.0, b.1) - rate(a.0, a.1)) * 1000.0).round() / 1000.0)
-            }
-            _ => Value::Null,
-        };
+    let (mut tb, mut tn) = ((0, 0), (0, 0));
+    for (name, b) in &gn {
+        let a = gb.get(name);
+        if let Some(a) = a {
+            tb = (tb.0 + a.0, tb.1 + a.1);
+            tn = (tn.0 + b.0, tn.1 + b.1);
+        }
         groups.insert(
             name.clone(),
-            json!({"baseline": side(a), "now": side(b), "delta": delta}),
+            json!({"baseline": side(a), "now": side(Some(b)),
+                   "delta": a.map_or(Value::Null, |a| json!(delta(a, b)))}),
         );
     }
-    let total =
-        |g: &BTreeMap<String, (u32, u32)>| g.values().fold((0, 0), |(p, n), (a, b)| (p + a, n + b));
-    let (tb, tn) = (total(&gb), total(&gn));
-    let cases = |s: &Value| -> BTreeMap<String, f64> {
+    let not_run: Vec<&String> = gb.keys().filter(|g| !gn.contains_key(*g)).collect();
+    let cases = |s: &Value| -> BTreeMap<String, (String, f64)> {
         s["case_results"]
             .as_object()
             .into_iter()
@@ -1368,31 +1370,31 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
                     c["passed"].as_u64().unwrap_or(0),
                     c["runs"].as_u64().unwrap_or(0),
                 );
-                (id.clone(), rate(p as u32, n as u32))
+                let group = c["group"].as_str().unwrap_or("").to_owned();
+                (id.clone(), (group, rate(p as u32, n as u32)))
             })
             .collect()
     };
     let (cb, cn) = (cases(base), cases(now));
     // A baseline without `case_results` (older runs) diffs by group only.
-    let (mut worse, mut better, mut added, mut removed) = (vec![], vec![], vec![], vec![]);
-    for (id, r) in &cn {
+    let (mut worse, mut better, mut added) = (vec![], vec![], vec![]);
+    for (id, (_, r)) in &cn {
         match cb.get(id) {
-            Some(b) if r < b => worse.push(json!({"id": id, "baseline": b, "now": r})),
-            Some(b) if r > b => better.push(json!({"id": id, "baseline": b, "now": r})),
+            Some((_, b)) if r < b => worse.push(json!({"id": id, "baseline": b, "now": r})),
+            Some((_, b)) if r > b => better.push(json!({"id": id, "baseline": b, "now": r})),
             Some(_) => {}
             None if !cb.is_empty() => added.push(json!(id)),
             None => {}
         }
     }
-    removed.extend(
-        cb.keys()
-            .filter(|id| !cn.contains_key(*id))
-            .map(|id| json!(id)),
-    );
+    let removed: Vec<&String> = cb
+        .iter()
+        .filter(|(id, (g, _))| !cn.contains_key(*id) && gn.contains_key(g))
+        .map(|(id, _)| id)
+        .collect();
     json!({
-        "total": {"baseline": side(Some(&tb)), "now": side(Some(&tn)),
-                  "delta": ((rate(tn.0, tn.1) - rate(tb.0, tb.1)) * 1000.0).round() / 1000.0},
-        "groups": groups,
+        "total": {"baseline": side(Some(&tb)), "now": side(Some(&tn)), "delta": delta(&tb, &tn)},
+        "groups": groups, "groups_not_run": not_run,
         "regressed": worse, "improved": better, "added": added, "removed": removed,
         "baseline_model": base["model"], "model": now["model"],
     })
@@ -1412,7 +1414,7 @@ fn fmt_side(v: &Value) -> String {
 
 fn fmt_delta(v: &Value) -> String {
     v.as_f64()
-        .map_or("new/gone".into(), |d| format!("{:+.0} pts", d * 100.0))
+        .map_or("new".into(), |d| format!("{:+.0} pts", d * 100.0))
 }
 
 fn diff_markdown(d: &Value, baseline: &str) -> String {
@@ -1429,7 +1431,7 @@ fn diff_markdown(d: &Value, baseline: &str) -> String {
     }
     let t = &d["total"];
     out.push_str(&format!(
-        "| **total** | {} | {} | {} |\n",
+        "| **total** (groups in both) | {} | {} | {} |\n",
         fmt_side(&t["baseline"]),
         fmt_side(&t["now"]),
         fmt_delta(&t["delta"])
@@ -1459,6 +1461,7 @@ fn diff_markdown(d: &Value, baseline: &str) -> String {
     out.push_str(&list("improved", "Improved"));
     out.push_str(&list("added", "New cases"));
     out.push_str(&list("removed", "Cases not in this run"));
+    out.push_str(&list("groups_not_run", "Groups not in this run"));
     if d["baseline_model"] != d["model"] {
         out.push_str(&format!(
             "\nModel changed: {} -> {}\n",
@@ -1514,6 +1517,11 @@ fn table(rows: &[Value], s: &Value) -> String {
             failed.join("; ")
         ));
     }
+    // The per-case results are the rows above; keep the line short.
+    let mut s = s.clone();
+    if let Some(m) = s.as_object_mut() {
+        m.remove("case_results");
+    }
     out.push_str(&format!("\nsummary: {s}"));
     out
 }
@@ -1555,6 +1563,7 @@ mod tests {
         assert_eq!(s["group_pass_rate"]["links"], 0.5);
         assert_eq!(s["group_pass_rate"]["tone"], 1.0);
         assert!(group_table(&s).contains("| links | 1/2 | 50% |"));
+        assert!(!table(&[], &s).contains("case_results"));
     }
 
     #[test]
@@ -1562,6 +1571,7 @@ mod tests {
         let base = summary(&[
             row("links-a", "links", true),
             row("links-b", "links", false),
+            row("links-e", "links", true),
             row("memory-c", "memory", true),
         ]);
         let now = summary(&[
@@ -1579,22 +1589,26 @@ mod tests {
             json!([{"id": "links-b", "baseline": 0.0, "now": 1.0}])
         );
         assert_eq!(d["added"], json!(["tone-d"]));
-        assert_eq!(d["removed"], json!(["memory-c"]));
-        assert_eq!(d["groups"]["links"]["delta"], 0.0);
+        // links-e left the links group; memory was not run at all.
+        assert_eq!(d["removed"], json!(["links-e"]));
+        assert_eq!(d["groups_not_run"], json!(["memory"]));
+        assert!(d["groups"]["memory"].is_null());
         assert!(d["groups"]["tone"]["baseline"].is_null());
-        assert!(d["groups"]["memory"]["now"].is_null());
+        assert_eq!(d["groups"]["links"]["delta"], -0.167);
         let md = diff_markdown(&d, "base/summary.json");
         assert!(
-            md.contains("| links | 1/2 (50%) | 1/2 (50%) | +0 pts |"),
+            md.contains("| links | 2/3 (67%) | 1/2 (50%) | -17 pts |"),
             "{md}"
         );
-        assert!(md.contains("| tone | - | 1/1 (100%) | new/gone |"), "{md}");
+        assert!(md.contains("| tone | - | 1/1 (100%) | new |"), "{md}");
+        // The total covers links only: the groups both runs have.
         assert!(
-            md.contains("| **total** | 2/3 (67%) | 2/3 (67%) | +0 pts |"),
+            md.contains("| **total** (groups in both) | 2/3 (67%) | 1/2 (50%) | -17 pts |"),
             "{md}"
         );
         assert!(md.contains("Regressed: links-a (100% -> 0%)"), "{md}");
         assert!(md.contains("New cases: tone-d"), "{md}");
+        assert!(md.contains("Groups not in this run: memory"), "{md}");
     }
 
     #[test]
