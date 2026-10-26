@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextChiefMemory
 import CmuxNextCompat
@@ -162,7 +163,7 @@ enum ChiefMemoryImportHandlers {
                     let (dir, file) = try await ChiefMoveHandlers.writeToken(context.services.cloud)
                     (tokenDir, tokenFile) = (dir, file.path)
                 } catch {
-                    return toast(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
+                    return stop(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
                 }
             }
             let command = command(tokenFile: tokenFile)
@@ -171,22 +172,22 @@ enum ChiefMemoryImportHandlers {
             for source in sources {
                 let plan = await ChiefMemoryImportHandlers.run(tool, command.dryRun(source), timeout: .seconds(600))
                 guard plan.status == 0, let report = MemoryImportReport.parse(Data(plan.stdout.utf8)) else {
-                    return toast(ChiefMemoryImportStrings.failed + ": " + plan.message)
+                    return stop(ChiefMemoryImportStrings.failed + ": " + plan.message)
                 }
                 if report.plan.new == 0 { continue }
                 if report.estCostUSD > Double(MemoryImportCommand.maxCostUSD) {
-                    return toast(ChiefMemoryImportStrings.tooCostly(String(format: "%.0f", report.estCostUSD)))
+                    return stop(ChiefMemoryImportStrings.tooCostly(String(format: "%.0f", report.estCostUSD)))
                 }
                 let wrote = await ChiefMemoryImportHandlers.run(tool, command.write(source, batch: batch), timeout: .seconds(3600))
                 guard wrote.status == 0, let done = MemoryImportReport.parse(Data(wrote.stdout.utf8)) else {
                     if isLocal { _ = context.services.home.brain.ensure(asked: true) }
-                    return toast(ChiefMemoryImportStrings.failed + ": " + wrote.message)
+                    return stop(ChiefMemoryImportStrings.failed + ": " + wrote.message)
                 }
                 written += done.written ?? 0
             }
             // The host was stopped for the write; the next message would start it, and so does this.
             if isLocal { _ = context.services.home.brain.ensure(asked: true) }
-            guard written > 0 else { return toast(ChiefMemoryImportStrings.nothingNew) }
+            guard written > 0 else { return stop(ChiefMemoryImportStrings.nothingNew) }
             let handle = toast(ChiefMemoryImportStrings.done(written), action: .undo(ChiefMemoryImportStrings.undo), duration: .seconds(30))
             let registry = context.registry
             var arguments: [String: ActionValue] = [:]
@@ -204,7 +205,7 @@ enum ChiefMemoryImportHandlers {
                     let (dir, file) = try await ChiefMoveHandlers.writeToken(context.services.cloud)
                     (tokenDir, tokenFile) = (dir, file.path)
                 } catch {
-                    return toast(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
+                    return stop(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
                 }
             }
             let output = await ChiefMemoryImportHandlers.run(tool, command(tokenFile: tokenFile).undo(), timeout: .seconds(300))
@@ -213,6 +214,9 @@ enum ChiefMemoryImportHandlers {
             else if output.message.contains("nothing to undo") { toast(ChiefMemoryImportStrings.nothingToUndo) }
             else { toast(ChiefMemoryImportStrings.failed + ": " + output.message) }
         }
+
+        /// Shows `message` and ends the import or undo that called it.
+        private func stop(_ message: String) { toast(message) }
 
         @discardableResult
         private func toast(_ message: String, action: CmuxToast.Action? = nil, duration: Duration = .seconds(8)) -> CmuxToastHandle? {
