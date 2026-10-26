@@ -137,8 +137,9 @@ Use the CLI bundled with the app (its default home), so the app and the CLI
 share one daemon and the app shows the remote chat; open it with
 `cmux agent open-tab` (below) or by passing `--group NAME` to
 `acpmux new --host`.
-`acpmux session allow` is refused for remote sessions, even though `acpmux
-pending` prints it; `session deny` and `session cancel` work. Starting on the
+`acpmux session allow` is refused for remote sessions; `acpmux pending` and
+`acpmux send` point to the app's card for an allow, and `session deny` and
+`session cancel` work from the CLI. Starting on the
 host with a mode that never asks (`--mode read-only`) is refused too unless a
 person starts it in cmux NEXT there or approves a preset for it. A prompt that
 needs no tools completes from the CLI alone.
