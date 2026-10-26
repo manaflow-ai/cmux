@@ -15,12 +15,34 @@
 #
 # Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT
 # CMUX_SETTINGS_EXPORTS_ALL=1 copies every export into OUT, changed or not.
+#
+# An OUT that ends in .patch is a bundle, for a lane whose pull request changes
+# CmuxNextSettings sources (the PR autofix only uploads a patch on
+# pull_request events, and a fleet step returns one --artifact file, so a run
+# with a folder handed back a single docs/mdm file). After the stamp check
+# passes, it also writes the files that follow the schema: the docs settings
+# reference (web/data/next-docs/settings-reference.generated.json) and the
+# defaults snapshot (schemas/defaults/cmux-next.json, bot-only (#21946): drop
+# it before you commit, as pr-autofix-apply.sh does). OUT is then one
+# `git diff --binary` patch of every regenerated file against the step's
+# commit, for `git apply --index`. The bots pass a folder. On the fleet (the
+# package needs the macOS SDK, so there is no Linux route):
+#   cmux-ci run --class light --script scripts/cmux-next/regenerate-settings-exports.sh \
+#     --arg=settings-exports.patch --artifact settings-exports.patch --ref <full sha> --key <unique key>
+#   cmux-ci artifact <step id> settings-exports.patch
 set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet regenerate-settings-exports.sh "swift test" "cmux-next generated files / base autofix action exports"
-out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"
+bundle=""
+if [[ "${1:?usage: $0 OUT}" == *.patch ]]; then
+  bundle="$(mkdir -p "$(dirname "$1")" && cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+  out="$(mktemp -d)"
+  trap 'rm -rf "$out"' EXIT
+else
+  out="$(mkdir -p "$1" && cd "$1" && pwd)"
+fi
 root="$(git rev-parse --show-toplevel)"
 exports=(
   docs/mdm/com.manaflow.cmux.json
@@ -64,3 +86,16 @@ done
 # The stamp must now match the sources: an export test that failed before it
 # wrote leaves the stamp stale, and that is a failed regeneration, not a fresh one.
 python3 scripts/ci/defaults_guard.py check-stamp
+[[ -n "$bundle" ]] || exit 0
+# The files that follow the schema, then one patch of everything regenerated.
+followers=(web/data/next-docs/settings-reference.generated.json schemas/defaults/cmux-next.json)
+if command -v bun >/dev/null 2>&1; then
+  bun web/scripts/export-next-docs.ts --settings
+else
+  node web/scripts/export-next-docs.ts --settings # Node 22.18+ strips the types
+fi
+python3 scripts/ci/defaults_guard.py snapshot
+git add --intent-to-add -- "${exports[@]}" "${followers[@]}"
+git diff --binary HEAD -- "${exports[@]}" "${followers[@]}" > "$bundle"
+echo "bundle: $bundle"
+git diff --stat HEAD -- "${exports[@]}" "${followers[@]}"

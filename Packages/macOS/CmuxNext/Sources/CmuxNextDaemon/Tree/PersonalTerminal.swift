@@ -26,7 +26,7 @@ public struct PersonalTerminal: Sendable, Hashable, Decodable {
 public struct SetPersonalTerminalRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-personal-terminal"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.personalTerminals
+    public static let requiredCapability: String? = DaemonCapability.personalTerminals.rawValue
     public var sessionID: String
     public var terminalKey: String
     public var theme: String?
@@ -54,10 +54,10 @@ public struct SetPersonalTerminalRequest: DaemonRequest {
 
 extension DaemonConnection {
     /// Whether this daemon stores per-terminal themes.
-    public var supportsPersonalTerminals: Bool { identity?.supports(DaemonCapabilities.shared.personalTerminals) == true }
+    public var supportsPersonalTerminals: Bool { identity?.supports(DaemonCapability.personalTerminals.rawValue) == true }
 
     public func setPersonalTerminal(_ request: SetPersonalTerminalRequest) async throws {
-        guard supportsPersonalTerminals else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.personalTerminals]) }
+        guard supportsPersonalTerminals else { throw DaemonError.missingCapabilities([DaemonCapability.personalTerminals.rawValue]) }
         _ = try await self.request(request)
     }
 }

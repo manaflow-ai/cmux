@@ -56,8 +56,10 @@ struct PaneMotionBench {
 
         /// Applies `screens` and runs frames until rest (at most 2 s of frames). The first frame
         /// carries the reconcile the change caused (the model's observation turn runs in it).
-        func run(_ screens: [LayoutScreen]) async -> [Double] {
+        func run(_ screens: [LayoutScreen], focus: PaneID? = nil) async -> [Double] {
             model.apply(screens: screens)
+            // New Column focuses its pane, and the strip camera reveals it (the app's newColumn).
+            if let focus { model.focus(focus, notify: false) }
             var times: [Double] = []
             var moving = true
             while moving, times.count < 240 {
@@ -138,9 +140,10 @@ struct PaneMotionBench {
         }
         var times: [Double] = []
         for _ in 0..<3 {
-            let harness = Harness(before, focused: PaneID("p0-0"))
+            // Column close starts focused on the column it closes, so the camera springs back.
+            let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
             _ = await harness.frame()
-            times += await harness.run(after)
+            times += await harness.run(after, focus: bench.name == "column" ? PaneID("p\(c)-0") : nil)
         }
         let p50 = Self.percentile(times, 0.5), p95 = Self.percentile(times, 0.95), max = times.max() ?? 0
         let over = times.filter { $0 > Self.frameBudget }.count

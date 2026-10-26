@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextDesignTokens
 
 /// A state's name in a word or two (cx-sya4n): the indicator's tooltip and
 /// VoiceOver label everywhere (sidebar rows, tabs, chrome), in every look.

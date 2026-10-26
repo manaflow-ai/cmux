@@ -1311,6 +1311,137 @@
         }
       }
     },
+    "pictureInPicture.refusal.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture is turned off: turn on media.pictureInPicture.enabled in Settings › Browser › Media."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ميزة صورة داخل صورة متوقفة: فعّل media.pictureInPicture.enabled في الإعدادات › المتصفح › الوسائط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slika u slici je isključena: uključite media.pictureInPicture.enabled u Postavke › Preglednik › Mediji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billede i billede er slået fra: slå media.pictureInPicture.enabled til i Indstillinger › Browser › Medier."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-in-Bild ist ausgeschaltet: Aktiviere media.pictureInPicture.enabled in Einstellungen › Browser › Medien."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen en imagen está desactivada: activa media.pictureInPicture.enabled en Ajustes › Navegador › Multimedia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image dans l’image est désactivée : activez media.pictureInPicture.enabled dans Réglages › Navigateur › Médias."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture è disattivato: attiva media.pictureInPicture.enabled in Impostazioni › Browser › Contenuti multimediali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャ・イン・ピクチャはオフです。設定 › ブラウザ › メディアで media.pictureInPicture.enabled をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាពក្នុងរូបភាពត្រូវបានបិទ៖ បើក media.pictureInPicture.enabled ក្នុង ការកំណត់ › កម្មវិធីរុករក › មេឌៀ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 화면이 꺼져 있습니다. 설정 › 브라우저 › 미디어에서 media.pictureInPicture.enabled를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilde-i-bilde er slått av: slå på media.pictureInPicture.enabled i Innstillinger › Nettleser › Medier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obraz w obrazie jest wyłączony: włącz media.pictureInPicture.enabled w Ustawienia › Przeglądarka › Multimedia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture está desativado: ative media.pictureInPicture.enabled em Ajustes › Navegador › Mídia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим «Картинка в картинке» выключен: включите media.pictureInPicture.enabled в Настройки › Браузер › Медиа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพซ้อนภาพปิดอยู่: เปิด media.pictureInPicture.enabled ใน การตั้งค่า › เบราว์เซอร์ › สื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resim içinde Resim kapalı: Ayarlar › Tarayıcı › Medya bölümünde media.pictureInPicture.enabled'ı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим «Картинка в картинці» вимкнено: увімкніть media.pictureInPicture.enabled у Налаштування › Браузер › Медіа."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình trong hình đang tắt: bật media.pictureInPicture.enabled trong Cài đặt › Trình duyệt › Phương tiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画中画已关闭：请在“设置 › 浏览器 › 媒体”中开启 media.pictureInPicture.enabled。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子母畫面已關閉：請在「設定 › 瀏覽器 › 媒體」中開啟 media.pictureInPicture.enabled。"
+          }
+        }
+      }
+    },
     "pictureInPicture.refusal.unsupported": {
       "extractionState": "manual",
       "localizations": {

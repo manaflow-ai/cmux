@@ -185,6 +185,9 @@ function PullRequestRow({
   const comments = live.comments ?? 0;
   const stateLabel = t(STATE_LABELS[state]);
   return (
+    // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
+    // over the row's own gap and padding (inspector.css), with only the ⋯ button above it. The
+    // owner chip is inside the link and opens the pull request too; a label, not its own control.
     <li className="acpmux-chat-inspector-pr" data-state={state}>
       <a
         className="acpmux-chat-inspector-pr__link"
