@@ -73,7 +73,7 @@ def runs(db_path: Path) -> list[tuple[str, str]]:
 
 
 class FakePlan:
-    mode, jobs, builds, gaps, problems = "every-batch", ("job",), (), (), ("shard m6/1: no owner",)
+    mode, jobs, builds, gaps, skipped, problems = "every-batch", ("job",), (), (), (), ("shard m6/1: no owner",)
 
     def to_document(self):
         return {"mode": self.mode}
@@ -452,6 +452,29 @@ class Workers(unittest.TestCase):
                                    submit=lambda plan: scheduler.Rejected()).step()
             self.assertEqual(detail["tip"], SHA)
             self.assertTrue((Path(scratch) / "scheduler.json").is_file())
+
+    def test_serve_driver_reads_expectations_for_every_plan(self):
+        scheduler, _ = labd.load_scheduler()
+        expectations = scheduler._load_sibling("expectations")
+        entry = {"story": "t0-key", "host_class": "apple-m6/24gb/120hz", "reason": "crashes on the M6 driver",
+                 "issue": "https://github.com/manaflow-ai/cmux/issues/25000", "added": "2026-10-24",
+                 "expires": "2026-10-31"}
+        with tempfile.TemporaryDirectory() as scratch:
+            file = Path(scratch) / "expectations.json"
+            write = lambda *items: file.write_text(json.dumps({"schema": expectations.SCHEMA,
+                                                               "expectations": list(items)}))
+            driver = labd.plan_driver(scheduler, Path(scratch) / "scheduler.json", ls_remote=lambda: SHA,
+                                      first_parent=lambda anchor, tip: (tip,), clock=lambda: NOW)
+            with mock.patch.object(expectations, "EXPECTATIONS_PATH", file):  # absolute: root / it is it
+                write(entry)
+                self.assertEqual(driver.expectations(NOW).pairs, {("t0-key", "apple-m6/24gb/120hz")})
+                write({**entry, "added": "2026-10-17", "expires": "2026-10-24"})
+                self.assertEqual(driver.expectations(NOW).pairs, frozenset(), "read again: the entry expired")
+                file.write_text("{not json")
+                detail = labd.PlanLoop(driver, hosts=lambda: [], builds=scheduler.Builds,
+                                       submit=lambda plan: scheduler.Rejected()).step()
+            self.assertEqual(detail["skipped"], 0)
+            self.assertTrue(any("is not JSON" in p for p in detail["problems"]), detail["problems"])
 
     @unittest.skipUnless((PERF_LAB / "builds.py").is_file(), "builds.py (task 009) is not on this branch yet")
     def test_ledger_ok_records_are_ready_builds(self):

@@ -591,6 +591,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p14-energy-021 (plans/cmux-next/chrome-parity/p14-energy.md D): ThermalStateWatch in CmuxNextEnergy is the app's one thermal-state observer, owned by the composition root's EnergyMonitor and handed out by init (Chrome base/power_monitor/thermal_state_observer_mac.mm). BackdropVideoView (CmuxNextDesign) still observes thermalStateDidChange itself; its thermal entry should go when it follows the injected energy inputs (p14-energy-024 wiring), which returns the row to its old total. Moving LowPowerMode's observer into CmuxNextEnergy is count-neutral."
     }
   ],
   "observer_wrappers": [

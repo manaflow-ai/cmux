@@ -1,4 +1,5 @@
 public import CmuxNextDesignTokens
+import Foundation
 /// How web glass surfaces bend the wallpaper behind them (plans/cmux-next/glass-lens-DESIGN.md):
 /// the Debug Settings choice `glass.lens` (DEV and NIGHTLY), outside the settings schema until the
 /// lens is promoted. `plain` (the default, the look before the lens) only blurs it, `lens` refracts
@@ -37,15 +38,16 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
 
 extension GlassLensMode {
     /// The mode pages draw now: the `glass.lens` choice under the system's Reduce Transparency
-    /// (or its Debug override) and Low Power Mode.
+    /// (or its Debug override) and macOS Low Power Mode (read from the system: the energy monitor
+    /// lives in the App, which only tells `GlassModeWatch` when to read this again).
     @MainActor public static var current: GlassLensMode {
-        current(store: .shared, reduceTransparency: .shared, lowPower: .system)
+        current(store: .shared, reduceTransparency: .shared, lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled)
     }
 
     /// The mode pages draw from these sources.
     @MainActor public static func current(store: TunableStore, reduceTransparency: ReduceTransparency,
-                                          lowPower: LowPowerMode) -> GlassLensMode {
-        tunable.value(in: store).effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPower.isEnabled)
+                                          lowPowerMode: Bool) -> GlassLensMode {
+        tunable.value(in: store).effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPowerMode)
     }
 
     /// Sets the `glass.lens` choice; the default removes the override.

@@ -1,11 +1,11 @@
-import CmuxNextDesignTokens
+import CmuxNextEnergy
 import Foundation
 import Testing
 
 /// A Low Power Mode observation stops its calls when its last reference goes, on any thread.
 /// `LowPowerModeObservation`'s nonisolated deinit used to return early off the main thread
 /// (`guard Thread.isMainThread else { return }`), so an owner released off main (GlassModeWatch,
-/// WebKitEngine, BrowserHibernation) left its handler in `LowPowerMode.system` for the app's life.
+/// WebKitEngine, BrowserHibernation) left its handler in the app's `LowPowerMode` for the app's life.
 @MainActor @Suite(.serialized)
 struct LowPowerModeObservationReleaseTests {
     /// Counts handler calls (main actor).
