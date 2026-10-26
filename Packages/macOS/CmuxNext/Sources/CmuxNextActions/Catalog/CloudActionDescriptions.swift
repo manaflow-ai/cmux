@@ -19,8 +19,10 @@ nonisolated enum CloudActionDescriptions {
             Creates a Cloud machine and returns machine_id, title, status and target (machine:<id>) once the \
             server has it; its first workspace opens when it is ready. After 30 s it answers pending: true \
             with a creation_id and the create goes on, so check `cmux cloud list-machines` before creating \
-            another. A create an agent or script starts may ask the person first, and a plan without Cloud \
-            machines shows an upgrade card instead.
+            another. Optional: --size small|medium|large|xlarge, --name, --persistent (no idle pause), and \
+            --bootstrap-script FILE (with --bootstrap lane for a lane host), which runs on the machine as \
+            cmux and answers bootstrap and enrollment. A create an agent or script starts may ask the \
+            person first, and a plan without Cloud machines shows an upgrade card instead.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -76,8 +78,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
-            paused machine first. Returns no ids: \
-            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
+            paused machine first, and returns machine_id, workspace_id and the tab's surface_id (terminal_id \
+            when known). The window shows it only with --focus. When the run takes longer than 30 s it answers \
+            machine_id and pending: true, and the tab still opens.
             """,
         "cloudExec": """
             Runs a shell command on the machine through the Cloud API and returns machine_id, exit_code, \
@@ -166,9 +169,11 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
-            machine first, and returns machine_id and workspace_id. The window shows it only with --focus. When \
-            the whole run (resume, connect and the new workspace) takes longer than 30 s it answers machine_id and \
-            pending: true, and the workspace still opens.
+            machine first, and returns machine_id, workspace_id and, when known, the terminal's surface_id. \
+            With --workspace <id> (a workspace_id it returned) it adds a terminal tab to that workspace of the \
+            machine instead and returns its surface_id; an id the machine does not have is refused. The window \
+            shows it only with --focus. When the whole run takes longer than 30 s it answers machine_id and \
+            pending: true, and the terminal still opens.
             """,
         "cloudOpenMachine": """
             Shows the machine's first workspace in the window (creating one when it has none), connecting \

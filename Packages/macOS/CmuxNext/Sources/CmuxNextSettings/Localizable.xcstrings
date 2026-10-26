@@ -394,6 +394,1316 @@
         }
       }
     },
+    "settings.group.autoArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Archive"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأرشفة التلقائية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatsko arhiviranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk arkivering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch archivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivado automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivage automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiviazione automatica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動アーカイブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកក្នុងប័ណ្ណសារដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동 보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk arkivering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyczna archiwizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivamento automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоархивация"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บถาวรอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik arşivleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоархівування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動封存"
+          }
+        }
+      }
+    },
+    "settings.autoArchive.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل الخاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neaktivni radni prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktive arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktive Arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios de trabajo inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces de travail inactifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazi di lavoro inattivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使っていないワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការដែលមិនប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용하지 않는 워크스페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktive arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieaktywne obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho inativos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неактивные рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซที่ไม่ได้ใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boştaki çalışma alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неактивні робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc không dùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "闲置的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閒置的工作區"
+          }
+        }
+      }
+    },
+    "settings.autoArchive.style.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يفعله cmux بمساحات العمل التي لم تستخدمها منذ مدة. تبقى مساحات العمل المؤرشفة في مجموعتها، باهتة وفي الأسفل، وتعود عند فتحها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta cmux radi s radnim prostorima koje neko vrijeme niste koristili. Arhivirani prostori ostaju u svojoj grupi, zatamnjeni i na kraju, i vraćaju se kad ih otvorite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad cmux gør med arbejdsområder, du ikke har brugt i et stykke tid. Arkiverede arbejdsområder bliver i deres gruppe, nedtonet og sidst, og kommer tilbage, når du åbner dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was cmux mit Arbeitsbereichen macht, die du länger nicht benutzt hast. Archivierte Arbeitsbereiche bleiben in ihrer Gruppe, abgeblendet und am Ende, und kommen zurück, wenn du sie öffnest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo que hace cmux con los espacios de trabajo que no usas desde hace tiempo. Los archivados se quedan en su grupo, atenuados y al final, y vuelven cuando los abres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce que fait cmux des espaces de travail que vous n’avez pas utilisés depuis un moment. Les espaces archivés restent dans leur groupe, estompés et en dernier, et reviennent quand vous les ouvrez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa fa cmux con gli spazi di lavoro che non usi da un po’. Quelli archiviati restano nel loro gruppo, attenuati e in fondo, e tornano quando li apri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "しばらく使っていないワークスペースを cmux がどう扱うかを選びます。アーカイブしたワークスペースはグループ内の末尾に淡く表示され、開くと元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែល cmux ធ្វើជាមួយកន្លែងធ្វើការដែលអ្នកមិនបានប្រើមួយរយៈ។ កន្លែងធ្វើការក្នុងប័ណ្ណសារនៅក្នុងក្រុមរបស់វា ស្រអាប់ និងនៅចុងក្រោយ ហើយត្រឡប់មកវិញពេលអ្នកបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "한동안 쓰지 않은 워크스페이스를 cmux가 어떻게 처리할지 정합니다. 보관된 워크스페이스는 그룹 안 맨 아래에 흐리게 남고, 열면 돌아옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva cmux gjør med arbeidsområder du ikke har brukt på en stund. Arkiverte arbeidsområder blir i gruppen sin, dempet og sist, og kommer tilbake når du åpner dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co cmux robi z obszarami roboczymi, których dawno nie używasz. Zarchiwizowane zostają w swojej grupie, przygaszone i na końcu, i wracają, gdy je otworzysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que o cmux faz com espaços de trabalho que você não usa há algum tempo. Os arquivados ficam no grupo, esmaecidos e por último, e voltam quando você os abre."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что cmux делает с рабочими пространствами, которыми вы давно не пользовались. Архивные остаются в своей группе, приглушённые и в конце, и возвращаются, когда вы их открываете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่ cmux ทำกับเวิร์กสเปซที่คุณไม่ได้ใช้มาสักพัก เวิร์กสเปซที่เก็บถาวรจะอยู่ในกลุ่มเดิม แสดงจางและอยู่ท้ายสุด และกลับมาเมื่อคุณเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’un bir süredir kullanmadığınız çalışma alanlarıyla ne yapacağı. Arşivlenenler gruplarında soluk ve en sonda kalır, açtığınızda geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що cmux робить із робочими просторами, якими ви давно не користувалися. Архівні лишаються у своїй групі, приглушені й наприкінці, і повертаються, коли ви їх відкриваєте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux làm gì với các không gian làm việc bạn đã lâu không dùng. Không gian đã lưu trữ vẫn ở trong nhóm, mờ đi và nằm cuối, và trở lại khi bạn mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 如何处理你一段时间未使用的工作区。归档的工作区留在原组的末尾并变暗，打开时恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 如何處理你一段時間未使用的工作區。封存的工作區留在原群組的末尾並變暗，開啟時恢復。"
+          }
+        }
+      }
+    },
+    "settings.choice.autoArchiveSuggest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Archiving"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اقتراح الأرشفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predloži arhiviranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslå arkivering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivieren vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerir archivar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggérer l’archivage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggerisci l’archiviazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アーカイブを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើឲ្យទុកក្នុងប័ណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslå arkivering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proponuj archiwizację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerir arquivamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предлагать архивацию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แนะนำให้เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arşivlemeyi öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропонувати архівування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gợi ý lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建议归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建議封存"
+          }
+        }
+      }
+    },
+    "settings.choice.autoArchiveQuiet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأرشفة تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arhiviraj automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch archivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivar automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiver automatiquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivia automaticamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動でアーカイブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកក្នុងប័ណ្ណសារដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동으로 보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiwizuj automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivar automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архивировать автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บถาวรโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik arşivle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архівувати автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動封存"
+          }
+        }
+      }
+    },
+    "settings.choice.autoArchiveGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only in Groups With a Rule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في المجموعات التي لها قاعدة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo u grupama s pravilom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun i grupper med en regel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur in Gruppen mit Regel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo en grupos con una regla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seulement dans les groupes avec une règle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo nei gruppi con una regola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ルールのあるグループのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែក្នុងក្រុមដែលមានច្បាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "규칙이 있는 그룹에서만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare i grupper med en regel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko w grupach z regułą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só em grupos com uma regra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только в группах с правилом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะกลุ่มที่มีกฎ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca kuralı olan gruplarda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише в групах із правилом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ trong nhóm có quy tắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅限有规则的组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅限有規則的群組"
+          }
+        }
+      }
+    },
+    "settings.choice.autoArchiveManual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When I Tidy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فقط عندما أرتّب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo kad ja pospremim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun når jeg rydder op"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur wenn ich aufräume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo cuando ordene"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seulement quand je range"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo quando riordino"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分で整理したときだけ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែពេលខ្ញុំរៀបចំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 정리할 때만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare når jeg rydder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko gdy sprzątam"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só quando eu organizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только когда я навожу порядок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะเมื่อฉันจัดระเบียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca ben toparladığımda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише коли я наводжу лад"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ khi tôi dọn dẹp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在我整理时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在我整理時"
+          }
+        }
+      }
+    },
+    "settings.choice.autoArchiveOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nikad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jamais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mai"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "しない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nigdy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Никогда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่เลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiçbir zaman"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ніколи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bao giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从不"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永不"
+          }
+        }
+      }
+    },
+    "settings.autoArchive.idleDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle For"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خاملة لمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neaktivno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktiv i"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktiv seit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inactivo durante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inactif depuis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inattivo da"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未使用の期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនប្រើរយៈពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용하지 않은 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inaktiv i"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieaktywny przez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inativo por"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не используется"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ใช้เป็นเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boşta kalma süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не використовується"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dùng trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "闲置时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閒置時長"
+          }
+        }
+      }
+    },
+    "settings.autoArchive.idleDays.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُعدّ مساحة العمل خاملة عندما لا تفتحها ولا يتغير فيها شيء طوال هذا العدد من الأيام. لا تُؤرشف أبدًا مساحات العمل المثبتة أو التي تشغّل أوامر أو التي تحتاج إليك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostor je neaktivan kad ga niste otvorili i ništa se u njemu nije promijenilo ovoliko dana. Prikačeni prostori, pokrenute komande i prostori koji vas trebaju nikad se ne arhiviraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbejdsområde er inaktivt, når du ikke har åbnet det, og intet i det har ændret sig i så mange dage. Fastgjorte arbejdsområder, kørende kommandoer og arbejdsområder, der venter på dig, arkiveres aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Arbeitsbereich gilt als inaktiv, wenn du ihn so viele Tage nicht geöffnet hast und sich nichts darin geändert hat. Angeheftete Arbeitsbereiche, laufende Befehle und Arbeitsbereiche, die dich brauchen, werden nie archiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espacio de trabajo está inactivo cuando no lo has abierto y nada ha cambiado en él durante estos días. Los fijados, los que ejecutan comandos y los que te necesitan nunca se archivan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espace de travail est inactif quand vous ne l’avez pas ouvert et que rien n’y a changé pendant ce nombre de jours. Les espaces épinglés, les commandes en cours et les espaces qui ont besoin de vous ne sont jamais archivés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno spazio di lavoro è inattivo quando non lo apri e nulla cambia al suo interno per questi giorni. Quelli fissati, con comandi in esecuzione o che hanno bisogno di te non vengono mai archiviati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この日数のあいだ開かず、中身も変わらなかったワークスペースを未使用とみなします。ピン留め中、コマンド実行中、対応が必要なワークスペースはアーカイブしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការត្រូវចាត់ទុកថាមិនប្រើ ពេលអ្នកមិនបានបើក ហើយគ្មានអ្វីផ្លាស់ប្តូរក្នុងវាចំនួនថ្ងៃនេះ។ កន្លែងធ្វើការដែលខ្ទាស់ ពាក្យបញ្ជាកំពុងដំណើរការ និងកន្លែងដែលត្រូវការអ្នក មិនដែលទុកក្នុងប័ណ្ណសារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 일수 동안 열지 않았고 안에서 아무것도 바뀌지 않은 워크스페이스를 사용하지 않는 것으로 봅니다. 고정된 워크스페이스, 실행 중인 명령, 확인이 필요한 워크스페이스는 보관하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbeidsområde er inaktivt når du ikke har åpnet det og ingenting i det har endret seg på så mange dager. Festede arbeidsområder, kjørende kommandoer og arbeidsområder som trenger deg, arkiveres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszar roboczy jest nieaktywny, gdy go nie otwierasz i nic się w nim nie zmienia przez tyle dni. Przypięte obszary, działające polecenia i obszary, które cię potrzebują, nigdy nie są archiwizowane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um espaço de trabalho fica inativo quando você não o abre e nada muda nele por esses dias. Fixados, com comandos rodando ou que precisam de você nunca são arquivados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочее пространство считается неактивным, если вы его не открывали и в нём ничего не менялось столько дней. Закреплённые, с запущенными командами и ждущие вас никогда не архивируются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซจะถือว่าไม่ได้ใช้เมื่อคุณไม่ได้เปิดและไม่มีอะไรเปลี่ยนในนั้นตามจำนวนวันนี้ เวิร์กสเปซที่ปักหมุด คำสั่งที่กำลังรัน และเวิร์กสเปซที่ต้องการคุณจะไม่ถูกเก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir çalışma alanını bu kadar gün açmadıysanız ve içinde hiçbir şey değişmediyse boşta sayılır. Sabitlenmiş, komut çalıştıran ve sizi bekleyen çalışma alanları hiç arşivlenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочий простір вважається неактивним, якщо ви його не відкривали і в ньому нічого не змінювалося стільки днів. Закріплені, з запущеними командами та ті, що чекають на вас, ніколи не архівуються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một không gian làm việc được xem là không dùng khi bạn không mở và không có gì thay đổi trong đó trong ngần ấy ngày. Không gian đã ghim, đang chạy lệnh hoặc đang cần bạn không bao giờ bị lưu trữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在这么多天里你没有打开、其中也没有任何变化的工作区视为闲置。已固定、正在运行命令或需要你处理的工作区不会被归档。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在這麼多天裡你沒有開啟、其中也沒有任何變化的工作區視為閒置。已釘選、正在執行指令或需要你處理的工作區不會被封存。"
+          }
+        }
+      }
+    },
     "settings.deviceHub.url": {
       "extractionState": "manual",
       "localizations": {
@@ -140477,6 +141787,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "聊天欄的最大寬度。窗格更寬時，聊天保持置中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.vscodeMinimap": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Minimap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خريطة مصغرة على طريقة VS Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mini mapa kao u VS Codeu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minikort som i VS Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimap wie in VS Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa estilo VS Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mini-carte façon VS Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimappa stile VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 風ミニマップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផែនទីតូចបែប VS Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 스타일 미니맵"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minikart som i VS Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa jak w VS Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa estilo VS Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мини-карта как в VS Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มินิแมปแบบ VS Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Tarzı Mini Harita"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мінікарта як у VS Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản đồ thu nhỏ kiểu VS Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 式缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 式縮圖"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.vscodeMinimap.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صورة صغيرة للدردشة كاملة عند حافتها اليمنى، كما في VS Code. انقر عليها أو اسحبها للتمرير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mala slika cijelog razgovora uz njegovu desnu ivicu, kao u VS Codeu. Kliknite ili je povucite za pomicanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et lille billede af hele chatten ved dens højre kant, som i VS Code. Klik eller træk i det for at rulle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein kleines Bild des ganzen Chats an seinem rechten Rand, wie in VS Code. Zum Scrollen klicken oder ziehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una imagen pequeña de todo el chat en su borde derecho, como en VS Code. Haz clic o arrástrala para desplazarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une petite image de tout le chat sur son bord droit, comme dans VS Code. Cliquez ou faites-la glisser pour défiler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una piccola immagine dell’intera chat sul suo bordo destro, come in VS Code. Fai clic o trascinala per scorrere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code のように、チャット全体の小さな図を右端に表示します。クリックまたはドラッグしてスクロールします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាពតូចនៃការជជែកទាំងមូលនៅគែមខាងស្ដាំ ដូចក្នុង VS Code។ ចុច ឬអូសវាដើម្បីរំកិល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code처럼 채팅 전체를 오른쪽 가장자리에 작게 보여 줍니다. 클릭하거나 드래그해 스크롤합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et lite bilde av hele chatten ved høyre kant, som i VS Code. Klikk eller dra i det for å rulle."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mały obraz całego czatu przy jego prawej krawędzi, jak w VS Code. Kliknij lub przeciągnij, aby przewinąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pequena imagem de todo o chat na borda direita, como no VS Code. Clique ou arraste para rolar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Небольшое изображение всего чата у его правого края, как в VS Code. Нажмите или перетащите, чтобы прокрутить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพย่อของแชตทั้งหมดที่ขอบขวา เหมือนใน VS Code คลิกหรือลากเพื่อเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code’daki gibi, sohbetin tamamının sağ kenarında küçük bir resmi. Kaydırmak için tıklayın veya sürükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невелике зображення всього чату біля його правого краю, як у VS Code. Клацніть або перетягніть, щоб прокрутити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình thu nhỏ của toàn bộ cuộc trò chuyện ở cạnh phải, như trong VS Code. Nhấp hoặc kéo để cuộn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天右侧显示整个聊天的小图，就像 VS Code 一样。点按或拖移即可滚动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天右側顯示整個聊天的小圖，就像 VS Code 一樣。按一下或拖移即可捲動。"
           }
         }
       }

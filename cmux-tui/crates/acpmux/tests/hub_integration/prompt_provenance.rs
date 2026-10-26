@@ -786,6 +786,17 @@ async fn a_losing_answer_is_told_who_answered_first() {
                      "outcome": {"outcome": "selected", "optionId": "no"}})),
         "{lost}"
     );
+    // A losing answer that carries a question's annotations (#24356) is told the same, not
+    // refused for the annotations first.
+    let mut annotated = answer("no", Some(&bo()));
+    annotated["answers"] = json!({"Go?": "yes"});
+    annotated["annotations"] = json!({"Go?": {"notes": "x"}});
+    let lost_annotated = a.reply("_acpmux/permission_respond", annotated).await;
+    assert_eq!(
+        lost_annotated.pointer("/error/data"),
+        lost.pointer("/error/data"),
+        "{lost_annotated}"
+    );
     c.reply_to(asked).await;
     let decided = a.records(&session, "permission_decision").await;
     assert_eq!(
