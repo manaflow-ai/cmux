@@ -624,13 +624,16 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
         };
         let (key, value) = entry.split_once('\n').unwrap_or((entry, "true"));
         let person = !matches!(scope, "local" | "worktree");
+        // A value that names a signature check (`branch.sort = signature:grade`, a `%G` format)
+        // makes a read verify with gpg, whatever key holds it.
+        let verifies = value.contains("signature") || value.contains("%G");
         let passes = key_runs_nothing(key, value)
             || (person && person_key_runs_nothing(key))
             // `git lfs install` (runner images, Homebrew): its clean filter runs only on files
             // whose attributes name it, and reads only; smudging, which can fetch, asks
             // (`--filters`, `--textconv`). Its `lfs.*` settings (transfer agents) ask.
             || (person && is_lfs_filter(key, value) && resolve("git-lfs", env).is_some());
-        if !passes {
+        if verifies || !passes {
             return false;
         }
     }
