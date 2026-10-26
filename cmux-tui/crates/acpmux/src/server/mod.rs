@@ -298,6 +298,20 @@ impl Conn {
             }
         }
     }
+
+    /// [`Conn::send`] of a notification line already made (one shared by every raw-text
+    /// connection, `HubEvent::update_line`).
+    fn send_line(&self, line: String) {
+        enqueue_outbound(
+            &self.out,
+            line,
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+    }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -592,6 +606,10 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long a connection's HTTP request head and WebSocket upgrade may take, each: the same
+/// 5 s the request head's peek has always had.
+const HANDSHAKE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
 /// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
@@ -649,12 +667,7 @@ pub async fn serve_ws_with(
         let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                stream.peek(&mut head),
-            )
-            .await
-            {
+            let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -710,16 +723,21 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
+            // A client that stalls mid-upgrade gets the same deadline as the peek above: it
+            // never holds this task and its descriptor without end.
+            let upgrade = tokio_tungstenite::accept_hdr_async_with_config(
                 stream,
                 callback,
                 Some(ws_config()),
-            )
-            .await
-            {
-                Ok(ws) => ws,
-                Err(e) => {
+            );
+            let ws = match tokio::time::timeout(HANDSHAKE, upgrade).await {
+                Ok(Ok(ws)) => ws,
+                Ok(Err(e)) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
+                    return;
+                }
+                Err(_) => {
+                    tracing::warn!("ws handshake from {peer} did not finish in {HANDSHAKE:?}");
                     return;
                 }
             };
@@ -1297,13 +1315,24 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
                 && m == method::SESSION_UPDATE
             {
-                let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params.set("sessionId", Value::String(ev.session_id.clone()));
-                crate::hub::merge_mux_meta(
-                    &mut params,
-                    json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
-                );
-                conn.send(&Message::notification(method::SESSION_UPDATE, params));
+                let update = || {
+                    let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                    params.set("sessionId", Value::String(ev.session_id.clone()));
+                    crate::hub::merge_mux_meta(
+                        &mut params,
+                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
+                    );
+                    Message::notification(method::SESSION_UPDATE, params)
+                };
+                if conn.raw_text {
+                    // The same line for every raw-text connection: made once per record.
+                    match ev.update_line.get_or_init(|| update().bounded_line().ok()) {
+                        Some(line) => conn.send_line(line.clone()),
+                        None => conn.send(&update()),
+                    }
+                } else {
+                    conn.send(&update());
+                }
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
@@ -1362,10 +1391,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
-        if let Ok(s) = hub.resolve(&ev.session_id) {
+        // One summary per record for every watcher (`HubEvent::summary`).
+        let summary = ev
+            .summary
+            .get_or_init(|| hub.resolve(&ev.session_id).ok().map(|s| hub.session_summary(&s)));
+        if let Some(summary) = summary {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": hub.session_summary(&s), "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
+                json!({"sessionId": ev.session_id, "session": summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
