@@ -706,6 +706,7 @@ mod tests {
             "git tag -l 'v1*'",
             "git status # ; rm -rf x",
             "sort -u x | uniq -c",
+            "uniq -c -- -in",
             "echo \"a b\" 'c'",
             "printf '%s\\n' a",
         ] {
@@ -756,6 +757,7 @@ mod tests {
             "find . -fprint f",
             "sort -uo f x",
             "uniq a b",
+            "uniq -- in -out",
             "date -s 2020-01-01",
             "hostname evil",
             "xargs rm",
@@ -981,6 +983,8 @@ mod tests {
             "BASH_ENV",
             "PAGER",
             "RIPGREP_CONFIG_PATH",
+            "BASH_FUNC_pwd%%",
+            "BASH_FUNC_git()",
         ] {
             let mut env = system_env();
             env.insert(key.to_owned(), "/tmp/x".to_owned());
