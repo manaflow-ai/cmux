@@ -45,21 +45,18 @@ extension StateResourceClient {
             .mutate(request, idempotencyKey: Self.stateKey(on: connection), as: ResourceMutationResult<R>.self).value
     }
 
-    /// Sends one state mutation named at run time and returns its `value`: the form the
-    /// StateResourceClient extensions not yet on generated requests still use (p05-ipc Q11).
-    @discardableResult
-    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self) async throws -> R {
-        let key = Self.stateKey(on: connection)
-        return try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self).value
+    /// Sends generated read `request` and decodes its `result` as `type`.
+    func stateRead<Request: ResourceUnkeyedRequest, R: Decodable & Sendable>(
+        _ request: Request, as type: R.Type = JSONValue.self
+    ) async throws -> R {
+        try await ResourceOperationClient(connection: connection).read(request, as: type)
     }
 
     /// The selector of resource `id`.
     static func selector(_ id: ResourceID) -> ResourceSelector { ResourceSelector(rawValue: id.rawValue) }
 
-    static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
+    /// An index param: negative is 0, as the hand-built params sent `max(0, index)`.
+    static func index(_ index: Int) -> UInt32 { UInt32(clamping: index) }
 
     static func field<V>(_ update: FieldUpdate<V>, into params: inout [String: JSONValue], _ key: String,
                          _ value: (V) -> JSONValue) {
