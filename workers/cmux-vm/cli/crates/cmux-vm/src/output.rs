@@ -31,6 +31,12 @@ pub fn reserve_token_file(path: &Path) -> Result<File, CliError> {
     use std::os::unix::fs::OpenOptionsExt;
     file.mode(0o600);
     file.open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            return CliError::usage(format!(
+                "the token file {} already exists; choose a new --token-file",
+                path.display()
+            ));
+        }
         CliError::unexpected(format!(
             "could not prepare the token file {}: {e}; choose a new --token-file",
             path.display()
@@ -410,7 +416,13 @@ impl<'a> Printer<'a> {
             object.retain(|key, _| {
                 matches!(
                     key.as_str(),
-                    "id" | "vmId" | "providerVmId" | "linuxUser" | "createdAt" | "token"
+                    "id" | "vmId"
+                        | "providerVmId"
+                        | "linuxUser"
+                        | "apiBaseUrl"
+                        | "ssh"
+                        | "createdAt"
+                        | "token"
                 )
             });
         }

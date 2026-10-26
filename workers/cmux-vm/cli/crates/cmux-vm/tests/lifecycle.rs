@@ -2366,6 +2366,7 @@ async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
     assert!(out.stdout.contains("shown once"));
     assert!(!out.stderr.contains("one-time-secret"));
     let dir = std::env::temp_dir().join(format!("cmux-client-session-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir(&dir).unwrap();
     let file = dir.join("token");
     let args = [
@@ -2392,8 +2393,9 @@ async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
             0o600
         );
     }
+    assert_eq!(json_stdout(&out)["ssh"]["host"], "ssh.example.test");
     let refused = cli(&server, &args).await;
-    assert_ne!(refused.code, exit::OK);
+    assert_eq!(refused.code, exit::USAGE, "{}", refused.stderr);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "one-time-secret");
     Mock::given(method("GET"))
         .and(path(format!("/v1/vms/{VM_ID}/client-sessions")))
@@ -2427,4 +2429,97 @@ async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(out.stdout.contains(session) && out.stdout.contains(VM_ID));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn client_session_create_json_carries_the_token_and_ssh_line() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000001";
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .and(body_json(json!({})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": session, "vmId": VM_ID, "providerVmId": "provider-vm",
+            "linuxUser": "ubuntu", "token": "one-time-secret",
+            "apiBaseUrl": "https://api.example.test", "createdAt": "now",
+            "ssh": {"host": "ssh.example.test", "user": "provider-vm+ubuntu"},
+            "future": "dropped"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "client-session", "create", VM_ID]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    let body = json_stdout(&out);
+    assert_eq!(body["token"], "one-time-secret");
+    assert_eq!(body["sshLine"], "provider-vm+ubuntu@ssh.example.test");
+    assert_eq!(body["apiBaseUrl"], "https://api.example.test");
+    assert!(body.get("future").is_none());
+}
+
+#[tokio::test]
+async fn client_session_create_hints_a_revoke_only_when_a_session_may_exist() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag": "NotFound", "message": "VM not found"})),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .respond_with(
+            ResponseTemplate::new(503)
+                .set_body_json(json!({"_tag": "ServiceUnavailable", "message": "try again"})),
+        )
+        .mount(&server)
+        .await;
+    let missing = cli(&server, &["client-session", "create", VM_ID]).await;
+    assert_eq!(missing.code, exit::NOT_FOUND, "{}", missing.stderr);
+    assert!(!missing.stderr.contains("revoke"), "{}", missing.stderr);
+    let unavailable = cli(&server, &["client-session", "create", VM_ID]).await;
+    assert_eq!(
+        unavailable.code,
+        exit::SERVICE_UNAVAILABLE,
+        "{}",
+        unavailable.stderr
+    );
+    assert!(
+        unavailable.stderr.contains("revoke"),
+        "{}",
+        unavailable.stderr
+    );
+}
+
+#[tokio::test]
+async fn client_session_revoke_at_a_terminal_needs_the_typed_session_id() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000002";
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions/{session}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let args = ["client-session", "revoke", VM_ID, session];
+    let mut wrong = Tty {
+        answer: "yes",
+        asked: 0,
+    };
+    let refused = cli_with_prompt(&args, &env, &mut wrong).await;
+    assert_eq!(refused.code, exit::CANCELLED, "{}", refused.stderr);
+    assert_eq!(wrong.asked, 1);
+    let mut typed = Tty {
+        answer: session,
+        asked: 0,
+    };
+    let revoked = cli_with_prompt(&args, &env, &mut typed).await;
+    assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
+    assert_eq!(typed.asked, 1);
 }

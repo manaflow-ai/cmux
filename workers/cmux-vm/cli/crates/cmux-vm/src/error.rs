@@ -108,7 +108,10 @@ impl CliError {
             "VM {vm_id} {operation} failed: {}; next: `{next}`",
             self.message
         );
-        if operation == "client-session create" {
+        // A 4xx means the server refused before minting; any other failure
+        // (network, 5xx, a cut-off body) may have minted a session.
+        let refused = matches!(self.status, Some(400..=499));
+        if operation == "client-session create" && !refused {
             self.message
                 .push_str("; revoke any newly created session before retrying");
         }
