@@ -248,7 +248,9 @@ struct ZoomRenderMotionTests {
             #expect(screen.hasMotion, "the zoom does not spring on the CPU")
             #expect(screen.zoomMotion.pane == "p1" && !screen.zoomMotion.rendersOnServer)
             #expect(screen.renderSpringsInFlight == 0)
-            #expect(try grid.host("p1").layer?.animationKeys()?.isEmpty ?? true, "p1 has render-server springs with the switch off")
+            // Out of the #expect: a closure whose only `try` sits in a macro is inferred not to throw.
+            let p1 = try grid.host("p1")
+            #expect(p1.layer?.animationKeys()?.isEmpty ?? true, "p1 has render-server springs with the switch off")
             for _ in 0..<480 where !grid.root.advanceFrame(1.0 / 120) { break }
             #expect(!screen.hasMotion && screen.zoomMotion.pane == nil && screen.covered.isEmpty, "the CPU zoom did not land")
         }
