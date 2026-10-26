@@ -1,8 +1,8 @@
 //! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
-//! HOME reconstruction and mount-alias rejection land separately; this staged
-//! plan must not enable Linux remote spawns until those layers are installed.
+//! Mount-alias rejection lands separately; this staged plan must not enable
+//! Linux remote spawns until that layer is installed.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::ffi::CString;
@@ -15,6 +15,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
+
+/// HOME-relative Linux additions; the shared deny list comes from Seatbelt.
+pub(crate) const LINUX_READ_DENIES: &[&str] = &[
+    ".local/share/keyrings",
+    ".password-store",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/BraveSoftware",
+    ".pki",
+    ".claude/.credentials.json",
+];
+
+mod home;
+use home::{denied_paths, home_view};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -223,7 +238,7 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
-/// No spawn is wired yet; HOME reconstruction and alias checks are required.
+/// No spawn is wired yet; alias checks are still required.
 /// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
@@ -238,12 +253,16 @@ pub(crate) fn plan(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
+    let (denied, outside) = denied_paths(&paths.home, read_denies)?;
     for root in writable {
-        if read_denies.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
+        if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
-    bwrap_args(paths, (outside_view(read_denies, &paths.home)?, Vec::new()), cmd_prefix)
+    let mut home = home_view(&paths.home, &denied)?;
+    let outside = outside_view(&outside, &paths.home)?;
+    home.0.splice(0..0, outside);
+    bwrap_args(paths, home, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,6 +369,7 @@ pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs;
 
     struct Fixture(PathBuf);
@@ -427,6 +447,115 @@ mod tests {
                 false
             }
         }
+    }
+
+    #[test]
+    fn regression_home_rebuild_omits_absent_and_nested_denies() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        symlink(".ssh/aws", p.home.join(".aws")).unwrap();
+        symlink("absent-target", p.home.join("ordinary-link")).unwrap();
+        fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
+        let resolved_claude = home::resolve_missing(&p.home.join(".claude")).unwrap();
+        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
+        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
+        let (denied, outside) =
+            denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        assert!(outside.is_empty());
+        let (view, _fds) = home_view(&p.home, &denied).unwrap();
+        let home = p.home.to_str().unwrap();
+        let claude = p.home.join(".claude").to_str().unwrap().to_owned();
+        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]), "view={view:?} denied={denied:?}");
+        assert!(
+            view.windows(2).any(|w| w == ["--tmpfs", &claude]),
+            "view={view:?} denied={denied:?}"
+        );
+        assert!(
+            !view.iter().any(|a| a.ends_with("/.ssh")
+                || a.ends_with("/.ssh/aws")
+                || a.ends_with("/.aws")
+                || a.ends_with("/.credentials.json")),
+            "view={view:?} denied={denied:?}"
+        );
+        assert!(
+            view.windows(3).any(|w| w
+                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()]),
+            "view={view:?} denied={denied:?}"
+        );
+        let mounts: Vec<_> = view.windows(2).filter(|w| w[0] == "--tmpfs").map(|w| &w[1]).collect();
+        assert_eq!(
+            mounts.len(),
+            mounts.iter().collect::<BTreeSet<_>>().len(),
+            "view={view:?} denied={denied:?}"
+        );
+        let (args, _fds) = plan(&p, &[], &strings(&["true"])).unwrap();
+        let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
+        let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
+        assert!(
+            rebuilt < writable,
+            "HOME must be rebuilt before writable roots return: view={args:?} denied={denied:?}"
+        );
+    }
+
+    #[test]
+    fn regression_external_secret_symlink_is_refused() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::write(f.0.join("secret"), "credential").unwrap();
+        std::os::unix::fs::symlink(f.0.join("secret"), p.home.join(".netrc")).unwrap();
+        let error = denied_paths(&p.home, &[p.home.join(".netrc")]).unwrap_err();
+        assert!(error.contains("outside HOME"), "{error}");
+    }
+
+    /// Both the ready handshake and child lifetime end at a 20-second
+    /// deadline; kill_on_drop stops the child if either deadline expires.
+    #[tokio::test]
+    async fn regression_real_bwrap_hides_credentials_created_during_session() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        if !real_probe() {
+            return;
+        }
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        std::os::unix::fs::symlink(".ssh/aws", p.home.join(".aws")).unwrap();
+        let credential = p.home.join(".claude/.credentials.json");
+        let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
+        let command =
+            strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
+        let (args, fds) = plan(&p, &[p.home.join(".ssh"), p.home.join(".aws")], &command).unwrap();
+        let mut command = tokio::process::Command::new("/usr/bin/bwrap");
+        inherit_fds(&mut command, &fds);
+        let mut child = command
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        tokio::time::timeout(Duration::from_secs(20), stdout.read_line(&mut ready))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        fs::write(credential, "credential-created-after-sandbox-start").unwrap();
+        child.stdin.take().unwrap().write_all(b"go\n").await.unwrap();
+        let output = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprintln!("passed: credentials created during a session stay hidden");
     }
 
     fn profile_read_denies(p: &Paths) -> Vec<PathBuf> {
@@ -662,7 +791,7 @@ mod tests {
         fs::write(secret.join("marker"), "denied-marker").unwrap();
         let command =
             strings(&["/bin/sh", "-c", "cat -- \"$1/marker\"", "swap", allowed.to_str().unwrap()]);
-        let (args, fds) = plan(&p, &[secret.clone()], &command).unwrap();
+        let (args, fds) = plan(&p, std::slice::from_ref(&secret), &command).unwrap();
         fs::rename(&allowed, f.0.join("held-allowed")).unwrap();
         std::os::unix::fs::symlink(&secret, &allowed).unwrap();
         let mut child = tokio::process::Command::new("/usr/bin/bwrap");
