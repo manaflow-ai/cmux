@@ -19,6 +19,12 @@ import CmuxNextCompat
 /// that supersedes everything dropped. Lifecycle events and transaction
 /// echoes (which settle intents and waiters) survive the collapse; every
 /// other event is dropped until the next `take()`.
+///
+/// Cause (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app side"): an event
+/// that replaces others carries the highest cause of them all (person > frontend > program >
+/// automation), so automation never hides a person's change behind it. The `.overflow` marker,
+/// which becomes one resync, carries the highest cause of everything the collapse dropped, with
+/// no floor: a flood of automation events resyncs as automation.
 final class EventInbox: Sendable {
     fileprivate struct State {
         /// Buffered events in order; nil where a newer event of the same coalescing key replaced one.
@@ -32,6 +38,8 @@ final class EventInbox: Sendable {
         var framePending = false
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
+        /// The highest cause of the events the collapse dropped (the resync's), from the lowest.
+        var collapseCause = ObservationCause.automation
         var echoes: Set<ClientTransactionID> = []
     }
 
@@ -52,16 +60,18 @@ final class EventInbox: Sendable {
                 Self.keep(envelope, in: &state)
             } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
                 // The newest value of the same field of the same surface: the older one never applies.
-                state.events.modify(checked: old) { $0 = nil }
+                var replaced = envelope.cause
+                state.events.modify(checked: old) { replaced = $0?.cause ?? replaced; $0 = nil }
                 state.coalesced += 1
                 state.latest[key] = state.events.count
-                state.events.append(envelope)
+                state.events.append(envelope.raisingCause(to: replaced))
             } else if state.live >= limit {
                 let buffered = state.events.compactMap { $0 }
                 state.events = [DaemonEventEnvelope(sequence: envelope.sequence, event: .overflow("app event inbox exceeded \(limit) events"))]
                 state.live = 1
                 state.latest.removeAll(keepingCapacity: true)
                 state.collapsed = true
+                state.collapseCause = .automation
                 for old in buffered { Self.keep(old, in: &state) }
                 Self.keep(envelope, in: &state)
             } else {
@@ -91,46 +101,52 @@ final class EventInbox: Sendable {
         case .terminalRegistryChanged:
             // Only an invalidation: keep the newest from each original control
             // connection. A replacement source must not inherit the old stamp.
-            state.removeAll {
+            state.replace(with: envelope) {
                 if case .terminalRegistryChanged = $0.event {
                     return $0.sourceID == envelope.sourceID && $0.connectionSerial == envelope.connectionSerial
                 }
                 return false
             }
-            state.append(envelope)
         case .agentChanged(let status):
             // Agent state is not in the snapshot either (cx-ag5.6.8). Each event is the whole state
             // of one surface, so a collapsed inbox keeps only the newest one per surface.
-            state.removeAll { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
-            state.append(envelope)
+            state.replace(with: envelope) { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
         case .notification:
             // Its text is not in the snapshot either (`outlivesSnapshot`).
             state.append(envelope)
         case .agentPresenceChanged(let presence):
-            state.removeAll {
+            state.replace(with: envelope) {
                 if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
             }
-            state.append(envelope)
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
             // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
             state.append(envelope)
         default:
+            // Dropped: the resync stands for it.
+            state.collapseCause = max(state.collapseCause, envelope.cause)
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
-            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
+            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction), cause: envelope.cause))
         }
     }
 
     /// Takes everything buffered and clears the pending-frame flag.
     func take() -> [DaemonEventEnvelope] {
         state.withLock { state in
+            let collapseCause = state.collapsed ? state.collapseCause : nil
             state.framePending = false
             state.collapsed = false
+            state.collapseCause = .automation
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
             defer { state.events.removeAll(keepingCapacity: true) }
-            return state.events.compactMap { $0 }
+            guard let collapseCause else { return state.events.compactMap { $0 } }
+            return state.events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
+                guard let envelope, case .overflow = envelope.event else { return envelope }
+                return DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: envelope.sourceID,
+                                           cause: collapseCause)
+            }
         }
     }
 
@@ -147,10 +163,17 @@ extension EventInbox.State {
         live += 1
     }
 
-    /// Removes the live events `predicate` matches (collapsed mode).
-    mutating func removeAll(where predicate: (DaemonEventEnvelope) -> Bool) {
-        events = events.compactMap { $0 }.filter { !predicate($0) }
+    /// Removes the live events `predicate` matches and appends `envelope` in their place, with the
+    /// highest cause of them all (collapsed mode).
+    mutating func replace(with envelope: DaemonEventEnvelope, matching predicate: (DaemonEventEnvelope) -> Bool) {
+        var cause = envelope.cause
+        events = events.compactMap { $0 }.filter { held in
+            guard predicate(held) else { return true }
+            cause = max(cause, held.cause)
+            return false
+        }
         live = events.count
+        append(envelope.raisingCause(to: cause))
     }
 }
 

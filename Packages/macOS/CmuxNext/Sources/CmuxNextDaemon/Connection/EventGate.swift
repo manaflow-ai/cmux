@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Holds events that arrive before the handshake finishes, then releases
 /// them after the `.connected` marker. Runs on the reader thread.
@@ -45,16 +46,28 @@ public struct DaemonEventEnvelope: Sendable, Hashable {
     public var connectionSerial: UInt64 { sequence >> 40 }
     public let sequence: UInt64
     public let event: DaemonEvent
+    /// Who caused the event, for scheduling only (``DaemonEvent/cause(wire:recorded:)``):
+    /// `program` for synthetic events and an old daemon's.
+    public let cause: ObservationCause
 
     /// Preserves an event's original ordering and source identity.
     /// - Parameters:
     ///   - sequence: The connection serial and event index encoded by the transport.
     ///   - event: The decoded native event.
     ///   - sourceID: The emitting connection instance; nil for legacy or synthetic events.
-    public init(sequence: UInt64, event: DaemonEvent, sourceID: UUID? = nil) {
+    ///   - cause: Who caused the event.
+    public init(sequence: UInt64, event: DaemonEvent, sourceID: UUID? = nil, cause: ObservationCause = .program) {
         self.sourceID = sourceID
         self.sequence = sequence
         self.event = event
+        self.cause = cause
+    }
+
+    /// This envelope with its cause raised to `other` when that is higher: what an inbox merge or a
+    /// collapse keeps for the events it stands for.
+    public func raisingCause(to other: ObservationCause) -> DaemonEventEnvelope {
+        guard other > cause else { return self }
+        return DaemonEventEnvelope(sequence: sequence, event: event, sourceID: sourceID, cause: other)
     }
 
     static let lastIndex: UInt64 = (1 << 40) - 1
