@@ -36,6 +36,18 @@ text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
       f"the dev dispatcher must run every five minutes, got {schedule}")
+# The dispatcher failed on its first read whenever the shared GITHUB_TOKEN
+# budget was spent (2026-10-26 15:47Z, 16:03Z): reads and the publisher dispatch
+# take the manaflow-glaeda-route App's budget, the DEV build dispatch stays on
+# GITHUB_TOKEN (cmux-next.yml routes re-runs on its triggering actor).
+check("private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in text and "APP_TOKEN: ${{ steps.app-token.outputs.token }}" in text,
+      "the dispatcher must read with the manaflow-glaeda-route App token when it can mint one")
+check("github.rest.git.getRef" not in text and "github.rest.actions.list" not in text,
+      "every dispatcher read must go through the App token client")
+check(re.search(r"await github\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: workflow,", text) is not None,
+      "the DEV build dispatch must stay on GITHUB_TOKEN")
+check(re.search(r"await api\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: 'cmux-next-dev-daily.yml'", text) is not None,
+      "the publisher dispatch must use the App token client")
 check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
