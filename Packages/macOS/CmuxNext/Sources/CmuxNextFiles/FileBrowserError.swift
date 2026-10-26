@@ -6,6 +6,8 @@ public enum FileBrowserError: Error, Sendable, Equatable {
     case unreadable(URL, Int32)
     /// A name is not allowed: empty, `.`/`..`, or with `/` or NUL.
     case invalidName(String)
+    /// Rename Items' Format start number is so large that an item's number does not fit in an `Int`.
+    case renameNumberTooLarge
     /// An item with the name exists where the operation would put one.
     case exists(URL)
     /// The item is gone.

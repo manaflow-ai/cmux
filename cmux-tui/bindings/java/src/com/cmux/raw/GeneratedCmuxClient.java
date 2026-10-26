@@ -59,6 +59,61 @@ public abstract class GeneratedCmuxClient {
         return AgentCLIJobResolution.fromWire(result);
     }
 
+    public final Object agentSessionAttach(AgentSessionAttachRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_ATTACH, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final AgentSessionCancelResult agentSessionCancel(AgentSessionCancelRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_CANCEL, request.toWire());
+        return AgentSessionCancelResult.fromWire(result);
+    }
+
+    public final AgentSessionChildrenResult agentSessionChildren(AgentSessionChildrenRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_CHILDREN, request.toWire());
+        return AgentSessionChildrenResult.fromWire(result);
+    }
+
+    public final AgentSessionDetachResult agentSessionDetach(AgentSessionDetachRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_DETACH, request.toWire());
+        return AgentSessionDetachResult.fromWire(result);
+    }
+
+    public final Object agentSessionEvents(AgentSessionEventsRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_EVENTS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final AgentSessionMediaResult agentSessionMedia(AgentSessionMediaRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_MEDIA, request.toWire());
+        return AgentSessionMediaResult.fromWire(result);
+    }
+
+    public final Object agentSessionObserve(AgentSessionObserveRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_OBSERVE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object agentSessionPermission(AgentSessionPermissionRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_PERMISSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final AgentSessionPromptResult agentSessionPrompt(AgentSessionPromptRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_PROMPT, request.toWire());
+        return AgentSessionPromptResult.fromWire(result);
+    }
+
+    public final AgentSessionStartResult agentSessionStart(AgentSessionStartRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_START, request.toWire());
+        return AgentSessionStartResult.fromWire(result);
+    }
+
+    public final Object agentSessionTrust(AgentSessionTrustRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_SESSION_TRUST, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);

@@ -50,6 +50,17 @@ public:
     [[nodiscard]] Result<AgentCliIntentsSettleResult> agent_cli_intents_settle(const AgentCliIntentsSettleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentCliJobReceipt> agent_cli_update_job(const AgentCliUpdateJobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentCliJobResolution> agent_cli_update_job_resolve(const AgentCliUpdateJobResolveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_attach(const AgentSessionAttachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionCancelResult> agent_session_cancel(const AgentSessionCancelRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionChildrenResult> agent_session_children(const AgentSessionChildrenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionDetachResult> agent_session_detach(const AgentSessionDetachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_events(const AgentSessionEventsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionMediaResult> agent_session_media(const AgentSessionMediaRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_observe(const AgentSessionObserveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionAcpmuxReply> agent_session_permission(const AgentSessionPermissionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPromptResult> agent_session_prompt(const AgentSessionPromptRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionStartResult> agent_session_start(const AgentSessionStartRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionAcpmuxReply> agent_session_trust(const AgentSessionTrustRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> apps_agent_inventory_changed(const AppsAgentInventoryChangedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> apps_dispatch(const AppsDispatchRequest& request, RequestOptions options = {});
