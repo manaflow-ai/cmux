@@ -56,6 +56,16 @@ installation directory to that service's PATH as well; the shell export above
 affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
+`--listen` applies to that run only. If you use a port other than 47811 (for
+example because another daemon already holds it), also set `"websocket":
+{"listen": "127.0.0.1:PORT"}` in `~/.acpmux/config.json` so `acpmux daemon
+start` and later restarts keep it, and give the same port in the peer URL below.
+
+The daemon refuses a home or log that other users can write. If your umask
+makes new files group-writable, run `chmod 700 ~/.acpmux` and
+`chmod 600 ~/.acpmux/daemon.log` before starting it, and keep the log
+owner-only in your service supervisor.
+
 Back on your Mac, use an SSH alias that reaches your own remote account:
 
 ```sh
@@ -84,11 +94,10 @@ wins over `ACPMUX_HOME`, so a shell opened inside another agent can report that
 agent's live daemon and make `daemon start` a no-op:
 
 ```sh
-env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/remote-ergo-walk/client acpmux daemon status
+env -u ACPMUX_SOCKET ACPMUX_HOME="$HOME/acpmux-test" acpmux daemon status
 ```
 
-Inspect the selected home and socket before shutting anything down. The walk
-harness removes inherited `ACPMUX_*` variables after each command.
+Inspect the selected home and socket before shutting anything down.
 
 An SSH URL can include a user, such as `ssh://me@host`. An explicit URL port
 selects the remote **acpmux listener** (default 47811), not the SSH server port;
@@ -100,14 +109,18 @@ acpmux reads the peer's authentication through SSH; you do not need to paste
 its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
 
-`host doctor` without `--harness` skips harness checks; a healthy peer does not
-prove that an agent can run. Its `--harness ID` option checks a named harness
-profile, not the PATH-discovered harness alone. Verify the remote harness with
+Run `host doctor` from your Mac against the SSH alias; on the host itself, use
+`acpmux daemon status` and `acpmux daemon harnesses`. `host doctor` without
+`--harness` skips harness checks; a healthy peer does not prove that an agent
+can run. Its `--harness ID` option checks a named harness profile, not the
+PATH-discovered harness alone. Verify the remote harness with
 `acpmux daemon harnesses` on that host and a real session prompt.
 
-`host enroll` installs the invoking binary too. Use it only for a compatible
-remote OS and architecture. For a Linux host reached from a Mac, use the Linux
-installation and `host add` steps above instead.
+`host enroll`, `host setup` and `host update` install the invoking binary. Use
+them only for a compatible remote OS and architecture. For a Linux host reached
+from a Mac, use the Linux installation and `host add` steps above instead, and
+update that host by rebuilding there, even when `host ls` or `host doctor`
+reports a different build and suggests `acpmux host update`.
 
 ## Work with a remote session
 
@@ -117,6 +130,21 @@ For a fresh host, merge `"webRoots": ["/home/me/project"]` into the existing
 `~/.acpmux/config.json`, preserving its token and other fields, then restart your
 daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
+
+A prompt that makes the agent run a tool (read files, run a command) waits for
+your approval in cmux NEXT on your Mac, on the chat's pending-permission card.
+Use the CLI bundled with the app (its default home), so the app and the CLI
+share one daemon and the app shows the remote chat; open it with
+`cmux agent open-tab` (below) or by passing `--group NAME` to
+`acpmux new --host`.
+`acpmux session allow` is refused for remote sessions, even though `acpmux
+pending` prints it; `session deny` and `session cancel` work. Starting on the
+host with a mode that never asks (`--mode read-only`) is refused too unless a
+person starts it in cmux NEXT there or approves a preset for it. A prompt that
+needs no tools completes from the CLI alone.
+
+`--tag` and `--host` with `--group` need an acpmux built from feat-cmux-next on
+2026-10-26 or later; check that `acpmux new --help` lists them.
 
 ```sh
 acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
@@ -141,10 +169,6 @@ acpmux send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use to
 answers `unknown variant session/new` is a protocol mismatch; it is not repaired
 by logging in. Use the bridge through a real `acpmux new --host` session.
 
-If a prompt needs permission, this build requires approval from the cmux Mac
-app's pending-permission card. `acpmux session allow` is intentionally refused
-for this remote route; `session deny` and `session cancel` remain available.
-
 Creation labels are repeatable and are applied before the session is listed:
 `acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
 If a remote policy, mode or folder check refuses a start, the JSON error's
@@ -152,7 +176,9 @@ If a remote policy, mode or folder check refuses a start, the JSON error's
 the prompt and launcher options. A `--prompt-file` is piped through stdin so
 the file does not need to exist on the remote host.
 
-Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
+Replace `codex` with an installed harness, such as `claude`. A remote-started
+Claude session needs the host's sandbox, which acpmux has only on macOS so far:
+on a Linux host, `acpmux new --host` refuses `-m claude`. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
