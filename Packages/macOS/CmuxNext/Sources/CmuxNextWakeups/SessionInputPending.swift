@@ -36,7 +36,7 @@ import CoreGraphics
 ///
 /// ```swift
 /// // The app:
-/// let budget = MainFrameBudget(input: SessionInputPending(), signposts: true)
+/// let budget = MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true)
 /// // A test, with its own window-server times and dispatch record:
 /// let events = FakeSessionEvents()
 /// let input = SessionInputPending(events: events)
@@ -115,7 +115,7 @@ public final class SessionInputPending: InputPendingSource {
     ///   - events: The window server and AppKit (tests: a fake that reports its own event times,
     ///     dispatches, pointer and refresh interval).
     ///   - latching: How long a dispatched scroll keeps its sequence open.
-    public init(events: any SessionInputEvents = WindowServerInputEvents(), latching: ScrollLatching = ScrollLatching()) {
+    public init(events: any SessionInputEvents, latching: ScrollLatching = ScrollLatching()) {
         self.events = events
         self.latching = latching
     }
@@ -184,7 +184,7 @@ public final class SessionInputPending: InputPendingSource {
         let stale = staleAfter
         // One query: nothing generated after the last dispatched event, or nothing recent, means
         // nothing that counts is on its way either (the event queue is first in, first out).
-        // Events a tracking loop takes (a drag, a menu) never reach the monitor, so during one
+        // Events a tracking loop takes (a drag, a menu) never reach the input tap, so during one
         // this answers "maybe" and the per-type queries decide.
         guard Self.isPending(age: events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime, staleAfter: stale) else {
             undispatchedScrollSeen = nil

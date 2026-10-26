@@ -1,15 +1,22 @@
 public import AppKit
+public import CmuxNextInputCore
 
 /// The production ``SessionInputEvents``: `CGEventSource`'s combined session state, `NSApp`, the
-/// key window's screen, the window under the pointer, and one local event monitor for the input
-/// events AppKit dispatches.
+/// key window's screen, the window under the pointer, and one subscription to the app's input tap
+/// for the input events AppKit dispatches.
 @MainActor
 public final class WindowServerInputEvents: SessionInputEvents {
-    private var monitor: Any?
+    /// The app's input tap (`InputEventTap` in CmuxNextInput, passed by the composition root).
+    private let input: any InputObserving
+    private var subscription: InputSubscription?
     /// `kCGAnyInputEventType` (`~0`, a C macro Swift does not import).
     private let anyInput = CGEventType(rawValue: ~0)
 
-    public init() {}
+    /// - Parameter input: The app's input tap: this observes its keys, modifier changes, mouse
+    ///   buttons, pointer motion and scrolls.
+    public init(input: any InputObserving) {
+        self.input = input
+    }
 
     public func secondsSinceLastInput() -> TimeInterval {
         // Without the any-input type the answer is "just now", which sends the caller to the
@@ -36,28 +43,55 @@ public final class WindowServerInputEvents: SessionInputEvents {
     }
 
     public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) -> Bool {
-        guard monitor == nil else { return true }
-        guard NSApp != nil else { return false }
-        let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
-                                           .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged,
-                                           .otherMouseDragged, .scrollWheel]
-        monitor = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
-            // main-proof: AppKit calls local monitors on the main thread, inside event dispatch
-            MainActor.assumeIsolated { dispatched(SessionInputPending.Dispatched(timestamp: event.timestamp, kind: kind(of: event))) }
-            return event
+        guard subscription == nil else { return true }
+        subscription = input.observe(SessionInputPending.Dispatched.observedClasses) { record in
+            dispatched(SessionInputPending.Dispatched(record))
         }
         return true
     }
 }
 
-/// What ``SessionInputPending`` needs to know about a dispatched event.
-private func kind(of event: NSEvent) -> SessionInputPending.Dispatched.Kind {
-    switch event.type {
-    case .keyDown, .rightMouseDown, .otherMouseDown: .keyOrClick
-    case .leftMouseDown: .leftMouseDown
-    case .leftMouseUp: .leftMouseUp
-    case .leftMouseDragged: .leftDrag
-    case .scrollWheel: .scroll(phase: event.phase, momentum: event.momentumPhase)
-    default: .other
+extension SessionInputPending.Dispatched {
+    /// The input the pending-input check follows: keys, modifier changes, mouse buttons, pointer
+    /// motion and scrolls (no trackpad gestures).
+    public static let observedClasses: InputEventClasses = [.key, .flags, .button, .pointerMove, .drag, .scroll]
+
+    // perf-hot: 100ns main-turn (every key, button, move, drag and scroll the app dispatches)
+    /// What ``SessionInputPending`` needs to know about the dispatched event `record`.
+    public init(_ record: InputEventRecord) {
+        self.init(timestamp: record.timestamp, kind: Kind(record))
+    }
+}
+
+extension SessionInputPending.Dispatched.Kind {
+    /// The kind of the dispatched event `record`.
+    public init(_ record: InputEventRecord) {
+        switch record.type {
+        case .keyDown, .rightMouseDown, .otherMouseDown: self = .keyOrClick
+        case .leftMouseDown: self = .leftMouseDown
+        case .leftMouseUp: self = .leftMouseUp
+        case .leftMouseDragged: self = .leftDrag
+        case .scrollWheel:
+            let phases = Self.phases(record.scrollPhase)
+            self = .scroll(phase: phases.phase, momentum: phases.momentum)
+        case .keyUp, .flagsChanged, .rightMouseUp, .otherMouseUp, .mouseMoved, .rightMouseDragged, .otherMouseDragged,
+             .magnify, .rotate, .swipe, .smartMagnify, .pressure:
+            self = .other
+        }
+    }
+
+    /// The gesture and momentum phases (`NSEvent.phase`, `NSEvent.momentumPhase`) of a scroll whose
+    /// record says `phase`, as ``SessionInputPending/ScrollLatching`` reads them.
+    static func phases(_ phase: InputScrollPhase) -> (phase: NSEvent.Phase, momentum: NSEvent.Phase) {
+        switch phase {
+        case .none: ([], [])
+        case .mayBegin: (.mayBegin, [])
+        case .began: (.began, [])
+        case .changed: (.changed, [])
+        case .ended: (.ended, [])
+        case .cancelled: (.cancelled, [])
+        case .momentum: ([], .changed)
+        case .momentumEnded: ([], .ended)
+        }
     }
 }

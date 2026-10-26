@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
@@ -56,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
     var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
+    private let inputTap: InputEventTap  // the one input tap (p04-input.md 3 (A)): pending input, control and services observe it
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
@@ -71,10 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
          startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment
-        self.launchReads = launchReads
-        self.daemonPrestart = daemonPrestart
-        self.startupTrace = startupTrace
+        (self.environment, self.launchReads) = (environment, launchReads)
+        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
         // One display link per display, shared by the app, window and budgeted frame schedulers.
@@ -86,15 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startup.whenReached(.revealed) { DebugTimings.markLaunch("launch.revealed") }
         startup.whenReached(.settled) { DebugTimings.markLaunch("launch.settled") }
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
-        launchReveal = reveal
-        launchSettle = LaunchSettle(reveal: reveal)
+        (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal))
         startupReferences = StartupReferences(startup: startup, reveal: reveal)
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
-                                         displays: displays, startup: startup)
+        let inputTap = InputEventTap()
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
+                                                                 starvation: starvation), displays: displays, startup: startup)
         starvation.watch(mainWork.frames, FrameScheduler.app)
-        self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        (self.mainWork, self.inputTap) = (mainWork, inputTap)
+        control = AppControl(mainWork: mainWork, input: inputTap)
         super.init()
     }
 
@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // The settle references, one closure each, before the daemon starts and the windows restore

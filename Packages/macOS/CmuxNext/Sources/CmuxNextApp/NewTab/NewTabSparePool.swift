@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -71,7 +72,7 @@ final class NewTabSparePool {
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
     private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
-    private var inputMonitor: Any?
+    private var inputSubscription: InputSubscription?  // keys, clicks and scrolls while a warm waits for quiet input
     /// The app's memory pressure events; a warning or critical level drops the spare.
     private let memoryPressure: MemoryPressureEvents
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
@@ -288,11 +289,9 @@ final class NewTabSparePool {
     private func scheduleWarm() {
         guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
-        if inputMonitor == nil {
-            inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
-                [weak self] event in
+        if inputSubscription == nil {
+            inputSubscription = services.inputTap.observe(types: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) { [weak self] _ in
                 self?.armWarmTimer()
-                return event
             }
         }
         armWarmTimer()
@@ -317,8 +316,7 @@ final class NewTabSparePool {
     }
 
     private func warmNow() {
-        if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
-        inputMonitor = nil
+        inputSubscription = nil
         if let view = unparked, let content = target?.contentView {
             park(in: content)
             view.frame = parking.bounds
