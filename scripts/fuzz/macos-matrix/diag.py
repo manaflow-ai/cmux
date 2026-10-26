@@ -15,10 +15,12 @@ Malloc and sanitizer variants run with Chromium off. In-process CEF replaces the
 zone with PartitionAlloc, which these checks do not instrument: they would cover nothing or report
 false bad frees (plans/cmux-next/chrome-parity/p10-stability.md, risk 8). vm.sh removes the CEF
 runtime from the guest copy of the app (CEFRuntimeLayout then finds none and there is no pack to
-download) and the app opens WebKit tabs. After the launch and at the end the run records the
-app's malloc zones in registration order (zones[0] is the default zone; malloc-zones.c reads them
-with malloc_get_all_zones) and whether the CEF framework is mapped. A Chromium-off run where
-PartitionAlloc holds a zone, or the framework is mapped, is invalid: no verdict.
+download), the app opens WebKit tabs, and it skips its early malloc zone
+(CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE), so the check's zone stays the default one. After the launch
+and at the end the run records the app's malloc zones in registration order (zones[0] is the
+default zone; malloc-zones.c reads them with malloc_get_all_zones) and whether the CEF framework
+is mapped. A Chromium-off run where PartitionAlloc holds a zone, the early zone is the default,
+or the framework is mapped, is invalid: no verdict.
 
 vm.sh reads a variant's bundle work with `diag.py info NAME`; fuzz.py runs the rest.
 """
@@ -43,12 +45,14 @@ CHROMIUM_RUNTIME = ("Contents/Frameworks/Chromium Embedded Framework.framework",
                     "Contents/Resources/cef-runtime.json")
 CHROMIUM_IMAGE = "Chromium Embedded Framework"
 PARTITION_ALLOC_ZONE = "PartitionAlloc"
-# CmuxNextMallocZone/early_zone.c (Chromium's EarlyMallocZoneRegistration): a forwarding zone.
+# CmuxNextMallocZone/early_zone.c (Chromium's EarlyMallocZoneRegistration): a forwarding zone in
+# front of the zone that was the default before main(). Chromium-off runs skip it with this variable.
 EARLY_ZONE = "DelegatingDefaultZoneForPartitionAlloc"
-# The first line of one report of each kind.
+SKIP_EARLY_ZONE = "CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE"
 # The launch work that could map Chromium (its warm start follows the first frame) is done this
 # long after the first ping; the launch snapshot waits for it.
 LAUNCH_SETTLE_S = 5
+# The first line of one report of each kind.
 MARKERS = {"mtc": "Main Thread Checker:", "asan": "ERROR: AddressSanitizer", "tsan": "WARNING: ThreadSanitizer",
            "ubsan": "runtime error:"}
 
@@ -65,8 +69,7 @@ class Diag:
     chromium_off: bool = False
     # The sanitizer app's bundle id suffix (reload.sh --config asan|tsan|ubsan).
     bundle_suffix: str = ""
-    # The factor on --hang-ms and the launch deadline, as Chromium's kTimeoutMultiplier scales test
-    # timeouts under sanitizers (base/test/test_timeouts.cc).
+    # The factor on --hang-ms and the launch deadline (DIAGS says where each value comes from).
     slowdown: int = 1
     # MARKERS key of the reports this variant collects, "" for none (a crash is an .ips either way).
     report: str = ""
@@ -78,14 +81,20 @@ def _sanitizer(name: str, options: str, slowdown: int) -> Diag:
 
 
 DIAGS = {d.name: d for d in (
+    # gmalloc and scribble: our estimates, not measured yet and not Chromium's (it has no such
+    # variant). Guard Malloc maps pages for every allocation and unmaps them on free (libgmalloc(3));
+    # MallocScribble writes every allocated and freed byte. A launch never waits past the run's end.
     Diag("gmalloc", dyld=("/usr/lib/libgmalloc.dylib",), chromium_off=True, slowdown=10),
     Diag("scribble", env={"MallocScribble": "1", "MallocGuardEdges": "1"}, chromium_off=True, slowdown=2),
+    # ProbGuard guards a small sample of allocations: no slowdown.
     Diag("probguard", env={"MallocProbGuard": "1"}, chromium_off=True),
     Diag("mtc", host_dylib="libMainThreadChecker.dylib", report="mtc"),
     Diag("coop-strict", env={"LIBDISPATCH_COOPERATIVE_POOL_STRICT": "1"}),
+    # Chromium's kTimeoutMultiplier off Windows (base/test/test_timeouts.cc): 2 for ASan and TSan;
+    # UBSan is not in its list (1).
     # ASan stops at its first report (abort_on_error: the .ips names the run); TSan and UBSan go on.
     _sanitizer("asan", "abort_on_error=1:halt_on_error=1", 2),
-    _sanitizer("tsan", "halt_on_error=0:second_deadlock_stack=1", 3),
+    _sanitizer("tsan", "halt_on_error=0:second_deadlock_stack=1", 2),
     _sanitizer("ubsan", "halt_on_error=0:print_stacktrace=1:report_error_type=1", 1),
 )}
 
@@ -105,6 +114,7 @@ def launch_env(d: Diag, dylibs: list[str]) -> dict[str, str]:
         env["DYLD_INSERT_LIBRARIES"] = ":".join(inserted)
     if d.chromium_off:
         env["CMUX_NEXT_CONFIG_FILE"] = CONFIG_FILE  # browser.defaultEngine webkit
+        env[SKIP_EARLY_ZONE] = "1"
     return env
 
 
@@ -133,10 +143,9 @@ def parse_zones(stdout: str) -> dict:
             continue
         if isinstance(value, dict) and isinstance(value.get("zones"), list):
             zones = [str(z) for z in value["zones"]]
-            # The early zone forwards every call to the zone after it: that one does the work.
-            working = [z for z in zones if z != EARLY_ZONE]
+            # Only the order is known. The early zone's target is not named here, and its place
+            # moves when the early zone registers: a run that keeps it records zones[0] alone.
             return {"zones": zones, "default_zone": zones[0] if zones else None,
-                    "effective_zone": working[0] if working else None,
                     "partition_alloc": PARTITION_ALLOC_ZONE in zones, "early_zone": EARLY_ZONE in zones}
         if isinstance(value, dict) and value.get("error"):
             return {"error": str(value["error"])}
@@ -182,17 +191,25 @@ def snapshot_after_launch(g, tool: str) -> dict:
     return snapshot(g, tool)
 
 
-def validity(d: Diag, left_in_bundle: list[str], snapshots: list[dict]) -> str:
-    """Why a Chromium-off run is invalid, "" when it is valid (or Chromium may run)."""
+def validity(d: Diag, left_in_bundle: list[str], snapshots: list[dict], launched: bool = True) -> str:
+    """Why a Chromium-off run is invalid, "" when it is valid (or Chromium may run).
+
+    `launched` False: the app exited before its first ping, so no snapshot could exist; the bundle
+    (no framework, no pin to download one) is then the only evidence, and enough."""
     if not d.chromium_off:
         return ""
     if left_in_bundle:
         return "the Chromium runtime is still in the app: " + ", ".join(left_in_bundle)
     for s in snapshots:
+        malloc = s.get("malloc", {})
         if s.get("chromium_mapped"):
             return f"the Chromium framework is mapped in pid {s['pid']}"
-        if s.get("malloc", {}).get("partition_alloc"):
+        if malloc.get("partition_alloc"):
             return f"PartitionAlloc holds a malloc zone in pid {s['pid']}"
+        if malloc.get("default_zone") == EARLY_ZONE:
+            return f"the early zone is the default zone in pid {s['pid']} ({SKIP_EARLY_ZONE} not honored)"
+    if not launched:
+        return ""
     # Either check alone proves it: PartitionAlloc ships in the Chromium framework.
     if not any("zones" in s.get("malloc", {}) or s.get("chromium_mapped") is False for s in snapshots):
         return "no snapshot shows the app's malloc zones or its mapped images"
@@ -239,19 +256,41 @@ class Reports:
         return {"kind": self.kind or None, "count": len(self.found), "unique": len(unique), "first": unique[:50]}
 
 
-def record(d: Diag, env: dict[str, str], runtime_left: list[str], snapshots: list[dict], reports: Reports) -> dict:
+def record(d: Diag, env: dict[str, str], runtime_left: list[str], snapshots: list[dict], reports: Reports,
+           launched: bool = True) -> dict:
     """summary.json's "diag": what ran, under which environment, with which allocator, and what it found."""
-    first = next((s for s in snapshots if "malloc" in s), {})
-    invalid = validity(d, runtime_left, snapshots)
+    first = next((s["malloc"] for s in snapshots if "zones" in s.get("malloc", {})), {})
+    invalid = validity(d, runtime_left, snapshots, launched)
     return {"name": d.name, "env": env, "chromium": "off" if d.chromium_off else "on",
-            "chromium_runtime_left": runtime_left,
+            "chromium_runtime_left": runtime_left, "launched": launched,
             "chromium_mapped": any(s.get("chromium_mapped") for s in snapshots),
-            "default_zone": first.get("malloc", {}).get("default_zone"),
-            "effective_zone": first.get("malloc", {}).get("effective_zone"),
-            "early_zone": first.get("malloc", {}).get("early_zone"),
+            "zones": first.get("zones"), "default_zone": first.get("default_zone"),
+            "early_zone": first.get("early_zone"),
             "partition_alloc": any(s.get("malloc", {}).get("partition_alloc") for s in snapshots),
             "slowdown": d.slowdown, "snapshots": snapshots, "reports": reports.summary(),
             "invalid": invalid or None}
+
+
+def fuzz_verdict(s: dict, failure: str, diag: str) -> tuple[str, str]:
+    """vm.sh's verdict for a fuzz or repro major (PASS, FAIL or NO-VERDICT) and its line's diag text.
+
+    `s` is the major's summary.json ({} when there is none), `failure` the step's failure text and
+    `diag` the --diag name ("" for none). A diag run without its record, or whose check could not see
+    the app's allocations, proves nothing: NO-VERDICT, ahead of any crash or report it had."""
+    if not s:
+        return "NO-VERDICT", ""
+    bad = (failure or s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0)
+           or s.get("guest_lost_at") is not None or s.get("launch_failed") or s.get("diag_reports", 0))
+    invalid = (s.get("invalid") or ("" if "diag" in s else "no diag record")) if diag else ""
+    verdict = "NO-VERDICT" if invalid else ("FAIL" if bad else "PASS")
+    if not diag:
+        return verdict, ""
+    d = s.get("diag") or {}
+    extra = " diag=%s chromium=%s zone=%s reports=%s%s%s" % (
+        diag, d.get("chromium", "?"), d.get("default_zone") or "?", s.get("diag_reports", "-"),
+        " LAUNCH FAILED: %s" % s["launch_failed"] if s.get("launch_failed") else "",
+        " INVALID: %s" % invalid if invalid else "")
+    return verdict, extra
 
 
 def main(argv: list[str]) -> int:

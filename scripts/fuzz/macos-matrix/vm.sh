@@ -347,9 +347,11 @@ for major in ${majors[@]+"${majors[@]}"}; do
   fi
 done
 
-python3 -I - "$RUN" "$MAJORS" "$SUITE" "$RESULTS" "$DIAG" <<'PY'
+python3 -I - "$RUN" "$MAJORS" "$SUITE" "$RESULTS" "$DIAG" "$HERE" <<'PY'
 import json, os, sys, tarfile
 run, majors, suite, results, diag = sys.argv[1], sys.argv[2].split(","), sys.argv[3], sys.argv[4], sys.argv[5]
+sys.path.insert(0, sys.argv[6])
+from diag import fuzz_verdict  # the fuzz and repro verdict (test_diag.py tests it)
 # Each major's verdict: PASS, FAIL, or NO-VERDICT when the run gave none (no result: a VM, keychain or
 # image failure; or an exec probe that could not run: a crash, a timeout, exit 2, no compile).
 rows, verdicts = {}, []
@@ -370,15 +372,7 @@ for m in majors:
             s.get("crashes", "-"), s.get("hang_reports", "-"), s.get("faults", "-"), fail)
     else:
         s = load("summary.json")
-        bad = (fail or s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0) or s.get("guest_lost_at") is not None
-               or s.get("diag_reports", 0))
-        # A diag run without its record, or whose check could not see the app's allocations, proves nothing.
-        invalid = (s.get("invalid") or ("diag" not in s and "no diag record")) if diag and s else ""
-        verdict = "NO-VERDICT" if not s or invalid else ("FAIL" if bad else "PASS")
-        d = s.get("diag") or {}
-        extra = "" if not diag else " diag=%s chromium=%s zone=%s reports=%s%s" % (
-            diag, d.get("chromium", "?"), d.get("default_zone") or "?", s.get("diag_reports", "-"),
-            " INVALID: %s" % invalid if invalid else "")
+        verdict, extra = fuzz_verdict(s, fail, diag)
         line = "%-4s %-8s %-5s %-10s steps=%-5s crashes=%-3s hangs=%-3s dead=%-3s faults=%-4s%s %s" % (
             m, s.get("os", "?"), suite, verdict, s.get("steps", 0), s.get("crashes", 0),
             s.get("hangs", 0), s.get("relaunches", 0), s.get("faults", 0), extra, fail)

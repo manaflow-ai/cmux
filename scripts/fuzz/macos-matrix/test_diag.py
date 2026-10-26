@@ -11,11 +11,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import diag  # noqa: E402
+import fuzz  # noqa: E402
 
 
 class FakeGuest:
@@ -55,11 +57,14 @@ class Variants(unittest.TestCase):
         env = diag.launch_env(diag.DIAGS["gmalloc"], ["/Users/admin/other.dylib"])
         self.assertEqual(env["DYLD_INSERT_LIBRARIES"], "/Users/admin/other.dylib:/usr/lib/libgmalloc.dylib")
         self.assertEqual(env["CMUX_NEXT_CONFIG_FILE"], diag.CONFIG_FILE)
+        self.assertEqual(env["CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE"], "1")
         env = diag.launch_env(diag.DIAGS["scribble"], [])
         self.assertEqual((env["MallocScribble"], env["MallocGuardEdges"]), ("1", "1"))
         self.assertNotIn("DYLD_INSERT_LIBRARIES", env)
+        # Chromium-on variants keep the early zone: Chromium may load.
         self.assertEqual(diag.launch_env(diag.DIAGS["coop-strict"], []),
                          {"LIBDISPATCH_COOPERATIVE_POOL_STRICT": "1"})
+        self.assertNotIn(diag.SKIP_EARLY_ZONE, diag.launch_env(diag.DIAGS["mtc"], []))
         self.assertEqual(diag.launch_env(diag.DIAGS["probguard"], [])["MallocProbGuard"], "1")
         asan = diag.launch_env(diag.DIAGS["asan"], [])["ASAN_OPTIONS"]
         self.assertTrue(asan.startswith(f"log_path={diag.SAN_DIR}/asan:"), asan)
@@ -78,17 +83,26 @@ class Variants(unittest.TestCase):
 
 
 class Zones(unittest.TestCase):
-    def test_default_and_effective_zone(self):
+    def test_default_zone_is_zones_0(self):
         z = diag.parse_zones("noise\n" + zones_line(diag.EARLY_ZONE, "DefaultMallocZone", "DefaultPurgeableMallocZone"))
         self.assertEqual(z["default_zone"], diag.EARLY_ZONE)
-        self.assertEqual(z["effective_zone"], "DefaultMallocZone")
         self.assertTrue(z["early_zone"])
         self.assertFalse(z["partition_alloc"])
+
+    def test_no_delegate_is_guessed_from_the_order(self):
+        # Guard Malloc's zone was zones[0] before main(); the early zone saved it as its target, then
+        # registered it again, so the system zone, never used, sits right after the early zone.
+        z = diag.parse_zones(zones_line(diag.EARLY_ZONE, "DefaultMallocZone", "GuardMalloc", "DefaultPurgeableMallocZone"))
+        self.assertEqual(z["zones"], [diag.EARLY_ZONE, "DefaultMallocZone", "GuardMalloc", "DefaultPurgeableMallocZone"])
+        self.assertEqual(z["default_zone"], diag.EARLY_ZONE)
+        self.assertNotIn("effective_zone", z)
+        # A Chromium-off run in that state does not say which allocator ran: invalid.
+        snap = {"pid": 3, "malloc": z, "chromium_mapped": False}
+        self.assertIn("early zone", diag.validity(diag.DIAGS["gmalloc"], [], [snap]))
 
     def test_partition_alloc_zone_is_seen(self):
         z = diag.parse_zones(zones_line("PartitionAlloc", diag.EARLY_ZONE, "DefaultMallocZone"))
         self.assertTrue(z["partition_alloc"])
-        self.assertEqual(z["effective_zone"], "PartitionAlloc")
 
     def test_error_and_no_output(self):
         self.assertEqual(diag.parse_zones('{"pid": 1, "error": "task_for_pid: (os/kern) failure"}\n'),
@@ -126,6 +140,14 @@ class Validity(unittest.TestCase):
 
     def test_chromium_on_variants_are_never_invalid(self):
         self.assertEqual(diag.validity(diag.DIAGS["mtc"], [], []), "")
+        early = {"pid": 7, "malloc": diag.parse_zones(zones_line(diag.EARLY_ZONE, "DefaultMallocZone")),
+                 "chromium_mapped": True}
+        self.assertEqual(diag.validity(diag.DIAGS["coop-strict"], [], [early]), "")
+
+    def test_an_app_that_died_at_launch_rests_on_the_bundle(self):
+        self.assertEqual(diag.validity(diag.DIAGS["asan"], [], [], launched=False), "")
+        self.assertIn("still in the app",
+                      diag.validity(diag.DIAGS["asan"], [diag.CHROMIUM_RUNTIME[0]], [], launched=False))
 
 
 class ReportsAndRecord(unittest.TestCase):
@@ -162,11 +184,149 @@ class ReportsAndRecord(unittest.TestCase):
         self.assertEqual(rec["chromium"], "off")
         self.assertFalse(rec["chromium_mapped"])
         self.assertEqual(rec["default_zone"], "GuardMalloc")
+        self.assertEqual(rec["zones"], ["GuardMalloc", "DefaultPurgeableMallocZone"])
         self.assertIsNone(rec["invalid"])
         json.dumps(rec)  # summary.json takes it as is
 
     def test_snapshot_of_a_dead_app(self):
         self.assertEqual(diag.snapshot(FakeGuest({}, pid=None), "/x"), {"error": "the app is not running"})
+
+
+class Verdict(unittest.TestCase):
+    """diag.fuzz_verdict: the verdict vm.sh's matrix summary gives a fuzz or repro major."""
+
+    clean = {"os": "26.0", "steps": 40, "crashes": 0, "hangs": 0, "relaunches": 0, "diag_reports": 0,
+             "diag": {"chromium": "off", "default_zone": "GuardMalloc", "invalid": None}}
+
+    def test_clean_diag_run_passes(self):
+        verdict, extra = diag.fuzz_verdict(self.clean, "", "gmalloc")
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual(extra, " diag=gmalloc chromium=off zone=GuardMalloc reports=0")
+
+    def test_a_report_fails_the_run(self):
+        verdict, extra = diag.fuzz_verdict({**self.clean, "diag_reports": 3}, "", "tsan")
+        self.assertEqual(verdict, "FAIL")
+        self.assertIn("reports=3", extra)
+
+    def test_invalid_run_has_no_verdict_even_with_a_crash(self):
+        s = {**self.clean, "crashes": 1, "invalid": "PartitionAlloc holds a malloc zone in pid 9"}
+        verdict, extra = diag.fuzz_verdict(s, "", "asan")
+        self.assertEqual(verdict, "NO-VERDICT")
+        self.assertTrue(extra.endswith(" INVALID: PartitionAlloc holds a malloc zone in pid 9"), extra)
+
+    def test_missing_diag_record_has_no_verdict(self):
+        s = {k: v for k, v in self.clean.items() if k != "diag"}
+        verdict, extra = diag.fuzz_verdict(s, "", "scribble")
+        self.assertEqual(verdict, "NO-VERDICT")
+        self.assertIn("INVALID: no diag record", extra)
+        self.assertIn("zone=?", extra)
+
+    def test_no_summary_has_no_verdict(self):
+        self.assertEqual(diag.fuzz_verdict({}, "fuzz exit 1", "asan"), ("NO-VERDICT", ""))
+
+    def test_launch_death_under_a_check_fails(self):
+        s = {**self.clean, "launch_failed": "the app exited during launch (status 134)", "diag_reports": 1}
+        verdict, extra = diag.fuzz_verdict(s, "fuzz exit 1", "asan")
+        self.assertEqual(verdict, "FAIL")
+        self.assertIn("LAUNCH FAILED: the app exited during launch (status 134)", extra)
+
+    def test_plain_fuzz_run_is_unchanged(self):
+        plain = {"crashes": 0, "hangs": 0, "relaunches": 0}
+        self.assertEqual(diag.fuzz_verdict(plain, "", ""), ("PASS", ""))
+        self.assertEqual(diag.fuzz_verdict({**plain, "hangs": 1}, "", ""), ("FAIL", ""))
+        self.assertEqual(diag.fuzz_verdict({**plain, "guest_lost_at": 0}, "", ""), ("FAIL", ""))
+        self.assertEqual(diag.fuzz_verdict(plain, "fuzz exit 1", ""), ("FAIL", ""))
+
+
+class LaunchGuest(fuzz.Guest):
+    """fuzz.Guest whose guest commands are canned: `polls` answers each launch poll in turn."""
+
+    def __init__(self, polls: list[str], ping: int | None = None):
+        super().__init__("admin@guest", "/Users/admin/fuzzapp/cmux.app", [])
+        self.polls, self.ping, self.commands = list(polls), ping, []
+
+    def sh(self, cmd: str, timeout: float = 30) -> subprocess.CompletedProcess:
+        self.commands.append(cmd)
+        out = ""
+        if "PlistBuddy" in cmd:
+            out = "cmux\n"
+        elif "ls -t /tmp/cmux-*.sock" in cmd:
+            out = self.polls.pop(0) if self.polls else ""
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    def ping_ms(self, timeout: float, sample_after_ms: int = 0, sample_file: str = "") -> int | None:
+        return self.ping
+
+
+class Launch(unittest.TestCase):
+    def test_an_app_that_exits_ends_the_wait_at_once(self):
+        g = LaunchGuest(["exit=134\n"])
+        g.slowdown = 10
+        started = time.time()
+        self.assertFalse(g.launch(deadline=180, exit_file="/tmp/cmux-fuzz-exit-1"))
+        self.assertLess(time.time() - started, 5)
+        self.assertEqual(g.launch_failure, "the app exited during launch (status 134)")
+
+    def test_the_wait_never_passes_the_run_end(self):
+        g = LaunchGuest([])
+        g.slowdown = 10
+        self.assertFalse(g.launch(deadline=180, exit_file="/tmp/x", until=time.time() - 1))
+        self.assertEqual(g.launch_failure, "no ping before the run's end")
+
+    def test_a_ping_launches(self):
+        g = LaunchGuest(["/tmp/cmux-501.sock\n"], ping=40)
+        self.assertTrue(g.launch(exit_file="/tmp/x"))
+        self.assertEqual((g.socket, g.launch_failure), ("/tmp/cmux-501.sock", ""))
+
+
+class FuzzDiagWiring(unittest.TestCase):
+    """What fuzz.py main does with --diag: the guest environment and the summary.json keys."""
+
+    def test_apply_diag_exports_the_env_and_scales_hangs(self):
+        g = fuzz.Guest("admin@guest", "/A.app", [])
+        env, hang_ms = fuzz.apply_diag(g, diag.DIAGS["gmalloc"], ["/Users/admin/x.dylib"], 1000)
+        self.assertEqual(env, diag.launch_env(diag.DIAGS["gmalloc"], ["/Users/admin/x.dylib"]))
+        self.assertEqual((hang_ms, g.slowdown), (10000, 10))
+        self.assertIn(" DYLD_INSERT_LIBRARIES=/Users/admin/x.dylib:/usr/lib/libgmalloc.dylib", g.env)
+        self.assertIn(" CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE=1", g.env)
+        self.assertTrue(g.env.startswith("CMUX_NEXT_SOCKET_MODE=automation "))
+
+    def test_apply_without_a_diag_inserts_dylibs_only(self):
+        g = fuzz.Guest("admin@guest", "/A.app", [])
+        self.assertEqual(fuzz.apply_diag(g, None, [], 1000), ({}, 1000))
+        self.assertEqual(g.env, "CMUX_NEXT_SOCKET_MODE=automation")
+        self.assertEqual(fuzz.apply_diag(g, None, ["/a.dylib"], 1000)[0], {"DYLD_INSERT_LIBRARIES": "/a.dylib"})
+
+    def test_diag_summary_has_the_acceptance_keys(self):
+        d = diag.DIAGS["asan"]
+        g = FakeGuest({"lsof": "0\n", "malloc-zones": zones_line("asan", "DefaultMallocZone"),
+                       "/tmp/fuzz-san/*": "ERROR: AddressSanitizer: heap-use-after-free on address 0x1\n"})
+        env = diag.launch_env(d, [])
+        snaps = [{"at": "launch", **diag.snapshot(g, "/Users/admin/malloc-zones")}]
+        with tempfile.TemporaryDirectory() as out:
+            keys = fuzz.diag_summary(g, d, env, [], snaps, diag.Reports(d, out), "/Users/admin/malloc-zones")
+        rec = keys["diag"]
+        self.assertEqual([s["at"] for s in rec["snapshots"]], ["launch", "end"])
+        self.assertEqual((rec["env"], rec["chromium"], rec["default_zone"]), (env, "off", "asan"))
+        self.assertEqual((rec["reports"]["kind"], keys["diag_reports"]), ("asan", 1))
+        self.assertNotIn("invalid", keys)
+        self.assertEqual(diag.fuzz_verdict({"crashes": 0, **keys}, "", "asan")[0], "FAIL")
+        json.dumps(keys)
+
+    def test_diag_summary_of_an_invalid_run_names_why(self):
+        d = diag.DIAGS["scribble"]
+        g = FakeGuest({"lsof": "1\n", "malloc-zones": zones_line("PartitionAlloc", "DefaultMallocZone")})
+        with tempfile.TemporaryDirectory() as out:
+            keys = fuzz.diag_summary(g, d, {}, [], [], diag.Reports(d, out), "/z")
+        self.assertIn("mapped", keys["invalid"])
+
+    def test_diag_summary_after_a_launch_death(self):
+        d = diag.DIAGS["gmalloc"]
+        with tempfile.TemporaryDirectory() as out:
+            keys = fuzz.diag_summary(FakeGuest({}, pid=None), d, {}, [], [], diag.Reports(d, out), "/z", launched=False)
+        self.assertFalse(keys["diag"]["launched"])
+        self.assertEqual(keys["diag"]["snapshots"], [])
+        self.assertNotIn("invalid", keys)
 
 
 class VmShArguments(unittest.TestCase):

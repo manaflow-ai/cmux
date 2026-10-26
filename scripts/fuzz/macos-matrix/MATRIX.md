@@ -182,7 +182,11 @@ app (the guest copy is re-signed ad hoc without the hardened runtime).
 
 Every variant re-signs the guest copy of the app ad hoc (as `FUZZ_DYLIB` does): dyld then accepts inserted
 libraries, and `malloc-zones` can read the app's task. The launch and hang deadlines scale with the check's
-slowdown (10x for Guard Malloc, 2-3x for the sanitizers, as Chromium's `TestTimeouts` multiplier does).
+slowdown: 2x for ASan and TSan (Chromium's `kTimeoutMultiplier`, `base/test/test_timeouts.cc`), and our own,
+not yet measured, estimates of 10x for Guard Malloc and 2x for MallocScribble. A launch stops waiting when the
+app exits and never waits past the run's `--minutes`; a relaunch that fails ends the walk (`relaunch_failed`).
+An app that exits during its first launch under a check still writes `summary.json`, with `launch_failed` and the
+check's reports: a FAIL.
 
 **Chromium off.** In-process CEF replaces the default malloc zone with PartitionAlloc, which these checks do not
 see: they would cover nothing or report false bad frees (`plans/cmux-next/chrome-parity/p10-stability.md`, risk 8).
@@ -190,14 +194,19 @@ For the malloc and sanitizer variants, `vm.sh` removes the CEF framework, the CE
 pin for an on-demand download) from the guest copy, and the app starts with `browser.defaultEngine` `webkit`.
 After the launch, after each relaunch and at the end, `fuzz.py` records the app's malloc zones in registration
 order with `malloc-zones` (`malloc-zones.c`, compiled on the Tart host: `malloc_get_all_zones` over the app's task
-port, as `heap(1)` reads it) and whether the CEF framework is mapped. `zones[0]` is the default zone; the early
-`DelegatingDefaultZoneForPartitionAlloc` zone forwards to the next one, recorded as `effective_zone`.
+port, as `heap(1)` reads it) and whether the CEF framework is mapped. `zones[0]` is the default zone: the one
+`malloc()` uses. The app normally puts the forwarding `DelegatingDefaultZoneForPartitionAlloc` zone there first
+thing in `main` (`CmuxNextMallocZone/early_zone.c`, Chromium's `EarlyMallocZoneRegistration`); the zone list does
+not say which zone that one forwards to. So these variants start the app with `CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE=1`,
+which skips it, and `zones[0]` is then the check's zone (`GuardMalloc`, a sanitizer's) or the system one.
 
-A Chromium-off run is **invalid** (NO-VERDICT, `INVALID: ...` on its line) when PartitionAlloc holds a zone, the CEF
-framework is mapped, the runtime is still in the bundle, or no snapshot could show the zones or the mapped images.
-A check's report fails the run like a crash. `summary.json` has `diag` (`name`, `env`, `chromium`,
-`default_zone`, `effective_zone`, `partition_alloc`, `chromium_mapped`, `snapshots`, `reports`, `invalid`) and
-`diag_reports` (the report count). Test the variants offline with
+A Chromium-off run is **invalid** (NO-VERDICT, `INVALID: ...` on its line) when PartitionAlloc holds a zone, the
+early zone is still the default zone, the CEF framework is mapped, the runtime is still in the bundle, or no
+snapshot could show the zones or the mapped images (an app that exited during its first launch has no snapshot;
+the bundle check alone decides for it). A check's report fails the run like a crash. `summary.json` has `diag`
+(`name`, `env`, `chromium`, `launched`, `zones`, `default_zone`, `early_zone`, `partition_alloc`,
+`chromium_mapped`, `snapshots`, `reports`, `invalid`) and `diag_reports` (the report count). `diag.fuzz_verdict`
+is the verdict `vm.sh` gives each major. Test the variants offline with
 `python3 -m unittest scripts/fuzz/macos-matrix/test_diag.py`.
 
 The guest helpers use `/usr/bin/perl` and `osascript`, not `python3`: a guest without the Command Line Tools has
