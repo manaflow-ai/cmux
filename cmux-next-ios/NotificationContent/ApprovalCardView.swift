@@ -1,0 +1,71 @@
+import CmuxMobileNotifications
+import SwiftUI
+
+/// A permission request's long-press view, laid out as the Mac's approval
+/// prompt for a streaming device (`MacScreenApprovalView`): the accent glyph
+/// and "<Agent> wants to act on <Mac>", the secondary "Asks to run this…"
+/// line, the request under its caption in code type (where the Mac shows the
+/// device key fingerprint), then Deny leading and Allow trailing, with any
+/// other answer compact under them.
+struct ApprovalCardView: View {
+    let banner: ApprovalBanner
+    let model: NotificationContentModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: ApprovalBanner.glyph).font(.title3).foregroundStyle(.tint)
+                Text(banner.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            Text(banner.scope).font(.subheadline).foregroundStyle(.secondary)
+            if let detail = banner.detail {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(banner.detailLabel).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(.system(.callout, design: .monospaced)).lineLimit(4).textSelection(.enabled)
+                }
+            }
+            if model.sent {
+                Label("Opening cmux to send…", systemImage: "paperplane").font(.footnote).foregroundStyle(.secondary)
+            } else if let failure = model.failure {
+                Text(failure).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            if model.actionable { answers }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+        .accessibilityIdentifier("cmux.push.approval")
+    }
+
+    @ViewBuilder
+    private var answers: some View {
+        if banner.deny != nil || banner.allow != nil {
+            HStack(spacing: 8) {
+                if let deny = banner.deny {
+                    Button(role: .destructive) { model.tap(deny) } label: { Text(deny.label).frame(minWidth: 64) }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("cmux.push.option.\(deny.id)")
+                }
+                Spacer(minLength: 8)
+                if let allow = banner.allow {
+                    Button { model.tap(allow) } label: { Text(allow.label).frame(minWidth: 64) }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("cmux.push.option.\(allow.id)")
+                }
+            }
+            .controlSize(.regular)
+        }
+        if !banner.more.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(banner.more) { row in
+                    Button(role: row.style == .deny ? .destructive : nil) { model.tap(row) } label: { Text(row.label) }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("cmux.push.option.\(row.id)")
+                }
+            }
+        }
+    }
+}
