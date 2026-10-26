@@ -33,6 +33,17 @@ import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
 import { VmCreationKey } from "./lib/ids.ts";
 import { CreatedByCaller } from "./api/common.ts";
 import { VmInstanceIdentity, VmInstanceIdentityQuery } from "./api/instance-identity.ts";
+import { GuestPath } from "./api/guest-path.ts";
+import {
+  abortFileUploadEndpoint,
+  beginFileUploadEndpoint,
+  commitFileUploadEndpoint,
+  getFileUploadEndpoint,
+  makeDirectoryEndpoint,
+  pathExistsEndpoint,
+  removePathEndpoint,
+  uploadFileChunkEndpoint,
+} from "./api/file-ops.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -184,6 +195,21 @@ export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")(
   labels: Schema.optional(Labels.annotations({ description: "Labels for the new VM; the source's labels are not copied." })),
 }) {}
 
+/** cx-b4h.2: only what the tenant may change; ownership, provider naming and the lifetime budget are not fields. */
+export class UpdateVmRequest extends Schema.Class<UpdateVmRequest>("UpdateVmRequest")({
+  displayName: Schema.optional(Schema.NullOr(DisplayName).annotations({ description: "A new name; null clears it." })),
+  labels: Schema.optional(Labels.annotations({
+    description: "Replaces the VM's whole label set. Labels whose key starts with cmux. are managed by cmux and must keep their current values; a service or agent key must keep the labels it is limited to.",
+  })),
+  idleTimeoutSeconds: Schema.optional(IdleTimeoutSeconds),
+  maxRunSeconds: Schema.optional(MaxRunSeconds),
+  autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
+}, {
+  parseOptions: { onExcessProperty: "error" },
+  description: "Change a VM's name, labels or limits. Omitted fields stay as they are; at least one is required. Any other field (slug, metadata, the lifetime run budget) is refused with 400.",
+  message: () => ({ message: "Invalid VM update request", override: true }),
+}) {}
+
 /** `key=value`: keeps VMs whose label `key` equals `value`. */
 const LabelSelector = Schema.String.pipe(Schema.pattern(/^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?=[A-Za-z0-9._:/@-]{0,63}$/));
 
@@ -199,14 +225,7 @@ export const ListVmsParams = Schema.Struct({
   })),
 });
 
-/** An absolute guest path: starts with `/`, no `..` segment, no NUL, at most 4096 characters. */
-export const GuestPath = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.maxLength(4096),
-  Schema.filter((path) => path.startsWith("/") && !path.includes("\u0000") && !path.split("/").includes(".."), {
-    message: () => "path must be absolute, without '..' segments or NUL characters",
-  }),
-).annotations({ identifier: "GuestPath", description: "Absolute path inside the VM, without '..' segments." });
+export { GuestPath };
 
 /** POSIX environment variable names; a filter so a bad name is rejected, not dropped. */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
@@ -385,6 +404,12 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         "Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules.")),
   )
   .add(
+    HttpApiEndpoint.patch("updateVm", "/v1/vms/:vmId")
+      .setPath(VmPath).setHeaders(TeamHeaders).setPayload(UpdateVmRequest).addSuccess(Vm)
+      .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Update a VM's name, labels or limits", "vm:write", "Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409. Audited.")),
+  )
+  .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")
       .setPath(VmPath)
       .setHeaders(TeamHeaders)
@@ -521,6 +546,14 @@ export class FilesGroup extends HttpApiGroup.make("files")
       .addError(QuotaExceeded)
       .annotateContext(describe("List a directory in a VM", "vm:files")),
   )
+  .add(pathExistsEndpoint)
+  .add(makeDirectoryEndpoint)
+  .add(removePathEndpoint)
+  .add(beginFileUploadEndpoint)
+  .add(getFileUploadEndpoint)
+  .add(uploadFileChunkEndpoint)
+  .add(commitFileUploadEndpoint)
+  .add(abortFileUploadEndpoint)
   .middleware(Authentication) {}
 
 export class CmuxVmApi extends HttpApi.make("cmux-vm")

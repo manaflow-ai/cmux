@@ -29,6 +29,7 @@ import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgres
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
+import { updateVm } from "./updates.ts";
 import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
@@ -739,5 +740,6 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         (error) => (error instanceof ForkIncomplete ? error.snapshotId : null),
       ),
     )
+    .handle("updateVm", ({ path, payload }) => updateVm(path.vmId, payload))
     .handle("deleteVm", ({ path }) => deleteVmById(path.vmId))
 );

@@ -261,6 +261,41 @@ pauses them. Until the billing source is wired (TODO in
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 
+## Update, more file operations and resumable uploads (cx-b4h.2, cx-b4h.9)
+
+`PATCH /v1/vms/{vmId}` (`vm:write`, audited `vm.update`) changes `displayName`
+(null clears), `labels` (replaces the set), `idleTimeoutSeconds`,
+`maxRunSeconds` and `autoDeleteSeconds` (create's field names and ranges; -1
+removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Name and
+labels live in the ownership row; only the three limits are sent to the
+provider. Any other field (slug, metadata, the lifetime run budget that keeps a
+retired VM retired) is 400. Labels starting with `cmux.` (an agent key's
+`cmux.agent`, which its reaper follows) cannot be added, removed or changed,
+and a service or agent key cannot drop the labels it is confined to (403). A VM
+whose create has not finished is 409. `PATCH /v1/snapshots/{snapshotId}`
+(`snapshot:write`, audited `snapshot.update`) does the same for a snapshot's
+name and labels, plus `ttlSeconds` and `autoDeleteSeconds` (null removes).
+
+Under `vm:files`, with the same guest path rule as read and write:
+`GET .../files/exists?path=` answers `{ exists }` (no audit);
+`POST .../files/directories` `{ path }` creates it with missing parents;
+`DELETE .../files?path=` removes a file or a directory with its contents
+(there is no recursive flag; a missing path is 404 File not found). Both are
+audited by action and VM only. Writes wake a paused VM; a retired VM is 409.
+
+Resumable uploads carry files past the single PUT limit, up to the policy's
+`maxResumableUploadBytes` (default and provider ceiling 16 GiB):
+`POST .../files/uploads` `{ path, size, sha256?, mode? }` returns
+`{ uploadId, path, size, receivedBytes, maxChunkBytes }`; send ordered chunks
+with `PUT .../files/uploads/{uploadId}?offset=N` and an exact Content-Length,
+each at most `maxChunkBytes` (the tenant's `maxUploadBytes`, at most 256 MiB);
+resume from `GET .../files/uploads/{uploadId}`; finish with
+`POST .../commit` (atomic, verifies size and sha256) or abandon with `DELETE`.
+Begin, commit and abort are audited; chunks are not. The `upl_` handle is the
+provider's id sealed with AES-256-GCM under a key derived from the provider key,
+bound to the exact VM: it opens for no other VM or tenant, and the provider id
+is never returned. Sessions expire after an hour idle upstream.
+
 ## Recover a create without a client key
 
 VM creates and forks always journal the VM allocation before provider I/O.

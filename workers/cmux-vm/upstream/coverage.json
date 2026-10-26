@@ -90,11 +90,18 @@
     },
     "create_identity": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": [
+        "agents.createClientSession"
+      ]
     },
     "delete_identity": {
       "status": "wrapped",
-      "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
+      "by": [
+        "agents.createClientSession",
+        "agents.revokeClientSession",
+        "agents.revokeAgentKey",
+        "vms.deleteVm"
+      ]
     },
     "describe_identity": {
       "status": "planned",
@@ -108,7 +115,9 @@
     },
     "grant_vm_permission": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": [
+        "agents.createClientSession"
+      ]
     },
     "revoke_vm_permission": {
       "status": "planned",
@@ -132,7 +141,9 @@
     },
     "create_access_token": {
       "status": "wrapped",
-      "by": ["agents.createClientSession"]
+      "by": [
+        "agents.createClientSession"
+      ]
     },
     "revoke_access_token": {
       "status": "planned",
@@ -160,9 +171,10 @@
       ]
     },
     "update_snapshot": {
-      "status": "planned",
-      "bead": "cx-b4h.9",
-      "reason": "planned in cx-b4h.9"
+      "status": "wrapped",
+      "by": [
+        "snapshots.updateSnapshot"
+      ]
     },
     "list_tls_rules": {
       "status": "wrapped",
@@ -314,9 +326,10 @@
       ]
     },
     "update_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.updateVm"
+      ]
     },
     "exec_vm": {
       "status": "wrapped",
@@ -332,14 +345,16 @@
       ]
     },
     "path_exists": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.pathExists"
+      ]
     },
     "make_dir": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.makeDirectory"
+      ]
     },
     "read_file": {
       "status": "wrapped",
@@ -348,38 +363,46 @@
       ]
     },
     "remove_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.removePath"
+      ]
     },
     "stat_path": {
       "status": "wrapped",
-      "by": ["files.statFile"]
+      "by": [
+        "files.statFile"
+      ]
     },
     "begin_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.beginFileUpload"
+      ]
     },
     "abort_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.abortFileUpload"
+      ]
     },
     "upload_status": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.getFileUpload"
+      ]
     },
     "upload_chunk": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.uploadFileChunk"
+      ]
     },
     "commit_upload": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.commitFileUpload"
+      ]
     },
     "write_file": {
       "status": "wrapped",
@@ -426,7 +449,10 @@
     },
     "resize_vm": {
       "status": "wrapped",
-      "by": ["vms.createVm", "vms.resizeVm"]
+      "by": [
+        "vms.createVm",
+        "vms.resizeVm"
+      ]
     },
     "snapshot_vm": {
       "status": "wrapped",

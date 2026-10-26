@@ -50,6 +50,8 @@ export interface HarnessOptions {
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Largest file a resumable upload may commit, in bytes. */
+  readonly maxResumableUploadBytes?: number;
   /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
@@ -189,6 +191,15 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
       ),
+    // Mirrors the SQL: only the tenant's live committed row of that kind.
+    updateMetadata: (tenantId, kind, cmuxId, metadata) =>
+      Effect.sync(() => {
+        const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row) && row.committed !== false);
+        const row = resources[index];
+        if (row === undefined) return false;
+        resources[index] = { ...row, displayName: metadata.displayName, labels: metadata.labels };
+        return true;
+      }),
   });
 
   const auditStore = Layer.succeed(AuditStore, {
@@ -206,6 +217,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+    ...(options.maxResumableUploadBytes === undefined ? {} : { maxResumableUploadBytes: options.maxResumableUploadBytes }),
   });
 
   const entitlements = Layer.succeed(Entitlements, {

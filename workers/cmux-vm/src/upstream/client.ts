@@ -23,6 +23,7 @@ import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import type { UpstreamSnapshot } from "./snapshots.ts";
 
 export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
@@ -125,10 +126,61 @@ export interface ClientSessionGrant {
   readonly sshHost: string;
 }
 
+/** The limits a tenant may change on its VM (cx-b4h.2). Never names, slugs, metadata or the lifetime budget. */
+export interface VmLimitsPatch {
+  readonly idleTimeoutSeconds?: number;
+  readonly maxRunSeconds?: number;
+  readonly autoDeleteSeconds?: number;
+}
+
+/** A snapshot's retention (cx-b4h.9); null removes the limit. Never its name or slug. */
+export interface SnapshotRetentionPatch {
+  readonly ttlSeconds?: number | null;
+  readonly autoDeleteSeconds?: number | null;
+}
+
+/** A resumable upload as callers see it: `uploadId` is the sealed public handle, never the provider's id. */
+export interface FileUploadRecord {
+  readonly uploadId: string;
+  readonly path: string;
+  readonly size: number;
+  readonly receivedBytes: number;
+}
+
+export interface BeginUploadSpec {
+  readonly path: string;
+  readonly size: number;
+  readonly sha256?: string;
+  readonly mode?: number;
+}
+
+type Files<C, R> = { readonly owns: TenantOwnsResource<C, R>; readonly scope: KeyHasScope<C, "vm:files"> };
+
+/** Methods added for provider parity (cx-b4h.2, cx-b4h.9); implemented in live-file-ops.ts and live-update.ts. */
+export interface UpstreamParityService {
+  readonly updateVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: TenantOwnsResource<C, R>; readonly scope: KeyHasScope<C, "vm:write"> }, patch: VmLimitsPatch) => Effect.Effect<UpstreamVm, UpstreamError>;
+  readonly updateSnapshot: <C, S>(snapshot: Named<S, SnapshotId>, proofs: { readonly owns: TenantOwnsResource<C, S>; readonly scope: KeyHasScope<C, "snapshot:write"> }, patch: SnapshotRetentionPatch) => Effect.Effect<UpstreamSnapshot, UpstreamError>;
+  readonly pathExists: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, path: string) => Effect.Effect<boolean, UpstreamError>;
+  /** Creates the directory and its missing parents. */
+  readonly makeDirectory: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, path: string) => Effect.Effect<void, UpstreamError>;
+  readonly removePath: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, path: string) => Effect.Effect<void, UpstreamError>;
+  readonly beginUpload: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, spec: BeginUploadSpec) => Effect.Effect<FileUploadRecord, UpstreamError>;
+  /** `uploadId` is the public handle; one not sealed for exactly this VM fails with status 404 before any provider call. */
+  readonly uploadStatus: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, uploadId: string) => Effect.Effect<FileUploadRecord, UpstreamError>;
+  readonly uploadChunk: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: Files<C, R>,
+    uploadId: string,
+    chunk: { readonly offset: number; readonly body: ReadableStream<Uint8Array>; readonly length: number },
+  ) => Effect.Effect<FileUploadRecord, UpstreamError>;
+  readonly commitUpload: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, uploadId: string) => Effect.Effect<void, UpstreamError>;
+  readonly abortUpload: <C, R>(vm: Named<R, VmId>, proofs: Files<C, R>, uploadId: string) => Effect.Effect<void, UpstreamError>;
+}
+
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
-export interface UpstreamClientService {
+export interface UpstreamClientService extends UpstreamParityService {
   /**
    * Mints a provider identity granted only this owned VM as `linuxUser`, and
    * one access token for it. A failure leaves no identity behind.
