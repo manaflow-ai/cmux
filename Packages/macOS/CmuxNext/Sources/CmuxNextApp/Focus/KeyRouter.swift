@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextPages
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -165,6 +166,24 @@ final class KeyRouter: BrowserKeyRouting {
     /// Key-downs this dispatcher decided: the window hook, the Chromium
     /// hook and the menu gate run nothing for them.
     let decided = DecidedKeyEvents()
+
+    /// The inputs a window's key facts were built from (``keyFactsStamp(in:controller:cached:)``).
+    typealias FactsStamp = KeyFactsStamp<FocusState, TopPageRoute>
+    /// A window's cached facts and the objects their changing flags are read from. Weak: a closed
+    /// pane's objects go with it, and a missing one reads as off.
+    struct CachedFacts {
+        var facts: Facts
+        weak var readiness: PageInputReadiness?
+        weak var addressBar: AddressBarView?
+        weak var terminal: TerminalSurfaceView?
+        weak var page: PageWebView?
+    }
+    /// Each window's key facts, built once per change instead of once per chord (p04-input-053):
+    /// ``facts(in:controller:)`` reuses them while their stamp holds; a focus settle bumps the
+    /// generation (``focusDidSettle(_:in:)``).
+    let keyFactsCache = KeyContextCache<FactsStamp, CachedFacts>()
+    /// The last `KeyContext`, kept while its focus, app context bits and facts are equal (``keyContext(for:facts:)``).
+    let keyContextMemo = KeyContextMemo<FocusState, Facts>()
 
     /// Step 1: an input method that is composing (marked text) gets every
     /// key it can use, which is every key but a Command chord (Kotoeri's
@@ -387,6 +406,8 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
+        // A settle can swap what a pane shows under an equal focus state (a page's web view, a terminal's surface).
+        keyFactsCache.invalidate(.focusTransition)
         typeAheadFocusDidSettle(focus.resolved)
         newTabInputCoordinator.flush(in: window)
         creationInputCoordinator.focusDidSettle(in: window)
