@@ -22,8 +22,10 @@ Per size it measures:
   observations  observers per event: `debug.observations` before and after one CLI status change of an on-screen
                 row, tickers paused: `armed_rows` (SidebarRows armed now), `row_maps_per_change` (SidebarRows
                 re-maps the one change cost), armed observations app-wide and the evaluations, applies and
-                hosting bodies of the change; `budget` checks armed_rows <= on screen + one screen of overscan,
-                exactly 1 row map and <= 2 evaluations app-wide (p06-scheduler.md "Observers per event"; run it
+                hosting bodies of the change; `budget` checks armed_rows <= on screen + one screen of overscan
+                (on screen: rows whose window_frame meets the list band, not `in_list`, which also holds the
+                realized overscan), exactly 1 row map and <= 2 evaluations app-wide; a changed row that is not
+                on screen skips the row map check with a `row_maps_skipped` reason (p06-scheduler.md "Observers per event"; run it
                 at 400 workspaces with `--sizes 400 --scenarios observations`, before and after p06-scheduler-040)
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
 Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles). When
@@ -138,6 +140,22 @@ def sidebar():
 
 def workspace_rows():
     return [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+
+
+# The band of the window the sidebar list shows rows in (window coordinates, top-left origin): below the title bar,
+# above the bottom bar. `in_list` is no visibility test: the list also realizes `SidebarStyle.overscan` past each edge.
+LIST_TOP, LIST_BOTTOM = 60, WINDOW[3] - 80
+
+
+def fully_shown(row):
+    f = row["window_frame"]
+    return f["y"] > LIST_TOP and f["y"] + f["height"] < LIST_BOTTOM
+
+
+def partly_shown(row):
+    """Half-open, as the row feed's `visible` set (SidebarListView+RowWatch.swift `shownWorkspaces`)."""
+    f = row["window_frame"]
+    return f["y"] < LIST_BOTTOM and f["y"] + f["height"] > LIST_TOP
 
 
 def topology():
@@ -504,8 +522,9 @@ def scenario_observations():
         if not isinstance(after, dict) or "error" in after:
             return {"error": f"debug.observations after the change: {after}"}
         listed = workspace_rows()
-        on_screen = sum(1 for r in listed if r.get("in_list"))
-        changed_on_screen = any(r.get("title") == first["name"] and r.get("in_list") for r in listed)
+        on_screen = sum(1 for r in listed if partly_shown(r))
+        changed = next((r for r in listed if r.get("title") == first["name"]), None)
+        changed_on_screen = changed is not None and fully_shown(changed)
     finally:
         done = cli("workspace", target, "status", "clear", "bench")
         if done.returncode != 0:
@@ -522,9 +541,16 @@ def scenario_observations():
     armed_rows = rows.get("armed")
     row_maps = rows.get("evaluations")
     budget = {"on_screen_rows": on_screen, "armed_rows": armed_rows,
-              "armed_rows_ok": armed_rows <= 2 * on_screen if armed_rows is not None and on_screen else None,
+              "armed_rows_ok": armed_rows <= on_screen + on_screen if armed_rows is not None and on_screen else None,
               "row_maps_ok": row_maps == 1 if row_maps is not None and changed_on_screen else None,
               "evaluations_ok": per_change["evaluations"] <= 2}
+    if not changed_on_screen:
+        where = "not in the list" if changed is None else f"window_frame {changed['window_frame']} outside y {LIST_TOP}..{LIST_BOTTOM}"
+        budget["row_maps_skipped"] = f"the changed row {first['name']!r} is not on screen after scroll_to_top ({where})"
+    elif row_maps is None:
+        budget["row_maps_skipped"] = "debug.observations reports no SidebarRows owner"
+    if "row_maps_skipped" in budget:
+        note(f"observations: row map check skipped: {budget['row_maps_skipped']}")
     busy = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
     result = {"armed_rows": armed_rows, "row_maps_per_change": row_maps, "row_applies_per_change": rows.get("applies"),
               "changed_row_on_screen": changed_on_screen,
@@ -541,7 +567,7 @@ def scenario_observations():
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    rows = [r for r in workspace_rows() if fully_shown(r)]
     if len(rows) < 2:
         return {"error": "fewer than two visible rows"}
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
