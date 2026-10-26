@@ -583,3 +583,7 @@ fn run_connection_surface_dispatcher(
 #[cfg(test)]
 #[path = "request_threads_tests.rs"]
 mod request_threads_tests;
+
+#[cfg(test)]
+#[path = "connection_sequence_tests.rs"]
+mod connection_sequence_tests;
