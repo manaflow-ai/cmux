@@ -242,13 +242,17 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
 
     // The payment service's webhook for the same session grants nothing more and tells the Chief once.
     expect(await hook({ type: "checkout.session.completed", livemode: false, data: { object: paid } })).toEqual({ received: true, granted: false })
-    const notes = await inDO(brain, async (i) => i.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_inbox WHERE message LIKE 'plan:%'`).one().n as number)
-    expect(notes).toBe(1)
+    const planNotes = await inDO(brain, async (i) => i.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_inbox WHERE message LIKE 'plan:%'`).one().n as number)
+    expect(planNotes).toBe(1)
     // Cancelling the subscription takes the test plan away.
     const teamDO = (testEnv.TEAM_DO as unknown as { get(id: unknown): unknown; idFromName(n: string): unknown })
     const teamStub = teamDO.get(teamDO.idFromName(a.team))
     expect(await inDO(teamStub, async (i) => testPlanGrant(i.ctx.storage.sql))).toBe("pro")
     expect(await hook({ type: "customer.subscription.deleted", livemode: false, data: { object: { id: "sub_test_jobs0001", metadata } } })).toEqual({ received: true, revoked: true })
+    expect(await inDO(teamStub, async (i) => testPlanGrant(i.ctx.storage.sql))).toBeNull()
+    // A replay of the cancelled session (the return page reloaded, the webhook redelivered) grants nothing.
+    expect((await worker.fetch("https://api.test/v1/billing/plan/done?session_id=cs_test_jobs0001")).status).toBe(410)
+    expect(await hook({ type: "checkout.session.completed", livemode: false, data: { object: paid } })).toEqual({ received: true, granted: false })
     expect(await inDO(teamStub, async (i) => testPlanGrant(i.ctx.storage.sql))).toBeNull()
   })
 
@@ -259,6 +263,12 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
     expect(await grantPlanSession(e, { ...ok, livemode: true })).toEqual({ ok: false, reason: "not_test_mode" })
     expect(await grantPlanSession(e, { ...ok, payment_status: "unpaid" })).toEqual({ ok: false, reason: "not_paid" })
     expect(await grantPlanSession(e, { ...ok, amount_total: 2500 })).toEqual({ ok: false, reason: "bad_amount" })
+    expect(await grantPlanSession(e, { ...ok, amount_subtotal: 7500 })).toEqual({ ok: false, reason: "bad_amount" })
+    expect(await grantPlanSession(e, { ...ok, status: "open" })).toEqual({ ok: false, reason: "not_paid" })
+    expect(await grantPlanSession(e, { ...ok, mode: "payment" })).toEqual({ ok: false, reason: "not_a_plan_session" })
+    expect(await grantPlanSession(e, { ...ok, subscription: null })).toEqual({ ok: false, reason: "no_subscription" })
+    // Without the webhook nothing could take a cancelled plan back, so nothing is granted.
+    expect(await grantPlanSession({ ...e, STRIPE_CREDITS_WEBHOOK_SECRET: undefined }, ok)).toEqual({ ok: false, reason: "no_webhook" })
     expect(await grantPlanSession(e, { ...ok, metadata: { ...ok.metadata, plan: "enterprise" } })).toEqual({ ok: false, reason: "not_a_plan_session" })
     expect(await grantPlanSession(e, { ...ok, metadata: { ...ok.metadata, kind: "cmux_credits" } })).toEqual({ ok: false, reason: "not_a_plan_session" })
     // A test key on production sells nothing and grants nothing.

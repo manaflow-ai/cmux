@@ -13,7 +13,8 @@ import { hmacHex, timingSafeEqual } from "./ingress/verify.ts"
  * real prices are Lawrence's decision (the live plan comes from web billing's cmuxPlan).
  *
  * After payment (#25574): the return page and the payment service's webhook (credits-routes.ts) share
- * `grantPlanSession`. A paid test session becomes the team's test plan grant in TeamDO
+ * `grantPlanSession` (only where that webhook is configured, since it is what takes a cancelled plan
+ * back). A paid test session becomes the team's test plan grant in TeamDO
  * (inference/plan.ts), which the plan reads honor at once, so the limit lifts without a restart. When
  * the link was made by a Chief, its conversation gets one "[billing]" note (`plan:<session>`) that
  * starts a turn: the Chief says the plan is on and redoes the step that needed it.
@@ -87,14 +88,18 @@ export const grantPlanSession = async (env: Env, s: Session): Promise<PlanGrant>
   const m = s.metadata ?? {}
   if (!s.id || m.app !== "cmux" || m.kind !== PLAN_KIND || !m.team || !TEAM.test(m.team) || !m.plan || !Object.hasOwn(UPSELL_PLANS, m.plan) || s.mode !== "subscription") return { ok: false, reason: "not_a_plan_session" }
   if (s.livemode !== false || !creditsKey(env).ok) return { ok: false, reason: "not_test_mode" }
+  // Only the webhook can take a grant back (customer.subscription.deleted): without it, grant nothing.
+  if (!env.STRIPE_CREDITS_WEBHOOK_SECRET) return { ok: false, reason: "no_webhook" }
   if (s.status !== "complete" || s.payment_status !== "paid") return { ok: false, reason: "not_paid" }
   // The plan's price, and only when nothing changed it (a discount or tax would make the two differ).
   const cents = UPSELL_PLANS[m.plan]!.usd * 100
   if (s.currency !== "usd" || s.amount_total !== cents || s.amount_subtotal !== cents) return { ok: false, reason: "bad_amount" }
-  const subscription = typeof s.subscription === "string" ? s.subscription : (s.subscription?.id ?? null)
-  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(m.team)) as unknown as { grantTestPlan(plan: string, session: string, subscription: string | null): Promise<{ added: boolean } | { refused: string }> }
+  const subscription = typeof s.subscription === "string" ? s.subscription : s.subscription?.id
+  if (!subscription || !/^sub_[A-Za-z0-9_]{1,200}$/.test(subscription)) return { ok: false, reason: "no_subscription" }
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(m.team)) as unknown as { grantTestPlan(plan: string, session: string, subscription: string): Promise<{ added: boolean; revoked: boolean } | { refused: string }> }
   const r = await team.grantTestPlan(m.plan, s.id, subscription)
   if ("refused" in r) return { ok: false, reason: r.refused }
+  if (r.revoked) return { ok: false, reason: "revoked" }
   if (r.added) console.log(JSON.stringify({ msg: "plan.test_grant", team: m.team, plan: m.plan, session: s.id }))
   // The brain keys the note by session, so the webhook and the return page tell the Chief once.
   if (m.chief && ID.test(m.chief) && m.conversation && ID.test(m.conversation)) {
@@ -144,6 +149,7 @@ export const handlePlanCheckout = async (request: Request, env: Env, sub: string
       : { ok: false, reason: "bad_session" }
     if (!r.ok) {
       console.warn(JSON.stringify({ msg: "plan.return_not_granted", reason: r.reason }))
+      if (r.reason === "revoked") return page("Plan cancelled", "This plan was cancelled after this payment. Ask your Chief for a new link to start it again.", 410)
       return page("Payment not confirmed yet", r.reason === "not_paid" ? "Your payment is still processing. The plan turns on when it completes." : "We could not confirm this payment. If you paid, the plan turns on shortly.", r.reason === "not_paid" ? 202 : 400)
     }
     return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped. You can close this page.")

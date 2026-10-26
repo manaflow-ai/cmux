@@ -69,35 +69,38 @@ export const teamPlanPaid = (plan: string | null) => plan !== null && INFERENCE_
 export const personalPlanPaid = (plan: string | null) => plan !== null && INFERENCE_PERSONAL_PLAN_IDS.has(plan)
 
 /**
- * A plan bought through a Chief's test-mode checkout link (plan-checkout.ts). The sign-in service's
- * plan is written only by web billing, so a paid test session is kept here instead: one row per team,
- * the session that paid it and its subscription (a cancelled subscription removes it). TeamDO honors
- * it only off production (`testGrants`), where the payment service is in test mode.
+ * Plans bought through a Chief's test-mode checkout link (plan-checkout.ts). The sign-in service's
+ * plan is written only by web billing, so each paid test session is kept here instead, one row per
+ * session with its subscription. A cancelled subscription marks its row revoked; a row is never
+ * deleted, so a replayed session (the return page reloaded, a webhook redelivered) never grants again.
+ * The plan is the newest unrevoked row. TeamDO honors it only off production (`testGrants`).
  */
 const ensureGrant = (sql: SqlStorage) => {
-  sql.exec(`CREATE TABLE IF NOT EXISTS test_plan_grant (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT NOT NULL, session TEXT NOT NULL, subscription TEXT, granted_at INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS test_plan_session (session TEXT PRIMARY KEY, plan TEXT NOT NULL, subscription TEXT NOT NULL, granted_at INTEGER NOT NULL, revoked_at INTEGER)`)
 }
 
-/** Records a paid test session's plan; `added` is false when this session was already granted. */
-export const grantTestPlan = (sql: SqlStorage, plan: string, session: string, subscription: string | null, now: number): { added: boolean } => {
+/**
+ * Records a paid test session's plan. `added` is false when this session was seen before; `revoked`
+ * is true when its subscription was cancelled since (a replay of it grants nothing).
+ */
+export const grantTestPlan = (sql: SqlStorage, plan: string, session: string, subscription: string, now: number): { added: boolean; revoked: boolean } => {
   ensureGrant(sql)
-  const same = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM test_plan_grant WHERE id = 1 AND session = ?`, session).one().n > 0
-  if (same) return { added: false }
-  sql.exec(`INSERT INTO test_plan_grant (id, plan, session, subscription, granted_at) VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, session = excluded.session, subscription = excluded.subscription, granted_at = excluded.granted_at`, plan, session, subscription, now)
-  return { added: true }
+  const added = sql.exec(`INSERT OR IGNORE INTO test_plan_session (session, plan, subscription, granted_at) VALUES (?, ?, ?, ?)`, session, plan, subscription, now).rowsWritten > 0
+  const revoked = sql.exec<{ revoked_at: number | null }>(`SELECT revoked_at FROM test_plan_session WHERE session = ?`, session).one().revoked_at !== null
+  return { added, revoked }
 }
 
-/** Removes the grant its subscription made (the subscription was cancelled); true when one went. */
-export const revokeTestPlan = (sql: SqlStorage, subscription: string): boolean => {
+/** Marks the grants its subscription made revoked (the subscription was cancelled); true when one was live. */
+export const revokeTestPlan = (sql: SqlStorage, subscription: string, now: number): boolean => {
   if (!hasGrantTable(sql)) return false
-  return sql.exec(`DELETE FROM test_plan_grant WHERE id = 1 AND subscription = ?`, subscription).rowsWritten > 0
+  return sql.exec(`UPDATE test_plan_session SET revoked_at = ? WHERE subscription = ? AND revoked_at IS NULL`, now, subscription).rowsWritten > 0
 }
 
-/** The granted test plan, or null (no table create on a read). */
+/** The newest unrevoked test plan, or null (no table create on a read). */
 export const testPlanGrant = (sql: SqlStorage): string | null =>
-  hasGrantTable(sql) ? (sql.exec<{ plan: string }>(`SELECT plan FROM test_plan_grant WHERE id = 1`).toArray()[0]?.plan ?? null) : null
+  hasGrantTable(sql) ? (sql.exec<{ plan: string }>(`SELECT plan FROM test_plan_session WHERE revoked_at IS NULL ORDER BY granted_at DESC, session DESC LIMIT 1`).toArray()[0]?.plan ?? null) : null
 
-const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'test_plan_grant'`).one().n > 0
+const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'test_plan_session'`).one().n > 0
 
 /**
  * TeamDO.inferencePlan: the answer for `entity`. `stackUser` is set only for the caller's own

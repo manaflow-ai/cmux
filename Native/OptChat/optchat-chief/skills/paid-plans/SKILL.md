@@ -58,10 +58,9 @@ team.
    wakes you, run `cmux billing status --json`: once the plan is on, retry
    the blocked step yourself and say so; if not, sleep again (at most a few
    times a day). Never wait for the user to say they paid.
-5. A Cloud Chief's link (`automation.plan.required` with `checkout`) needs no
-   sleep: when the user pays, a "[billing] … is on" note starts a turn. Say
-   in one line that the plan is on and redo the blocked step (for example
-   the same `chief-auto add`) without asking.
+5. A checkout link the Cloud Chief answered with (`automation.plan.required`
+   with `checkout`) needs no sleep from you: when the user pays, the Cloud
+   Chief is told and redoes its blocked job itself.
 
 ## Errors
 

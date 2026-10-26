@@ -83,6 +83,9 @@ export const chiefPlanWake = async (b: ChiefBrainDO, n: PlanNotice): Promise<Job
   const cfg = b.config()
   if (!cfg.agent || !cfg.owner || cfg.agent !== n.chief) return { ok: false, code: "chief.not_found", message: "this Chief has never answered in that conversation" }
   if (personalTeamIdFor(cfg.owner) !== n.team) return { ok: false, code: "chief.forbidden", message: "the plan is not on this Chief's owner's team" }
+  const adm = await b.admitted(cfg.agent, cfg.owner, false)
+  if (!adm.ok && adm.reason === "owner.unreachable") return { ok: false, code: "owner.unreachable", message: "the Chief's record could not be read", retry: true }
+  if (!adm.ok && adm.reason !== "credits_exhausted") return { ok: false, code: `chief.${adm.reason}`, message: `the Chief cannot take a turn (${adm.reason})` }
   const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, n.conversation).toArray()[0]?.seq ?? 0)
   b.sql.exec(
     `INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING`,
