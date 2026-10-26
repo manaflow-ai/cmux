@@ -471,8 +471,11 @@ public final class LayoutRootView: NSView {
         if !moving { reportInteractiveRects() }
     }
 
+    /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
+    public private(set) var visibilityUpdates: UInt64 = 0
+
     func updateVisibility() {
-        Self.visibilityUpdates &+= 1
+        visibilityUpdates &+= 1
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
@@ -503,9 +506,6 @@ public final class LayoutRootView: NSView {
     public static var layoutPasses: UInt64 = 0
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
-    /// `updateVisibility()` calls of every root (`debug.layout_counters` `update_visibility`): a spring
-    /// should need at most 2 (its start and its landing), not one per frame (p03-rendering DC2).
-    public static var visibilityUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
