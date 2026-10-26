@@ -1,0 +1,52 @@
+// Copyright 2019 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "mojo/public/mojom/base/string16.mojom";
+
+struct AlertBridgeInitParams {
+  // The dialog title and text.
+  mojo_base.mojom.String16 title;
+  mojo_base.mojom.String16 message_text;
+
+  // Text for the primary button (which is also the default button).
+  mojo_base.mojom.String16 primary_button_text;
+
+  // Text for the secondary (non-default) button. If not set, then there is only
+  // one button for this alert.
+  mojo_base.mojom.String16? secondary_button_text;
+
+  // Default text for the text field. If not set, then there is no text field
+  // for this alert.
+  mojo_base.mojom.String16? text_field_text;
+
+  // The text for the checkbox. If not set, then there is no checkbox for this
+  // alert.
+  mojo_base.mojom.String16? check_box_text;
+};
+
+// Disposition of alert window.
+enum AlertDisposition {
+  // Default button was pressed.
+  PRIMARY_BUTTON,
+  // Secondary button was pressed.
+  SECONDARY_BUTTON,
+  // The window was closed without a selection being made.
+  CLOSE,
+};
+
+interface AlertBridge {
+  // Initialize and show the alert. Return in |disposition| is how the window
+  // was dismissed. Return in |text_field_value| the value of the text field
+  // shown in the alert (if any). Return true in |check_box_value| only if the
+  // alert had a checkbox and it was checked.
+  Show(AlertBridgeInitParams params) =>
+      (AlertDisposition disposition, mojo_base.mojom.String16 text_field_value,
+       bool check_box_value);
+
+  // Called by JavaScriptAppModalDialogCocoa to indicate that the alert can be
+  // destroyed without reporting results.
+  Dismiss();
+};
