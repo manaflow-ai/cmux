@@ -2348,8 +2348,11 @@ mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
 mod request_watchdog;
+#[cfg(unix)]
+pub(crate) use request_watchdog::process_report_holder_hang;
 #[cfg(debug_assertions)]
 pub(crate) use request_watchdog::spawn_owner_hang_test;
+pub use request_watchdog::{EchoItem, EchoWatch};
 pub(crate) use request_watchdog::{
     FrameStage, RequestScope, RequestWatchdog, WatchKind, WatchedMethod, process_enter,
     process_exit,
@@ -2571,8 +2574,8 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    render_state_message, send_browser_attach_update, styled_run_json, write_output_flow_json,
-    write_pending_sequence_json,
+    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
+    styled_run_json, write_output_flow_json, write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
