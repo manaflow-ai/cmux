@@ -181,12 +181,16 @@ mod tests {
         fake.notify("_acpmux/event", record(4, "user_message"));
         // Every event up to the prompt record, in order (the fake's own replies may come first):
         // none is the draft, and none is a child's change.
+        let mut own_change = None;
         loop {
             let event = client.event(WAIT).expect("the prompt record");
-            assert_ne!(
-                event["event"], "agent-session-changed",
-                "no descendant reaches a teammate: {event}"
-            );
+            if event["event"] == "agent-session-changed" {
+                assert_eq!(
+                    event["change"]["sessionId"], SESSION,
+                    "no descendant reaches a teammate"
+                );
+                own_change = Some(event["change"]["session"].clone());
+            }
             assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
             if event["event"] == "agent-session-record" && event["record"]["kind"] == "user_message"
             {
@@ -197,6 +201,7 @@ mod tests {
             client.event(Duration::from_millis(300)).is_none(),
             "nothing after the prompt record"
         );
+        assert_eq!(own_change, Some(json!({"sessionId": SESSION, "status": "idle"})));
         let children =
             json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
         assert_code(&client.request(children), "agent_session.not_trusted");

@@ -175,12 +175,53 @@ fn is_draft(record: &Value) -> bool {
     record.get("kind").and_then(Value::as_str) == Some("composer")
 }
 
-/// A replay page without `composer` records, for a proxied (teammate) attachment.
+/// A replay page for a proxied (teammate) attachment: no `composer` records, and the session's
+/// summary cut to [`TEAMMATE_SUMMARY`].
 pub(crate) fn without_drafts(mut page: Value) -> Value {
     if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
         events.retain(|record| !is_draft(record));
     }
+    if let Some(session) = page.get_mut("session") {
+        teammate_summary(session);
+    }
     page
+}
+
+/// What a teammate sees of the shared chat's own summary: what the chat shows (its name, title,
+/// status, turn, queue and asks), never where it runs or what it is linked to (folder, parent,
+/// children, tags, tools, rules, policy, MCP servers, lane, peer, pull requests).
+const TEAMMATE_SUMMARY: &[&str] = &[
+    "sessionId",
+    "name",
+    "harness",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "lastSeq",
+    "eventCount",
+    "turnCount",
+    "title",
+    "titleSource",
+    "preview",
+    "lastMessage",
+    "queued",
+    "queuePaused",
+    "steering",
+    "turn",
+    "queue",
+    "pending",
+    "pendingPermissions",
+    "currentModeId",
+    "model",
+    "stateSeq",
+    "logsLoading",
+];
+
+/// Keeps only [`TEAMMATE_SUMMARY`] of a session summary.
+pub(crate) fn teammate_summary(session: &mut Value) {
+    if let Some(object) = session.as_object_mut() {
+        object.retain(|key, _| TEAMMATE_SUMMARY.contains(&key.as_str()));
+    }
 }
 
 /// One notification or the close from the attachment's acpmux link.
@@ -227,6 +268,12 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             if !same_session && !attachment.tab_current() {
                 return attachment.end(Some("detached"));
             }
+            let mut params = params;
+            if attachment.author.is_some()
+                && let Some(session) = params.get_mut("session")
+            {
+                teammate_summary(session);
+            }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);
@@ -257,6 +304,16 @@ mod draft_tests {
             kept["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
         assert_eq!(seqs, vec![1, 3]);
         assert!(is_draft(&json!({"kind": "composer"})));
+        let page = json!({"events": [], "session": {"sessionId": "s", "name": "chat",
+            "status": "running", "cwd": "/Users/owner/secret", "parentId": "p", "startedBy": "p",
+            "spawnedBy": "p", "children": 2, "tags": {"lane": "x"}, "tools": [{"name": "Bash"}],
+            "rules": true, "mcpServers": [], "pullRequests": ["https://example.com/1"],
+            "agentSessionId": "thread", "peer": "other", "turn": {"turnId": "t"}}});
+        let session = &without_drafts(page)["session"];
+        assert_eq!(
+            session,
+            &json!({"sessionId": "s", "name": "chat", "status": "running", "turn": {"turnId": "t"}})
+        );
         assert!(!is_draft(&json!({"kind": "user_message"})));
     }
 }
