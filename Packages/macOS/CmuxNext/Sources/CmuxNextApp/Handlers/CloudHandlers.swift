@@ -16,6 +16,7 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        bindBrowserActions(into: registry, context: context, reason: signedInReason)
         CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
@@ -48,7 +49,7 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
+            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id)) }
             return session
         }
         guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
