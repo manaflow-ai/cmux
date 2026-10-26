@@ -122,6 +122,7 @@ impl Hub {
                     subsession: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
+                    attach_only: false,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.

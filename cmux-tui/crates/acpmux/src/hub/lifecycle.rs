@@ -32,6 +32,7 @@ impl Hub {
             subsession,
             disallowed_tools,
             checked_cwd,
+            attach_only,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -193,6 +194,11 @@ impl Hub {
                 && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
             {
                 return Ok(existing);
+            }
+            // Admitted only to attach: its holder is gone, so this is a new
+            // session, which needs room (`admission::admit_adopt`).
+            if attach_only && adopt.is_some() {
+                return Err(super::admission::holder_gone());
             }
             meta.name = match name {
                 Some(n) => {

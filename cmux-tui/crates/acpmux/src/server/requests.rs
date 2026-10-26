@@ -548,6 +548,173 @@ pub(super) async fn handle_request(
     reply
 }
 
+/// `session/new` of a session on this daemon (no `_meta.acpmux.peer`).
+async fn new_local_session(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let mut cwd = str_param(params, "cwd").map(PathBuf::from);
+    let meta = mux_meta(params);
+    // The local app starts a preset by its id only: anything that
+    // would shape the harness command from the request is refused.
+    // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
+    if conn.origin == Origin::LocalApp {
+        super::local_app::preset_by_id_only(params, meta)?;
+        if super::local_app::names_preset(params, meta)
+            && let Some(given) = &cwd
+        {
+            cwd = Some(super::local_app::canonical_cwd(given).await?);
+        }
+    }
+    let adopt = crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
+    let adopting = adopt.is_some();
+    let pick = |key: &str| {
+        meta.and_then(|m| m.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
+    };
+    let policy = pick("policy")
+        .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
+        .transpose()?;
+    let env = crate::session_env::parse(meta)?;
+    let route = pick("route");
+    if let Some(r) = &route
+        && !crate::routes::is_route_id(r)
+    {
+        return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
+    }
+    let disallowed_tools = disallowed_tools(meta)?;
+    let lane_parent = super::lane_parent(hub, conn, params);
+    let (asked_policy, agent) = (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
+    // A new session needs room on this host (`hub/admission.rs`); an adopt of a
+    // conversation a session already holds (or another create is adopting)
+    // attaches there and starts nothing, unless it may fork into a new chat.
+    // Before the worktree, so a refusal makes none; counted until the create ends.
+    let who = who(conn);
+    // An adopt's conversation: its id and the family `new_session` resolves (`adopted_in`).
+    let conversation = match &adopt {
+        Some(a) if a.if_live != crate::adopt::IfLive::Fork => Some(
+            hub.adopt_conversation(
+                &a.agent_session_id,
+                pick("harness").or_else(|| a.harness.clone()),
+                &pick("preset"),
+                pick("model").as_deref(),
+                conn.origin.web_class(),
+                cwd.as_deref(),
+            )
+            .await?,
+        ),
+        _ => None,
+    };
+    let mut admitted = match &conversation {
+        Some(c) => hub.admit_adopt(ask(conn, params, &who), c).await?,
+        None => Some(hub.admit_new(ask(conn, params, &who)).await?),
+    };
+    // Debug builds only: `ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS` holds an adopt that
+    // found its conversation held, so a test can end the holder before the
+    // create. Bounded; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if admitted.is_none()
+        && let Some(ms) = std::env::var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms.min(5_000))).await;
+    }
+    // After the request checks above, so a request they refuse makes no worktree.
+    let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
+    let req = crate::hub::NewRequest {
+        harness: pick("harness"),
+        preset: pick("preset"),
+        name: pick("name"),
+        cwd,
+        policy,
+        model: pick("model"),
+        effort: pick("effort"),
+        adopt,
+        workspace_id: crate::session_env::workspace_id(meta, &env)?,
+        env,
+        // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+        remote: conn.origin.web_class(),
+        keep_harness_mode: hub.keeps_harness_mode(agent, params).await,
+        starter: hub.starter_of(conn.origin.web_class(), agent),
+        route,
+        subsession: None,
+        disallowed_tools,
+        checked_cwd: None,
+        attach_only: false,
+    };
+    // Admitted with no room taken (its conversation was held), the adopt only
+    // attaches: if the holder ended meanwhile it asks for room like a new
+    // session, and a refusal refuses it (`admission::holder_gone`).
+    let mut tries = 0;
+    let s = loop {
+        let Some(conversation) = conversation.as_ref().filter(|_| admitted.is_none()) else {
+            break match &admitted {
+                Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                // Boxed: a create's future is large (`Admitted::run`).
+                None => Box::pin(hub.new_session(req)).await?,
+            };
+        };
+        let attach = crate::hub::NewRequest { attach_only: true, ..req.clone() };
+        match Box::pin(hub.new_session(attach)).await {
+            Err(e) if crate::hub::admission::is_holder_gone(&e) && tries < 3 => {
+                tries += 1;
+                admitted = hub.admit_adopt(ask(conn, params, &who), conversation).await?;
+            }
+            made => break made?,
+        }
+    };
+    if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
+        && !tags.is_empty()
+    {
+        hub.set_tags(&s, Some(tags), &[], None);
+    }
+    if conn.origin.web_class() {
+        let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, params);
+        super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
+        // A dedicated agent VM (vmHost): a session its owner's peer
+        // daemon starts with no policy runs approve-all; the VM is the
+        // sandbox (hub/remote_sandbox.rs). Web clients still ask.
+        let vm_host = hub.config.read().await.vm_host;
+        if !asked_policy
+            && crate::hub::vm_host_peer_approves(
+                vm_host,
+                cfg!(target_os = "macos"),
+                super::remote_guard::control_of(conn.origin, conn.auth, params)
+                    == crate::hub::Control::Peer,
+            )
+        {
+            hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
+        }
+    } else {
+        hub.start_in_mode(conn.is_person(), conn.caller(), params, &s, adopting).await?;
+    }
+    attach(hub, conn, &s.id);
+    if let Some(parent) = &lane_parent
+        && !adopting
+    {
+        hub.lane_link(parent, &s.id);
+    }
+    // An adopted id may name a chat that already exists: never tied to this connection.
+    if !adopting && super::ephemeral::requested(params) {
+        super::ephemeral::own(hub, conn, &s).await;
+    }
+    let meta = s.meta();
+    let mut summary = hub.session_summary(&s);
+    if let Some(w) = worktree {
+        summary.set("worktree", w);
+    }
+    Ok(json!({
+        "sessionId": s.id,
+        "modes": meta.modes,
+        "configOptions": meta.config_options,
+        "_meta": {"acpmux": summary},
+    }))
+}
+
 async fn dispatch_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -782,122 +949,9 @@ async fn dispatch_request(
                 }
                 return Ok(result);
             }
-            let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
-            let meta = mux_meta(&params);
-            // The local app starts a preset by its id only: anything that
-            // would shape the harness command from the request is refused.
-            // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
-            if conn.origin == Origin::LocalApp {
-                super::local_app::preset_by_id_only(&params, meta)?;
-                if super::local_app::names_preset(&params, meta)
-                    && let Some(given) = &cwd
-                {
-                    cwd = Some(super::local_app::canonical_cwd(given).await?);
-                }
-            }
-            let adopt =
-                crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
-            let adopting = adopt.is_some();
-            let pick = |key: &str| {
-                meta.and_then(|m| m.get(key))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
-            };
-            let policy = pick("policy")
-                .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
-                .transpose()?;
-            let env = crate::session_env::parse(meta)?;
-            let route = pick("route");
-            if let Some(r) = &route
-                && !crate::routes::is_route_id(r)
-            {
-                return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
-            }
-            let disallowed_tools = disallowed_tools(meta)?;
-            let lane_parent = super::lane_parent(hub, conn, &params);
-            let (asked_policy, agent) =
-                (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
-            // A new session needs room on this host (`hub/admission.rs`); an adopt that
-            // never forks is not checked. Before the worktree, so a refusal makes none;
-            // counted until the create ends.
-            let who = who(conn);
-            let admitted = match &adopt {
-                Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
-                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
-            };
-            // After the request checks above, so a request they refuse makes no worktree.
-            let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
-            let req = crate::hub::NewRequest {
-                harness: pick("harness"),
-                preset: pick("preset"),
-                name: pick("name"),
-                cwd,
-                policy,
-                model: pick("model"),
-                effort: pick("effort"),
-                adopt,
-                workspace_id: crate::session_env::workspace_id(meta, &env)?,
-                env,
-                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin.web_class(),
-                keep_harness_mode: hub.keeps_harness_mode(agent, &params).await,
-                starter: hub.starter_of(conn.origin.web_class(), agent),
-                route,
-                subsession: None,
-                disallowed_tools,
-                checked_cwd: None,
-            };
-            let s = match &admitted {
-                Some(admitted) => admitted.run(hub.new_session(req)).await?,
-                None => hub.new_session(req).await?,
-            };
-            if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
-                && !tags.is_empty()
-            {
-                hub.set_tags(&s, Some(tags), &[], None);
-            }
-            if conn.origin.web_class() {
-                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
-                super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
-                // A dedicated agent VM (vmHost): a session its owner's peer
-                // daemon starts with no policy runs approve-all; the VM is the
-                // sandbox (hub/remote_sandbox.rs). Web clients still ask.
-                let vm_host = hub.config.read().await.vm_host;
-                if !asked_policy
-                    && crate::hub::vm_host_peer_approves(
-                        vm_host,
-                        cfg!(target_os = "macos"),
-                        super::remote_guard::control_of(conn.origin, conn.auth, &params)
-                            == crate::hub::Control::Peer,
-                    )
-                {
-                    hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
-                }
-            } else {
-                hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
-            }
-            attach(hub, conn, &s.id);
-            if let Some(parent) = &lane_parent
-                && !adopting
-            {
-                hub.lane_link(parent, &s.id);
-            }
-            // An adopted id may name a chat that already exists: never tied to this connection.
-            if !adopting && super::ephemeral::requested(&params) {
-                super::ephemeral::own(hub, conn, &s).await;
-            }
-            let meta = s.meta();
-            let mut summary = hub.session_summary(&s);
-            if let Some(w) = worktree {
-                summary.set("worktree", w);
-            }
-            Ok(json!({
-                "sessionId": s.id,
-                "modes": meta.modes,
-                "configOptions": meta.config_options,
-                "_meta": {"acpmux": summary},
-            }))
+            // Its own boxed future: the create holds much across its awaits, and every
+            // request's dispatch future would otherwise carry it.
+            Box::pin(new_local_session(hub, conn, &params)).await
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
