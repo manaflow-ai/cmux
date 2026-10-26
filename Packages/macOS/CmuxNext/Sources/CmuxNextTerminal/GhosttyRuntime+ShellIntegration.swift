@@ -73,10 +73,10 @@ extension GhosttyRuntime {
 
     /// The Ghostty CLI helper bundled at `<Resources>/bin/ghostty`, which
     /// Ghostty's `ssh` wrapper runs as `$GHOSTTY_BIN +ssh`. Nil when this
-    /// build does not ship it.
-    public nonisolated static func cliHelperPath(bundle: Bundle = .main) -> String? {
-        guard let path = bundle.resourceURL?.appendingPathComponent("bin/ghostty").path,
-              FileManager.default.isExecutableFile(atPath: path) else { return nil }
+    /// build does not ship it. `isExecutable` is the disk check (a test's own).
+    public nonisolated static func cliHelperPath(bundle: Bundle = .main,
+                                                 isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> String? {
+        guard let path = bundle.resourceURL?.appendingPathComponent("bin/ghostty").path, isExecutable(path) else { return nil }
         return path
     }
 }

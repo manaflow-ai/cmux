@@ -133,9 +133,12 @@ public struct DaemonLauncher: Sendable {
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
     /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
+    /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
+    /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
     public static func forApp(
         build: BuildIdentity,
         terminalEnvironment: [String: String],
+        resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
@@ -156,7 +159,8 @@ public struct DaemonLauncher: Sendable {
         // A terminal the daemon starts with no caller env gets this env; its
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
-        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
+        let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides,
+                                         resolved: resolvedTerminalEnvironment, cli: cli)
         return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } },
                               wireStats: wireStats)
     }
@@ -198,7 +202,7 @@ public struct DaemonLauncher: Sendable {
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,
     /// else the app's own), filtered, plus the app's identity keys and
-    /// `overrides`, then `cli` (the bundled `cmux` first on `PATH`). It
+    /// `overrides` and the `resolved` ones over them, then `cli` (the bundled `cmux` first on `PATH`). It
     /// never waits for `$SHELL -l -i`, which takes 5-17 s on some setups;
     /// the app's terminals do not depend on it, because each carries its
     /// own login `env` (`TerminalEnvironment.shared`).
@@ -206,13 +210,16 @@ public struct DaemonLauncher: Sendable {
         cache: LoginEnvironmentCache,
         base: [String: String],
         overrides: [String: String],
+        resolved: (@Sendable () async -> [String: String])? = nil,
         cli: BundledCLIEnvironment? = nil
     ) -> @Sendable () async -> [String: String] {
         {
             DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.immediate()
             DaemonLaunchTimings.shared.mark("daemon.login_env_end")
-            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+            let late = await resolved?() ?? [:]
+            let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base,
+                                                                        overrides: overrides.merging(late) { _, resolved in resolved })
             return cli?.apply(to: environment) ?? environment
         }
     }

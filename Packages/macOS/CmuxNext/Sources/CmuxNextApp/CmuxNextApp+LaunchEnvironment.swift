@@ -11,18 +11,10 @@ import Foundation
 /// so a later setenv or unsetenv crashes it (cx-9dh7). Each write site goes
 /// through `ProcessEnvironmentGuard.write`, so a write moved after the freeze
 /// stops a debug build (check: crash_ratchet.py env_write,
-/// env-write-allowlist.json).
-///
-/// Its Ghostty resources lookup is the one disk probe `main` makes before
-/// `NSApplication.run`: the write it feeds must come before any thread exists,
-/// so no launch lane can do it (Chrome checks its user data directory on the
-/// main thread before its threads start the same way: `InitializeUserDataDir`
-/// in chrome/app/chrome_main_delegate.cc). The launch reuses its result rather
-/// than probing again.
+/// env-write-allowlist.json). No write here looks at the disk: Ghostty's
+/// resources folder is this app bundle's by path.
 extension CmuxNextApp {
-    /// - Returns: The Ghostty resources directory (`GhosttyRuntime.resourcesDirectory`), nil when none has themes.
-    @discardableResult
-    static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) -> String? {
+    static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
         // Cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
         let stripped = LaunchIdentity.stripInheritedEnvironment(environmentGuard: environmentGuard)
@@ -34,10 +26,9 @@ extension CmuxNextApp {
 #if DEBUG
         applyConfigFileArgument(environmentGuard: environmentGuard)
 #endif
-        let ghosttyResources = GhosttyRuntime.prepareProcessEnvironment(environmentGuard: environmentGuard)
+        GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.bundledResourcesDirectory(), environmentGuard: environmentGuard)
         LaunchMarkSink.dropInheritedDescriptor(environmentGuard: environmentGuard)
         environmentGuard.freeze()
-        return ghosttyResources
     }
 
 #if DEBUG

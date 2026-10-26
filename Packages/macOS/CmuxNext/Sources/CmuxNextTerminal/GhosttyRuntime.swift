@@ -93,7 +93,7 @@ public final class GhosttyRuntime {
         // process that skips main (tests) prepares it here. Either way no
         // write may follow ghostty_init.
         let environmentGuard = ProcessEnvironmentGuard.process
-        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(environmentGuard: environmentGuard) }
+        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(resources: Self.resourcesDirectory(), environmentGuard: environmentGuard) }
         environmentGuard.freeze()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
@@ -365,43 +365,24 @@ public final class GhosttyRuntime {
         for view in colorSchemeSurfaces.allObjects { view.applyColorScheme(dark: isDark) }
     }
 
-    // MARK: Environment
+    // MARK: Environment (the lookups: GhosttyRuntime+Environment.swift)
 
-    /// Points libghostty at themes and terminfo before `ghostty_init`. Prefers
-    /// resources bundled in this app, then an inherited value, then
-    /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
-    /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    /// The app calls it in `main` (`CmuxNextApp.prepareLaunchEnvironment`) before any
-    /// thread starts and the environment freeze; `init` calls it only when
-    /// nothing froze the environment (tests). libghostty keeps a slice of
+    /// Points libghostty at themes and terminfo before `ghostty_init`: sets
+    /// `GHOSTTY_RESOURCES_DIR` to `resources` (nil leaves an inherited value).
+    /// Manual-IO surfaces spawn no shell, so shell-integration and TERM here
+    /// only matter for `theme =` lookups and local debug PTYs. The app calls it
+    /// in `main` (`CmuxNextApp.prepareLaunchEnvironment`) with
+    /// ``bundledResourcesDirectory(bundleURL:resourceURL:)``, a path with no
+    /// disk call, before any thread starts and the environment freeze; `init`
+    /// calls it with ``resourcesDirectory(bundle:environment:fileExists:)`` only
+    /// when nothing froze the environment (tests). libghostty keeps a slice of
     /// `environ` from `ghostty_init`, so no write may follow it.
-    ///
-    /// - Returns: The resources directory it resolved (``resourcesDirectory(bundle:environment:)``),
-    ///   so the launch reuses this one lookup instead of probing the disk again.
-    @discardableResult
-    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) -> String? {
-        let resources = resourcesDirectory()
+    public nonisolated static func prepareProcessEnvironment(resources: String?, environmentGuard: ProcessEnvironmentGuard = .process) {
         environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
             guard let resources else { return }
             if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
-        return resources
-    }
-
-    /// The Ghostty resources directory (themes, shell integration; terminfo
-    /// is its sibling): this app's bundled copy, then an inherited
-    /// `GHOSTTY_RESOURCES_DIR`, then Ghostty.app. Nil when none has themes.
-    public nonisolated static func resourcesDirectory(
-        bundle: Bundle = .main,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
-        let fileManager = FileManager.default
-        let bundled = bundle.resourceURL?.appendingPathComponent("ghostty")
-        let inherited = environment["GHOSTTY_RESOURCES_DIR"]
-        let ghosttyApp = "/Applications/Ghostty.app/Contents/Resources/ghostty"
-        let candidates = [bundled?.path, inherited, ghosttyApp].compactMap { $0 }
-        return candidates.first { fileManager.fileExists(atPath: ($0 as NSString).appendingPathComponent("themes")) }
     }
 
     /// Version of the linked libghostty (`ghostty_info`), which Ghostty

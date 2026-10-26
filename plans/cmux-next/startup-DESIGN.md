@@ -74,7 +74,9 @@ reporting (088: from `main()`).
 
 ## 2. `main()` steps (`CmuxNextApp/CmuxNextApp.swift`)
 
-P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033).
+P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033). Open until 066: M19's
+`DaemonService.prestart` still resolves the daemon binary and reads the install key on main; every
+other step in this table makes no file call.
 
 | # | Step | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
@@ -85,9 +87,9 @@ P1 target: `main_start` to `main.run` <= 10 ms on main, no file calls (033).
 | M5 | `ChildSignalDefaults.installAppSignalPolicy()` | main() | main | - | Before any socket or pipe exists. |
 | M6 | `OpenFileLimit().raise()` | main() | main | - | Before CefInitialize; one setrlimit. |
 | M7 | `CloudAuth.captureLaunchEnvironment()` | main() | main | - | Before any thread reads the environment. |
-| M8 | `Self.prepareLaunchEnvironment()` | main() | main | 033 | The only environment writes, then the freeze. Its Ghostty resources lookup is main's one disk probe (the write it feeds precedes every thread); it returns the directory and the launch reuses it. Mark `main.environment_frozen`. |
+| M8 | `Self.prepareLaunchEnvironment()` | main() | main | 033 | The only environment writes, then the freeze. `GHOSTTY_RESOURCES_DIR` is the app bundle's `Resources/ghostty` by path (`GhosttyRuntime.bundledResourcesDirectory`), no disk call. Mark `main.environment_frozen`. |
 | M9 | `LaunchWarmup.start()` | main() | launch thread | 034 | Starts the launch thread. Its ActionCatalog and SF Symbols stay; `prewarmStrings` becomes afterStartup and `prewarmLoginEnvironment` an afterStartup `.lane(.system, .bestEffort)` post, at `.userBlocking` at once only when a cold daemon needs it now (034). |
-| M10 | `AppEnvironment.current(openFiles:ghosttyResources:)` | main() | main | 033 | Takes M8's directory (no second lookup); the Ghostty CLI helper check is a LaunchRead each shell's env awaits; the shell-integration check runs once, not per use (M19's prestart in main takes it as a value). The lanes (M13) are made first. |
+| M10 | `AppEnvironment.current(openFiles:)` | main() | main | 033 | No file call: the shell-integration choice follows the bundle path. Ghostty's resources folder, CLI helper and terminfo (`TERM`) are `GhosttyLaunchProbe`, a `.lane(.files, .userBlocking)` `.blockShutdown` LaunchRead posted before M16; each shell's env and the daemon's `server ensure` (M19) await it. The lanes (M13) are made first. |
 | M11 | `environment.sidebarSnapshotFile` / `layoutTemplatesFile` / `homeCachesDirectory` | main() | main | 033 | Path lookups only; each store creates its folder when it first writes. Mark `main.app_environment`. |
 | M12 | (was `AgentPaneScrollAnchors.shared = ...`, `AgentPaneDraftAttachments.shared = ...`) | wiring | - | 033 | Gone from main(): `AgentPaneChatStores` is made with the agent tabs (`AgentTabStore.wired`) and reaches each pane's `AgentPageProvider` by init. |
 | M13 | `BackgroundWork(hangs:onRan:)` | main() | main | 004 | The lanes every later read uses. |

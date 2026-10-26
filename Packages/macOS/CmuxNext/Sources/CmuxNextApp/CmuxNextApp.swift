@@ -41,9 +41,8 @@ public struct CmuxNextApp {
         // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
         CloudAuth.captureLaunchEnvironment()
         // This process's only environment writes, then the freeze: a write
-        // after it stops a debug build (ProcessEnvironmentGuard). Its Ghostty
-        // resources lookup is main's one disk probe; the launch reuses it.
-        let ghosttyResources = Self.prepareLaunchEnvironment()
+        // after it stops a debug build (ProcessEnvironmentGuard).
+        Self.prepareLaunchEnvironment()
         DebugTimings.markLaunch("main.environment_frozen")
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
@@ -57,7 +56,7 @@ public struct CmuxNextApp {
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
-        var environment = AppEnvironment.current(openFiles: openFiles, ghosttyResources: ghosttyResources)
+        var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
@@ -70,15 +69,16 @@ public struct CmuxNextApp {
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
         // rests and its unsent chips are kept beside them too (AgentPaneChatStores, made with the agent tabs).
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, first:
+        // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
+        // files lane: every shell's env and the daemon's start await it.
+        environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
+        // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
-        // The bundled Ghostty CLI helper (an executable check), after the reads a first frame shows: a shell's env awaits it.
-        environment.ghosttyBinary = LaunchRead(on: work) { GhosttyRuntime.cliHelperPath() }
         DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
         // video wallpapers list the windows above theirs on its system lane, never on main.
@@ -87,6 +87,7 @@ public struct CmuxNextApp {
         let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                                              resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,

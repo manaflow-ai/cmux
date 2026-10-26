@@ -26,7 +26,7 @@ final class AgentTabStore {
     /// its page host (`AppServices.webUI`) every agent pane opens its page through, and the agent pages' WebKit warm-up.
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?
     /// Where each chat rested and its unsent chips, which every pane's page reads and writes (``AgentPaneChatStores``).
-    private let chatStores: AgentPaneChatStores
+    let chatStores: AgentPaneChatStores
     /// Gives each press to the agent pane it goes to (one input tap subscription per window).
     let gestureRouter: AgentPaneGestureRouter
     /// The main-thread scheduler the chat headers' watches apply on (``AgentChatHeaderWatch``).
