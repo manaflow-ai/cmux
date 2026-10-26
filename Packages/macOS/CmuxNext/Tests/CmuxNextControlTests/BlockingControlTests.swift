@@ -26,6 +26,46 @@ struct BlockingControlTests {
         #expect(detector.sites.map(\.count) == [0])
     }
 
+    /// A 5 ms sleep in `blockingCall` on the main thread shows as `max_ms` >= 5 (and `total_ms` >= `max_ms`).
+    @MainActor @Test func reportsTheWallTimeOfATimedSite() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) {
+            blockingCall(.sleep) { _ = usleep(5_000) }
+        }
+        await table.flush()
+
+        let report = BlockingControl.report([:], detector: BlockingDetector(table: table))
+        let site = try #require(report.objectValue?["sites"]?.arrayValue?.first?.objectValue)
+        let maxMs = try #require(site["max_ms"]?.doubleValue)
+        let totalMs = try #require(site["total_ms"]?.doubleValue)
+        #expect(maxMs >= 5)
+        #expect(totalMs >= maxMs)
+    }
+
+    /// A seam on the pool (a detached task) is a `pool` site; `contexts` splits the sites and calls by context.
+    @MainActor @Test func reportsSitesByContext() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        BlockingViolationTable.$scoped.withValue(table) { _ = FileManager.checked.fileExists(atPath: "/") }
+        await Task.detached {
+            BlockingViolationTable.$scoped.withValue(table) {
+                for _ in 0..<2 { _ = FileManager.checked.fileExists(atPath: "/") }
+            }
+        }.value
+        await table.flush()
+
+        let report = BlockingControl.report([:], detector: BlockingDetector(table: table))
+        let sites = try #require(report.objectValue?["sites"]?.arrayValue)
+        #expect(Set(sites.compactMap { $0.objectValue?["context"]?.stringValue }) == ["main", "pool"])
+        let contexts = try #require(report.objectValue?["contexts"]?.objectValue)
+        #expect(contexts["main"]?.objectValue?["sites"]?.intValue == 1)
+        #expect(contexts["main"]?.objectValue?["count"]?.intValue == 1)
+        #expect(contexts["pool"]?.objectValue?["sites"]?.intValue == 1)
+        #expect(contexts["pool"]?.objectValue?["count"]?.intValue == 2)
+        #expect(contexts["main"]?.objectValue?["overflow"]?.intValue == 0)
+        #expect(contexts["pool"]?.objectValue?["overflow"]?.intValue == 0)
+        #expect(report.objectValue?["pool_mode"]?.stringValue == "record")
+    }
+
     /// The report shows the table's mode, and the method reads only `reset`: a `mode` parameter changes
     /// nothing (trap mode comes only from `CMUX_BLOCKING_TRAP=1` at launch).
     @Test func theReportShowsTheModeAndReadsOnlyReset() async {

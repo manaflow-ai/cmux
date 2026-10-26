@@ -55,7 +55,18 @@ extension PageWebView {
 
     /// Runs `script` in the page's main frame in whichever engine shows it.
     func evaluateInPage(_ script: String) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if router.debugPageHidden { censusState.pushesWhileHidden &+= 1 }
+        #endif
         scriptTarget.evaluate(script)
+    }
+
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    func setEngineVisible(_ visible: Bool) {
+        chromiumSession?.page.setVisible(visible)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(visible)
+        #endif
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
