@@ -1,4 +1,4 @@
-//! The daemon admits a new session only when its host has room (deputy-2, 2026-10-22).
+//! The daemon checks a new session against its host's room (deputy-2, 2026-10-22).
 //!
 //! About 25 Codex reviewers were started on huge-blue with a raw `acpmux new` over
 //! reach from other hosts. That went around lane-place's cap of 12, filled the disk
@@ -9,8 +9,11 @@
 //!   is under its free-space floor) refuses every new session;
 //! - `lanes.max_lanes` of this machine in the fleet registry (`FLEET_REGISTRY`, else
 //!   `~/.ssh/config.d/fleet-registry.json`, the copy `reach --install` renders, else a
-//!   leo-workspace checkout's `machines/fleet-registry.json`) caps this host's live
-//!   sessions (running, ready, waiting).
+//!   leo-workspace checkout's `machines/fleet-registry.json`) is this host's cap of live
+//!   sessions (running, ready, waiting). A create at the cap starts with a warning
+//!   (`admission` in the reply, `acpmux: warning:` on stderr), never a refusal: no launch
+//!   is refused for load or a cap (huge-blue at its 12 refused the stall reconciler's
+//!   PONG to claude-sr2, 2026-10-26).
 //!
 //! A refusal exits 5 (lane-place's "no host qualifies"). `--force-admit` creates the
 //! session anyway, and the daemon logs it. A send to an existing session and a restart
@@ -230,6 +233,23 @@ fn assert_refused(out: &Output, why: &str, words: &str) {
     assert!(message.contains("--force-admit"), "the refusal names the override: {message}");
 }
 
+/// Started past the cap: the reply's `admission` warning and the CLI's stderr say `words`.
+fn assert_warned(out: &Output, words: &str) {
+    assert!(out.status.success(), "a cap never refuses: {}", text(out));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    let warning = v["admission"]["warning"].as_str().unwrap_or_default();
+    assert!(warning.contains(words), "the warning says {words:?}: {}", text(out));
+    assert!(warning.contains("started anyway"), "{warning}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("acpmux: warning: "), "the CLI prints it: {err}");
+}
+
+fn assert_not_warned(out: &Output) {
+    assert!(out.status.success(), "{}", text(out));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    assert!(v.get("admission").is_none(), "under the cap, no warning: {}", text(out));
+}
+
 #[test]
 fn under_floor_flag_refuses_a_new_session_and_a_run() {
     let daemon = Daemon::start("flag", None, true);
@@ -245,29 +265,40 @@ fn under_floor_flag_refuses_a_new_session_and_a_run() {
 }
 
 #[test]
-fn max_lanes_refuses_at_the_cap_and_admits_under_it() {
+fn max_lanes_warns_at_the_cap_and_never_refuses() {
     let daemon = Daemon::start("cap", Some(2), false);
     for name in ["one", "two"] {
         let out = daemon.create(name, &[]);
-        assert!(out.status.success(), "under the cap: {}", text(&out));
+        assert_not_warned(&out);
         daemon.wait_live(name);
     }
     let out = daemon.create("three", &[]);
-    assert_refused(
-        &out,
-        "max_lanes",
-        "2 live sessions, at its cap of 2 (lanes.max_lanes of test-box in ",
-    );
+    assert_warned(&out, "2 live sessions, at its cap of 2 (lanes.max_lanes of test-box in ");
     assert!(
         text(&out).contains(".ssh/config.d/fleet-registry.json"),
         "names the registry: {}",
         text(&out)
     );
-    // A session that stopped is not live: there is room again.
-    let out = daemon.run(&["kill", "one"]);
-    assert!(out.status.success(), "kill: {}", text(&out));
-    let out = daemon.create("three", &[]);
-    assert!(out.status.success(), "a stopped session frees its place: {}", text(&out));
+    daemon.wait_live("three");
+    daemon.wait_log(|l| l.contains("admitted past the lane cap"), "the daemon logs it");
+    // Past the cap too: a one-shot `exec` (the stall reconciler's PONG) runs and answers.
+    let out = daemon.run(&[
+        "exec",
+        "--ephemeral",
+        "--timeout",
+        "30",
+        "-n",
+        "pong",
+        "Reply with only: PONG",
+    ]);
+    assert!(out.status.success(), "an exec past the cap: {}", text(&out));
+    assert!(text(&out).contains("acpmux: warning: "), "{}", text(&out));
+    // A session that stopped is not live: under the cap again, no warning.
+    for name in ["one", "two", "three"] {
+        let out = daemon.run(&["kill", name]);
+        assert!(out.status.success(), "kill: {}", text(&out));
+    }
+    assert_not_warned(&daemon.create("four", &[]));
 }
 
 #[test]
@@ -287,6 +318,10 @@ fn sends_and_restarts_of_existing_sessions_are_never_refused() {
     let out = daemon.create("kept", &[]);
     assert!(out.status.success(), "{}", text(&out));
     daemon.wait_live("kept");
+    // At the cap: a send to the live session neither fails nor warns.
+    let out = daemon.run(&["send", "kept", "--timeout", "30", "Reply with only: PONG"]);
+    assert!(out.status.success(), "a send at the cap: {}", text(&out));
+    assert!(!text(&out).contains("warning"), "a send is not a create: {}", text(&out));
     // At the cap and under the floor at once.
     daemon.set_under_floor(true);
     assert_refused(&daemon.create("other", &[]), "under_floor", "under-floor");
@@ -321,7 +356,7 @@ fn no_registry_or_no_entry_admits() {
         .output()
         .unwrap();
     // FLEET_ORIGIN is the daemon's, not the CLI's: the daemon still runs as MACHINE.
-    assert_eq!(out.status.code(), Some(5), "the daemon's own machine decides: {}", text(&out));
+    assert_warned(&out, "at its cap of 0");
     drop(daemon);
     // A registry that lists other machines only, written after the daemon
     // started: it is read when the session is created.
@@ -334,31 +369,29 @@ fn no_registry_or_no_entry_admits() {
 }
 
 #[test]
-fn a_set_fleet_registry_that_is_missing_refuses() {
+fn a_set_fleet_registry_that_is_missing_admits_and_logs_it() {
     // FLEET_REGISTRY names the file on purpose: a rename, a failed mount or a
-    // typo must not lift the cap, as the usual copies being absent does.
+    // typo is logged as a warning, and the create starts (the cap is unknown).
     let daemon = Daemon::start_with("setreg", None, false, Some("reg/fleet-registry.json"));
-    assert_refused(
-        &daemon.create("a", &[]),
-        "registry_unreadable",
-        "fleet registry cannot be read",
+    assert_not_warned(&daemon.create("a", &[]));
+    daemon.wait_log(
+        |l| l.contains("cannot be read, so the lane cap is unknown"),
+        "the unreadable registry is logged",
     );
-    // Once it is there, its cap applies.
+    daemon.wait_live("a");
+    // Once it is there, its cap warns.
     let dir = daemon.root.join("reg");
     std::fs::create_dir_all(&dir).unwrap();
     let registry = json!({"machines": {MACHINE: {"lanes": {"max_lanes": 1}}}});
     std::fs::write(dir.join("fleet-registry.json"), registry.to_string()).unwrap();
-    let out = daemon.create("a", &[]);
-    assert!(out.status.success(), "{}", text(&out));
-    daemon.wait_live("a");
-    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
-    // Gone again: the last good copy keeps the cap.
+    assert_warned(&daemon.create("b", &[]), "at its cap of 1");
+    // Gone again: the last good copy keeps the warning.
     std::fs::remove_file(dir.join("fleet-registry.json")).unwrap();
-    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
+    assert_warned(&daemon.create("c", &[]), "at its cap of 1");
 }
 
 #[test]
-fn a_registry_folder_that_cannot_be_searched_never_lifts_the_cap() {
+fn a_registry_folder_that_cannot_be_searched_keeps_the_caps_warning() {
     use std::os::unix::fs::PermissionsExt;
     let mode = |dir: &std::path::Path, m: u32| {
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(m)).unwrap()
@@ -370,36 +403,38 @@ fn a_registry_folder_that_cannot_be_searched_never_lifts_the_cap() {
     assert!(out.status.success(), "{}", text(&out));
     daemon.wait_live("a");
     // Its folder can no longer be searched: whether the file is there is unknown,
-    // so the last good copy keeps the cap.
+    // so the last good copy keeps the cap's warning.
     mode(&dir, 0o000);
     let out = daemon.create("b", &[]);
     mode(&dir, 0o700);
-    assert_refused(&out, "max_lanes", "at its cap of 1");
+    assert_warned(&out, "at its cap of 1");
     drop(daemon);
-    // With no good copy read before, the create is refused as unreadable.
+    // With no good copy read before, the create starts and the daemon logs why.
     let daemon = Daemon::start("noaccess2", Some(1), false);
     let dir = daemon_env::home(&daemon.root).join(".ssh/config.d");
     mode(&dir, 0o000);
     let out = daemon.create("a", &[]);
     mode(&dir, 0o700);
-    assert_refused(&out, "registry_unreadable", "fleet registry cannot be read");
+    assert_not_warned(&out);
+    daemon.wait_log(|l| l.contains("lane cap is unknown"), "the daemon says why");
 }
 
 #[test]
-fn a_registry_read_once_keeps_the_cap_while_every_copy_is_gone() {
+fn a_registry_read_once_keeps_the_caps_warning_while_every_copy_is_gone() {
     // A refresh (a rename, a delete and rewrite) can leave no copy for a moment:
-    // the last good copy keeps the cap, whichever path it came from.
+    // the last good copy keeps the cap's warning, whichever path it came from.
     let daemon = Daemon::start("gone", Some(1), false);
     let out = daemon.create("a", &[]);
     assert!(out.status.success(), "{}", text(&out));
     daemon.wait_live("a");
     let copy = daemon_env::home(&daemon.root).join(".ssh/config.d/fleet-registry.json");
     std::fs::remove_file(copy).unwrap();
-    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
+    assert_warned(&daemon.create("b", &[]), "at its cap of 1");
 }
 
 #[test]
 fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
+    // The cap warns (`max_lanes_warns_at_the_cap_and_never_refuses`).
     // cmux16 has ~/Projects/leo-workspace and no ~/.ssh/config.d copy.
     let daemon = Daemon::start("lws", None, false);
     daemon.write_registry(
@@ -410,7 +445,7 @@ fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
     assert!(out.status.success(), "{}", text(&out));
     daemon.wait_live("first");
     let out = daemon.create("second", &[]);
-    assert_refused(&out, "max_lanes", "1 live sessions, at its cap of 1");
+    assert_warned(&out, "1 live sessions, at its cap of 1");
     assert!(
         text(&out).contains("Projects/leo-workspace/machines/fleet-registry.json"),
         "names the checkout's registry: {}",
@@ -419,7 +454,7 @@ fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
 }
 
 #[test]
-fn concurrent_creates_at_the_cap_do_not_all_pass() {
+fn concurrent_creates_past_the_cap_all_start_and_each_one_past_it_is_warned() {
     let daemon = Daemon::start("race", Some(2), false);
     let children: Vec<_> = (0..6)
         .map(|i| {
@@ -434,16 +469,22 @@ fn concurrent_creates_at_the_cap_do_not_all_pass() {
         .collect();
     let outs: Vec<Output> = children.into_iter().map(|c| c.wait_with_output().unwrap()).collect();
     let made = outs.iter().filter(|o| o.status.success()).count();
-    let refused = outs.iter().filter(|o| o.status.code() == Some(5)).count();
+    let warned = outs
+        .iter()
+        .filter(|o| {
+            let v: Value = serde_json::from_slice(&o.stdout).unwrap_or(Value::Null);
+            v["admission"]["warning"].is_string()
+        })
+        .count();
     let all: Vec<String> = outs.iter().map(text).collect();
-    assert_eq!((made, refused), (2, 4), "two made, four refused: {all:#?}");
+    // Admitted creates count as live until they end: two fit, the other four are past it.
+    assert_eq!((made, warned), (6, 4), "six made, four warned: {all:#?}");
 }
 
 #[test]
 fn at_the_cap_a_live_sessions_name_is_taken_not_refused() {
     // Base checks names under the insert lock: a create of a live session's name
-    // says the name is taken, and `new --reuse` takes that session. The cap must
-    // not answer first.
+    // says the name is taken, and `new --reuse` takes that session, at the cap too.
     let daemon = Daemon::start("taken", Some(1), false);
     let out = daemon.create("worker", &[]);
     assert!(out.status.success(), "{}", text(&out));
@@ -461,7 +502,7 @@ fn at_the_cap_a_live_sessions_name_is_taken_not_refused() {
 #[test]
 fn reuse_launches_of_one_name_at_the_cap_all_get_the_one_session() {
     // Room for one: the create that wins the name takes it, and every other
-    // `new --reuse` of that name reuses the winner instead of being refused.
+    // `new --reuse` of that name reuses the winner.
     let daemon = Daemon::start("reuse", Some(1), false);
     let children: Vec<_> = (0..4)
         .map(|_| {

@@ -55,10 +55,15 @@ import UIKit
         try await Self.waitUntil(5) { session.handler != nil }
         try #require(session.handler != nil, "the screen never started its session")
 
-        // The attach, as DaemonTerminalSession delivers it: the reset, then the replay.
+        // The attach, as DaemonTerminalSession delivers it: the reset at the
+        // attach reply, the replay (`vt-state`) in a later decoded batch, so
+        // the screen feeds the reset to Ghostty on its own. Written together
+        // they are one batch and the gate closes inside it.
         let reset = "\u{1B}c"
         let replay = "flood bench\r\n$ "
         session.write(reset)
+        // Counted by a correct probe at once; a probe that misses it never counts it.
+        try await Self.waitUntil(0.5) { probe.take().processed >= reset.utf8.count }
         session.write(replay)
         try await Self.waitUntil(3) { probe.take().processed >= replay.utf8.count }
         try await Task.sleep(for: .milliseconds(300)) // test: the replay's frames land

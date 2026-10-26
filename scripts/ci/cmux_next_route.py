@@ -126,14 +126,15 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
-    # The settings exports and their source stamp
-    # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
-    # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # The settings exports (regenerate-settings-exports.sh; the generated
+    # files job exports them fresh and compares). The CmuxNextSettings sources
+    # and the export tests are under PACKAGE.
     # (The defaults snapshot and defaults_guard.py are checked on Linux.)
     "schemas/settings/settings-schema.json",
-    "schemas/settings-export/",
     "docs/mdm/",
     "scripts/cmux-next/regenerate-settings-exports.sh",
+    "scripts/cmux-next/check-settings-exports.sh",
+    "scripts/cmux-next/settings-exports.txt",
 )
 
 # The path classes of the original routing: these never need a Mac.
@@ -445,7 +446,9 @@ def swift_filter(result: Route) -> str:
 
 def swift_priority_filter(result: Route) -> str:
     """A regex matching only suites named by changed Swift files."""
-    return "^(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
+    # SwiftPM names a suite as Target.Suite.Test; unlike the target filter,
+    # this shard must allow the target prefix before the changed suite.
+    return ".*(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
 
 
 def canary_swift_path(path: str) -> bool:

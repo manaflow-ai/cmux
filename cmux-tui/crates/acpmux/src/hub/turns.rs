@@ -98,9 +98,12 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
-        // A deferred start reads the queues after its ready line: a new prompt waits, so it
-        // never runs ahead of a prompt queued under the previous daemon.
-        self.wait_logs().await;
+        // A deferred start reads the queues after its ready line: a new prompt waits for its
+        // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
+        // of a turn adoption recovers.
+        self.wait_adopted(session).await;
+        self.session_log(session).await;
+        self.pair_logs(opts.provenance.as_ref()).await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
@@ -364,6 +367,8 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
+        // A turn on lane reports only reports nothing (`lane_reports.rs`).
+        self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
@@ -634,6 +639,8 @@ impl Hub {
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
+        // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
+        let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
@@ -803,7 +810,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
-        self.lane_turn_ended(session, true);
+        self.lane_turn_ended(session, true, turn);
         result
     }
 
@@ -847,6 +854,7 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
     ) {
+        let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
@@ -873,7 +881,7 @@ impl Hub {
         self.save_meta(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
-        self.lane_turn_ended(session, false);
+        self.lane_turn_ended(session, false, turn);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
