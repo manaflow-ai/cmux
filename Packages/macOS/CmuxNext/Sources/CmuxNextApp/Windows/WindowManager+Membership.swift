@@ -278,7 +278,12 @@ extension WindowManager {
 
     /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
     func releaseClosedWindow(id: String) {
-        transition { $0.releaseClosed(id) }
+        transition { registry in
+            let changes = registry.releaseClosed(id)
+            // Released with no heir it opens again, on purpose: the restore keeps it open.
+            if registry.window(id)?.isOpen == true { closedDuringRestore.remove(id) }
+            return changes
+        }
         if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
     }
 
