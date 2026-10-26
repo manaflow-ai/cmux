@@ -28,10 +28,12 @@
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
-//!   permissionMode?, permissionModeManaged?}`: the app's effective cmux.json
+//!   permissionMode?, permissionModeManaged?, allowFullAccess?,
+//!   allowFullAccessManaged?}`: the app's effective cmux.json
 //!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` with whether MDM or the team policy
-//!   forces it (`hub/start_mode_state.rs`); answers the roots view with
+//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
+//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
+//!   forced full-access off is an upper bound); answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -94,6 +96,9 @@ pub(super) async fn route(
     // So do the process methods (`processes.rs`).
     // And the worktree cleanup methods (`worktrees.rs`).
     if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
@@ -269,6 +274,21 @@ pub(super) async fn route(
                 }
             };
             hub.apply_permission_push(mode, managed).await;
+            // `sessions.allowFullAccess` as MDM or the team policy forces it: only a forced value
+            // counts, and anything but `true` is off. No key (an older app, or nothing forced)
+            // forces nothing.
+            let full_access_managed = match params.get("allowFullAccessManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "allowFullAccessManaged must be true or false",
+                    ));
+                }
+            };
+            let forced = full_access_managed
+                .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
+            hub.apply_full_access_push(forced).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
