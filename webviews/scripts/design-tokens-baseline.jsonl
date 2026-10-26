@@ -24,7 +24,7 @@
 {"file":"agent-session/acpmux/chips/chips.css","kind":"height","property":"height","values":{"44px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"height","property":"min-height","values":{"90px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"gap","values":{"6px":3}}
-{"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding","values":{"1px 6px 1px 5px":1,"6px 10px":3,"2px 8px":2,"1px 5px":1}}
+{"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding","values":{"6px 10px":3,"2px 8px":2,"1px 5px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding-left","values":{"3px":1}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"height","property":"height","values":{"14px":1,"1px":1,"18px":1}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"gap","values":{"6px":3,"3px":1,"2px 10px":1,"4px 6px":1,"5px":1}}

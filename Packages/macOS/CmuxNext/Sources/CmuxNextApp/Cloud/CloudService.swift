@@ -349,7 +349,7 @@ final class CloudService {
             loadedAccount = account
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
-            lastError = String(describing: error)
+            lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
     }

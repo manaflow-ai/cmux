@@ -2156,8 +2156,7 @@ pre.cv-math-source {
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
    indent and with no box around it (Leo 2026-10-21: "a full bordered box for a 2-line message"
-   is heavy): only the message, capped near eight lines (20px each) and scrolling past them, the
-   bottom faded while more is below. */
+   is heavy): whole lines within eight lines (lineCut.ts), then Show more. */
 .cv-message > .cv-agentmsg__card {
   margin: 0 0 6px 22.5px;
   padding: 0;
@@ -2167,14 +2166,8 @@ pre.cv-math-source {
   max-height: none;
   overflow: visible;
 }
-.cv-message__text {
-  max-height: calc(8 * 20px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.cv-message__text.has-more {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+.cv-message__text.is-cut {
+  overflow: hidden;
 }
 /* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
    muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
@@ -2325,17 +2318,13 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* A long message, closed: its first eight lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
-   fading out under a mask (the card's glass shows through, never a cover); a click opens it.
-   model.ts estimates the same height: change them together. */
+/* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
+   opens it. model.ts estimates the text plus the control's 24px. */
 .cv-received__body[data-cut] {
   cursor: pointer;
 }
 .cv-received__body[data-cut] > .cv-received__text {
-  max-height: calc(var(--cv-line-height) * 8);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
 /* The card's text sits flush with its padding: no paragraph margin above the first line or below
    the last. */
@@ -3979,6 +3968,15 @@ article.acpmux-row:empty {
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
+}
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
+   the line's end, always shown, still. No spinner, no dot, no motion. */
+.cv-received__queued {
+  flex: none;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+  white-space: nowrap;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */

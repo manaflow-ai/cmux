@@ -44,7 +44,7 @@ pub enum Command {
     /// --prompt-file, --report-to and --group it starts an agent on a task
     /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
-    New(NewArgs),
+    New(Box<NewArgs>),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
     /// ended, 2 when a permission is waiting, 3 on timeout.
@@ -94,10 +94,15 @@ pub enum Command {
         policy: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
+        /// Label the session when it is created (repeatable `key=value`).
+        #[arg(long = "tag", value_name = "K=V")]
+        tags: Vec<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
     Continue(crate::cli::handoff::ContinueArgs),
+    /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
+    Retry(crate::cli::retry::RetryArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time.
     History {
         session: String,
@@ -163,10 +168,12 @@ pub enum Command {
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
         /// Send this message into the running turn when the agent supports steering. On by
-        /// default with --no-wait; a send that waits for the reply queues unless given this.
+        /// default for an agent's send (--from, or one in an acpmux session) and with
+        /// --no-wait; the person's send that waits for the reply queues unless given this. A
+        /// send that waits and steers prints the reply of the turn it went into.
         #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Queue behind the running turn even with --no-wait.
+        /// Queue behind the running turn, even an agent's send or one with --no-wait.
         #[arg(long)]
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a
@@ -203,6 +210,11 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// Send this file with the message (repeatable): an image reaches the agent and its
+        /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
+        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        #[arg(long, value_name = "FILE")]
+        attach: Vec<PathBuf>,
     },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
@@ -308,7 +320,7 @@ pub enum Command {
         rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "hosts")]
+    #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -466,8 +478,6 @@ pub enum Command {
     },
     #[command(hide = true)]
     Config,
-    #[command(subcommand, hide = true)]
-    Peer(PeerCmd),
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -578,8 +588,7 @@ pub enum HarnessCmd {
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
     Login {
         id: String,
-        /// The sign-in method id (default: the harness's first browser or
-        /// terminal sign-in).
+        /// The sign-in method id (default: the harness's first browser or terminal sign-in).
         #[arg(long)]
         method: Option<String>,
         /// Show the sign-in methods and whether the harness is signed in.
@@ -1012,8 +1021,7 @@ pub enum TicketCmd {
     /// Tickets and paired machines (no secrets).
     #[command(alias = "list")]
     Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open
-    /// connections close at once.
+    /// Revoke a ticket, or a paired machine by id or name; its open connections close at once.
     Revoke { id: String },
     /// Let a paired client machine run chats in Full access (on), or not
     /// (off, the default): the agent edits files and runs commands on this
@@ -1063,6 +1071,9 @@ pub struct NewArgs {
     pub effort: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
+    /// Label the new session (repeatable `key=value`).
+    #[arg(long = "tag", value_name = "K=V")]
+    pub tags: Vec<String>,
     /// Do not open the TUI after creating.
     #[arg(long, short)]
     pub detach: bool,
@@ -1107,7 +1118,8 @@ pub struct NewArgs {
     #[arg(long, value_name = "SESSION")]
     pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
-    /// (made when missing). Runs `cmux agent open` on this machine.
+    /// (made when missing). Runs `cmux agent open` on this machine, including
+    /// with --host: the agent runs remotely, its workspace opens here.
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
     /// When a session named --name already exists, use it instead of failing;
@@ -1181,7 +1193,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
-        Command::Host(pc) => Command::Peer(pc),
+        Command::Host(pc) => Command::Host(pc),
         Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
@@ -1191,4 +1203,244 @@ pub fn flatten(c: Command) -> Command {
 pub enum RouterCmd {
     /// Start the phase-one local router listeners.
     Serve,
+}
+
+#[cfg(test)]
+mod help_contract_tests {
+    use super::Cli;
+    use clap::{CommandFactory, Parser};
+    use std::collections::{HashMap, HashSet};
+
+    const REMOTE_DOCS: &[(&str, &str)] = &[
+        (
+            "docs/remote-agents-and-cloud.md",
+            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
+        ),
+        ("acpmux README", include_str!("../../README.md")),
+        ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+    ];
+
+    fn shell_words(text: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quote = None;
+        let mut escaped = false;
+        for character in text.chars() {
+            if escaped {
+                word.push(character);
+                escaped = false;
+                continue;
+            }
+            if character == '\\' && quote != Some('\'') {
+                escaped = true;
+                continue;
+            }
+            if let Some(closing) = quote {
+                if character == closing {
+                    quote = None;
+                } else {
+                    word.push(character);
+                }
+                continue;
+            }
+            match character {
+                '\'' | '"' => quote = Some(character),
+                ';' | '#' => break,
+                character if character.is_whitespace() => {
+                    if !word.is_empty() {
+                        words.push(std::mem::take(&mut word));
+                    }
+                }
+                character => word.push(character),
+            }
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+        words
+            .into_iter()
+            .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
+            .collect()
+    }
+
+    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn command_shapes() -> HashMap<Vec<String>, HashSet<String>> {
+        fn visit(
+            command: &clap::Command,
+            path: &mut Vec<String>,
+            shapes: &mut HashMap<Vec<String>, HashSet<String>>,
+        ) {
+            let mut flags = HashSet::new();
+            for argument in command.get_arguments() {
+                if let Some(long) = argument.get_long() {
+                    flags.insert(format!("--{long}"));
+                }
+                if let Some(short) = argument.get_short() {
+                    flags.insert(format!("-{short}"));
+                }
+            }
+            shapes.insert(path.clone(), flags);
+            for subcommand in command.get_subcommands() {
+                for name in
+                    std::iter::once(subcommand.get_name()).chain(subcommand.get_all_aliases())
+                {
+                    path.push(name.to_owned());
+                    visit(subcommand, path, shapes);
+                    path.pop();
+                }
+            }
+        }
+
+        let mut shapes = HashMap::new();
+        visit(&Cli::command(), &mut Vec::new(), &mut shapes);
+        for flags in shapes.values_mut() {
+            flags.insert("--help".to_owned());
+            flags.insert("-h".to_owned());
+        }
+        if let Some(flags) = shapes.get_mut(&Vec::new()) {
+            flags.insert("--version".to_owned());
+            flags.insert("-V".to_owned());
+        }
+        shapes
+    }
+
+    fn documented_shape(
+        words: &[String],
+        shapes: &HashMap<Vec<String>, HashSet<String>>,
+    ) -> Option<Vec<String>> {
+        let has_subcommands = |path: &[String]| {
+            shapes.keys().any(|known| known.len() > path.len() && known.starts_with(path))
+        };
+        let mut start = 1;
+        while words.get(start).is_some_and(|word| {
+            matches!(word.as_str(), "--json" | "--suppress-reads" | "--help" | "--version")
+        }) {
+            start += 1;
+        }
+        if words.get(start).is_some_and(|word| !word.starts_with('-')) {
+            let mut candidate = vec![words[start].clone()];
+            if candidate[0] == "peer" {
+                candidate[0] = "host".to_owned();
+            }
+            if !candidate[0].split('|').any(|name| {
+                let mut path = candidate.clone();
+                path[0] = name.to_owned();
+                shapes.keys().any(|known| known == &path)
+            }) {
+                return None;
+            }
+        }
+        let command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
+        let mut path = Vec::new();
+        for word in command {
+            let Some(candidate) = word.split('|').find(|candidate| {
+                let candidate =
+                    if path.is_empty() && *candidate == "peer" { "host" } else { candidate };
+                let mut next = path.clone();
+                next.push(candidate.to_owned());
+                shapes.keys().any(|known| known == &next)
+            }) else {
+                // Once a command still has subcommands, an unknown word is a
+                // stale verb rather than a positional argument.  Positional
+                // values are allowed only after reaching a leaf command.
+                if has_subcommands(&path) {
+                    return None;
+                }
+                break;
+            };
+            let candidate = if path.is_empty() && candidate == "peer" { "host" } else { candidate };
+            let mut next = path.clone();
+            next.push(candidate.to_owned());
+            path = next;
+        }
+        // A binary invocation containing only root flags (for example
+        // `acpmux --version`) still belongs to the documented surface.
+        Some(path)
+    }
+
+    #[test]
+    fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
+        let shapes = command_shapes();
+        let mut missing = Vec::new();
+        for (source, text) in REMOTE_DOCS {
+            for words in tokens(text, "acpmux") {
+                let Some(path) = documented_shape(&words, &shapes) else {
+                    missing.push(format!("{source}: {} (command)", words.join(" ")));
+                    continue;
+                };
+                let mut flags = HashSet::new();
+                flags.extend(
+                    shapes.get(&Vec::new()).into_iter().flat_map(|flags| flags.iter().cloned()),
+                );
+                for end in 1..=path.len() {
+                    flags.extend(
+                        shapes
+                            .get(&path[..end])
+                            .into_iter()
+                            .flat_map(|flags| flags.iter().cloned()),
+                    );
+                }
+                for word in words.iter().skip(1).filter(|word| word.starts_with('-')) {
+                    let flag = word.split('=').next().unwrap_or(word);
+                    if flag == "--" || flag == "-" || !flags.contains(flag) {
+                        missing.push(format!("{source}: {} (flag {flag})", words.join(" ")));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn peer_alias_still_parses_after_host_becomes_canonical() {
+        let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
+        assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    #[test]
+    fn stale_nested_command_is_rejected() {
+        let shapes = command_shapes();
+        let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(documented_shape(&words, &shapes).is_none());
+    }
 }

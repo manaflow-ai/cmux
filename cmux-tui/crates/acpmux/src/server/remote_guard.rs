@@ -42,9 +42,10 @@
 //!   prompts until the user answers it in the app or the CLI.
 //! - Web and Peer: no `_acpmux/process/*` (a process's command line and
 //!   its kill are local), refused in `processes.rs`, which runs first.
-//! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
-//!   server on makes the harness start the stdio command the user's config
-//!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web only: no `_acpmux/set_tools` or `_acpmux/mcp/reconnect`
+//!   (`tools.remote`). Turning an MCP server on, or reconnecting it, makes
+//!   the harness start the stdio command the user's config names on this
+//!   machine; unlike a mode, no asking table makes that safe.
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
@@ -151,7 +152,8 @@ pub(super) fn mark_forwarded(
     forwarded: &mut Value,
 ) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
-    // the prompt goes there without it.
+    // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
+    // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
     }
@@ -182,6 +184,14 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
+    // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
+    if crate::author::present(params)
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::author::origin_refused());
     }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
@@ -400,9 +410,11 @@ async fn check_inner(
     }
     // An MCP server turned on runs its configured command here: the app and
     // the unix socket only (a peer forwarding for its own Web client too).
-    if m == method::MUX_SET_TOOLS && control_of(origin, auth, params) == crate::hub::Control::Web {
+    // Reconnecting one starts its configured command again: the same callers.
+    let tools = matches!(m, method::MUX_SET_TOOLS | method::MUX_MCP_RECONNECT);
+    if tools && control_of(origin, auth, params) == crate::hub::Control::Web {
         return Err(RpcError::invalid_params(
-            "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
+            "tools.remote: a chat's tools are turned on or off, or reconnected, only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }

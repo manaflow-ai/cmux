@@ -341,6 +341,7 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    from_agent: q.run.agent.clone(),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
@@ -379,6 +380,8 @@ impl Hub {
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             last_turn: m.last_turn.clone(),
+            // A retry of its failed last turn waits (`auto_resume.rs`).
+            retry: self.waiting_retry(session),
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),
@@ -414,6 +417,10 @@ impl Hub {
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        // What the context holds by category, as Claude Code's /context says after each turn.
+        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
+        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();
@@ -480,6 +487,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "openWaits": self.open_waits.load(Ordering::SeqCst),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
