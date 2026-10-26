@@ -482,7 +482,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>never</string>
+			<string>always</string>
 			<key>pfm_description</key>
 			<string>Asks before Cmd-Q, the Quit menu or the Dock quits cmux.</string>
 			<key>pfm_name</key>
