@@ -102,12 +102,14 @@ extension CloudHandlers {
             guard ran.exitCode == 0, let hostKey else {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))
             }
-            _ = try await hub.linkedSocketPath() // the hub runs, and its link points at it
+            // The marker first, so a hub that ends from here on is restarted for the route.
             let marker = cloud.paths.sshRoutesMarker
+            _ = try await work.run(.userBlocking, mayBlock: .files) {
+                FileManager.checked.createFile(atPath: marker.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+            }
+            _ = try await hub.linkedSocketPath() // the hub runs, and its link points at it
             let local = try await work.run(.userBlocking, mayBlock: .files) {
-                let installed = try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)
-                _ = FileManager.checked.createFile(atPath: marker.path, contents: Data(), attributes: [.posixPermissions: 0o600])
-                return installed
+                try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)
             }
             var done: [ActionResultValue] = [.string("ssh-key")] + local.done.map(ActionResultValue.string)
             var left: [ActionResultValue] = []

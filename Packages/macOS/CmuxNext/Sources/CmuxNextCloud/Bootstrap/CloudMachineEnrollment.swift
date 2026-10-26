@@ -96,6 +96,9 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             "  ProxyCommand '\(cli)' wg dial --hub '\(hubLink)' %h %p",
             "  UserKnownHostsFile \(Self.configQuoted(knownHosts))",
             "  StrictHostKeyChecking yes",
+            // The pinned key is the only one: no system-wide known_hosts or command can vouch for another.
+            "  GlobalKnownHostsFile none",
+            "  KnownHostsCommand none",
         ]
         if let identityFile { lines += ["  IdentityFile \(Self.configQuoted(identityFile))", "  IdentitiesOnly yes"] }
         lines.append(Self.end(name))
@@ -211,6 +214,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             && seen["proxycommand"] == "'\(cli)' wg dial --hub '\(hubLink)' %h %p"
             && seen["userknownhostsfile"] == knownHosts
             && seen["stricthostkeychecking"] == "true"
+            && seen["globalknownhostsfile"] == "none" && (seen["knownhostscommand"] ?? "none") == "none"
     }
 
     /// The file's text; "" when it does not exist. A file that exists but cannot be read as UTF-8
