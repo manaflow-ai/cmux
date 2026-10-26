@@ -187,9 +187,9 @@ class ShardMapTests(unittest.TestCase):
         # p12-perf-process-050 added seven typing stories; a full repack would have moved seven T1 stories between
         # the two m6 minis (and so each of their series onto another host). The sticky map keeps them.
         shard_map = scheduler.ShardMap.load(LAB / "shard_map.json")
-        for story_id in ("launch-cold", "launch-cold-realistic", "new-surfaces-matrix", "omnibar"):
+        for story_id in ("launch-cold-realistic", "omnibar", "tab-switch"):
             self.assertEqual(shard_map.owner("m6", "T1", story_id), 0, story_id)
-        for story_id in ("launch-warm-realistic", "memory-hidden", "tab-switch"):
+        for story_id in ("launch-cold", "launch-warm-realistic", "memory-hidden", "new-surfaces-matrix"):
             self.assertEqual(shard_map.owner("m6", "T1", story_id), 1, story_id)
 
     def test_every_sharded_story_has_one_owner_per_class_of_its_tier(self):
