@@ -125,7 +125,7 @@ struct BlackboxPrivacyTests {
     func secureInputWritesNoKeyRecords() {
         let runtime = TraceRuntime(role: .app)
         runtime.setCategories(.blackBox)
-        runtime.setKeyTimingSuppressed(true)
+        runtime.setKeyTimingSuppressed(true, by: .terminalSecureInput)
         for _ in 0 ..< 100 { runtime.write(name: 6, categoryBit: 1, phase: .instant) }
         #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 0)
         // A recording that asks for every category while the password prompt is up.
@@ -145,7 +145,7 @@ struct BlackboxPrivacyTests {
         let ring = TraceRing(records: 1_024, role: .app)
         runtime.attach(ring)
         runtime.setCategories(.blackBox)
-        runtime.setKeyTimingSuppressed(true)
+        runtime.setKeyTimingSuppressed(true, by: .secureEventInput)
         for index in 0 ..< 100 { runtime.write(name: 6, categoryBit: 1, phase: .instant, arg0: UInt64(index)) }
         runtime.write(name: 1, categoryBit: 0, phase: .instant)
         #expect(ring.records().map(\.name) == [1])
@@ -157,30 +157,60 @@ struct BlackboxPrivacyTests {
     func gateRestoresRequest() {
         let runtime = TraceRuntime(role: .app)
         runtime.setCategories(.blackBox)
-        runtime.setKeyTimingSuppressed(true)
+        runtime.setKeyTimingSuppressed(true, by: .terminalSecureInput)
         #expect(runtime.categories == TraceCategories.blackBox.subtracting(.key))
         #expect(runtime.isKeyTimingSuppressed)
         runtime.setCategoryMask(0)
-        runtime.setKeyTimingSuppressed(false)
+        runtime.setKeyTimingSuppressed(false, by: .terminalSecureInput)
         #expect(runtime.categoryMask == 0)
         runtime.setCategories(.blackBox)
         #expect(runtime.isEnabled(.key))
         #expect(TraceCategories.all.gated(keyTimingSuppressed: false) == .all)
     }
 
-    @Test("Racing gate and mask writers settle on the last request and gate")
-    func racingWritersSettle() {
+    @Test("Two overlapping holds: releasing one keeps the gate closed until the other lets go")
+    func overlappingHoldsKeepTheGateClosed() {
         let runtime = TraceRuntime(role: .app)
-        DispatchQueue.concurrentPerform(iterations: 2_000) { index in
-            if index % 2 == 0 {
-                runtime.setKeyTimingSuppressed(index % 4 == 0)
-            } else {
-                runtime.setCategoryMask(UInt64(index) | TraceCategories.key.rawValue)
+        runtime.setCategories(.blackBox)
+        runtime.setKeyTimingSuppressed(true, by: .terminalSecureInput)
+        runtime.setKeyTimingSuppressed(true, by: .secureEventInput)
+        #expect(runtime.keyTimingHolds == [.terminalSecureInput, .secureEventInput])
+        runtime.setKeyTimingSuppressed(false, by: .terminalSecureInput)
+        #expect(runtime.keyTimingHolds == .secureEventInput)
+        #expect(runtime.isKeyTimingSuppressed)
+        for _ in 0 ..< 100 { runtime.write(name: 6, categoryBit: 1, phase: .instant) }
+        #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 0)
+        // Releasing a hold twice, or one that was never set, changes nothing.
+        runtime.setKeyTimingSuppressed(false, by: .terminalSecureInput)
+        #expect(runtime.isKeyTimingSuppressed)
+        runtime.setKeyTimingSuppressed(false, by: .secureEventInput)
+        #expect(!runtime.isKeyTimingSuppressed)
+        #expect(runtime.isEnabled(.key))
+        runtime.write(name: 6, categoryBit: 1, phase: .instant)
+        #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 1)
+    }
+
+    @Test("Racing request and hold writers leave the flags and the ring header at the final request and holds")
+    func racingWritersSettle() throws {
+        let runtime = TraceRuntime(role: .app)
+        let ring = TraceRing(records: 1_024, role: .app)
+        runtime.attach(ring)
+        let holds: [TraceRuntime.KeyTimingHold] = [.terminalSecureInput, .secureEventInput]
+        for round in 0 ..< 300 {
+            DispatchQueue.concurrentPerform(iterations: 48) { index in
+                switch index % 3 {
+                case 0: runtime.setCategoryMask(UInt64(truncatingIfNeeded: round &* 48 &+ index) | TraceCategories.key.rawValue)
+                case 1: runtime.setKeyTimingSuppressed((index / 3 + round) % 2 == 0, by: holds[(index / 3) % 2])
+                default: runtime.setKeyTimingSuppressed((index / 3 + round) % 3 == 0, by: holds[(index / 3 + 1) % 2])
+                }
             }
+            // No publish after the writers join: what they left must already match.
+            let expected = TraceCategories(rawValue: runtime.requestedCategoryMask)
+                .gated(keyTimingSuppressed: runtime.isKeyTimingSuppressed).rawValue
+            #expect(runtime.categoryMask == expected, "round \(round)")
+            let header = try #require(ring.decodedImage()).header.categories
+            #expect(header == runtime.categoryMask, "round \(round)")
         }
-        runtime.setKeyTimingSuppressed(true)
-        #expect(!runtime.isEnabled(.key))
-        #expect(runtime.categoryMask == runtime.requestedCategoryMask & ~TraceCategories.key.rawValue)
     }
 
     @Test("The categories that never upload are key and input")

@@ -40,9 +40,9 @@ public final class TraceRuntime: Sendable {
     @usableFromInline let categoryFlags = Atomic<UInt64>(0)
     /// The categories last asked for (launch defaults, `trace.start`, `trace.stop`), before the keystroke-timing
     /// gate; ``categoryFlags`` is this word without ``TraceCategories/keyTiming`` while the gate is closed.
-    private let requestedFlags = Atomic<UInt64>(0)
-    /// Whether the keystroke-timing gate is closed: secure keyboard entry or a Ghostty password prompt is on.
-    private let keyTimingGateClosed = Atomic<Bool>(false)
+    let requestedFlags = Atomic<UInt64>(0)
+    /// The ``KeyTimingHold`` bits that hold the keystroke-timing gate closed; the gate is open at 0.
+    let keyTimingHoldBits = Atomic<UInt64>(0)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -55,7 +55,7 @@ public final class TraceRuntime: Sendable {
     /// The address of the ``TraceRing`` the write methods publish to (an `Unmanaged` reference retained
     /// once by ``attach(_:)`` and never released: a ring lives as long as its process), 0 until its owner
     /// attaches it.
-    private let ringAddress = Atomic<UInt64>(0)
+    let ringAddress = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -87,11 +87,12 @@ public final class TraceRuntime: Sendable {
     public func attach(_ ring: TraceRing) -> Bool {
         let retained = Unmanaged.passRetained(ring)
         let address = UInt64(UInt(bitPattern: retained.toOpaque()))
-        guard ringAddress.compareExchange(expected: 0, desired: address, ordering: .releasing).exchanged else {
+        guard ringAddress.compareExchange(expected: 0, desired: address, ordering: .sequentiallyConsistent).exchanged else {
             retained.release()
             return false
         }
-        ring.mirrorCategories(categoryMask)
+        // Read after the ring is visible: a publish that saw no ring stored its flags before this load.
+        ring.mirrorCategories(categoryFlags.load(ordering: .sequentiallyConsistent))
         return true
     }
 
@@ -111,46 +112,6 @@ public final class TraceRuntime: Sendable {
     /// The category flags: bit `n` on means category bit `n` records.
     @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
-
-    /// Replaces the requested category flags (launch defaults, `trace.start`, `trace.stop`) and mirrors what
-    /// records into the attached ring's header `categories` (trace.md "Header": mirrored on each change). The
-    /// key category stays off while the keystroke-timing gate is closed (``setKeyTimingSuppressed(_:)``).
-    public func setCategoryMask(_ mask: UInt64) {
-        requestedFlags.store(mask, ordering: .sequentiallyConsistent)
-        publishCategories()
-    }
-
-    /// The category flags last asked for, before the keystroke-timing gate.
-    public var requestedCategoryMask: UInt64 { requestedFlags.load(ordering: .sequentiallyConsistent) }
-
-    /// Closes (`true`) or opens the keystroke-timing gate (plans/cmux-next/chrome-parity/p09-observability.md
-    /// rule 5, task 128): while it is closed no record of ``TraceCategories/keyTiming`` is written, in the
-    /// black box or a recording, whatever `trace.start` asked for. Secure keyboard entry turns it on and off.
-    public func setKeyTimingSuppressed(_ suppressed: Bool) {
-        keyTimingGateClosed.store(suppressed, ordering: .sequentiallyConsistent)
-        publishCategories()
-    }
-
-    /// Whether the keystroke-timing gate is closed.
-    public var isKeyTimingSuppressed: Bool { keyTimingGateClosed.load(ordering: .sequentiallyConsistent) }
-
-    /// Stores the flags for the current request and gate, again until neither changed under the store: the
-    /// gate turns on the main thread and a recording starts on any thread, so the last store of racing writers
-    /// matches the last change, with no lock on either side.
-    private func publishCategories() {
-        // wakeup-allow: never waits; it stores again only when another writer changed the request or the gate between its loads and its store.
-        while true {
-            let requested = requestedFlags.load(ordering: .sequentiallyConsistent)
-            let suppressed = keyTimingGateClosed.load(ordering: .sequentiallyConsistent)
-            let mask = TraceCategories(rawValue: requested).gated(keyTimingSuppressed: suppressed).rawValue
-            categoryFlags.store(mask, ordering: .sequentiallyConsistent)
-            if requestedFlags.load(ordering: .sequentiallyConsistent) == requested,
-               keyTimingGateClosed.load(ordering: .sequentiallyConsistent) == suppressed {
-                attachedRing?._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
-                return
-            }
-        }
-    }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
     /// that is off (Chrome's `category_group_enabled` read).
