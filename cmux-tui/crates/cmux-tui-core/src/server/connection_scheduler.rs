@@ -29,6 +29,7 @@ use crate::SurfaceId;
 use crate::event_cause::EventCause;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -43,9 +44,10 @@ use std::time::Instant;
 
 /// The QoS of the threads that run a connection's requests and write its
 /// replies and events: the person waits on them (Chromium's kDefault,
-/// base/threading/platform_thread_apple.mm). Task 224 moves automation
-/// connections to Utility once they name their client.
-pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadQos::UserInitiated;
+/// base/threading/platform_thread_apple.mm), [`ThreadType::Interactive`].
+/// Task 224 moves automation connections to Utility once they name their
+/// client.
+pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
 /// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
 /// disallowed for its life, as Chrome's `DisallowBlocking` on its UI and IO
