@@ -1212,6 +1212,12 @@ pre.cv-math-source {
   left: var(--cv-inset);
   right: var(--cv-inset);
 }
+/* RowFrame keeps this wrapper around newly arrived user/assistant content so the measured article
+   remains unchanged. Preserve the direct flex-item sizing of `.cv-user` and `.cv-incoming`. */
+.acpmux-row__message-presentation {
+  flex: 1;
+  min-width: 0;
+}
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
 .acpmux-row[data-transcript-selected="true"] {
