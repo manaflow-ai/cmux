@@ -95,14 +95,27 @@ pub(crate) fn full_access_allowed_by(managed: Option<bool>, file_allows: bool) -
     managed != Some(false) && file_allows
 }
 
+/// Whether a permission policy auto-approves every request (`approve-all`, also spelled `yolo`):
+/// the policy form of full access, refused or capped while the setting is off.
+pub(crate) fn policy_is_full_access(policy: PermissionPolicy) -> bool {
+    policy == PermissionPolicy::ApproveAll
+}
+
 impl Hub {
-    /// Whether a mode that skips every approval may run now: the settings file under
+    /// Whether a mode or policy that skips every approval may run now: the settings file under
     /// the value MDM or the team policy forces (`full_access_allowed_by`).
     pub fn full_access_allowed(&self) -> bool {
         full_access_allowed_by(
             self.full_access_managed(),
             super::start_mode::file_allows_full_access(),
         )
+    }
+
+    /// Whether approve-all (the policy form of full access) may answer requests itself: always,
+    /// unless MDM or the team policy forces `sessions.allowFullAccess` off. The person's own off
+    /// never capped a policy before #23322, and with MDM unset nothing changes.
+    pub(crate) fn approve_all_allowed(&self) -> bool {
+        !self.full_access_managed_off()
     }
 
     /// Whether MDM or the team policy forces `sessions.allowFullAccess` off: the pane's mode menu
@@ -148,8 +161,14 @@ impl Hub {
         Ok(())
     }
 
-    /// MDM has just forced full access off (`apply_full_access_push`).
+    /// MDM has just forced full access off (`apply_full_access_push`): an ask that read the
+    /// policy before the push (`policy_for` reads the bound under the prompt's lock, where it
+    /// decides) finishes first, so no approve-all decision made after the push returns uses the
+    /// old bound.
     pub(super) async fn full_access_turned_off(&self) {
+        for session in self.sessions() {
+            drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
+        }
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
         self.drain_pool();
