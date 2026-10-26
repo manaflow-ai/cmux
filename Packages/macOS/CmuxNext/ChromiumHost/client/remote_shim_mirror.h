@@ -15,16 +15,23 @@
 // token, a read of a matching key returns the optimistic value when the post
 // gave one, else the pending marker (Read::value == nullptr, which the
 // generated export returns as its C zero value), never the value from before
-// the post. The host sends the ACK after the pushes its dispatch of the op
-// made (HostContext holds replies while it dispatches), so the value read
-// after the ACK is the host's. A post the transport did not send has no ACK
-// coming: the transport calls DropPending.
+// the post. The host's dispatch of the op pushes its pending keys again after
+// the call and before the ACK (host_dispatch.inc, HostContext::RefreshMirror),
+// so the value read once the ACK clears the mark is the host's after the op:
+// for go_back, Chrome's navigation state with the pending entry
+// (NavigationControllerImpl::GetCurrentEntryIndex returns the pending index),
+// until the commit pushes again before its LOAD_START. A post the transport
+// did not send has no ACK coming: the transport calls DropPending.
+//
+// One cache per host connection: Clear runs when that host ends, before the
+// next host's attach pushes its values.
 //
 // Main thread only, asserted, as the in-process shim (cmux_cef_shim.h,
 // "Threading"): no lock on any path. Plain C++ (no Objective-C), so
 // tests/remote_shim_mirror_test.cpp runs it anywhere
 // (scripts/cmux-next/tests/remote-shim-mirror.test.sh). Its Swift twin is
-// ChromiumHostMirror.swift; both follow the same rules.
+// ChromiumHostMirror.swift, which takes its pending keys from the same
+// generated table (ChromiumHostOp.pendingKeys); both follow the same rules.
 #pragma once
 
 #include <algorithm>
@@ -162,8 +169,9 @@ class MirrorCache {
     return true;
   }
 
-  // The host is gone: its values and every pending mark go with it (the next
-  // host pushes its own at attach).
+  // The host is gone: its values and every pending mark go with it. The
+  // transport calls it before it attaches the next host, whose attach pushes
+  // its own values.
   void Clear() {
     AssertMainThread();
     values_.clear();

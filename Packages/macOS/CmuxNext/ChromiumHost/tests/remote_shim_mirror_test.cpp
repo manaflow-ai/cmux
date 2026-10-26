@@ -2,8 +2,9 @@
 // the generated client exports (remote_shim.inc, written fresh by
 // scripts/cmux-next/tests/remote-shim-mirror.test.sh): a post marks its keys
 // pending until the host's ACK, a read in the same turn never returns the
-// value from before the post, and a batch applies MIRROR frames in order with
-// its events. The cmux_remote wire interface below is a fake transport over
+// value from before the post, a read after the ACK returns the value the
+// host's dispatch refreshed before that ACK, and a batch applies MIRROR frames
+// in order with its events. The cmux_remote wire interface below is a fake transport over
 // the real cache; the real one is remote_shim.mm (task 014).
 #include <algorithm>
 #include <csignal>
@@ -199,12 +200,23 @@ void GoBackReadsThePendingStateInTheSameTurn() {
   Check(Take(cmux_shim_tab_navigation_entries(7)) == "<null>", "the entries are pending too");
   Check(NavigationState(8) == "eight", "another tab's state is not pending");
 
+  // What host_dispatch.inc's go_back case sends (remote-shim-mirror.test.sh checks it): after an
+  // event already queued, the call, RefreshMirror of both pending keys (Chrome's state with the
+  // pending entry), then the ACK. The navigation commits frames later and pushes again before its
+  // LOAD_START.
   seen.clear();
-  Cache().ApplyBatch({Mirror(cmux_remote::kOpTabNavigationState, 7, "new"), Event(CMUX_SHIM_ADDRESS), Ack(token)},
+  Cache().ApplyBatch({Event(CMUX_SHIM_PROGRESS), Mirror(cmux_remote::kOpTabNavigationEntries, 7, "entries"),
+                      Mirror(cmux_remote::kOpTabNavigationState, 7, "back pending"), Ack(token),
+                      Event(CMUX_SHIM_PROGRESS)},
                      [&](const Message&) { seen.push_back(NavigationState(7)); });
-  Check(seen == std::vector<std::string>{"<null>"}, "an event before the ACK still reads pending");
-  Check(NavigationState(7) == "new", "after the ACK the host's value reads");
+  Check(seen == std::vector<std::string>{"<null>", "back pending"},
+        "pending until the ACK, then the host's value after the op");
+  Check(NavigationState(7) == "back pending", "between the ACK and the commit: never the old value");
   Check(Cache().pending_count() == 0, "the ACK cleared every mark of its token");
+  seen.clear();
+  Cache().ApplyBatch({Mirror(cmux_remote::kOpTabNavigationState, 7, "new"), Event(CMUX_SHIM_LOAD_START)},
+                     [&](const Message&) { seen.push_back(NavigationState(7)); });
+  Check(seen == std::vector<std::string>{"new"}, "the commit's LOAD_START reads the committed state");
 }
 
 void ANewerPostStaysPendingAfterAnOlderAck() {
@@ -212,7 +224,7 @@ void ANewerPostStaysPendingAfterAnOlderAck() {
   const uint32_t first = LastToken(cmux_remote::kOpGoBack);
   cmux_shim_go_forward(7);
   const uint32_t second = LastToken(cmux_remote::kOpGoForward);
-  Cache().ApplyBatch({Ack(first)}, [](const Message&) {});
+  Cache().ApplyBatch({Mirror(cmux_remote::kOpTabNavigationState, 7, "back"), Ack(first)}, [](const Message&) {});
   Check(NavigationState(7) == "<null>", "the forward is still pending after the back's ACK");
   Cache().ApplyBatch({Mirror(cmux_remote::kOpTabNavigationState, 7, "forward"), Ack(second)}, [](const Message&) {});
   Check(NavigationState(7) == "forward", "both ACKs in: the host's value");

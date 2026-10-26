@@ -22,12 +22,13 @@ import Foundation
 ///   `bad_message::ReceivedBadMessage` ends a renderer (`content/browser/bad_message.cc`).
 /// - The reader thread `com.cmuxterm.chromium-host.control` resumes
 ///   ``request(_:)`` replies where it reads them, off main, and hands every
-///   other message to main in one batch per drain (``MainPost``: one visible
-///   task per batch, so at most one per frame).
-/// - With a ``ChromiumHostMirror``, each batch's MIRROR and ACK frames apply
-///   to it on main in arrival order with the batch's events (task 016b), and
-///   ``post(_:changing:)`` gives cmux read-your-writes on the keys a post
-///   changes until the host's ACK.
+///   other message to main in one ``ChromiumHostControlBatch`` per drain
+///   (``MainPost``: one visible task and one `onMessages` call per batch,
+///   so at most one per frame).
+/// - Each channel owns its ``mirror`` (task 016b): the batch applies its
+///   MIRROR and ACK frames there in arrival order with its events, and
+///   ``post(_:)`` gives cmux read-your-writes on the keys an op changes
+///   until the host's ACK.
 nonisolated final class ChromiumHostControlChannel: Sendable {
     /// Runs `drain` on the main thread; production: ``visibleWork(_:)``.
     typealias MainPost = @Sendable (_ drain: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -53,13 +54,13 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
     private let core: ChromiumHostControlCore
 
     /// Takes `fd` (a connected stream socket) and starts the reader thread.
-    /// `onMessages`, then once `onEnd`, run on main through `post`. With
-    /// `mirror`, MIRROR and ACK frames go to it instead of `onMessages`, and
-    /// it is emptied before `onEnd`.
-    init(fd: Int32, options: Options = Options(), post: @escaping MainPost, mirror: ChromiumHostMirror? = nil,
-         onMessages: @escaping @MainActor @Sendable ([ChromiumHostControlMessage]) -> Void,
+    /// `onMessages`, then once `onEnd`, run on main through `post`.
+    /// MIRROR and ACK frames go to ``mirror``, never to `onMessages`, and
+    /// the mirror is emptied before `onEnd`.
+    init(fd: Int32, options: Options = Options(), post: @escaping MainPost,
+         onMessages: @escaping @MainActor @Sendable (ChromiumHostControlBatch) -> Void,
          onEnd: @escaping @MainActor @Sendable (ChromiumHostControlEnd) -> Void) {
-        let core = ChromiumHostControlCore(fd: fd, options: options, post: post, mirror: mirror,
+        let core = ChromiumHostControlCore(fd: fd, options: options, post: post,
                                            onMessages: onMessages, onEnd: onEnd)
         self.core = core
         // The thread holds the core, never the channel: a channel dropped without close() still deinits.
@@ -85,34 +86,42 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
         return { drain in work.postFromAnyThread(.visible, owner: owner, drain) }
     }
 
+    /// This connection's mirror values, read on main. A new host connection
+    /// is a new channel with a new mirror.
+    var mirror: ChromiumHostMirror { core.mirror }
+
     /// Queues `message` (its descriptors duplicated) and writes it when the
     /// socket takes it; never waits. With `stateKey`, a waiting message with
-    /// the same key is replaced. False when the channel has ended or the
-    /// message breaks a bound (then nothing is sent).
+    /// the same key is replaced. False when the channel has ended, the
+    /// message breaks a bound, or its op has `pending_keys` (only
+    /// ``post(_:)`` sends those); then nothing is sent.
     @discardableResult
     func send(_ message: ChromiumHostControlMessage, stateKey: UInt64? = nil) -> Bool { // perf-hot: 5us cef-host-control (every posted shim op)
-        guard let frame = message.encoded() else { return false }
+        guard !ChromiumHostMirror.PendingKey.marks(message), let frame = message.encoded() else { return false }
         return core.send(frame, fds: message.fds, stateKey: stateKey)
     }
 
-    /// Sends a post that changes the mirror `keys` (its `pending_keys`) under
-    /// a fresh token, and marks them pending in the mirror in this turn: a
-    /// read before the host's ACK of that token gets the optimistic value or
-    /// ``ChromiumHostMirror/Read/pending``, never the value from before the
-    /// post. Never waits. False when nothing was sent (the channel has ended,
-    /// the message breaks a bound, or the channel has no mirror); then
-    /// nothing is marked.
+    /// Sends an op with `pending_keys` under a fresh token and marks the
+    /// mirror keys it changes (``ChromiumHostOp/pendingKeys``, filled in from
+    /// the message's fields) pending in this turn: a read before the host's
+    /// ACK of that token gets ``ChromiumHostMirror/Read/pending``, never the
+    /// value from before the post. Never waits. False when nothing was sent
+    /// (the op has no `pending_keys`, the frame lacks a key's field, the
+    /// channel has ended or the message breaks a bound); then nothing is marked.
     @MainActor @discardableResult
-    func post(_ message: ChromiumHostControlMessage, changing keys: [ChromiumHostMirror.PendingKey]) -> Bool {
-        guard let mirror = core.mirror, let token = core.sendAwaitingAck(message) else { return false }
+    func post(_ message: ChromiumHostControlMessage) -> Bool {
+        guard let keys = ChromiumHostMirror.PendingKey.changed(by: message), !keys.isEmpty,
+              let token = core.sendAwaitingAck(message) else { return false }
         // The ACK applies in a later main-thread batch, never before this mark.
-        mirror.markPending(token: token, keys)
+        core.mirror.markPending(token: token, keys)
         return true
     }
 
     /// Sends `message` with a fresh token and returns the host's reply,
     /// resumed on the reader thread. Throws when the channel ends first.
     func request(_ message: ChromiumHostControlMessage) async throws(ChromiumHostControlError) -> ChromiumHostControlMessage {
+        // Its answer is an ACK for the mirror, not a reply.
+        guard !ChromiumHostMirror.PendingKey.marks(message) else { throw .changesMirror }
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostControlCore.Reply, Never>) in
             core.request(message, continuation)
         }
@@ -152,5 +161,8 @@ nonisolated enum ChromiumHostControlError: Error, Equatable, Sendable {
     case hostGone(ChromiumHostControlEnd)
     /// The message breaks a bound of the frame; nothing was sent.
     case unsendable
+    /// The op has `pending_keys`: ``ChromiumHostControlChannel/post(_:)``
+    /// sends it; nothing was sent.
+    case changesMirror
 }
 #endif

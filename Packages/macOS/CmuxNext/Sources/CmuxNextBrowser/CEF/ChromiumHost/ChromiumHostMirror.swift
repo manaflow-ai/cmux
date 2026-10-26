@@ -1,30 +1,31 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 
-/// The main-thread cache of the Chromium host's `mirror` values
+/// The main-thread cache of one Chromium host connection's `mirror` values
 /// (plans/cmux-next/chrome-parity/p01-process.md 3.2, task 016b), the Swift
 /// twin of `ChromiumHost/client/remote_shim_mirror.h`: the same frames and
 /// rules. Chrome answers NSTextInputClient queries the same way, from the
 /// TextInputState the renderer pushed
 /// (`content/browser/renderer_host/text_input_manager.cc`).
 ///
-/// - ``ChromiumHostControlChannel`` applies MIRROR and ACK frames here on
-///   main, in arrival order with the events of the same per-frame batch, so an
-///   event's handler reads the values the host pushed before it.
-/// - Read your writes: ``ChromiumHostControlChannel/post(_:changing:)`` marks
-///   the keys a post changes as pending under its token. Until the host's ACK
-///   for that token, ``read(_:key:)`` returns the optimistic value when the
-///   post gave one, else ``Read/pending``, never the value from before the post.
+/// - Each ``ChromiumHostControlChannel`` owns one (``ChromiumHostControlChannel/mirror``):
+///   its values, marks and tokens are that connection's, so a new host gets
+///   a new mirror and an old channel's end never touches it.
+/// - The channel applies MIRROR and ACK frames here on main, in arrival order
+///   with the events of the same per-frame batch (``ChromiumHostControlBatch``),
+///   so an event's handler reads the values the host pushed before it.
+/// - Read your writes: ``ChromiumHostControlChannel/post(_:)`` marks the keys
+///   its op changes (the generated ``ChromiumHostOp/pendingKeys``) as pending
+///   under its token. Until the host's ACK of that token, ``read(_:key:)``
+///   returns the optimistic value when there is one, else ``Read/pending``,
+///   never the value from before the post. The host pushes those keys again
+///   after it runs the op and before the ACK (`HostContext::RefreshMirror`),
+///   so the value read once the ACK clears the mark is the host's after the op.
 /// - Main actor only: no lock on any path.
 @MainActor
 final class ChromiumHostMirror {
-    typealias Value = ChromiumHostControlMessage.Value
     typealias Field = ChromiumHostControlMessage.Field
 
-    /// The generator's MIRROR and ACK op ids (gen-chromium-host-wire.py;
-    /// scripts/cmux-next/tests/remote-shim-mirror.test.sh checks they agree).
-    nonisolated static let mirrorOp: UInt16 = 0x8003
-    nonisolated static let ackOp: UInt16 = 0x8004
     /// Op ids of exports are 1...N; host -> cmux ops start at 0x8000.
     nonisolated static let maxExportOp: Int32 = 0x7fff
 
@@ -47,23 +48,50 @@ final class ChromiumHostMirror {
         }
     }
 
-    /// One mirror key a post changes (`pending_keys` in chromium-host-ops.json).
+    /// One mirror key a post changes, with the post's values filled in.
     nonisolated struct PendingKey: Equatable, Sendable {
-        /// The mirror's op id.
-        var mirror: UInt16
-        /// The key's parameters in order; nil is `*` (any value).
-        var parameters: [Value?]
+        var mirror: ChromiumHostOp
+        /// The key's fields in order; nil is `*` (any value).
+        var parameters: [Field?]
         /// What the key reads until the ACK; nil reads ``Read/pending``.
         var optimistic: [Field]?
 
-        init(mirror: UInt16, parameters: [Value?], optimistic: [Field]? = nil) {
+        init(mirror: ChromiumHostOp, parameters: [Field?], optimistic: [Field]? = nil) {
             self.mirror = mirror
             self.parameters = parameters
             self.optimistic = optimistic
         }
 
-        func matches(_ key: [Value]) -> Bool {
+        func matches(_ key: [Field]) -> Bool {
             parameters.count == key.count && zip(parameters, key).allSatisfy { $0 == nil || $0 == $1 }
+        }
+
+        /// The keys `message` changes: its op's generated `pending_keys`, each
+        /// named parameter taken from the frame field the client encodes it
+        /// in. Empty for an op without them; nil when the frame lacks a field.
+        static func changed(by message: ChromiumHostControlMessage) -> [PendingKey]? {
+            guard !message.isReply, let op = ChromiumHostOp(rawValue: message.op) else { return [] }
+            var keys: [PendingKey] = []
+            for key in op.pendingKeys {
+                var parameters: [Field?] = []
+                for index in key.fields {
+                    guard let index else {
+                        parameters.append(nil)
+                        continue
+                    }
+                    guard message.fields.indices.contains(index) else { return nil }
+                    parameters.append(message.fields[index])
+                }
+                keys.append(PendingKey(mirror: key.mirror, parameters: parameters))
+            }
+            return keys
+        }
+
+        /// Whether `message` is an op with `pending_keys`, which only
+        /// ``ChromiumHostControlChannel/post(_:)`` sends.
+        static func marks(_ message: ChromiumHostControlMessage) -> Bool {
+            guard !message.isReply, let op = ChromiumHostOp(rawValue: message.op) else { return false }
+            return !op.pendingKeys.isEmpty
         }
     }
 
@@ -77,21 +105,22 @@ final class ChromiumHostMirror {
     /// mirror op -> pending marks, oldest first.
     private var marks: [UInt16: [Mark]] = [:]
 
-    init() {}
+    /// Made by its channel's core, off main; used on main only.
+    nonisolated init() {}
 
     /// The value of mirror `op` for `key` (every parameter, in order). The
     /// newest pending post that matches decides until its ACK.
-    func read(_ op: UInt16, key: [Value]) -> Read {
-        if let mark = marks[op]?.last(where: { $0.key.matches(key) }) {
+    func read(_ op: ChromiumHostOp, key: [Field]) -> Read {
+        if let mark = marks[op.rawValue]?.last(where: { $0.key.matches(key) }) {
             return mark.key.optimistic.map(Read.optimistic) ?? .pending
         }
-        return values[op]?[Key(key)].map(Read.value) ?? .absent
+        return values[op.rawValue]?[Key(key)].map(Read.value) ?? .absent
     }
 
     /// Marks `keys` pending under `token` (non-zero) until its ACK.
     func markPending(token: UInt32, _ keys: [PendingKey]) {
         guard token != 0 else { return }  // no ACK would clear it
-        for key in keys { marks[key.mirror, default: []].append(Mark(token: token, key: key)) }
+        for key in keys { marks[key.mirror.rawValue, default: []].append(Mark(token: token, key: key)) }
     }
 
     /// The post under `token` was not sent: no ACK comes for it.
@@ -101,58 +130,34 @@ final class ChromiumHostMirror {
 
     /// Whether `message` is a MIRROR or ACK frame, which ``apply(_:)`` takes.
     nonisolated static func takes(_ message: ChromiumHostControlMessage) -> Bool {
-        message.op == mirrorOp || message.op == ackOp
+        message.op == ChromiumHostOp.mirrorOp || message.op == ChromiumHostOp.ackOp
     }
 
     /// Whether `reply` is the ACK of a post in `awaited`, which it leaves.
     nonisolated static func isAck(_ reply: ChromiumHostControlMessage, awaited: inout Set<UInt32>) -> Bool {
-        reply.op == ackOp && awaited.remove(reply.token) != nil
-    }
-
-    /// Runs `batch` in arrival order: each MIRROR or ACK frame applies here
-    /// before the messages after it, and each run of other messages goes to
-    /// `onMessages`, so an event's handler reads the values the host pushed
-    /// before that event (it pushes them first) and none pushed after. The
-    /// index of a malformed MIRROR or ACK frame (nothing from it on ran), or nil.
-    func deliver(_ batch: [ChromiumHostControlMessage],
-                 to onMessages: @MainActor ([ChromiumHostControlMessage]) -> Void) -> Int? {
-        var run: [ChromiumHostControlMessage] = []
-        for (index, message) in batch.enumerated() {
-            guard Self.takes(message) else {
-                run.append(message)
-                continue
-            }
-            if !run.isEmpty {
-                onMessages(run)
-                run = []
-            }
-            guard apply(message) else { return index }
-        }
-        if !run.isEmpty { onMessages(run) }
-        return nil
+        reply.op == ChromiumHostOp.ackOp && awaited.remove(reply.token) != nil
     }
 
     /// Applies one MIRROR frame (`i32 mirror op | i32 key field count | key
     /// fields | value fields`, HostContext::PushMirror) or ACK (a reply frame
     /// with the op's token). False when it is malformed: the connection ends.
     func apply(_ message: ChromiumHostControlMessage) -> Bool {
-        if message.op == Self.ackOp {
+        if message.op == ChromiumHostOp.ackOp {
             guard message.isReply, message.token != 0, message.fields.isEmpty, message.fds.isEmpty else { return false }
             clear(token: message.token)
             return true
         }
         let fields = message.fields
-        guard message.op == Self.mirrorOp, !message.isReply, message.fds.isEmpty, fields.count >= 2,
+        guard message.op == ChromiumHostOp.mirrorOp, !message.isReply, message.fds.isEmpty, fields.count >= 2,
               fields[0].tag == 0, case .i32(let op) = fields[0].value, (1...Self.maxExportOp).contains(op),
               fields[1].tag == 0, case .i32(let keyCount) = fields[1].value,
               keyCount >= 0, Int(keyCount) <= fields.count - 2 else { return false }
         let keyEnd = 2 + Int(keyCount)
-        values[UInt16(op), default: [:]][Key(fields[2..<keyEnd].map(\.value))] = Array(fields[keyEnd...])
+        values[UInt16(op), default: [:]][Key(Array(fields[2..<keyEnd]))] = Array(fields[keyEnd...])
         return true
     }
 
-    /// The host is gone: its values and every pending mark go with it (the
-    /// next host pushes its own at attach).
+    /// The host is gone: its values and every pending mark go with it.
     func hostEnded() {
         values = [:]
         marks = [:]
@@ -168,18 +173,19 @@ final class ChromiumHostMirror {
         }
     }
 
-    /// A key's parameters as a dictionary key.
+    /// A key's fields as a dictionary key: tag and value, as remote_shim_mirror.h's KeyBytes.
     private nonisolated struct Key: Hashable, Sendable {
-        let parameters: [Value]
+        let fields: [Field]
 
-        init(_ parameters: [Value]) {
-            self.parameters = parameters
+        init(_ fields: [Field]) {
+            self.fields = fields
         }
 
         func hash(into hasher: inout Hasher) {
-            hasher.combine(parameters.count)
-            for parameter in parameters {
-                switch parameter {
+            hasher.combine(fields.count)
+            for field in fields {
+                hasher.combine(field.tag)
+                switch field.value {
                 case .i32(let number):
                     hasher.combine(1)
                     hasher.combine(number)

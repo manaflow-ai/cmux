@@ -61,19 +61,17 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     private let options: ChromiumHostControlChannel.Options
     private let post: ChromiumHostControlChannel.MainPost
-    /// Takes the MIRROR and ACK frames of each batch on main.
-    let mirror: ChromiumHostMirror?
-    private let onMessages: @MainActor @Sendable ([ChromiumHostControlMessage]) -> Void
+    /// This connection's mirror: it takes the MIRROR and ACK frames of each batch on main.
+    let mirror = ChromiumHostMirror()
+    private let onMessages: @MainActor @Sendable (ChromiumHostControlBatch) -> Void
     private let onEnd: @MainActor @Sendable (ChromiumHostControlEnd) -> Void
     private let state: Mutex<State>
 
     init(fd: Int32, options: ChromiumHostControlChannel.Options, post: @escaping ChromiumHostControlChannel.MainPost,
-         mirror: ChromiumHostMirror?,
-         onMessages: @escaping @MainActor @Sendable ([ChromiumHostControlMessage]) -> Void,
+         onMessages: @escaping @MainActor @Sendable (ChromiumHostControlBatch) -> Void,
          onEnd: @escaping @MainActor @Sendable (ChromiumHostControlEnd) -> Void) {
         self.options = options
         self.post = post
-        self.mirror = mirror
         self.onMessages = onMessages
         self.onEnd = onEnd
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
@@ -309,16 +307,18 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         }
         if !batch.isEmpty { handOver(batch) }
         if let end {
-            mirror?.hostEnded()
+            mirror.hostEnded()
             onEnd(end)
         }
     }
 
-    /// A malformed MIRROR or ACK ends the connection; nothing from it on runs.
-    @MainActor private func handOver(_ batch: [ChromiumHostControlMessage]) {
-        guard let mirror else { return onMessages(batch) }
-        guard let bad = mirror.deliver(batch, to: onMessages) else { return }
-        for received in batch[bad...].flatMap(\.fds) { Darwin.close(received) }
+    /// One onMessages call per drain; a malformed MIRROR or ACK ends the
+    /// connection, and no message from it on runs.
+    @MainActor private func handOver(_ messages: [ChromiumHostControlMessage]) {
+        let batch = ChromiumHostControlBatch(messages, mirror: mirror)
+        if batch.hasMessages { onMessages(batch) }
+        guard let bad = batch.finish() else { return }
+        for received in messages[bad...].flatMap(\.fds) { Darwin.close(received) }
         state.withLock { state -> Void in
             state.refused = true
             Self.endLocked(&state, .malformed)
