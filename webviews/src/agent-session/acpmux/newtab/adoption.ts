@@ -27,10 +27,12 @@ export function injectedNewTabContext(): NewTabHost | undefined {
 /// field, empty list) at first render and the rows fill in after. Calls `onContext` once with the
 /// context; `applied` turns true so the handshake keeps what the page did since (a left page stays
 /// left). A page that rendered first with the injected context (`injectedNewTabContext`) does
-/// not ask.
+/// not ask. `onSettled` runs once the host answered either way (or refused): the page then knows
+/// whether it is a New Tab page.
 export function useEarlyNewTabContext(
   callNative: (method: string) => Promise<unknown>,
   onContext: (host: NewTabHost) => void,
+  onSettled?: () => void,
 ): { readonly current: boolean } {
   const [applied] = useState(() => ({ current: injectedNewTabContext() !== undefined }));
   useEffect(() => {
@@ -39,16 +41,20 @@ export function useEarlyNewTabContext(
     void callNative("newTab.context").then(
       (reply) => {
         const host = cancelled ? undefined : newTabHost({ newTab: (reply as { newTab?: unknown } | null)?.newTab });
-        if (!host || applied.current) return;
-        applied.current = true;
-        onContext(host);
+        if (host && !applied.current) {
+          applied.current = true;
+          onContext(host);
+        }
+        if (!cancelled) onSettled?.();
       },
-      () => undefined,
+      () => {
+        if (!cancelled) onSettled?.();
+      },
     );
     return () => {
       cancelled = true;
     };
-  }, [callNative, onContext, applied]);
+  }, [callNative, onContext, onSettled, applied]);
   return applied;
 }
 

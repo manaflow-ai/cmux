@@ -190,10 +190,6 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "cmux-tui.yml#macos-relay": {
-      "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "coderouter-release.yml#build": "apple-signing-release",
     "dogfood-artifact-publish.yml#capture": "apple-gui",
     "ios-app-store.yml#upload-and-validate": "apple-ios",

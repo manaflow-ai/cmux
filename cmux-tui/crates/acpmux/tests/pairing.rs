@@ -266,6 +266,54 @@ async fn pairing_a_read_only_machine_reads_and_the_minter_refuses_everything_els
     assert_eq!(sessions.len(), 1, "{v}");
 }
 
+/// A read-only machine resolves a name or link to a session (`_acpmux/resolve`), and reads no
+/// more than its session list shows: every field of the card is the listed summary's, and
+/// neither this machine's name nor its peers' (a peer with no sessions, its state) appear.
+#[tokio::test]
+async fn pairing_a_read_only_machine_resolves_no_more_than_its_session_list_shows() {
+    let b = hub();
+    let url = listen(b.clone()).await;
+    remote_session(&b).await;
+    // A peer of B with no sessions, never connected: a session list does not name it.
+    b.add_peer("quiet-peer", "ws://127.0.0.1:1", None, None, false).await.unwrap();
+    let secret = mint(&b, Role::ReadOnly, &url);
+    let reply = redeem(&url, &secret, json!({"name": "tablet"})).await.unwrap();
+    let bearer = format!("Bearer {}", reply["token"].as_str().unwrap());
+    let mut ws = dial(&url, &[("authorization", &bearer)]).await.unwrap();
+    rpc(&mut ws, 1, method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+
+    let listed = rpc(&mut ws, 2, method::MUX_SESSIONS, json!({})).await.unwrap();
+    let summary = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "remote-one")
+        .cloned()
+        .unwrap_or_else(|| panic!("{listed}"));
+    let found = rpc(&mut ws, 3, method::MUX_RESOLVE, json!({"query": "remote-one"}))
+        .await
+        .unwrap_or_else(|e| panic!("resolve refused: {e}"));
+    let card = found["session"].as_object().unwrap_or_else(|| panic!("{found}"));
+    let machine = acpmux::pairing::machine_name();
+    for (key, value) in card {
+        match key.as_str() {
+            // Derived from the summary's tags.
+            "beads" => assert_eq!(value, &json!([]), "{found}"),
+            // This machine's session: no host name, so no link that names one.
+            "host" | "link" => assert!(value.is_null(), "{key}: {found}"),
+            _ => assert_eq!(value, &summary[key], "{key}: {found}"),
+        }
+    }
+    assert!(!found.to_string().contains(&format!("host={machine}")), "{found}");
+
+    let e =
+        rpc(&mut ws, 4, method::MUX_RESOLVE, json!({"query": "nobody-here"})).await.unwrap_err();
+    let text = e.to_string();
+    assert!(text.contains("nobody-here"), "{text}");
+    assert!(!text.contains("quiet-peer"), "{text}");
+    assert!(!text.contains(&machine), "{text}");
+}
+
 #[tokio::test]
 async fn pairing_revoking_a_machine_closes_its_connection_and_refuses_it_again() {
     let b = hub();

@@ -113,12 +113,13 @@ extension SidebarListViewComponents {
         return NSRect(x: inset + gutter - reach, y: row.y,
                       width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim) + reach, height: row.height)
     }
-    /// How far left of its members' x `row` starts: a group header's reach over its rail
-    /// (`SidebarStyle.groupLineX`, never past the list's edge), 0 for every other row.
+    /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
+    /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
-        return membersX - SidebarStyle.groupLineX(membersMinX: membersX)
+        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
+        return membersX - min(membersX, max(barX, SidebarStyle.groupEdgePadding))
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -311,7 +312,13 @@ extension SidebarListViewComponents {
                     details.unreadCount = true
                 }
             }
-            view.configure(group, row: row, details: details, animated: animated)
+            // Lawrence msg 11983: open or collapsed, the header rolls up its whole subtree's most urgent state.
+            // A collapsed header's group already holds its subgroups' members (above).
+            var subtree = group
+            if !row.isCollapsed {
+                subtree.workspaces += (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }.flatMap(\.workspaces)
+            }
+            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed), animated: animated)
             view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):

@@ -13,8 +13,27 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, agent } => {
                     if m == method::SESSION_UPDATE {
+                        // A /context breakdown from an agent that was replaced (a failover's
+                        // dying primary answering late) is not the chat's context now. The
+                        // child lock is held while it is applied: a failover takes it to retire
+                        // the old agent, and again to detach it, before it clears the
+                        // breakdown, so the check and the write cannot straddle the failover.
+                        let breakdown = params
+                            .as_ref()
+                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
+                            .is_some();
+                        if breakdown {
+                            let child = session.child.lock().await;
+                            if child
+                                .as_ref()
+                                .is_some_and(|c| c.generation == agent && !c.is_retired())
+                            {
+                                self.on_update(&session, params.as_ref());
+                            }
+                            continue;
+                        }
                         self.on_update(&session, params.as_ref());
                     }
                 }
@@ -106,6 +125,9 @@ impl Hub {
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut goal_write = false;
+        let mut mark_cleared = false;
+        let mut breakdown_changed = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -131,12 +153,24 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
+                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
+                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                let reported = update.get("currentModeId").and_then(Value::as_str);
+                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
+                    m.mode_set_by_cmux = None;
+                    // Saved now, so a restart does not load the mark back.
+                    mark_cleared = true;
+                }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                    goal_write = true;
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -145,6 +179,12 @@ impl Hub {
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
+                }
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`). It comes
+                // after the turn's own save, so it is saved here (below), or a restart loses it.
+                if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
+                    m.context_breakdown = Some(breakdown.clone());
+                    breakdown_changed = true;
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -155,12 +195,19 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        // Goal state must survive a daemon restart even when the turn has not settled yet.
+        if goal_write || breakdown_changed {
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        if mark_cleared {
+            self.save_meta(session);
         }
     }
 
@@ -415,6 +462,9 @@ impl Hub {
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
+        // Read before the locks (it reads the settings file); the mode is read again under them.
+        let full_access_on =
+            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -495,11 +545,17 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
+            // Full access answers what the harness still asks, unless a rule decided it.
+            let full_access = (full_access_on && rule.is_none() && !denied)
+                .then(|| full_access_allow(session, &request))
+                .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
                 // Policy never answers a question: only a person does.
                 None
+            } else if let Some((_, option_id)) = &full_access {
+                Some(option_id.clone())
             } else {
                 chat_option.clone().or(auto)
             };
@@ -508,12 +564,13 @@ impl Hub {
                 if option_kind(&options, &option_id) == Some("allow_always") {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
-                self.append(
-                session,
-                "mux",
-                "permission_auto",
-                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance":chat_option.is_some(), "request": request}),
-            );
+                let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
+                // The mode that answered it, for the transcript's "Approved: … (Full access)".
+                if let Some((mode, _)) = &full_access {
+                    record["fullAccess"] = json!(mode);
+                    tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
+                }
+                self.append(session, "mux", "permission_auto", record);
                 return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
             }
             // No safe rejection option means cancel, never fall through to an allow ask.
@@ -789,6 +846,34 @@ impl Hub {
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
     }
+}
+
+/// The Full access mode chat `m` runs in now: its current mode, when the shared rule
+/// (`spec/full-access-modes.json`, `start_mode::is_full_access`) names it full access and cmux set
+/// it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode the
+/// harness reported on its own, `trust_wait.rs` `full_access_by_cmux`).
+fn full_access_mode(m: &SessionMeta) -> Option<String> {
+    let mode = crate::web_modes::mode_of(m)?;
+    (m.mode_set_by_cmux.as_deref() == Some(mode.as_str())
+        && super::start_mode::is_full_access(&mode))
+    .then_some(mode)
+}
+
+/// The Full access mode and the one-time allow with which a chat in Full access answers `request`
+/// unasked (Leo, 2026-10-25, on what Claude Code still asks in bypassPermissions, such as
+/// "Dangerous rm operation on statically-unresolvable target": "i think it should... idk like if
+/// it is on bypass permissions, that's not auto"): bypass means no prompts, for the harness's own
+/// guards and plain tool approvals alike. Only a plain tool ask (`plain_tool_ask`: never a
+/// question, a plan approval or a folder-trust card, which stay the person's), only while the
+/// current mode is Full access (a chat switched out of it asks again from its next request), and
+/// only with a one-time allow: never an "always" option, which writes a rule. The caller keeps
+/// deny-all, rules and Web turns ahead of it.
+fn full_access_allow(session: &Session, request: &Value) -> Option<(String, String)> {
+    if !super::permission_groups::plain_tool_ask(request) {
+        return None;
+    }
+    let mode = full_access_mode(&session.meta())?;
+    Some((mode, super::permission_groups::option(request, "allow_once")?))
 }
 
 /// The kind of the offered option `id`.
