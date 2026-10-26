@@ -106,6 +106,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_DIR",
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
+        "CLAUDE_CODE_EFFORT_LEVEL",
         "CLAUDE_CONFIG_DIR",
         // Selects the directory holding Cursor's cli-config.json and approval policy.
         "CURSOR_CONFIG_DIR",
@@ -325,6 +326,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
+        case "CLAUDE_CODE_EFFORT_LEVEL":
+            return value.flatMap { ClaudeEffortLevel(rawValue: $0) != nil ? $0 : nil }
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":

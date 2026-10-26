@@ -31,27 +31,31 @@ struct ClaudeTranscriptConversationLocatorTests {
     @Test func findsAConversation() throws {
         try withConfigDirectory { config in
             try writeTranscript(#"{"type":"user","message":{"content":"hi"}}"# + "\n", configDirectory: config)
-            #expect(try has(sessionID, config))
+            let found = try has(sessionID, config)
+            #expect(found)
         }
     }
 
     @Test func emptySessionIsNotAConversation() throws {
         try withConfigDirectory { config in
             try writeTranscript(#"{"type":"summary","summary":"x"}"# + "\n", configDirectory: config)
-            #expect(try !has(sessionID, config))
+            let found = try has(sessionID, config)
+            #expect(!found)
         }
     }
 
     @Test func missingTranscriptIsFalse() throws {
         try withConfigDirectory { config in
-            #expect(try !has(sessionID, config))
+            let found = try has(sessionID, config)
+            #expect(!found)
         }
     }
 
     @Test func rejectsAnUnsafeSessionID() throws {
         try withConfigDirectory { config in
             try writeTranscript(#"{"type":"user"}"# + "\n", configDirectory: config)
-            #expect(try !has("../x", config))
+            let found = try has("../x", config)
+            #expect(!found)
         }
     }
 }
