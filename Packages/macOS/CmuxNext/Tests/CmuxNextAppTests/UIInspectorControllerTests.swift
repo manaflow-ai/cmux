@@ -5,9 +5,10 @@ import CmuxNextDesign
 import CmuxNextInput
 import Testing
 
-/// The UI pointer inspector on the app's input tap (p04-input-016): with the Labs toggle off it has no
-/// subscription; with it on and the picker closed it only observes right clicks (the context-menu
-/// point); picking adds one modal-order intercept that consumes Escape and drops it when it stops.
+/// The UI pointer inspector on the app's input tap (p04-input-016): with the picker closed it has no
+/// subscription, whatever the Labs toggle; Inspect Element reads the click that opened its menu from
+/// the tap's last pointer event; picking adds one modal-order intercept that consumes Escape and drops
+/// it when it stops.
 @MainActor @Suite(.serialized)
 struct UIInspectorControllerTests {
     private func withPointerInspector(_ on: Bool, _ body: () throws -> Void) rethrows {
@@ -39,17 +40,40 @@ struct UIInspectorControllerTests {
         }
     }
 
+    @Test func withTheLabsToggleOnTheClosedInspectorHasNoSubscription() {
+        withPointerInspector(true) {
+            let tap = InputEventTap()
+            let services = AppServices(environment: AppEnvironment.current([:]), inputTap: tap)
+            let base = Self.counts(tap)
+            let inspector = services.uiInspector
+            #expect(!inspector.isPicking)
+            #expect(Self.counts(tap) == base, "a closed inspector with the toggle on subscribed")
+        }
+    }
+
+    @Test func onlyARightClickOrControlClickOpensTheContextMenuInspected() {
+        func record(_ type: InputEventType, window: Int = 7, modifiers: InputModifierFlags = []) -> InputEventRecord {
+            InputEventRecord(type: type, timestamp: 1, windowNumber: window, ownerWindowNumber: window,
+                             screenLocation: InputPoint(x: 40, y: 60), modifierFlags: modifiers)
+        }
+        let right = UIInspectorController.contextClick(record(.rightMouseDown))
+        #expect(right?.point == NSPoint(x: 40, y: 60))
+        #expect(right?.windowNumber == 7)
+        #expect(UIInspectorController.contextClick(record(.leftMouseDown, modifiers: .control))?.windowNumber == 7,
+                "a control-click opens the context menu")
+        #expect(UIInspectorController.contextClick(record(.leftMouseDown)) == nil, "a plain click opens no context menu")
+        #expect(UIInspectorController.contextClick(record(.mouseMoved)) == nil, "a move after the click is not the click")
+        #expect(UIInspectorController.contextClick(record(.rightMouseDown, window: 0)) == nil, "a click in no window")
+        #expect(UIInspectorController.contextClick(nil) == nil)
+    }
+
     @Test func pickingAddsOneInterceptThatEscapeConsumesAndRemoves() throws {
         try withPointerInspector(true) {
             let tap = InputEventTap()
             let services = AppServices(environment: AppEnvironment.current([:]), inputTap: tap)
-            let observeButtons = tap.subscriberCount(.button, stage: .observe)
-            let intercepts = InputEventClass.allCases.map { tap.subscriberCount($0, stage: .intercept) }
             let inspector = services.uiInspector
-            #expect(tap.subscriberCount(.button, stage: .observe) == observeButtons + 1, "the context-click observer is missing")
-            #expect(InputEventClass.allCases.map { tap.subscriberCount($0, stage: .intercept) } == intercepts,
-                    "the closed picker intercepts input")
             let closed = Self.counts(tap)
+            let intercepts = InputEventClass.allCases.map { tap.subscriberCount($0, stage: .intercept) }
 
             inspector.toggle()
             #expect(inspector.isPicking)

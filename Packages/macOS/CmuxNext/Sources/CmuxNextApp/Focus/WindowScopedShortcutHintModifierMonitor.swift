@@ -3,20 +3,26 @@ import CmuxNextInput
 
 /// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 ///
-/// While hints are enabled, one window-scoped observe subscription to the app's input tap
-/// (p04-input.md 3 (A)) hears this window's modifier changes, key-downs and mouse-downs. Observers run
-/// before the key router, so a key the router consumes still hides the hints. While hints show, the
-/// tap's `hintsShowing` flag is set, so per-key work elsewhere checks it in O(1).
+/// While hints are enabled, observe subscriptions on the app's input tap (p04-input.md 3 (A)) hear this
+/// window's modifier changes and, only while a modifier is held here (an O(1) `while:` predicate), its
+/// key-downs and the app's mouse-downs: a plain key does no hint work. Observers run before the key
+/// router, so a key the router consumes still hides the hints; this is the only key-down entrypoint.
+/// A mouse-down in any window (a Cmd-click on a background window, an Option-click in a panel) hides
+/// while this window is in front, as AppKit's app-wide local monitor did. While hints show, the tap's
+/// `hintsShowing` flag is set, so per-key work elsewhere checks it in O(1).
 @MainActor
 final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
     private let tap: InputEventTap
+    private let notifications: NotificationCenter
     private let clock: any Clock<Duration>
     private let changed: (NSEvent.ModifierFlags?) -> Void
     private let keepsHints: (NSEvent) -> Bool
     private let isFront: @MainActor (NSWindow) -> Bool
     private var policy = ShortcutHintModifierPolicy()
-    private var subscription: InputSubscription?
+    private var subscriptions: [InputSubscription] = []
+    /// The policy's `held`, read by the key and click subscriptions' predicate without a weak load.
+    private let hold = Hold()
     private var observers: [NSObjectProtocol] = []
     private var pending: Task<Void, Never>?
     private var enabled = false
@@ -29,15 +35,17 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     /// - Parameters:
     ///   - tap: The app's input tap.
+    ///   - notifications: Where the window's resign-key and the app's resign-active notifications come from.
     ///   - isFront: Whether the window is the one a hold shows hints in (the active app's key window).
     ///   - keepsHints: Whether a key-down leaves the hints up (a pane-navigation key); others hide them until release.
     ///   - changed: The held set to show hints for, or nil to hide them.
-    init(window: NSWindow, tap: InputEventTap, clock: any Clock<Duration> = ContinuousClock(),
+    init(window: NSWindow, tap: InputEventTap, notifications: NotificationCenter = .default, clock: any Clock<Duration> = ContinuousClock(),
          isFront: @escaping @MainActor (NSWindow) -> Bool = WindowScopedShortcutHintModifierMonitor.isFrontWindow,
          keepsHints: @escaping (NSEvent) -> Bool = { _ in false },
          changed: @escaping (NSEvent.ModifierFlags?) -> Void) {
         self.window = window
         self.tap = tap
+        self.notifications = notifications
         self.clock = clock
         self.isFront = isFront
         self.keepsHints = keepsHints
@@ -62,18 +70,22 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     private func start() {
         guard let window else { return }
-        subscription = tap.subscribe(class: [.flags, .key, .button], window: .window(window)) { [weak self] event in
-            self?.observe(event)
-        }
+        let held: @MainActor () -> Bool = { [hold] in hold.active }
+        let deliver: @MainActor (NSEvent) -> Void = { [weak self] event in self?.observe(event) }
+        subscriptions = [
+            tap.subscribe(class: .flags, window: .window(window), handler: deliver),
+            tap.subscribe(class: .key, window: .window(window), while: held, handler: deliver),
+            tap.subscribe(class: .button, window: .anyWindow, while: held, handler: deliver),
+        ]
         for (name, object) in [(NSWindow.didResignKeyNotification, window as AnyObject?),
                                (NSApplication.didResignActiveNotification, nil)] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+            observers.append(notifications.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.holdLeftWindow() }
             })
         }
     }
 
-    /// One event of this window from the tap: a modifier change, a key-down or a mouse-down.
+    /// One event from the tap: this window's modifier change or key-down, or any window's mouse-down.
     func observe(_ event: NSEvent) {
         switch event.type {
         case .flagsChanged:
@@ -94,6 +106,7 @@ final class WindowScopedShortcutHintModifierMonitor {
         hide()
         // Reset suppression when the modifier is released; a Cmd, Ctrl or Option set arms the delay.
         _ = policy.update(flags: flags, eligible: eligible, elapsed: .zero)
+        hold.active = policy.held
         guard eligible, ShortcutHintModifierPolicy.armed(flags) != nil else { return }
         pending = Task { [weak self, clock] in
             // wakeup-allow: one cancellable, injected-clock 0.30s intentional hold deadline; never polling.
@@ -139,7 +152,6 @@ final class WindowScopedShortcutHintModifierMonitor {
     private func hide() {
         pending?.cancel()
         pending = nil
-        // A key typed with no hint up does no hint work: only shown hints are taken down.
         guard showing else { return }
         showing = false
         tap.setFlag(.hintsShowing, false)
@@ -151,6 +163,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     private func holdLeftWindow() {
         hide()
         policy = ShortcutHintModifierPolicy()
+        hold.active = false
         currentFlags = []
     }
 
@@ -159,9 +172,14 @@ final class WindowScopedShortcutHintModifierMonitor {
         #if DEBUG
         capture.finish(false)
         #endif
-        subscription?.cancel()
-        subscription = nil
-        observers.forEach(NotificationCenter.default.removeObserver)
+        subscriptions.forEach { $0.cancel() }
+        subscriptions.removeAll()
+        observers.forEach(notifications.removeObserver)
         observers.removeAll()
+    }
+
+    /// Whether a modifier is held in this window, shared with the subscriptions' predicate.
+    private final class Hold {
+        var active = false
     }
 }
