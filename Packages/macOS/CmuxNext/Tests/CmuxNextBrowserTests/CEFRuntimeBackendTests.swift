@@ -38,14 +38,13 @@ import Testing
         RemoteSpy.reset()
         let wire = try Wire()
         defer { wire.close() }
-        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
         let timers = PumpTimerCounter()
-        runtime.makePumpTimer = { _ in timers.make() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd), makePumpTimer: { _ in timers.make() })
 
         try await runtime.start(layout: nil, environment: [:], trigger: "test")
 
         #expect(timers.made == 0, "host mode made a CEFPumpTimer")
-        #expect(runtime.pump == nil, "host mode started the message pump")
+        #expect(runtime.inProcessPump == nil, "host mode started the message pump")
         #expect(RemoteSpy.initializeScheduleCallbacks == [false], "host mode gave initialize a schedule callback")
         #expect(RemoteSpy.scheduleDelayedCalls == 0, "host mode asked for the fork's delayed work")
 
@@ -54,22 +53,34 @@ import Testing
         #expect(timers.made == 0)
     }
 
-    /// The control case: the in-process backend's pump makes its one timer through the same seam and
-    /// asks for the fork's delayed work.
-    @Test func theInProcessPumpMakesItsOneTimer() throws {
+    /// The control case, through the real in-process initialize: it makes the pump's one timer, asks
+    /// for the fork's delayed work once and gives initialize the schedule callback, without which the
+    /// shim sets no `external_message_pump` and nothing pumps in-process Chromium. Initialize fails in
+    /// the spy, so the start stops before its ready hooks (child monitor, window guard).
+    @Test func theInProcessStartMakesOnePumpAndGivesInitializeTheScheduleCallback() async throws {
         RemoteSpy.reset()
+        RemoteSpy.initializeResult = 0
         let shim = try CEFShimLibrary.resolving(RemoteSpy.symbol)
-        let runtime = CEFRuntime(shim: shim, storage: CEFProfileStorage(root: Self.scratch()))
+        let root = Self.scratch()
+        let library = CEFLoadedLibrary(shim: shim, shimABI: RemoteSpy.abi,
+                                       layout: CEFRuntimeLayout(frameworksDirectory: root, mainBundle: root, helperApp: root),
+                                       locale: CEFLocale(locale: CEFLocale.fallback, acceptLanguages: CEFLocale.fallback),
+                                       loadDuration: .zero)
         let timers = PumpTimerCounter()
-        runtime.makePumpTimer = { _ in timers.make() }
+        let runtime = CEFRuntime(storage: CEFProfileStorage(root: root), makePumpTimer: { _ in timers.make() })
+        runtime.loadInProcess = { _ in
+            RemoteSpy.inProcessLoads += 1
+            return .success(library)
+        }
 
-        runtime.startInProcessPump(shim)
-        runtime.startInProcessPump(shim)
-        defer { runtime.pump?.stop() }
+        await Self.expectFailed(runtime)
 
-        #expect(timers.made == 1)
-        #expect(runtime.pump != nil)
+        #expect(RemoteSpy.inProcessLoads == 1)
+        #expect(RemoteSpy.prepareApplicationCalls == 1)
+        #expect(RemoteSpy.initializeScheduleCallbacks == [true], "the in-process initialize got no schedule callback")
         #expect(RemoteSpy.scheduleDelayedCalls == 1)
+        #expect(timers.made == 1)
+        #expect(runtime.inProcessPump != nil)
     }
 
     /// The attach points the remote shim's REPLY frames at the runtime's one reply table: the token
@@ -301,9 +312,10 @@ import Testing
         supervisor: FakeSupervisor,
         symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer? = RemoteSpy.symbol,
         helloDeadline: Duration = .seconds(30),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        makePumpTimer: CEFInProcessPump.MakeTimer? = nil
     ) -> CEFRuntime {
-        let runtime = CEFRuntime(storage: CEFProfileStorage(root: scratch()))
+        let runtime = CEFRuntime(storage: CEFProfileStorage(root: scratch()), makePumpTimer: makePumpTimer)
         runtime.loadInProcess = { _ in
             RemoteSpy.inProcessLoads += 1
             return .failure(.notEmbedded)

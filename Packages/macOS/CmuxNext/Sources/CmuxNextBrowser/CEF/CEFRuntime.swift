@@ -29,15 +29,15 @@ final class CEFRuntime {
     private(set) var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
-    /// The in-process backend's external message pump (``startInProcessPump(_:)``). Nil before the start and
-    /// always in host mode, where the Chromium Host runs Chromium's own message loop (`CefRunMessageLoop`,
-    /// browser_host_main.mm), as Chrome's browser process owns its UI-thread pump
-    /// (content/browser/browser_main_loop.cc): no `CefDoMessageLoopWork` runs in the app.
-    private(set) var pump: CEFMessagePump?
-    /// The pump's gate for requests from Chromium threads (read off the main thread).
+    /// The in-process backend's external message pump, made by the in-process initialize only. Nil before
+    /// the start and always in host mode (``CEFInProcessPump``).
+    private(set) var inProcessPump: CEFInProcessPump?
+    var pump: CEFMessagePump? { inProcessPump?.pump }
+    /// The pump's gate for requests from Chromium threads, which find it through the callback context (the
+    /// runtime) off the main thread. Host mode never reads it: it gives CEF no schedule callback.
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
-    /// Makes the pump's one timer on ``wakeUps``; only ``startInProcessPump(_:)`` calls it (a test's counter).
-    var makePumpTimer: @MainActor (MainWakeUpQueue) -> any CEFPumpTimer = { CEFWakeUpQueuePumpTimer(queue: $0) }
+    /// Makes the in-process pump's one timer on ``wakeUps`` (a test's counter).
+    private let makePumpTimer: CEFInProcessPump.MakeTimer
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
@@ -190,10 +190,20 @@ final class CEFRuntime {
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
 
-    private init() {}
+    private init() {
+        makePumpTimer = Self.wakeUpQueueTimer
+    }
 
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
-    init(storage: CEFProfileStorage) { self.storage = storage }
+    /// `makePumpTimer` makes the in-process pump's timer; nil: one on ``wakeUps``.
+    init(storage: CEFProfileStorage, makePumpTimer: CEFInProcessPump.MakeTimer? = nil) {
+        self.storage = storage
+        self.makePumpTimer = makePumpTimer ?? Self.wakeUpQueueTimer
+    }
+
+    private static func wakeUpQueueTimer(_ queue: MainWakeUpQueue) -> any CEFPumpTimer {
+        CEFWakeUpQueuePumpTimer(queue: queue)
+    }
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
@@ -224,6 +234,7 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
+        makePumpTimer = Self.wakeUpQueueTimer
         state = .ready
     }
 
@@ -466,9 +477,8 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
-        // Only a pump takes CEF's schedule requests: the shim sets `external_message_pump` from this
-        // callback, and in host mode there is none.
-        let schedule: CEFShimLibrary.ScheduleFn? = pump == nil ? nil : cefScheduleCallback
+        // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
+        let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
@@ -502,30 +512,20 @@ final class CEFRuntime {
         }
     }
 
-    /// The in-process backend's external message pump: `CefDoMessageLoopWork` on the main thread when CEF
-    /// asks (`CefSettings.external_message_pump`). Host mode never calls this: the host pumps Chromium itself.
-    func startInProcessPump(_ shim: CEFShimLibrary) {
-        guard pump == nil else { return }
-        let forkAPI = shim.forkAPIVersion()
-        if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
-            logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
-        }
-        // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
-        // keep the ms path. No request comes before CefInitialize, so the pump need not exist yet.
-        let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
-        logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
-        let pump = CEFMessagePump(
-            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
-            timer: makePumpTimer(wakeUps),
-            gate: pumpGate,
-            absoluteRunTimes: absoluteRunTimes
-        )
-        self.pump = pump
+    /// Makes and starts the in-process backend's pump (``CEFInProcessPump``); host mode never calls this.
+    private func startInProcessPump(_ shim: CEFShimLibrary) {
+        guard inProcessPump == nil else { return }
+        var policy: CEFPumpInputPolicy?
         if let pumpInput, let input {
-            pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
-                                                   refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
+            policy = CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
+                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget)
         }
-        pump.start()
+        let owner = CEFInProcessPump(
+            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, logger: logger,
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } }
+        )
+        inProcessPump = owner
+        owner.pump.start()
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).

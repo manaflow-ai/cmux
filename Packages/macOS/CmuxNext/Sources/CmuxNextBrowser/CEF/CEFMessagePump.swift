@@ -40,7 +40,7 @@ import Foundation
 /// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
 /// emits it: with the Chromium host on there is no pump in the app, and the host emits its own (p09 task 104).
 ///
-/// Only the in-process backend makes one (``CEFRuntime/startInProcessPump(_:)``). In host mode the app has no
+/// Only the in-process backend makes one (``CEFInProcessPump``). In host mode the app has no
 /// pump, no ``CEFPumpTimer`` and no schedule callback; the Chromium Host runs `CefRunMessageLoop`.
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
