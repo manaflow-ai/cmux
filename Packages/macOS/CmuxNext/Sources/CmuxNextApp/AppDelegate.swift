@@ -376,7 +376,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
-        services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
@@ -518,7 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         services?.stopCloud()
-        services?.ssh.stop()
+        services?.madeSSH?.stop()
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()
