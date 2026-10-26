@@ -276,7 +276,8 @@ public struct FirefoxPasswordCrypto: Sendable {
             var written = 0
             status = key.withUnsafeBytes { keyBytes in
                 // The callers check key.count >= keyLength first; a shorter key reads as a refusal.
-                guard keyBytes.count >= keyLength else { return CCCryptorStatus(kCCKeySizeError) }
+                // SAFETY: reads the lent buffer's count, not its bytes.
+                guard unsafe keyBytes.count >= keyLength else { return CCCryptorStatus(kCCKeySizeError) }
                 // SAFETY: CCCrypt reads keyLength bytes of the key's view (checked above), one block of
                 // `iv` and input.count bytes of `input`, and writes at most out.count bytes to `out` (the
                 // capacity asked for) and that count into `written`. The views are valid while these

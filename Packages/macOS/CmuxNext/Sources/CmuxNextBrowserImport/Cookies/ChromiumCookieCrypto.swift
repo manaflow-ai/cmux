@@ -24,14 +24,18 @@ public struct ChromiumCookieCrypto: Sendable {
     }
 
     static func deriveKey(_ password: Data) -> [UInt8] {
-        let secret = password.map { CChar(bitPattern: $0) }
         let salt = Array("saltysalt".utf8)
         var key = [UInt8](repeating: 0, count: kCCKeySizeAES128)
         let length = key.count
-        // SAFETY: CommonCrypto reads secret.count and salt.count bytes of those arrays and writes `length`
-        // (key.count) bytes into `key`; Swift lends each array's storage for the call only.
-        let status = unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), secret, secret.count, salt, salt.count,
-                                                 CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003, &key, length)
+        // The password is read in place: no copy of the Safe Storage secret is made.
+        let status = password.withUnsafeBytes { raw in
+            // SAFETY: CommonCrypto reads raw.count bytes of the password's view and salt.count of `salt`,
+            // and writes `length` (key.count) bytes into `key`. The view is bytes, valid while this
+            // closure runs, and Int8 and UInt8 views of bytes may alias; the arrays are lent for the call.
+            unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), raw.baseAddress?.assumingMemoryBound(to: CChar.self),
+                                        raw.count, salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1), 1003,
+                                        &key, length)
+        }
         // An empty key never decrypts: decrypt and encrypt then throw `badPadding`
         // (CCCrypt refuses the key length) instead of the process trapping.
         guard status == kCCSuccess else { return [] }
