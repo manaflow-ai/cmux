@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Dispatch
 
@@ -25,14 +26,23 @@ public final class ProcessLauncher: Sendable {
         self.priority = priority
     }
 
-    /// The children's priority.
-    private let priority: WorkPriority
+    /// The children's priority: their QoS is its ``WorkPriority/processQoS``.
+    public let priority: WorkPriority
 
     /// Spawns `process` on the queue at the launcher's priority; `failed` runs there when it cannot start.
     public func launch(_ process: Process, failed: @escaping @Sendable (any Error) -> Void = { _ in }) {
+        launch(process, started: {}, failed: failed)
+    }
+
+    /// Spawns `process` on the queue at the launcher's priority; then `started` runs there once the child
+    /// has its pid, or `failed` when it cannot start.
+    public func launch(_ process: Process, started: @escaping @Sendable () -> Void,
+                       failed: @escaping @Sendable (any Error) -> Void) {
         prepare(process)
         queue.async {
-            do { try process.run() } catch { failed(error) }
+            // A checked spawn: Debug records it if it ever runs on the main thread (this queue is dedicated).
+            do { try process.blockingRun() } catch { return failed(error) }
+            started()
         }
     }
 
@@ -50,7 +60,7 @@ public final class ProcessLauncher: Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             queue.async {
                 do {
-                    try process.run()
+                    try process.blockingRun()
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
