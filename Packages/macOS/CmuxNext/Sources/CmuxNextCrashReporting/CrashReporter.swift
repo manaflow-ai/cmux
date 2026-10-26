@@ -173,7 +173,8 @@ public final class CrashReporter: Sendable {
         CrashDeadline.suspendThread()
         // A semaphore nothing signals: the blocked crash path the watcher must end.
         var never = semaphore_t(0)
-        _ = semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
+        // SAFETY: semaphore_create writes one semaphore name into `never`, a local live for the call.
+        _ = unsafe semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
         // concurrency-allow: crash-gate debug verb; blocking forever is the crash it simulates.
         _ = semaphore_wait(never)
         abort()
@@ -222,7 +223,8 @@ public final class CrashReporter: Sendable {
         Self.recordCrashKeys()
         let task = mach_task_self_
         var port = mach_port_t(0)
-        guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
+        // SAFETY: mach_port_allocate writes one port name into `port`, a local live for the call.
+        guard unsafe mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
               mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
         _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
                                      exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))

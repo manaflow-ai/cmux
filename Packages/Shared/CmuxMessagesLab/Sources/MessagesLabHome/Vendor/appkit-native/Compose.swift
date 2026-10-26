@@ -177,7 +177,8 @@ final class FieldTextView: NSTextView {
                 local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
             } else {
                 // cmux: AppKit's own rect, never the emoji picker's anchor (`pickerAnchor`).
-                let screen = super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+                // SAFETY: the actual-range pointer is nil, so AppKit writes no range.
+                let screen = unsafe super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
                 let r = convert(window.convertFromScreen(screen), from: nil)
                 local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
             }
@@ -450,7 +451,7 @@ final class FieldTextView: NSTextView {
         let storageText = textStorage
         func picture(_ i: Int) -> Bool {
             guard let s = storageText, i >= 0, i < s.length else { return false }
-            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
+            return s.attribute(.attachment, at: i) is ComposeInlineAttachment
         }
         let length = storageText?.length ?? 0
         let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
@@ -515,8 +516,10 @@ final class FieldTextView: NSTextView {
         super.flagsChanged(with: event)
     }
     override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
-        return super.firstRect(forCharacterRange: range, actualRange: actualRange)
+        // SAFETY: AppKit passes nil or a pointer to one NSRange it owns for this call; one range is written to it,
+        // during the call only, and the same pointer goes on to super under the same contract.
+        if let pickerAnchor { unsafe actualRange?.pointee = range; return pickerAnchor }  // cmux
+        return unsafe super.firstRect(forCharacterRange: range, actualRange: actualRange)
     }
 
     /// The pasteboard Paste reads (a check injects its own).
@@ -1160,8 +1163,8 @@ final class ComposeView: UIView {
             let space = CGColorSpace(name: CGColorSpace.sRGB)
             for (stops, fromTop) in [(top, true), (bottom, false)] {
                 // an optional gradient draws nothing when it fails (CrashSafeGraphics).
-                let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
-                                   locations: stops.map { $0.0 / cap })
+                let g = CGGradient.checked(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor },
+                                           locations: stops.map { $0.0 / cap })
                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
             }
             c.restoreGState()
@@ -1219,7 +1222,8 @@ final class ComposeView: UIView {
         guard let storage = tv.textStorage else { return }
         var range: NSRange?
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { v, r, stop in
-            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; stop.pointee = true }
+            // SAFETY: `stop` is Foundation's flag for this enumeration, valid during the block only.
+            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; unsafe stop.pointee = true }
         }
         guard let range, tv.shouldChangeText(in: range, replacementString: "") else { return }
         storage.replaceCharacters(in: range, with: "")
@@ -1380,7 +1384,7 @@ final class ComposeView: UIView {
         // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,
-           let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
+           let scaled = NSBitmapImageRep.owned(pixelsWide: wide, pixelsHigh: high,
                                          bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
                                          hasAlpha: rep.hasAlpha, isPlanar: rep.isPlanar, colorSpaceName: rep.colorSpaceName,
                                          bitmapFormat: rep.bitmapFormat, bytesPerRow: 0, bitsPerPixel: rep.bitsPerPixel)?

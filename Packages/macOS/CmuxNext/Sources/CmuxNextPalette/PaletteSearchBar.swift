@@ -24,8 +24,21 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let keywordHint = PaletteKeywordHintView()
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
-    private var style: PaletteScopeChipStyle = .token
     private var depth = 0
+    /// The scope the bar shows, as last applied: a typed character changes none of it, so typing lays
+    /// nothing out (the field's frame does not follow its text).
+    private var shownScope: Scope?
+
+    /// What `update` shows besides the query: the chips or breadcrumb, the keyword hint and the
+    /// field's font, which `layout()` places.
+    private struct Scope: Equatable {
+        var chips: [PaletteScopeChip]
+        var rootTitle: String
+        var style: PaletteScopeChipStyle
+        var keywordHint: String?
+        var placeholder: String
+        var font: NSFont
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -67,7 +80,11 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             self.placeholder = placeholder
             applyColors()
         }
-        self.style = style
+        spinner.spin(isLoading)
+        let scope = Scope(chips: scopeChips, rootTitle: rootTitle, style: style, keywordHint: hint, placeholder: placeholder,
+                          font: Typography.search)
+        guard scope != shownScope else { return }
+        shownScope = scope
         depth = scopeChips.count + 1
         let showsChips = style != .breadcrumb && !scopeChips.isEmpty
         chips.update(chips: showsChips ? scopeChips : [], style: style)
@@ -79,9 +96,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
         field.setAccessibilityLabel(name)
         field.cell?.setAccessibilityLabel(name)
-        field.font = Typography.search
-        spinner.spin(isLoading)
-        needsLayout = true
+        if field.font != scope.font { field.font = scope.font }
+        needsLayout = true // invalidate: a new scope, hint or font moves the chips, the hint and the field
     }
 
     override func viewDidChangeEffectiveAppearance() {

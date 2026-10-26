@@ -27,11 +27,13 @@ inline constexpr uint32_t kMaxPayload = 64 * 1024;
 // Seconds a host may take to end after kQuit or EOF before it ends by force
 // (it _exits itself; cmux SIGKILLs it): ChromiumHostFrame.quitLimit.
 inline constexpr int kQuitLimitSeconds = 15;
-// The oldest fork API the host runs on: layer hosting (26) and the resize
-// sync (27), so its Chromium never holds a commit for a resize on its own.
-// cmux starts it with the switch set of this API (ChromiumHostConfiguration,
+// The oldest fork API the host runs on: detached hosting (30), so no page
+// window of the host is ever on screen (its windows are never ordered in,
+// HostPageViews), over layer hosting (26) and the resize sync (27), so its
+// Chromium never holds a commit for a resize on its own. cmux starts it with
+// the switch set of API 27 (ChromiumHostConfiguration,
 // CEFSwitches.resizeSyncForkAPI: no AsyncLiveResize).
-inline constexpr int kMinForkAPI = 27;
+inline constexpr int kMinForkAPI = 30;
 // Frames the reader may hand to the UI thread that it has not run yet (and
 // frames held before the UI thread exists), after coalescing (FrameQueue):
 // ChromiumHostConnection.frameBacklog.

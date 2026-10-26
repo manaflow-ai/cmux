@@ -378,7 +378,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Host page windows are always detached and never ordered in (task 053); ChromiumHostPageView owns the mode."
+      "reason": "Host page windows are always detached and never ordered in (task 053): the host detaches each page window once its layers are hosted (HostContext::HandleLayerHosting), so cmux never sends it."
     },
     {
       "name": "cmux_shim_browser_set_embedder_active",

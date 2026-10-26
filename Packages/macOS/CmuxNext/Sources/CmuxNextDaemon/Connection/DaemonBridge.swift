@@ -108,6 +108,8 @@ public struct DaemonBridge: Hashable, Sendable {
         let argv = unsafe words.map { unsafe strdup($0) } + [nil]
         defer { unsafe argv.forEach { unsafe free($0) } }
         var pid: pid_t = 0
+        // The child starts at QOS_CLASS_DEFAULT (no spawn attribute sets a class above utility); `cmux link dial`
+        // puts its own threads at user-initiated (cmux-tui link/dial_cli.rs, BRIDGE_QOS).
         // SAFETY: `pid`, `actions` and `attributes` are locals live for the call; argv is the nil-terminated array
         // of live copies above; environ is the process's own nil-terminated environment, which nothing here changes.
         let spawned = unsafe blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)

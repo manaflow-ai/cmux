@@ -58,6 +58,7 @@ struct FileExplorerCommands {
         // Edit > Undo (Cmd-Z) puts the item back where it was and selects it, as Finder's Put Back.
         ToastUndoStep.attach(title: FileExplorerStrings.undoMoveToTrash, filling: nil, undoManager: undoManager, handle: nil) {
             // task-owner: one Put Back and a relisting; ends when the folder lists again.
+            // main-hop-allow: the person's Undo, userBlocking rest (p06 rule 2): Put Back is FileOperating's off-main move, then the model's main-actor async relisting
             Task { @MainActor in
                 guard let back = try? await files.putBack(trashed) else { return }
                 await model.reload()

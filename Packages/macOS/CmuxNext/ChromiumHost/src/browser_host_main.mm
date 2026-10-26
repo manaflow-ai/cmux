@@ -237,10 +237,13 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
 
 // One input ring frame, in the ordered stream's order, with its NSEvent's
 // time as the event time Chromium sees (EventTimeOf, task p04-input-065).
-// Wheels go to Chromium here; task p01-process-042 adds the other kinds with
-// the ring's reader, and until it starts the reader no frame comes.
+// A page's geometry moves its page view only when it changed, in this order,
+// so a click after a resize hits the resized page (HostContext::PlaceFrame,
+// task 053); wheels go to Chromium here; task p01-process-042 adds the other
+// kinds with the ring's reader, and until it starts the reader no frame comes.
 void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry,
                    cmux_host::SetEventTimeFn set_event_time, const cmux_host::Header& frame) {
+  if (host.PlaceFrame(frame)) return;
   const cmux_host::ScopedEventTime event_time(set_event_time, cmux_host::EventTimeOf(frame, UptimeNowNs()));
   if (frame.kind == cmux_host::kWheel) SendWheel(host, carry, frame);
 }
@@ -439,9 +442,10 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
   }
-  // The host's page windows never show: each page's cursor goes to the page
-  // view in cmux (CMUX_SHIM_CURSOR), as Chrome's browser process sends it to
-  // the app shim's view (RenderWidgetHostViewMac::DisplayCursor).
+  // The host's page windows never show (each is detached, HostPageViews):
+  // each page's cursor goes to the page view in cmux (CMUX_SHIM_CURSOR), as
+  // Chrome's browser process sends it to the app shim's view
+  // (RenderWidgetHostViewMac::DisplayCursor).
   cmux_shim_set_cursor_events(1);
 
   HostMain host_main;
