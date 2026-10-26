@@ -194,7 +194,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 53;
 inline constexpr char kShimAbiID[] = "0d2c75044b312d4ae1f34e63749b1f84dfbede0b271315abd8fa084cee2e5100";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "092e0dce86aacf8c4fc5c336474127f9bd009ca3ab02cb8f8e801adbe9391b33";
+inline constexpr char kWireID[] = "f05ead2b37d501e637687c55aa342aaa16ea37c1d83f8acdb7589a12b21ce22e";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -894,7 +894,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_enabled = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_set_enabled(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_enabled);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_ext_list;
       ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
       TlvWriter refresh_tab_ext_actions;
@@ -903,7 +904,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
       TlvWriter refresh_tab_omnibox_keywords;
       ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpExtUninstall: {
@@ -911,7 +912,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::optional<std::string> arg_extension_id = r.Str();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_uninstall(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_ext_list;
       ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
       TlvWriter refresh_tab_ext_actions;
@@ -920,7 +922,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
       TlvWriter refresh_tab_omnibox_keywords;
       ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpExtReload: {
@@ -928,7 +930,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::optional<std::string> arg_extension_id = r.Str();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_reload(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_ext_list;
       ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
       TlvWriter refresh_tab_ext_actions;
@@ -937,7 +940,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
       TlvWriter refresh_tab_omnibox_keywords;
       ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpExtMovePinned: {
@@ -946,7 +949,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_index = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_move_pinned(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_index);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_ext_list;
       ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
       TlvWriter refresh_tab_ext_actions;
@@ -955,7 +959,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
       TlvWriter refresh_tab_omnibox_keywords;
       ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpExtSetPinned: {
@@ -964,7 +968,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_pinned = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_set_pinned(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_pinned);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_ext_list;
       ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
       TlvWriter refresh_tab_ext_actions;
@@ -973,7 +978,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
       TlvWriter refresh_tab_omnibox_keywords;
       ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpExtOpenOptions: {

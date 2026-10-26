@@ -49,10 +49,11 @@ Inputs (paths relative to --root, the repository by default):
            preinit  queued in the client and applied in order before CefInitialize. A non-void one
                     returns the client's own check and names `reply_event` wire:REPLY: the host's
                     verdict, sent by token when it applies the op
-         `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
-         the client marks them pending under the op's token until the host's ack, and the host
-         pushes them again after it runs the op and before that ack (RefreshMirror), so the value
-         cmux reads once the mark clears is the host's after the op. `local` and
+         `pending_keys` are mirror keys a post (or an async op) changes, `*` for a param the op
+         does not name: the client marks them pending under the op's token until the host's ack
+         (an async op's: its REPLY), and the host pushes them again after it runs the op and
+         before that ack or REPLY (RefreshMirror), so the value cmux reads once the mark clears is
+         the host's after the op. `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
          `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
@@ -943,8 +944,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror key is ints and strings only; its only out-parameters are int*")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
-    if op.pending_keys and cls not in ("post", "view", "preinit", "mint"):
-        out.append("pending_keys are for posts")
+    if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
+        out.append("pending_keys are for ops the host acks or answers")
     if cls == "async":
         if op.reply_event is None:
             out.append(f"an async export names its answer: reply_event is an event kind or {REPLY_WIRE}")
@@ -2202,7 +2203,7 @@ def first_argument(text: str, begin: int, close: int) -> str:
 
 def site_settled(model: Model, site: Site, op: Op) -> bool:
     """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
-    the token form, a mint_returns id call in the mint form, or a site a `kept` host_mode_rewrites entry
+    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
     settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
         return True

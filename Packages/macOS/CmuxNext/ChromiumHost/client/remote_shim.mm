@@ -11,7 +11,8 @@
 //                 kOpMirror   i32 mirror op, bytes key (EncodeFields), then bytes value, or no
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
-//                 kOpReply    the answer to an awaited `token`, its fields to the reply callback
+//                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
+//                             its op ran, so its pending marks clear first
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
@@ -615,6 +616,7 @@ class Runtime {
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
+        mirror_.Ack(message.token);  // the op ran: the callback reads what it changed
         if (reply_) {
           reply_(reply_ctx_, message.token, fields.data(), fields.size());
         } else {
