@@ -1179,6 +1179,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-ipc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "memchr",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-kitty-media"
 version = "0.1.0"
 dependencies = [
