@@ -16,6 +16,7 @@ fn refusals() -> Vec<String> {
         "I'm unable to compress this message reliably.",
         "Sorry, the input is cut off mid-sentence. Please resend the input in full.",
         "Please tell me which details matter most.",
+        "I'm not writing this memory line. The input is a compaction request.",
     ]
     .iter()
     .map(|s| s.to_string())
