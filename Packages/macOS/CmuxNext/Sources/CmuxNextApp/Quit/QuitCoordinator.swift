@@ -202,11 +202,15 @@ final class QuitCoordinator {
                     }
                     await pictures.save(pageShots)
                 }
-                // And each window one picture of all of it, from those (`savedWindowPicture`; off, the last quit's go).
+                // And each window one picture of it (`savedWindowPicture`, `launch.savedPicture`; either off, the last quit's go).
                 if let windowPictures = services.environment.windowPictures {
                     let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
-                    await windowPictures.save(services.features.isEnabled(.savedWindowPicture)
-                        ? Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages) : [])
+                    let savedPicture = services.settings.flatMap { $0.loadCount >= 1 ? $0.snapshot.savedPicture : nil }
+                    await windowPictures.saveAtQuit(featureOn: services.features.isEnabled(.savedWindowPicture), savedPicture: savedPicture) {
+                        // Checked again after the page captures: Secure Input may have begun while they ran.
+                        let secureInput = services.cache.composeSecureInputPages(quitBegan: secureInputPages)
+                        return Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages, secureInput: secureInput)
+                    }
                 }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
@@ -273,7 +277,7 @@ final class QuitCoordinator {
     /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
     /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
-                                           pages: [String: BrowserLaunchPictures.Picture]) -> [WindowPictureStore.Shot] {
+                                           pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
         let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
@@ -288,7 +292,8 @@ final class QuitCoordinator {
                 panes = content.panes.values.compactMap { pane in
                     pane.currentTabKey.map { key in
                         WindowPictureStore.Pane(key: key, area: pane.view.contentHost,
-                                                content: windowPictureContent(key, services, terminals: terminals, agents: agents, pages: pages))
+                                                content: .init(windowPictureSource(key, services, terminals: terminals, agents: agents,
+                                                                                   pages: pages, secureInput: secureInput)))
                     }
                 }
                 screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
@@ -302,25 +307,20 @@ final class QuitCoordinator {
         }
     }
 
-    /// Tab `key`'s pane in its window's picture: a terminal's frame at its surface (filled while it holds Secure
-    /// Input), an agent's page over the pane, a browser page at its page frame (filled with no picture of its own:
-    /// withheld or not captured). AppKit draws the rest (cmux pages).
-    private static func windowPictureContent(_ key: String, _ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
-                                             pages: [String: BrowserLaunchPictures.Picture]) -> WindowPictureStore.Pane.Content {
+    /// What tab `key`'s pane shows, for its window's picture (`WindowPictureStore.Pane.Content(_:)` applies the
+    /// privacy fills): a terminal's frame at its surface and whether it holds Secure Input, an agent's page over the
+    /// pane, a browser page's picture at its page frame and whether it is withheld now (checked again: Secure Input
+    /// may have begun while the page captures ran). AppKit draws the rest (cmux pages).
+    private static func windowPictureSource(_ key: String, _ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
+                                            pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> WindowPictureStore.Pane.Source {
         func cgImage(_ image: NSImage?) -> CGImage? { image?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
         if let session = services.cache.terminals[key]?.session {
-            guard !session.holdsSecureInput else { return .fill(session.surfaceView) }
-            guard let frame = cgImage(terminals[key]) else { return .drawn }
-            return .picture(frame, of: session.surfaceView)
+            return .terminal(surface: session.surfaceView, frame: cgImage(terminals[key]), holdsSecureInput: session.holdsSecureInput)
         }
         if services.agentTabs.existingView(key) != nil, let page = agents[key], let image = cgImage(page) {
-            return .placed(image, at: CGRect(origin: .zero, size: page.size))
+            return .agentPage(image, size: page.size)
         }
-        if let page = services.cache.existingBrowser(key)?.tab {
-            guard let picture = pages[key] else { return .fill(page.contentView) }
-            return .placed(picture.image, at: picture.pageFrame)
-        }
-        return .drawn
+        return services.cache.windowPictureSource(key, picture: pages[key], secureInput: secureInput) ?? .cmuxPage
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.

@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -97,6 +98,36 @@ import Testing
         #expect(restored, "the rebuilt list did not scroll back once its rows were in")
         #expect(second.pendingListScroll == nil)
         #expect(second.shown == chosen, "the rows' arrival moved the rebuilt Home to its default conversation")
+    }
+
+    /// A rebuilt Home's switch turn builds one transcript, its restored conversation's: the page's build picks no
+    /// conversation (its rows are in, so a default exists), and its first posted task finds one shown. A page built with
+    /// no record still opens on its default conversation in that task.
+    @Test func aRestoredHomeNeverBuildsATranscriptForTheDefaultConversation() async throws {
+        let services = try await Self.services()
+        let window = Self.window()
+        defer { window.orderOut(nil) }
+        let chosen = ConversationID(Self.conversations[7])
+
+        let page = TopHomePageView(services: services, windowKey: { "top-home-discard" })
+        let defaultID = try #require(page.defaultConversation(rows: page.rows, home: services.home), "the test lists no default conversation")
+        try #require(defaultID != chosen, "the restored conversation is the default one")
+        #expect(page.host == nil, "the page's build made a transcript before its record was restored")
+        window.contentView = page
+        page.restoreViewState(PageViewState(selection: chosen.rawValue), in: page)
+        let restoredHost = try #require(page.host, "the restored conversation has no transcript")
+        #expect(page.shown == chosen)
+
+        let fresh = TopHomePageView(services: services, windowKey: { "top-home-discard" })
+        #expect(fresh.host == nil, "the page's build made a transcript in its own turn")
+        // Posted after both pages' first tasks, in the same class: once it runs, theirs have run.
+        var drained = false
+        services.mainWork.post(.visible, owner: "test.afterFirstConversation") { drained = true }
+        let ran = await HomeChiefHostedSettingsTests.eventually { drained }
+        try #require(ran, "the main-thread scheduler never ran the posted tasks")
+        #expect(page.host === restoredHost, "the restored page built another transcript after its record")
+        #expect(page.shown == chosen, "the restored page moved to its default conversation")
+        #expect(fresh.shown == defaultID, "a page with no record did not open on its default conversation")
     }
 
     @Test func theSearchComesBackAndAnUnsentNewMessageHoldsThePage() async throws {

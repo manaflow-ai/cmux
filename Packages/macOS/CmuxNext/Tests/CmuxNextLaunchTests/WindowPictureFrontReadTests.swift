@@ -72,7 +72,7 @@ struct WindowPictureFrontReadTests {
         var names = marks.makeAsyncIterator()
         let pictures = WindowPictureStore(directory: directory, work: Self.work, reader: reads.reader)
         pictures.prefetchFront({ Self.frontWindow() }, mark: { mark.yield($0) })
-        let finished = await pictures.frontFinished()
+        let finished = await pictures.finishedFront()
         let decoded = await names.next()
         #expect(decoded == "launch_picture_decoded")
         #expect(finished?.windowID == Self.front)
@@ -92,10 +92,10 @@ struct WindowPictureFrontReadTests {
         try await Self.save([(Self.back, Self.workProfile)], in: directory)
         let pictures = WindowPictureStore(directory: directory, work: Self.work)
         pictures.prefetchFront({ Self.frontWindow(Self.back, profile: Self.workProfile) })
-        #expect(await pictures.frontFinished()?.windowID == Self.back, "the picture in the window's profile folder was not read")
+        #expect(await pictures.finishedFront()?.windowID == Self.back, "the picture in the window's profile folder was not read")
         let otherProfile = WindowPictureStore(directory: directory, work: Self.work)
         otherProfile.prefetchFront({ Self.frontWindow(Self.back) })
-        #expect(await otherProfile.frontFinished() == nil, "a picture saved for another profile was shown")
+        #expect(await otherProfile.finishedFront() == nil, "a picture saved for another profile was shown")
     }
 
     /// No picture saved: the snapshot is not asked and no file is read. No front window, a front window with no
@@ -107,7 +107,7 @@ struct WindowPictureFrontReadTests {
         let reads = Reads(), asks = Asks()
         let none = WindowPictureStore(directory: empty, work: Self.work, reader: reads.reader)
         none.prefetchFront({ asks.ask(Self.frontWindow()) })
-        #expect(await none.frontFinished() == nil)
+        #expect(await none.finishedFront() == nil)
         #expect(asks.count == 0, "the launch read the snapshot with no picture saved")
         #expect(reads.all.isEmpty, "the launch read a file with no picture saved")
 
@@ -116,23 +116,23 @@ struct WindowPictureFrontReadTests {
         try await Self.save([(Self.back, Self.defaultProfile)], in: saved)
         let noFront = WindowPictureStore(directory: saved, work: Self.work, reader: reads.reader)
         noFront.prefetchFront({ asks.ask(nil) })
-        #expect(await noFront.frontFinished() == nil)
+        #expect(await noFront.finishedFront() == nil)
         let otherFront = WindowPictureStore(directory: saved, work: Self.work, reader: reads.reader)
         otherFront.prefetchFront({ asks.ask(Self.frontWindow()) })
-        #expect(await otherFront.frontFinished() == nil, "a window behind the front one gave the first frame its picture")
+        #expect(await otherFront.finishedFront() == nil, "a window behind the front one gave the first frame its picture")
         #expect(asks.count == 2)
         #expect(reads.all.isEmpty, "the launch read a picture of a window that is not front")
 
         for unsafe in [Self.frontWindow("../\(Self.back)"), Self.frontWindow(Self.back, profile: "../\(Self.defaultProfile)")] {
             let store = WindowPictureStore(directory: saved, work: Self.work, reader: reads.reader)
             store.prefetchFront({ unsafe })
-            #expect(await store.frontFinished() == nil)
+            #expect(await store.finishedFront() == nil)
         }
         #expect(reads.all.isEmpty, "a window or profile id became a path outside the folder")
 
         let noFolder = WindowPictureStore(directory: nil, work: Self.work, reader: reads.reader)
         noFolder.prefetchFront({ asks.ask(Self.frontWindow()) })
-        #expect(await noFolder.frontFinished() == nil)
+        #expect(await noFolder.finishedFront() == nil)
         #expect(asks.count == 2)
     }
 
@@ -149,7 +149,7 @@ struct WindowPictureFrontReadTests {
         let reads = Reads()
         let pictures = WindowPictureStore(directory: directory, work: Self.work, reader: reads.reader)
         pictures.prefetchFront({ Self.frontWindow() })
-        #expect(await pictures.frontFinished() == nil, "a picture of another window was shown")
+        #expect(await pictures.finishedFront() == nil, "a picture of another window was shown")
         #expect(reads.all.map(\.path) == ["\(Self.defaultProfile)/\(Self.front).json"], "the launch decoded a picture its meta refused")
     }
 
@@ -197,7 +197,7 @@ struct WindowPictureFrontReadTests {
         #expect(dropped == "launch_picture_dropped")
         #expect(pictures.takeFront() == nil, "a dropped picture was handed out")
         pictures.prefetchFront({ Self.frontWindow() })
-        #expect(await pictures.frontFinished() == nil, "a dropped read started again")
+        #expect(await pictures.finishedFront() == nil, "a dropped read started again")
 
         let taken = WindowPictureStore(directory: directory, work: Self.work)
         let (takenMarks, takenMark) = AsyncStream.makeStream(of: String.self)

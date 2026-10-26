@@ -212,8 +212,8 @@ public final class TerminalSurfaceView: NSView {
         let userdata = unsafe bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        // SAFETY: as above.
-        unsafe config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
+        // SAFETY: as above; the NSView is this view's address (its identity's bits), not a callback context.
+        unsafe config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: UnsafeMutableRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(self)))))
         // SAFETY: as above.
         unsafe config.userdata = userdata
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)

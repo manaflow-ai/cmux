@@ -173,6 +173,7 @@ final class CEFRuntime {
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
+    private var callbackToken: CallbackToken? // every shim callback's context, never the runtime's address (from(_:))
     /// The argv Chromium started with, owned for the runtime's life.
     private var switchArguments: CEFSwitchArguments?
     /// The off-main library load; every concurrent first tab awaits it.
@@ -480,6 +481,8 @@ final class CEFRuntime {
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
     /// `inputs`: what it reads from disk, prepared off the main thread (``CEFStartInputs``).
     private func initialize(_ library: CEFRuntimeBoot, inputs: CEFStartInputs, environment: [String: String]) throws(BootError) {
+        // First, so a runtime with no callback slot starts nothing.
+        let token = try registeredCallbackToken()
         let inHostMode = switch library {
         case .host: true
         case .inProcess: false
@@ -543,16 +546,13 @@ final class CEFRuntime {
         switchArguments = arguments
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
-        // SAFETY: the runtime is the shared one, which lives for the rest of the process once started, so the
-        // unretained context every callback gets back stays valid (CEFRuntime.from).
-        let context = unsafe Unmanaged.passUnretained(self).toOpaque()
+        // SAFETY: the token's bits, which the shim only hands back; CEFRuntime.from resolves them in the registry.
+        let context = unsafe token.context
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
-        // SAFETY: the callback is a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime,
-        // which lives for the process once started.
+        // SAFETY: a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime's token.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }
         // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
-        // SAFETY: the handler is a C function of `cmux_shim_window_request_fn`; its context is `context`, the
-        // runtime, which lives for the process once started.
+        // SAFETY: a C function of `cmux_shim_window_request_fn`; its context is `context`, the runtime's token.
         unsafe shim.setWindowRequestHandler(cefWindowRequestCallback)
         installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
@@ -582,6 +582,19 @@ final class CEFRuntime {
                 guard CEFRuntime.shared.state == .ready else { return }
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
+        }
+    }
+
+    /// This runtime's entry in ``callbacks``, registered at the first initialize and kept: a new host initializes
+    /// again with the same token, and the shim may call back with it until the process ends.
+    private func registeredCallbackToken() throws(BootError) -> CallbackToken {
+        if let callbackToken { return callbackToken }
+        do throws(CallbackRegistryError) {
+            let token = try Self.callbacks.register(self)
+            callbackToken = token
+            return token
+        } catch {
+            throw .callbackSlots(error)
         }
     }
 
