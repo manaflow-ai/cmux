@@ -116,7 +116,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// `memoryUsage` is the last value it sent, so the report never waits for an actor. Released
     /// registrations are left out; a consumer that cannot tell its size shows as unknown, never 0.
     ///
-    /// - Parameter budget: The app's budgets at normal pressure (`AppServices.memoryBudget`).
+    /// - Parameter budget: The app's budgets at normal pressure (the app's `DebugMemoryControl.budget`).
     /// - Returns: The snapshot `debug.memory` serves.
     public func report(budget: SubsystemBudget) -> MemoryReport {
         let records = consumers.liveRecords()
