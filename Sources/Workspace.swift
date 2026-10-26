@@ -71,7 +71,7 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-private let sessionPersistenceLogger = Logger(
+nonisolated private let sessionPersistenceLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "SessionPersistence"
 )
@@ -114,9 +114,9 @@ extension Workspace {
                 for: self,
                 panelIds: Set(allPanelIds)
             )
-        let panelCap = SessionPersistencePolicy.cappedPanelIds(allPanelIds)
-        let omittedPanelIds = Set(allPanelIds.dropFirst(panelCap.keptPanelIds.count))
-        let builtPanelSnapshots = panelCap.keptPanelIds
+        let panelCap = SessionPanelCap(maxPanels: SessionPersistencePolicy.maxPanelsPerWorkspace)
+            .cap(allPanelIds)
+        let builtPanelSnapshots = panelCap.retainedPanelIds
             .compactMap { panelId in
                 sessionPanelSnapshot(
                     panelId: panelId,
@@ -211,12 +211,12 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             currentDirectory: currentDirectory,
-            focusedPanelId: focusedPanelId.flatMap { omittedPanelIds.contains($0) ? nil : $0 },
+            focusedPanelId: focusedPanelId.flatMap { persistedPanelIds.contains($0) ? $0 : nil },
             layout: layout,
             layoutMode: layoutMode.rawValue,
-            canvasPanes: canvasPanesOmittingDroppedPanels(
+            canvasPanes: canvasPanesKeepingPersistedPanels(
                 canvasSessionPaneSnapshots(),
-                omittedPanelIds: omittedPanelIds
+                persistedPanelIds: persistedPanelIds
             ),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
@@ -276,24 +276,26 @@ extension Workspace {
         )
     }
 
-    /// Drops canvas panes that only referred to panels the snapshot omitted,
-    /// and removes those panels from panes that also kept others.
-    private func canvasPanesOmittingDroppedPanels(
+    /// Keeps canvas panes and their panel references only for panels the
+    /// snapshot saved, so the file never names a panel it does not contain
+    /// (one past the panel cap, or one with no persisted state). Restore
+    /// already skips unknown panels; this keeps the saved file consistent.
+    private func canvasPanesKeepingPersistedPanels(
         _ panes: [SessionCanvasPaneSnapshot]?,
-        omittedPanelIds: Set<UUID>
+        persistedPanelIds: Set<UUID>
     ) -> [SessionCanvasPaneSnapshot]? {
-        guard !omittedPanelIds.isEmpty, let panes else { return panes }
+        guard let panes else { return nil }
         let pruned = panes.compactMap { pane -> SessionCanvasPaneSnapshot? in
             var copy = pane
             if let panelIds = pane.panelIds {
-                let kept = panelIds.filter { !omittedPanelIds.contains($0) }
+                let kept = panelIds.filter { persistedPanelIds.contains($0) }
                 guard let first = kept.first else { return nil }
                 copy.panelIds = kept
                 copy.panelId = first
                 copy.selectedPanelId = pane.selectedPanelId.flatMap { kept.contains($0) ? $0 : nil } ?? first
                 return copy
             }
-            guard !omittedPanelIds.contains(pane.panelId) else { return nil }
+            guard persistedPanelIds.contains(pane.panelId) else { return nil }
             return copy
         }
         return pruned.isEmpty ? nil : pruned
