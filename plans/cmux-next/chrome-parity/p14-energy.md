@@ -1327,7 +1327,11 @@ repositories.
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift`,
   `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitEngine.swift`.
 - Change: replace LowPowerMode observation with EnergyPolicySource; in saver neighbor radius 0 and WebKit low render
-  rate. The freeze grace is not shortened (039 does Chrome's CPU rule).
+  rate. The freeze grace is not shortened (039 does Chrome's CPU rule). Until the `energySaver` feature is on by
+  default, the driver publishes macOS Low Power Mode as `EnergyPolicy.lowPowerFallback` while the feature is off,
+  and these consumers read `EnergyPolicy.pageSaver` (saver or fallback), so default builds keep Low Power Mode's
+  near-60 fps WebKit, neighbor radius 0 and short page lifecycle window (p14-energy-021). The resolver holds the
+  thermal reason until nominal or plug-in, so a Mac flapping between fair and serious makes one saver edge.
 - Acceptance: `rg -n 'LowPowerMode' Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit`
   returns 0; existing hibernation tests pass with a saver case.
 - Test phase: `swift test --filter "Hibernation|WebKitRenderRate"` on the fleet.

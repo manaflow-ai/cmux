@@ -81,13 +81,16 @@ public final class CEFEngine: BrowserEngine {
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
+    ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
+    ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
-                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = []) {
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
+                prefetchWork: BackgroundWork? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -100,6 +103,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
+        CEFRuntime.shared.prefetchWork = prefetchWork
     }
 
     public var availability: BrowserEngineAvailability {
@@ -262,7 +266,7 @@ public final class CEFEngine: BrowserEngine {
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
-        _ = await CEFRuntime.shared.loadTask?.value
+        await CEFRuntime.shared.libraryLoadEnded()
     }
 
     /// Records `name` once in the start marks (the first Chromium page's
@@ -288,7 +292,7 @@ public final class CEFEngine: BrowserEngine {
     /// waits on it); `binary_ms` is the read of the binary before it.
     public var frameworkPrefetchFields: [String: Double]? {
         let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFFrameworkPrefetch.last.map {
+        return CEFRuntime.shared.prefetch.last.map {
             ["bytes": Double($0.bytes), "files": Double($0.files), "ms": ms($0.duration), "services_ms": ms($0.services),
              "binary_ms": ms($0.binary), "map_ms": ms($0.map)]
         }

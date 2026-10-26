@@ -239,6 +239,7 @@ nonisolated enum AcpmuxStatusClient {
 }
 
 /// A JSON result handed across the deadline boundary.
+// crash-allow: one `let` holding a JSONSerialization result (immutable Foundation containers, never `.mutableContainers`), only read after it crosses.
 nonisolated struct ResultBox: @unchecked Sendable {
     let value: [String: Any]
     init(_ value: [String: Any]) { self.value = value }

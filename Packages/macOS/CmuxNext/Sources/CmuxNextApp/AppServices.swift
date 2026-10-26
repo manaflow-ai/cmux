@@ -13,6 +13,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextNowPlaying
 import CmuxNextDaemon
 import CmuxNextEnergy
 import CmuxNextFeatures
@@ -181,6 +182,14 @@ final class AppServices {
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)))  // first read in init (no IUO); its Chromium engine at its first read
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
+    /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
+    /// macOS Now Playing adapter stops a minute after the last surface on ``mainDeadlines``.
+    private(set) lazy var nowPlayingSources = NowPlayingSources(
+        player: cache.pageRequests.music, tabs: cache.pageRequests.sidebarNowPlaying,
+        system: SystemNowPlaying.bundled(deadlines: mainDeadlines),
+        otherApps: { [weak self] in self?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -368,8 +377,8 @@ final class AppServices {
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
-    /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memory: memoryCoordinator, input: inputTap, preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow))
+    /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
+    private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)))
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -382,7 +391,7 @@ final class AppServices {
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memoryPressure: memoryPressure, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
+        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow))
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
@@ -761,14 +770,13 @@ final class AppServices {
     /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).
     func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
-    /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper, and the
-    /// saver itself to the motion gates (ambient loops hold still). Only
+    /// that cannot import CmuxNextEnergy: KeepAwake's battery rule, the video wallpaper, and the saver itself to the
+    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         energyLink = energyMonitor.follow { [weak self] inputs in
-            self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
             self?.energy.driver.update(inputs: inputs)

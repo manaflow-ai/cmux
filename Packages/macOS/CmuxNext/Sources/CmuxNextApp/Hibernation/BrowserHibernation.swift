@@ -4,7 +4,6 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
-import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
@@ -29,8 +28,10 @@ import os
 ///
 /// The tabs beside each pane's shown tab (`browser.keepNeighborTabsAwake`, one on each side by default)
 /// never freeze or hibernate, and wake as soon as they become neighbors, so Ctrl-Tab, Cmd-Shift-[ ] and
-/// the next click show a live page. A hovered tab wakes too. Memory pressure and Low Power Mode turn
-/// this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
+/// the next click show a live page. A hovered tab wakes too. Memory pressure and Energy Saver turn
+/// this off (plans/cmux-next/neighbor-tabs-DESIGN.md), as Chrome's battery saver spends no work on
+/// pages nobody sees (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc).
+/// The saver does not shorten the freeze delay.
 ///
 /// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been hidden, how
 /// often the person showed it in the last hour, and under memory pressure how much memory it holds. A few
@@ -132,8 +133,12 @@ final class BrowserHibernation {
     var standInClock: any Clock<Duration> = ContinuousClock()
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
-    private let lowPower: LowPowerMode
-    private var lowPowerObservation: LowPowerModeObservation?
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`).
+    private let energy: EnergyPolicySource
+    private var energyObservation: MainActorEnergyObservation?
+    /// Pages spend less, as of the policy's last change: Energy Saver, or Low Power Mode while the
+    /// `energySaver` feature is off (``EnergyPolicy/pageSaver``).
+    private(set) var energySaver: Bool
     /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
@@ -175,16 +180,17 @@ final class BrowserHibernation {
     private(set) var nextCheck: Double?
 
     /// - Parameters:
-    ///   - lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`); the default, fixed off, is for tests.
     ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently audible protection off.
     /// - Parameter deadlines: The app's main-thread deadline scheduler: the frozen pages' one-shot
     ///   reading is a `background` deadline on it (nobody sees a reading).
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
-         lowPower: LowPowerMode = LowPowerMode(enabled: false), audible: AudibleHistory? = nil) {
+         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil) {
         self.cache = cache
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
-        self.lowPower = lowPower
+        self.energy = energy
+        energySaver = energy.policy.pageSaver
         self.memory = memory
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
@@ -195,9 +201,9 @@ final class BrowserHibernation {
     /// under every memory limit (`HibernationSnapshots`), since Ctrl-Tab and Cmd-Shift-[ ] show them next.
     private var pictureNeighbors: Set<String> { neighbors.awake(radius: 1) }
 
-    /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or in Low Power Mode.
+    /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or Energy Saver.
     var neighborRadius: Int {
-        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
+        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, energySaver: energySaver)
     }
 
     /// Registers with the memory coordinator as one lossy consumer (event-driven, no polling): the
@@ -207,7 +213,8 @@ final class BrowserHibernation {
         guard memoryRegistration == nil else { return }
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
-        lowPowerObservation = lowPower.observe { [weak self] _ in self?.updateFollowers(); self?.refreshNeighbors() }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaverDidChange(policy.pageSaver) }
+        energySaverDidChange(energy.policy.pageSaver)
         // Pages mounted before the hibernation existed (a restored session) are followed too.
         for (key, entry) in cache?.browsers ?? [:] { pageDidMount(key, entry.tab) }
     }
@@ -218,8 +225,8 @@ final class BrowserHibernation {
         settingsObservation?.cancel()
         memoryRegistration?.cancel()
         memoryRegistration = nil
-        lowPowerObservation?.cancel()
-        lowPowerObservation = nil
+        energyObservation?.cancel()
+        energyObservation = nil
         deadline.cancel()
         nextCheck = nil
         freezeDeadline.cancel()
@@ -259,11 +266,20 @@ final class BrowserHibernation {
         replan()
     }
 
-    /// Hands the setting, pressure and Low Power Mode to the hidden pages that follow them: agent chats, and
+    /// Hands the setting, pressure and Energy Saver to the hidden pages that follow them: agent chats, and
     /// every cmux page's lifecycle (`pageLifecycle`; the cache holds none while it is off).
     private func updateFollowers() {
         agentPages?.update(setting: setting, pressure: pressure)
-        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, lowPowerMode: lowPower.isEnabled))
+        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, energySaver: energySaver))
+    }
+
+    /// Energy Saver turned on or off: the neighbors and the cmux pages follow. Other policy changes
+    /// (power source, sleep) change nothing here.
+    private func energySaverDidChange(_ saver: Bool) {
+        guard saver != energySaver else { return }
+        energySaver = saver
+        updateFollowers()
+        refreshNeighbors()
     }
 
     /// Takes a new pressure level; `replans` false leaves the pass to the caller (the coordinator's

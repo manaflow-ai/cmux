@@ -31,12 +31,16 @@ public final class WebKitEngine: BrowserEngine {
     /// The newest main-frame load per tab held for that check; only it may
     /// show the interstitial.
     var certificateAdmissions: [BrowserTabID: Int] = [:]
-    /// Low Power Mode keeps every open and new tab near 60 fps. The App sets it from its energy
-    /// monitor at launch and on each change; open tabs follow a change.
-    public var lowPowerMode: Bool {
-        didSet { if lowPowerMode != oldValue { applyRenderRate(lowPowerMode: lowPowerMode) } }
+    /// Energy Saver is on (or Low Power Mode while the `energySaver` feature is off, ``EnergyPolicy/pageSaver``),
+    /// as of the policy's last change: every open and new tab renders near 60 fps,
+    /// the lowest rate WebKit's render-rate feature gives (Chrome's battery saver throttles frame sinks,
+    /// chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc). Open tabs follow a change.
+    private(set) var energySaver: Bool {
+        didSet { if energySaver != oldValue { applyRenderRate(energySaver: energySaver) } }
     }
-    /// Open tabs, which follow a Low Power Mode change.
+    /// Follows the app's Energy Saver policy into ``energySaver`` while the engine lives.
+    private var energyObservation: MainActorEnergyObservation?
+    /// Open tabs, which follow an Energy Saver change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
     var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
@@ -80,8 +84,10 @@ public final class WebKitEngine: BrowserEngine {
     ///     since a test host cannot make an `NSOpenPanel`).
     ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
     ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
+    ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`), written on the main actor by its one
+    ///     writer; the default, fixed off, is for tests and fixtures.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
-    ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own.
+    ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -89,17 +95,18 @@ public final class WebKitEngine: BrowserEngine {
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: Bool = false,
+        energy: EnergyPolicySource = EnergyPolicySource(),
         waitDeadlines: MainWakeUpQueue? = nil
     ) {
         self.fileInput = fileInput
-        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource()))
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
-        self.lowPowerMode = lowPowerMode
+        energySaver = energy.policy.pageSaver
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -136,10 +143,10 @@ public final class WebKitEngine: BrowserEngine {
         return tab
     }
 
-    /// Every open tab takes the rate for the new Low Power Mode state.
-    private func applyRenderRate(lowPowerMode: Bool) {
+    /// Every open tab takes the rate for the new Energy Saver state.
+    private func applyRenderRate(energySaver: Bool) {
         for tab in openTabs.allObjects {
-            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode), to: tab)
+            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(energySaver: energySaver), to: tab)
         }
     }
 
@@ -155,8 +162,8 @@ public final class WebKitEngine: BrowserEngine {
               let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
         // A display at 60 Hz or less renders the same either way: no re-show.
         let display = displayFramesPerSecond(window)
-        guard WebKitRenderRate.framesPerSecond(lowPowerMode: !fullRate, displayMaxFPS: display)
-                != WebKitRenderRate.framesPerSecond(lowPowerMode: fullRate, displayMaxFPS: display) else { return }
+        guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
+                != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
         tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
     }
@@ -175,9 +182,9 @@ public final class WebKitEngine: BrowserEngine {
 
     /// Settings every tab needs, including page-opened ones.
     private func prepare(_ configuration: WKWebViewConfiguration) {
-        // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
-        // Power Mode. Open tabs follow a later change (applyRenderRate).
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode),
+        // The display's full rate (120 Hz on ProMotion); near 60 fps under
+        // Energy Saver. Open tabs follow a later change (applyRenderRate).
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(energySaver: energySaver),
                                to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).

@@ -5,7 +5,8 @@ public import Foundation
 /// `debug.energy`: the Energy Saver state and what the app costs while idle
 /// (plans/cmux-next/chrome-parity/p14-energy.md, tasks 007 and 008). The top-level keys are exactly:
 ///
-/// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch).
+/// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch, and
+///   `pageSaver`: pages spend less, under the saver or Low Power Mode while the feature is off).
 /// - `inputs`: what the policy was resolved from: the `energySaver` feature, Low Power Mode, power source,
 ///   battery, thermal state, the `energy.saver` setting, "Turn Off for Now", sleep and screen sleep, the
 ///   reason given, and whether `debug.energy.simulate` lays inputs over the Mac's (`simulated`).
@@ -208,32 +209,6 @@ extension EnergyReport {
         }
     }
 
-    /// Chromium's side of Energy Saver.
-    public struct CEF: Sendable, Equatable {
-        public enum Saver: String, Sendable {
-            case applied
-            /// The app makes no call into the fork's Energy Saver API (p14-energy-030).
-            case unsupported
-        }
-
-        public var saver: Saver
-        /// Delayed pump passes CEF re-asked for under 2 ms during the pass; nil while the pump does not
-        /// count them (p14-energy-018).
-        public var earlyPasses: Int?
-
-        public init(saver: Saver, earlyPasses: Int?) {
-            self.saver = saver
-            self.earlyPasses = earlyPasses
-        }
-
-        var json: JSONValue {
-            [
-                "energySaver": .string(saver.rawValue),
-                "earlyPasses": earlyPasses.map { JSONValue($0) } ?? .null,
-            ]
-        }
-    }
-
     /// One process of the app tree: its kind (`app`, `cef-renderer`, `daemon`, ...) and one sample.
     public struct ProcessSample: Sendable, Equatable {
         public var kind: String
@@ -324,6 +299,7 @@ extension EnergyReport.State {
             "ambientMaxFPS": policy.ambientMaxFPS.map { EnergyReport.JSONValue($0) } ?? .null,
             "webFrameRate": policy.webFrameRate.map { EnergyReport.JSONValue($0) } ?? .null,
             "pollStretch": EnergyReport.JSONValue(policy.pollStretch),
+            "pageSaver": .bool(policy.pageSaver),
         ]
     }
 }

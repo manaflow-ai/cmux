@@ -13,6 +13,11 @@ final class CEFInProcessPump {
 
     let pump: CEFMessagePump
 
+    /// The pump's timer outside tests: a ``CEFWakeUpQueuePumpTimer`` on `queue`.
+    static func wakeUpQueueTimer(_ queue: MainWakeUpQueue) -> any CEFPumpTimer {
+        CEFWakeUpQueuePumpTimer(queue: queue)
+    }
+
     /// Asks the fork for its delayed work as absolute run times and makes the pump, not yet started.
     /// - Parameters:
     ///   - shim: The in-process shim, before `CefInitialize` (no request comes before it).

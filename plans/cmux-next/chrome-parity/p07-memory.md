@@ -86,7 +86,8 @@ Each item cites the Chromium source that the design copies.
 12. **Measurement.** `docs/memory/key_concepts.md` (vmmap is the Darwin reference);
     `base/trace_event/memory_dump_provider.h` (each subsystem reports its own bytes);
     `process_memory_metrics_emitter.cc` (PMF UMA histograms); the Task Manager; the Memory Saver chip.
-13. **Spares and discardable memory.** `SpareRenderProcessHostManager` keeps no spare under pressure.
+13. **Spares and discardable memory.** `SpareRenderProcessHostManager` makes no new spare under pressure
+    and keeps an existing one (`kKillSpareRenderOnMemoryPressure` is off by default; p13-webui.md section 1).
     Decoded image caches live in discardable memory, so the kernel takes pages back with no browser
     wakeup. `sql::Database::TrimMemory()` calls `sqlite3_db_release_memory` per connection.
     Low-memory devices turn the back-forward cache off (`BackForwardCacheMemoryControls`).
@@ -325,6 +326,11 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
   browser tabs share a process above the renderer limit.
 - No page renderer before first show; overlay pages released 5 min after close.
 - Spares key on pressure level (no spare at warning or critical); at most one Chromium-side spare.
+  PL-memory hand-off from p13-webui-047: every web object is a coordinator consumer (WebUIHost's preload
+  slot is the spare `webui-preload`; no `memoryPressure.observe` is left in the p13 D7 scope).
+  `SpareMemoryConsumer.Closing` says when untaken spares close: page pools at any pressure, Chromium's spare
+  windows only at critical (warning keeps them and refuses new ones, Chrome's default, see section 1.13).
+  Critical then runs BrowserHibernation's one ranked pass on the next release slice.
 - Hidden Chromium pages flush BFCache at freeze and at warning; Page lifecycle hide in occluded
   windows at once.
 - With F2 the Chromium host exits 5 min after its last live page.

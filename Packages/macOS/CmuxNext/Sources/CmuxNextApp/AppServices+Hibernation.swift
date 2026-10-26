@@ -2,7 +2,6 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextInput
@@ -22,7 +21,7 @@ extension AppServices {
     /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, lowPower: energyMonitor.lowPowerMode, audible: audible)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
