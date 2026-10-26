@@ -49,14 +49,21 @@ final class FocusModeBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Whether the exit is armed in the text shown now; nil before the first show.
+    private var armed: Bool?
+
     func show(armed: Bool) {
+        guard armed != self.armed else { return }
+        let first = self.armed == nil
+        self.armed = armed
         label.stringValue = armed ? Strings.focusModeArmed : Strings.focusModeActive
         let help = Strings.focusModeExitHelp(Strings.focusModeEscapeHint)
         themedToolTip = help
         setAccessibilityLabel(label.stringValue)
         setAccessibilityHelp(help)
-        needsDisplay = true
-        updateLayer()
+        // The chip's colors do not follow its text (the label repaints itself): the first show
+        // paints them at once, a theme change repaints them through `updateLayer`.
+        if first { updateLayer() }
     }
 
     override func mouseDown(with event: NSEvent) { onPress?() }

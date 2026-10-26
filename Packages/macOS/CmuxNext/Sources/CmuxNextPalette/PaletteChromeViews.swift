@@ -5,7 +5,7 @@ import CmuxNextDesign
 final class PaletteClickView: NSView {
     var onClick: (() -> Void)?
     var fillsBackground = false {
-        didSet { needsDisplay = true }
+        didSet { if fillsBackground != oldValue { needsDisplay = true } }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -69,24 +69,40 @@ final class PaletteFooterView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// What the footer shows besides the Actions hint's dimming, as last applied: the palette renders
+    /// the footer on every model change (each typed character, each hover), most of which change none of it.
+    private var shown: Shown?
+
+    private struct Shown: Equatable {
+        var pageTitle: String
+        var pageSymbol: String
+        var primaryTitle: String?
+        var closeTitle: String?
+        var crumbs: [String]
+    }
+
     func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool, closeTitle: String? = nil,
                 crumbs titles: [String] = []) {
+        let alpha: CGFloat = actionsEnabled ? 1 : 0.4
+        if actionsButton.alphaValue != alpha { actionsButton.alphaValue = alpha }
+        let next = Shown(pageTitle: pageTitle, pageSymbol: pageSymbol, primaryTitle: primaryTitle, closeTitle: closeTitle, crumbs: titles)
+        guard next != shown else { return }
+        if pageSymbol != shown?.pageSymbol { pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize) }
+        shown = next
         if titles != crumbs.map(\.label.stringValue) { setCrumbs(titles) }
         pageLabel.isHidden = !titles.isEmpty
         closeLabel.stringValue = closeTitle ?? ""
         closeButton.isHidden = closeTitle == nil
-        pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
         primaryButton.isHidden = primaryTitle == nil
         divider.isHidden = primaryTitle == nil
-        actionsButton.alphaValue = actionsEnabled ? 1 : 0.4
-        needsLayout = true
+        needsLayout = true // invalidate: new text or segments (the guard above) take new widths
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsLayout = true
+        needsLayout = true // invalidate: layout() paints the icon tint and divider for the new appearance
     }
 
     override func layout() {

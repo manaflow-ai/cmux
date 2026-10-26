@@ -95,7 +95,7 @@ public final class SavedGroupsBarView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: a new backing scale re-aligns the chips' layers
     }
 
     func sync() {
@@ -113,7 +113,7 @@ public final class SavedGroupsBarView: NSView {
             chip.font = Typography.caption
         }
         order = ids
-        needsLayout = true
+        needsLayout = true // invalidate: new groups or metrics (the observations run on a change only)
     }
 
     private func makeChip(_ item: TabGroupItem, count: Int) -> TabGroupChipCell {
