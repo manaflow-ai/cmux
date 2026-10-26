@@ -24,6 +24,8 @@ pub(super) fn filter(
         return Err("scope_not_granted");
     }
     let cmd = frame["cmd"].as_str().ok_or("scope_not_granted")?;
+    // No `agent-session-permission`: answering the host's tool asks stays the owner's until
+    // acpmux refuses a teammate's allow itself (`permission.owner_only`, design section 7).
     if !matches!(
         cmd,
         "agent-session-attach"
@@ -31,7 +33,6 @@ pub(super) fn filter(
             | "agent-session-events"
             | "agent-session-prompt"
             | "agent-session-cancel"
-            | "agent-session-permission"
             | "agent-session-detach"
     ) || frame.get("protocol").is_some()
         || frame.get("method").is_some()

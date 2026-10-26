@@ -765,6 +765,11 @@ fn run_on_worker(
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
+    // A teammate (a bound proxy author) never answers the host's asks: an allow
+    // would run a tool on the owner's machine (design section 7).
+    if attachment.author.is_some() && matches!(&command, AgentSessionCommand::Permission(_)) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
         let sent = attachment

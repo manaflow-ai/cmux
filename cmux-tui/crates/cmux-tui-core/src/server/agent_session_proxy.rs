@@ -127,6 +127,9 @@ mod tests {
         assert!(client.named_event("agent-session-changed", Duration::from_millis(300)).is_none());
         let children = json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
         assert_code(&client.request(children), "agent_session.not_trusted");
+        let answer = json!({"cmd":"agent-session-permission", "surface":surface,
+            "permission_id":"perm_attach", "option_id":"allow", "_host_author":author});
+        assert_code(&client.request(answer), "agent_session.not_trusted");
 
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });

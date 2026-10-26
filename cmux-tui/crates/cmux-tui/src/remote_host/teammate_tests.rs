@@ -362,3 +362,22 @@ fn a_shared_login_takes_the_proxy_even_with_shell() {
     }];
     assert!(proxied(&config, Some(LAWRENCE), Some(&shell)), "a shared guest never splices");
 }
+
+#[test]
+fn a_member_cannot_answer_the_hosts_asks() {
+    let mut config = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    config.shares = vec![super::shares::Share {
+        surface: 42,
+        login: LAWRENCE.to_owned(),
+        role: super::shares::Role::Member,
+        shared_at: "2026-10-26T09:00:00Z".to_owned(),
+        generation: "boot-1".to_owned(),
+    }];
+    let author = serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "login": LAWRENCE, "node": "n"});
+    let frame = serde_json::json!({"cmd": "agent-session-permission", "surface": 42,
+        "permission_id": "p", "option_id": "allow"});
+    assert_eq!(super::agent_proxy::filter(&config, &author, "boot-1", frame), Err("scope_not_granted"));
+    let prompt = serde_json::json!({"cmd": "agent-session-prompt", "surface": 42, "text": "hi"});
+    assert!(super::agent_proxy::filter(&config, &author, "boot-1", prompt).is_ok());
+}
+
