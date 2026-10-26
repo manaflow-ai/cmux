@@ -46,15 +46,25 @@ describe("agent avatars", () => {
     expect(hasAgentAvatar("s1")).toBe(true);
   });
 
-  test("a change in another pane is asked for again, and the old picture stays until the answer", async () => {
+  test("a change in another pane is asked for again; the old picture stays until the answer, and a failed answer keeps none", async () => {
     let stored: string | null = PNG;
-    setAgentAvatarHost(async (method) => (method === "agent.avatar" ? { src: stored } : {}));
+    let connected = true;
+    setAgentAvatarHost(async (method) => {
+      if (!connected) throw new Error("page not connected");
+      return method === "agent.avatar" ? { src: stored } : {};
+    });
     expect(await loadAgentAvatar("s2")).toBe(PNG);
     stored = null;
     agentAvatarChanged("s2");
     expect(hasAgentAvatar("s2")).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(hasAgentAvatar("s2")).toBe(false);
+    stored = PNG;
+    expect(await loadAgentAvatar("s3")).toBe(PNG);
+    connected = false;
+    agentAvatarChanged("s3");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(hasAgentAvatar("s3")).toBe(false);
     agentAvatarChanged("never-drawn");
     expect(hasAgentAvatar("never-drawn")).toBe(false);
   });

@@ -26,10 +26,12 @@ public final class AgentAvatars {
         self.openPanel = openPanel
     }
 
-    /// Session `session`'s avatar as a data URL, drawn down off the main actor; nil for none. A
-    /// picture replaced or removed during the draw-down is not answered: the newest one is.
+    /// Session `session`'s avatar as a data URL, drawn down off the main actor; nil for none. Asked
+    /// before the launch listing is published, it waits for it. A picture replaced or removed during
+    /// the draw-down is not answered: the newest one is.
     public func avatar(_ session: String) async -> String? {
         let key = ChiefAvatarUploads.key(agent: session)
+        await uploads.ready()
         while let still = uploads.uploads[key]?.still {
             if let known = made[still] { return known }
             // task-owner: one small read and draw-down of a 512 px PNG; ends with it

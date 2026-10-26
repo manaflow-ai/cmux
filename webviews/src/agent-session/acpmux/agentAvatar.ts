@@ -52,7 +52,12 @@ export function loadAgentAvatar(sessionId: string): Promise<string | null> {
         avatars.set(sessionId, value);
         return value;
       },
-      () => null,
+      () => {
+        // A failed read keeps nothing: a picture shown before a change in another pane goes, and
+        // the next card that draws the session asks again.
+        if ((changes.get(sessionId) ?? 0) === asked) avatars.delete(sessionId);
+        return null;
+      },
     )
     .finally(() => {
       if (pending.get(sessionId) === request) pending.delete(sessionId);
