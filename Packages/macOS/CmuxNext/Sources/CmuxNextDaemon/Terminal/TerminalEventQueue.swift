@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Bounded, demand-driven buffer between an attach connection's reader
@@ -64,8 +65,9 @@ final class TerminalEventQueue: @unchecked Sendable {
         outputBytes += Self.outputSize(event)
         if armed, !finished, outputBytes > highWater { onReaderBlocked?() }
         while armed, !finished, outputBytes > highWater {
-            // concurrency-allow: runs only on the attach connection's dedicated reader thread (LineTransport), never the main thread; this is the designed backpressure that makes the daemon drop a slow view.
-            condition.wait()
+            // The designed backpressure that makes the daemon drop a slow view: a checked wait, only on the attach
+            // connection's dedicated reader thread (LineTransport), never the main thread or a pool thread.
+            condition.blockingWait()
         }
         condition.unlock()
     }

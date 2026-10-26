@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// What a pane shows for its selected tab.
 enum TabContent {
@@ -32,6 +33,17 @@ enum TabContent {
         case .placeholder(let view): view
         case .notice(let view): view
         case .conversation(let view): view
+        }
+    }
+
+    /// Hands the content's appearance readers the app's signals and its tab's node: Reduce Motion
+    /// and display option changes reach a hidden tab once, when it shows (p06-scheduler-043).
+    @MainActor func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode) {
+        switch self {
+        case .terminal(let entry): entry.session.view.followAppearance(signals, node: node)
+        case .agent(let view): view.followAppearance(signals, node: node)
+        case .page(let view): (view.content as? PageWebView)?.followAppearance(signals, node: node)
+        case .browser, .placeholder, .notice, .conversation: break
         }
     }
 

@@ -149,6 +149,15 @@ class ParseTests(unittest.TestCase):
         compressed = {"pid": 1, "categories": {"IOSurface": {"dirty": 5, "compressed": 3}, "Stack": {"clean": 9}}}
         self.assertEqual(mr.footprint_categories(compressed), ({"IOSurface": 8}, None))
 
+    def test_footprint_json_from_a_real_capture_counts_compressed_once(self):
+        # fixtures/footprint-j-macos.json: `footprint -j` on a fleet Mac (macOS 27.0), chronod with 8 MB compressed.
+        # Its `dirty` already holds the swapped bytes (the dirty sum equals the footprint), so nothing is added.
+        doc = json.loads((Path(__file__).resolve().parent / "fixtures" / "footprint-j-macos.json").read_text())
+        categories, total = mr.footprint_categories(doc)
+        self.assertEqual(total, 21_169_040)
+        self.assertEqual(sum(categories.values()), 21_136_272)
+        self.assertLessEqual(sum(categories.values()), total)
+
     def test_footprint_json_list_shape(self):
         doc = {"pid": 1, "phys_footprint": 9, "regions": [{"category": "IOSurface", "dirty": 5}, {"name": "Stack", "dirty": 4}]}
         self.assertEqual(mr.footprint_categories(doc), ({"IOSurface": 5, "Stack": 4}, 9))

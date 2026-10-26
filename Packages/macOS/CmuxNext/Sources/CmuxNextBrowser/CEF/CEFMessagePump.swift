@@ -1,8 +1,8 @@
 import CmuxNextInputCore
+import CmuxNextSignposts
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
-import os
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
 /// (`OnScheduleMessagePumpWork`), in common modes, so it keeps running during
@@ -32,6 +32,12 @@ import os
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
 /// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). The deadline
 /// queue records no `deadline` for the pump's entries (``MainWakeUpQueue/LedgerReason/recordedByAction``).
+///
+/// Each pass is one `cef.pump` slice (``Signposter/beginCEFPump(reasonCode:)``): the reason it runs, whether it
+/// used CEF's whole time slice and its time, like Chrome's `ThreadControllerWithMessagePumpImpl::DoWork` trace
+/// event (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). The ring takes it only during a
+/// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
+/// emits it: with the Chromium host on there is no pump in the app, and the host emits its own (p09 task 104).
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
     nonisolated static let ledgerOwner = "CEFMessagePump"
@@ -46,12 +52,26 @@ final class CEFMessagePump {
         case kept
         /// A fire while a pass was running (a nested run loop); the outer pass runs the pump again.
         case reentered
+
+        /// The reason's number in a `cef.pump` begin record (`arg0`): fixed and nonzero, so 0 is a pass no timer
+        /// armed (the quit path's drain). A reentered fire runs no pass; 4 marks the pass that runs it after the
+        /// outer pass returns.
+        var traceCode: UInt64 {
+            switch self {
+            case .now: 1
+            case .delayed: 2
+            case .kept: 3
+            case .reentered: 4
+            }
+        }
     }
 
     private let work: () -> Void
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
+    /// Takes each pass's `cef.pump` interval.
+    private let signposter: Signposter
     private var schedule: CEFPumpSchedule
     private var isRunning = false
     private var counters = CEFPumpStats()
@@ -81,16 +101,19 @@ final class CEFMessagePump {
     /// `timer`: a `CEFWakeUpQueuePumpTimer` on the app's deadline queue (tests
     /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
     /// `starvation`: the app's rendering starvation guard; `CEFRuntime` passes
-    /// none until the pump is on the main-thread board (p06-scheduler task 048).
+    /// none until the pump is on the main-thread board (p06-scheduler task 048). `signposter`: the `cef`
+    /// category's (tests pass one on their own trace runtime).
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
-        starvation: RenderStarvationGuard? = nil
+        starvation: RenderStarvationGuard? = nil,
+        signposter: Signposter = .cef
     ) {
         self.work = work
+        self.signposter = signposter
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -156,7 +179,6 @@ final class CEFMessagePump {
 
     private func enqueue(milliseconds: Int64) {
         if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
-        pumpMark("pump-req-\(min(milliseconds, 9_999))")
         schedule.request(milliseconds: milliseconds, now: clock())
         rearm()
     }
@@ -246,6 +268,7 @@ final class CEFMessagePump {
         // kept until now join the schedule (rearm() publishes again after the pass).
         mergeKeptRequests()
         let started = clock()
+        let traceReason: LedgerReason? = schedule.servesDeferredFire ? .reentered : reason
         guard schedule.beginWork(now: started) else {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
@@ -259,15 +282,12 @@ final class CEFMessagePump {
         input?.holdEnded()
         earlyPassWatch.passBegan(servesFireDate: reason == .delayed || reason == .kept)
         rearm()
-        pumpMark("pump-start")
+        let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
         work()
-        pumpMark("pump-end")
-        let finished = clock()
-        let elapsed = finished - started
-        counters.workRuns += 1
-        counters.workSeconds += elapsed
-        if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
-        if earlyPassWatch.passEnded(usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) { counters.earlyPasses += 1 }
+        let elapsed = clock() - started
+        let longRun = counters.recordWorkRun(elapsed: elapsed)
+        signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
+        if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()
@@ -329,12 +349,4 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
-}
-
-/// Tab switch timeline marks (cx-asb1): each pump pass and CEF request with
-/// wall-clock ms. Debug level: nothing is formatted or written unless a
-/// `log stream --level debug` reads category "tab-switch".
-private let pumpLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func pumpMark(_ name: @escaping @autoclosure () -> String) {
-    pumpLog.debug("tab-switch \(name(), privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

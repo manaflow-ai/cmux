@@ -117,12 +117,21 @@ final class AppServices {
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
+    /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
+    /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
+    // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
     private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: AppEvents(center: NSWorkspace.shared.notificationCenter),
+        appEvents: appEvents, workspaceEvents: workspaceEvents,
         isAppHidden: NSApp.isHidden
     )
+    /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
+    /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
+    /// the glass watch, every window and the content its panes show. The design settings own it,
+    /// so `Motion` reads the same one.
+    let appearance: AppearanceSignals
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -273,6 +282,11 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// The windows' frame-aligned pointer input for resize drags (feature `pointerFrameDrags`): pane dividers,
+    /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
+    /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
+    private(set) lazy var dragFrameInput: PointerFrameCoalescers? =
+        features.isEnabled(.pointerFrameDrags) ? PointerFrameCoalescers(tap: inputTap, mainWork: mainWork) : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
@@ -329,7 +343,7 @@ final class AppServices {
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
-    /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
+    /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
@@ -532,6 +546,7 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
     /// - Parameter frameInput: Every window's continuous input coalescer (`AppDelegate` passes the application's,
@@ -542,7 +557,9 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, frameInput: FrameInputCoalescers = FrameInputCoalescers()) {
+         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
+         frameInput: FrameInputCoalescers = FrameInputCoalescers()) {
+        self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor

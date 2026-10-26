@@ -106,13 +106,15 @@ import Testing
 
     /// Twelve half-width columns, one pane each, two tabs per pane.
     private static func tree() -> DaemonTree {
-        let panes = (1...12).map { index in
-            PaneSnapshot(id: DaemonPaneID(rawValue: UInt64(index)),
-                         tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64(2 * index)), title: "~"),
-                                TabSnapshot(surface: SurfaceID(rawValue: UInt64(2 * index + 1)), title: "~")])
+        let panes: [PaneSnapshot] = (1...12).map { (index: Int) -> PaneSnapshot in
+            let raw = UInt64(index)
+            let tabs: [TabSnapshot] = [TabSnapshot(surface: SurfaceID(rawValue: 2 * raw), title: "~"),
+                                       TabSnapshot(surface: SurfaceID(rawValue: 2 * raw + 1), title: "~")]
+            return PaneSnapshot(id: DaemonPaneID(rawValue: raw), tabs: tabs)
         }
-        let columns = (1...12).map { index in
-            ColumnSnapshot(id: DaemonColumnID(rawValue: UInt64(100 + index)), width: 0.5, layout: .leaf(DaemonPaneID(rawValue: UInt64(index))))
+        let columns: [ColumnSnapshot] = (1...12).map { (index: Int) -> ColumnSnapshot in
+            let raw = UInt64(index)
+            return ColumnSnapshot(id: DaemonColumnID(rawValue: 100 + raw), width: 0.5, layout: .leaf(DaemonPaneID(rawValue: raw)))
         }
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
@@ -123,15 +125,17 @@ import Testing
     /// so the screen bar shows and overflows a 600 pt window.
     private static func crowdedTree(tabs: Int = 40, screens: Int = 24, without: Set<Int> = []) -> DaemonTree {
         let kept = (1...4).filter { !without.contains($0) }
-        let panes = kept.map { index in
-            PaneSnapshot(id: DaemonPaneID(rawValue: UInt64(index)),
-                         tabs: (0..<tabs).map { TabSnapshot(surface: SurfaceID(rawValue: UInt64(1000 * index + $0)), title: "~") })
+        let panes: [PaneSnapshot] = kept.map { (index: Int) -> PaneSnapshot in
+            let strip: [TabSnapshot] = (0..<tabs).map { (tab: Int) -> TabSnapshot in
+                TabSnapshot(surface: SurfaceID(rawValue: UInt64(1000 * index + tab)), title: "~")
+            }
+            return PaneSnapshot(id: DaemonPaneID(rawValue: UInt64(index)), tabs: strip)
         }
-        let columns = kept.map { index in
+        let columns: [ColumnSnapshot] = kept.map { (index: Int) -> ColumnSnapshot in
             ColumnSnapshot(id: DaemonColumnID(rawValue: UInt64(100 + index)), width: 0.5, layout: .leaf(DaemonPaneID(rawValue: UInt64(index))))
         }
         let shown = ScreenSnapshot(id: 1, active: true, layout: .leaf(DaemonPaneID(rawValue: UInt64(kept[0]))), columns: columns, panes: panes)
-        let others = (2...screens).map { index in
+        let others: [ScreenSnapshot] = (2...screens).map { (index: Int) -> ScreenSnapshot in
             let pane = PaneSnapshot(id: DaemonPaneID(rawValue: UInt64(10_000 + index)),
                                     tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64(900_000 + index)), title: "~")])
             return ScreenSnapshot(id: DaemonScreenID(rawValue: UInt64(index)), layout: .leaf(pane.id), panes: [pane])

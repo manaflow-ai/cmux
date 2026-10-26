@@ -155,7 +155,8 @@ fn host_spans_holder_records_its_turns_and_pty_bytes_only_while_recording() {
 
 /// The holder links std and libc only: its resolved normal dependency graph, on every target and
 /// with the features the workspace turns on, is the holder, libc, the std+libc trace crates and
-/// cmux-ipc's descriptor passing (p05-ipc-051) with its no-runtime dependencies.
+/// cmux-ipc's descriptor passing (p05-ipc-051) with its no-runtime dependencies, and the std+libc
+/// cmux-memory budget its ring and link-queue sizes come from (p07-memory-089).
 #[test]
 fn host_spans_holder_dependencies_stay_std_and_libc() {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -177,6 +178,7 @@ fn host_spans_holder_dependencies_stay_std_and_libc() {
         "cmux-flow-trace",
         "cmux-holder",
         "cmux-ipc",
+        "cmux-memory",
         "cmux-trace",
         "libc",
         "memchr",

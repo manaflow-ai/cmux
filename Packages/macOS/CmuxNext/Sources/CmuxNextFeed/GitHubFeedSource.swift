@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxNextWakeups
 
 /// Polls GitHub and posts integration items into the existing local feed owner.
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and
@@ -13,8 +14,16 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private let client: any GitHubFeedAPI
     private var interval: Duration
     private let now: @MainActor () -> Date
-    private var runner: Task<Void, Never>?
-    private var isRefreshing = false
+    /// The poll's running refresh, which ``stop()`` cancels (that ends its `gh` child). Set from
+    /// ``start()`` until ``stop()``; tests read it to await a refresh they stopped.
+    private(set) var runner: Task<Void, Never>?
+    /// The next refresh, one deadline at a time: set after each refresh finishes.
+    private let nextRefresh: DemandTimer
+    /// Bumped by every start and stop: a refresh of an older generation posts, stores and
+    /// schedules nothing (``stop()`` may land while its `gh` call runs).
+    private var pollGeneration = 0
+    /// The generation whose refresh runs now; a stopped one never blocks the next start's.
+    private var refreshing: Int?
     private var notificationETag: String?
     private var reviewETag: String?
     private var checksETag: String?
@@ -25,12 +34,14 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         owner: any FeedPostingSource,
         client: any GitHubFeedAPI = GitHubCLIClient(),
         interval: Duration = GitHubFeedSource.defaultInterval,
-        now: @escaping @MainActor () -> Date = { Date() }
+        now: @escaping @MainActor () -> Date = { Date() },
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.owner = owner
         self.client = client
         self.interval = interval
         self.now = now
+        nextRefresh = DemandTimer(owner: "GitHubFeedSource.refresh", clock: clock)
     }
 
     /// Looks up a detail by a provisional or owner-assigned feed id.
@@ -51,21 +62,27 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
 
     public func start() {
         stop()
-        runner = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await refresh()
-            // wakeup-allow: periodic GitHub refresh; each pass awaits the configured interval and can be cancelled.
-            while !Task.isCancelled {
-                // wakeup-allow: the next refresh is a cancellable periodic deadline, not a busy wait.
-                do { try await Task.sleep(for: interval) } catch { return }
-                await refresh()
-            }
-        }
+        beginRefresh(pollGeneration)
     }
 
     public func stop() {
+        pollGeneration += 1
         runner?.cancel()
         runner = nil
+        nextRefresh.cancel()
+    }
+
+    /// Runs one refresh of the poll `generation` in ``runner``, so ``stop()`` cancels it, and
+    /// arms the next one ``interval`` after it ends (Chromium's self-reposting delayed task).
+    private func beginRefresh(_ generation: Int) {
+        guard generation == pollGeneration else { return }
+        runner = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await refresh()
+            guard generation == pollGeneration else { return }
+            // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; task 066b moves it to NSBackgroundActivityScheduler)
+            nextRefresh.scheduleOnMain(after: interval) { [weak self] in self?.beginRefresh(generation) }
+        }
     }
 
     /// Clears client-only detail when the signed-in account changes.
@@ -81,12 +98,15 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     }
 
     /// Refreshes immediately while retaining the conditional request ETags.
+    /// A refresh that ``stop()`` overtakes drops what its calls return.
     public func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
+        let generation = pollGeneration
+        guard refreshing != generation else { return }
+        refreshing = generation
+        defer { if refreshing == generation { refreshing = nil } }
         do {
             let notifications = try await client.notifications(etag: notificationETag)
+            guard generation == pollGeneration else { return }
             notificationETag = notifications.etag ?? notificationETag
             if let value = notifications.value, !notifications.notModified {
                 for notification in value where Self.supportedNotificationReasons.contains(notification.reason) {
@@ -95,6 +115,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
                 }
             }
             let reviews = try await client.reviewRequests(etag: reviewETag)
+            guard generation == pollGeneration else { return }
             reviewETag = reviews.etag ?? reviewETag
             if let value = reviews.value, !reviews.notModified {
                 for review in value {
@@ -103,6 +124,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
                 }
             }
             let checks = try await client.failingChecks(etag: checksETag)
+            guard generation == pollGeneration else { return }
             checksETag = checks.etag ?? checksETag
             if let value = checks.value, !checks.notModified {
                 for review in value {
@@ -112,7 +134,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
             }
             lastError = nil
         } catch {
-            lastError = String(describing: error)
+            if generation == pollGeneration { lastError = String(describing: error) }
         }
     }
 

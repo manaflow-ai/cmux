@@ -17,7 +17,8 @@ extension AppServices {
     /// the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each
     /// level. The terminal warm set (the one budget of hidden GPU surfaces, a lossless consumer) and the
     /// parked workspaces (a lossy one) register there too; the coordinator releases them one surface or
-    /// one workspace per frame.
+    /// one workspace per frame. It runs before the restore mounts a page, so the cache hands it every hide,
+    /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
@@ -40,8 +41,14 @@ extension AppServices {
         hibernation.start()
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
+    }
+
+    /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
+    /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
+    /// already off screen).
+    func startHibernationMeasurements() {
         memoryFootprints.start()
-        if features.isEnabled(.occludedWindowDiscard) {
+        if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
         }
     }

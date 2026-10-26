@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
 import Foundation
 import ServiceManagement
@@ -134,19 +135,18 @@ private final nonisolated class HelperConnection: @unchecked Sendable {
 }
 
 /// Resumes a continuation once: XPC may call both the reply and the error handler.
-private final nonisolated class ResumeOnce: @unchecked Sendable {
-    private let lock = NSLock() // concurrency-allow: guards one optional swap, never held across an await or IO
-    private var continuation: CheckedContinuation<String?, any Error>?
+private final nonisolated class ResumeOnce: Sendable {
+    private let continuation: Mutex<CheckedContinuation<String?, any Error>?>
 
     init(_ continuation: CheckedContinuation<String?, any Error>) {
-        self.continuation = continuation
+        self.continuation = Mutex(continuation)
     }
 
     func succeed(_ value: String?) { take()?.resume(returning: value) }
     func fail(_ error: any Error) { take()?.resume(throwing: error) }
 
     private func take() -> CheckedContinuation<String?, any Error>? {
-        lock.withLock {
+        continuation.withLock { continuation in
             defer { continuation = nil }
             return continuation
         }

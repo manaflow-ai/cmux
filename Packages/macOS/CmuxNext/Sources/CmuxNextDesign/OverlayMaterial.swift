@@ -44,14 +44,14 @@ public enum OverlayMaterial: Equatable, Sendable {
 /// setting; tests inject the state through `override` or their own source.
 @MainActor
 public final class ReduceTransparency {
-    /// This Mac's setting and its change notification.
+    /// This Mac's setting; the app's ``AppearanceSignals`` say when it may have changed.
     public static let shared = ReduceTransparency(
         system: { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-        changes: NSWorkspace.shared.notificationCenter
+        changes: DesignSettings.shared.signals
     )
 
     /// Always opaque: for a card floating over content that must not show through it.
-    public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
+    public static let alwaysOpaque = ReduceTransparency(system: { true })
 
     /// Pins the state (tests, Debug); nil follows `system`. Changing it
     /// redraws every live surface at once.
@@ -63,15 +63,14 @@ public final class ReduceTransparency {
     public var isEnabled: Bool { override ?? system() }
 
     private let system: @MainActor () -> Bool
-    private let changes: NotificationCenter
+    private let changes: AppearanceSignals?
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
     private let cards = NSHashTable<CardSurfaceView>.weakObjects()
-    private var observer: (any NSObjectProtocol)?
+    private var observer: AppearanceSignals.Subscription?
 
-    /// `system` reads the setting; `changes` posts
-    /// `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` when
-    /// it may have changed.
-    public init(system: @escaping @MainActor () -> Bool, changes: NotificationCenter) {
+    /// `system` reads the setting; `changes` raises ``AppearanceSignals/Signal/displayOptions``
+    /// when it may have changed (nil: it never changes but through ``override``).
+    public init(system: @escaping @MainActor () -> Bool, changes: AppearanceSignals? = nil) {
         self.system = system
         self.changes = changes
     }
@@ -90,11 +89,8 @@ public final class ReduceTransparency {
 
     private func observeChanges() {
         guard observer == nil else { return }
-        observer = changes.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
-        ) { [weak self] _ in
-            // NSWorkspace posts on the main thread: delivered inline there, a hop from anywhere else.
-            MainDelivery().run { self?.refreshSurfaces() }
+        observer = changes?.subscribe([.displayOptions], owner: "ReduceTransparency") { [weak self] in
+            self?.refreshSurfaces()
         }
     }
 

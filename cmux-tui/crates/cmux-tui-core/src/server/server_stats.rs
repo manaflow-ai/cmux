@@ -15,6 +15,10 @@ const SLOW_REQUESTS: &str = "slow_requests";
 /// The optional section that reports request latency by class and the
 /// dispatch queue (`request_latency_us`, `dispatch_queue_us`).
 const REQUESTS: &str = "requests";
+/// The optional section that reports the IPC layer: streams, sequence
+/// depths, messages and bytes by kind, parses and write syscalls per
+/// message, write stalls and bad_message closes.
+const IPC: &str = "ipc";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -36,6 +40,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         slow_requests: wants(SLOW_REQUESTS).then(|| mux.request_watchdog.snapshot()),
         request_latency_us,
         dispatch_queue_us,
+        ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
     }
 }
 

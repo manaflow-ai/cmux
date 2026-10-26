@@ -51,7 +51,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
-    private var displayOptionsObserver: MainActorObservation?
+    private var displayOptionsWatch: AppearanceSignals.Subscription?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -109,10 +109,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
+    /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
-         revealClock: any Clock<Duration> = ContinuousClock()) {
+         revealClock: any Clock<Duration> = ContinuousClock(),
+         signals: AppearanceSignals = DesignSettings.shared.signals) {
         self.sidebar = sidebar
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
@@ -169,9 +171,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
-        // queue: .main: the workspace center may post off main; a selector
-        // into this main-actor view trapped there.
-        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+        displayOptionsWatch = signals.subscribe([.displayOptions], owner: "WindowRootView") { [weak self] in
             self?.themeDidChange()
         }
         themeDidChange()

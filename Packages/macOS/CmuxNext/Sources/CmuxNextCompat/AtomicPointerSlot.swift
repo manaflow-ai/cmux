@@ -15,7 +15,7 @@ public import Atomics
 /// The slot does not own its memory: the word must stay mapped and 8-byte aligned while any copy of
 /// the slot is used. Two slots over the same address are the same atomic.
 @frozen
-public struct AtomicPointerSlot: @unchecked Sendable { // crash-allow: every access is one hardware atomic on the caller's aligned word
+public struct AtomicPointerSlot: Sendable { // its one stored property, UnsafeAtomic, is Sendable (swift-atomics)
     @usableFromInline let raw: UnsafeAtomic<UInt64>
 
     /// Makes a slot over the word at `pointer`, which must be 8-byte aligned.
