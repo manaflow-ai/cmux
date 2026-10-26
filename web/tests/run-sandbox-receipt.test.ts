@@ -233,6 +233,15 @@ describe("sandbox receipt", () => {
     expect(sandboxReply("db:\n  password: |-\n    hunter2\n    more\n  host: x\n")).not.toMatch(/hunter2|more/);
     expect(sandboxReply("db:\n  password: |-\n    hunter2\n  host: x\n")).toContain("host: x");
     expect(sandboxReply("loading\rsk-abcdefghijklmnopqrstuvwxyz\n")).not.toContain("abcdefghijklmnop");
+    // A kubeconfig's base64 key, cookie headers, a bare signature, a YAML block with a comment.
+    expect(sandboxReply("users:\n- user:\n    client-key-data: LS0tLS1CRUdJTiBSU0E=\n")).not.toContain("LS0tLS1CRUdJTiBSU0E");
+    expect(redactReceiptValue({ "client-key-data": "LS0t" }, [])).toEqual({ "client-key-data": "[redacted]" });
+    expect(sandboxReply("Set-Cookie: session=abc123def; Path=/")).not.toContain("abc123def");
+    expect(sandboxReply("Cookie: a=1; theme=dark")).toBe("Cookie: [redacted]");
+    expect(sandboxReply("signature: c2lnbmF0dXJl")).not.toContain("c2lnbmF0dXJl");
+    expect(sandboxReply("password: |- # rotated\n  hunter2\nhost: x\n")).not.toContain("hunter2");
+    // Ordinary words stay.
+    expect(sandboxReply("sessions: 3 open; the cookie jar tests passed")).toBe("sessions: 3 open; the cookie jar tests passed");
     // Docker's config.json keeps a reversible user:password under "auth".
     expect(sandboxReply('{"auths":{"registry.example":{"auth":"dXNlcjpwYXNz"}}}')).not.toContain("dXNlcjpwYXNz");
     expect(sandboxReply("auth: required")).toBe("auth: required");
@@ -282,6 +291,15 @@ describe("sandbox receipt", () => {
     const receipt = sandboxReceiptFor(unknown);
     expect(receipt?.cleanup).toBe("pending");
     expect(receipt?.cost.vmSeconds).toBeNull();
+  });
+
+  test("a sandboxed Run's journal events are served redacted like its receipt; a persistent Run's are not", async () => {
+    const { toRunEventView } = await import("../services/runs/view");
+    const event = { id: "e1", runId: "run-1", attemptId: "attempt-1", sequence: 1, attemptSequence: 0, externalId: "out-1", kind: "attempt.output", payload: { text: "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENG", token: "abc" }, createdAt, writerLeaseGeneration: null, writerLeaseTokenHash: null } as unknown as Parameters<typeof toRunEventView>[0];
+    const served = JSON.stringify(toRunEventView(event, "sandboxed"));
+    expect(served).not.toContain("wJalrXUtnFEMIK7MDENG");
+    expect(served).not.toContain('"abc"');
+    expect(JSON.stringify(toRunEventView(event))).toContain("wJalrXUtnFEMIK7MDENG");
   });
 
   test("a VM lifetime nobody measured is a null cost, never zero", () => {

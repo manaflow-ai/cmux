@@ -15,6 +15,13 @@ export function stripTerminalEscapes(text: string): string {
   // join the next text to the last, and a token after it would lose the boundary it is found by.
   return text.replace(ANSI, "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
 }
+/**
+ * The names that make a key's value a secret, shared by every pattern below (a key, a header,
+ * a label at the end of a line, a YAML block scalar): one grammar, so no form is missed by one
+ * pattern that another catches.
+ */
+const SECRET_NAME = String.raw`(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature|key[_-]?data|signature|cookie)`;
+
 /** Token shapes an agent may echo; the receipt is shared wider than the terminal. */
 // Token prefixes match after any non-alphanumeric (`_`, `-`, `/`), not only a word boundary:
 // `\b` never matches after `_`, so `dump_sk-…` would slip through.
@@ -55,14 +62,16 @@ const TOKEN_SHAPES = [
   /((?<![A-Za-z0-9_-])(?:_auth|sig|x-(?:amz|goog)-(?:signature|credential|security-token))["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
-  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
+  new RegExp(String.raw`(\b[A-Za-z0-9_-]*${SECRET_NAME}[A-Za-z0-9_-]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)`, "gi"),
+  // A cookie header carries its secrets as `name=value` pairs: every value goes, whatever its name.
+  /((?:^|\n)[ \t]*(?:set-)?cookie[ \t]*:[ \t]*)[^\n]*/gi,
 ];
 
 /**
  * A YAML block scalar under a secret-named key (`password: |-` then its indented lines): the
  * indented lines are the value.
  */
-const YAML_SECRET_BLOCK = /((?:^|\n)([ \t]*)["']?[A-Za-z0-9_-]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*\n)((?:\2[ \t]+[^\n]*(?:\n|$)|[ \t]*\n)+)/gi;
+const YAML_SECRET_BLOCK = new RegExp(String.raw`((?:^|\n)([ \t]*)["']?[A-Za-z0-9_-]*${SECRET_NAME}[A-Za-z0-9_-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#[^\n]*)?\n)((?:\2[ \t]+[^\n]*(?:\n|$)|[ \t]*\n)+)`, "gi");
 
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
@@ -159,7 +168,7 @@ function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
 }
 
 /** Keys whose value is a secret whatever it looks like. */
-const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|signature|^_?auth$|^sig$|^x-(?:amz|goog)-(?:credential|security-token)$)/i;
+const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|signature|key[_-]?data|^_?auth$|^sig$|^x-(?:amz|goog)-(?:credential|security-token)$)/i;
 
 /**
  * Every string inside `value` (any depth) redacted like the receipt: keys too, and the whole value

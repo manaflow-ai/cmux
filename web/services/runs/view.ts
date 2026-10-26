@@ -18,7 +18,7 @@ import {
   type AttemptStatus,
   type RunEnvironment,
 } from "./model";
-import { sandboxArtifactView, sandboxErrorView, sandboxReceiptFor } from "./sandbox";
+import { redactReceiptValue, sandboxArtifactView, sandboxErrorView, sandboxReceiptFor } from "./sandbox";
 
 export type RunSnapshotRow = {
   readonly run: typeof runs.$inferSelect;
@@ -232,7 +232,13 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   };
 }
 
-export function toRunEventView(event: typeof runEvents.$inferSelect): RunEventView {
+/**
+ * A journal event as served. A sandboxed Run's events are redacted like its receipt (keys and
+ * values at any depth: token shapes, secret-named keys, private keys), since its receipt is the
+ * only place the run's output is meant to be read.
+ */
+export function toRunEventView(event: typeof runEvents.$inferSelect, environment: RunEnvironment = "persistent"): RunEventView {
+  const payload = (redactValue(event.payload) ?? {}) as Record<string, unknown>;
   return {
     id: event.id,
     runId: event.runId,
@@ -241,7 +247,7 @@ export function toRunEventView(event: typeof runEvents.$inferSelect): RunEventVi
     attemptSequence: event.attemptSequence,
     externalId: event.externalId,
     kind: event.kind,
-    payload: (redactValue(event.payload) ?? {}) as Record<string, unknown>,
+    payload: environment === "sandboxed" ? redactReceiptValue(payload, []) as Record<string, unknown> : payload,
     createdAt: requiredIso(event.createdAt),
   };
 }

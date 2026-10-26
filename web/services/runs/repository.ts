@@ -317,9 +317,9 @@ export async function listRunEvents(input: {
   readonly userId: string;
   readonly afterSequence?: number;
   readonly limit?: number;
-}): Promise<{ readonly events: (typeof runEvents.$inferSelect)[]; readonly nextSequence: number | null }> {
+}): Promise<{ readonly events: (typeof runEvents.$inferSelect)[]; readonly nextSequence: number | null; readonly environment: RunEnvironment }> {
   const db = cloudDb();
-  const run = (await db.select({ id: runs.id }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+  const run = (await db.select({ id: runs.id, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
   if (!run) throw new RunNotFoundError("run not found");
   const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
   const rows = await db.select().from(runEvents).where(and(
@@ -327,7 +327,7 @@ export async function listRunEvents(input: {
     gt(runEvents.sequence, input.afterSequence ?? 0),
   )).orderBy(asc(runEvents.sequence)).limit(limit + 1);
   const events = rows.slice(0, limit);
-  return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null };
+  return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null, environment: (run.environment ?? "persistent") as RunEnvironment };
 }
 
 export type AttemptLease = {
