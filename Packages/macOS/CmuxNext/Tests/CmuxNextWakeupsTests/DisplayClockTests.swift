@@ -132,6 +132,147 @@ import Testing
         #expect(ticks == 1)
         #expect(displays.subscribers(on: DisplayClock.noDisplay).isEmpty, "the idle client left the display")
     }
+
+    /// A display whose screen went away (an external monitor unplugged): its link stops and the
+    /// rebuild cannot make one, so on its stall deadline its subscribers move to the display they are
+    /// on now and tick on that display's link, not on the 100 ms deadline. The budget holder's window
+    /// follows the link it ticks on.
+    @Test func aGoneDisplayMovesItsSubscribersToTheirDisplayNow() {
+        var gone: Set<CGDirectDisplayID> = []
+        var main: CGDirectDisplayID = 1
+        let links = FakeLinks()
+        let media = TestMediaTime()
+        let displays = DisplayClock(makeLink: { id, clock in gone.contains(id) ? nil : links.make(id, clock) },
+                                    displayOf: { _ in main }, clock: ManualClock(), mediaTime: media.read)
+        let fixture = Fixture(displays: displays)
+        var ticks: [String] = []
+        let app = FrameClient(owner: "app", on: fixture.app) { _ in ticks.append("app"); return true }
+        let drain = FrameClient(owner: "drain", on: fixture.work.frames) { _ in ticks.append("drain"); return true }
+        app.activate()
+        drain.activate()
+        #expect(fixture.work.budget.tickOwnsWindow)
+
+        gone.insert(1)
+        main = 2
+        for _ in 0..<DisplayClock.stallsBeforeRebuild {
+            media.now += 0.2
+            displays.stallTimerFired(1)
+        }
+
+        #expect(displays.subscribers(on: 1).isEmpty)
+        #expect(displays.subscribers(on: 2) == ["app", "budgeted"])
+        #expect(!displays.hasLink(1) && displays.hasLink(2))
+        #expect(fixture.app.hasLink && fixture.work.frames.hasLink)
+        #expect(fixture.work.budget.tickOwnsWindow, "the drain ticks on display 2's link")
+        ticks.removeAll()
+        displays.displayDidFire(2, timestamp: media.now, refreshInterval: 1.0 / 60)
+        #expect(ticks == ["drain", "app"])
+        app.deactivate()
+        drain.deactivate()
+        #expect(displays.liveLinks == 0)
+    }
+
+    /// A window that went to another screen follows it, and when the main display changes the stall
+    /// deadline moves every subscriber to the display it is on now.
+    @Test func aScreenChangeMovesSubscribers() {
+        let links = FakeLinks()
+        var main: CGDirectDisplayID = 1
+        var windowDisplay: CGDirectDisplayID = 1
+        let displays = DisplayClock(makeLink: links.make, displayOf: { $0 == nil ? main : windowDisplay }, clock: ManualClock())
+        let fixture = Fixture(displays: displays)
+        let clients = fixture.clients { _ in true }
+        for client in clients { client.activate() }
+
+        windowDisplay = 3
+        fixture.windowA.screenDidChange()
+        #expect(displays.subscribers(on: 3) == ["window a"])
+        #expect(displays.subscribers(on: 1) == ["window b", "app", "budgeted"])
+
+        main = 2
+        windowDisplay = 3
+        displays.stallTimerFired(1)
+        #expect(displays.subscribers(on: 1).isEmpty)
+        #expect(!displays.hasLink(1), "nobody is left on display 1")
+        #expect(displays.subscribers(on: 2) == ["app", "budgeted"])
+        #expect(displays.subscribers(on: 3) == ["window a", "window b"])
+        #expect(displays.liveLinks == 2)
+        for client in clients { client.deactivate() }
+        #expect(displays.liveLinks == 0)
+    }
+
+    /// The link goes away while the budget holder stays subscribed (a stall rebuild that cannot
+    /// make one): its ticks no longer own the budget's window, so off-tick work can roll it; a
+    /// later retry that makes a link gives it back.
+    @Test func losingTheLinkGivesUpTheBudgetWindow() {
+        var linkless = false
+        let links = FakeLinks()
+        let media = TestMediaTime()
+        let displays = DisplayClock(makeLink: { id, clock in linkless ? nil : links.make(id, clock) },
+                                    displayOf: { _ in 1 }, clock: ManualClock(), mediaTime: media.read)
+        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        let drain = FrameClient(owner: "drain", on: work.frames) { _ in true }
+        drain.activate()
+        #expect(work.budget.tickOwnsWindow)
+
+        linkless = true
+        for _ in 0..<DisplayClock.stallsBeforeRebuild {
+            media.now += 0.2
+            displays.stallTimerFired(1)
+        }
+        #expect(!work.frames.hasLink)
+        #expect(!work.budget.tickOwnsWindow, "no link: the budget's window rolls off-tick")
+
+        linkless = false
+        media.now += 0.2
+        displays.stallTimerFired(1)
+        #expect(work.frames.hasLink)
+        #expect(work.budget.tickOwnsWindow, "the retry made a link")
+        drain.deactivate()
+    }
+
+    /// A window nobody can see (occluded or miniaturized) gets no full-rate tick: once per stall
+    /// timeout, and when it is the only subscriber the link stops and the deadline ticks it.
+    @Test func anOccludedWindowGetsNoFullRateTick() {
+        let links = FakeLinks()
+        let media = TestMediaTime()
+        let shown = NSWindow.fixture(), hidden = NSWindow.fixture()
+        var hiddenIsVisible = false
+        let displays = DisplayClock(makeLink: links.make, displayOf: { _ in 1 },
+                                    isVisible: { $0 === shown || hiddenIsVisible }, clock: ManualClock(), mediaTime: media.read)
+        let onShown = FrameScheduler(name: "shown", host: .window(shown), displays: displays, budget: nil)
+        let onHidden = FrameScheduler(name: "hidden", host: .window(hidden), displays: displays, budget: nil)
+        var shownTicks = 0, hiddenTicks = 0
+        let shownClient = FrameClient(owner: "shown", on: onShown) { _ in shownTicks += 1; return true }
+        let hiddenClient = FrameClient(owner: "hidden", on: onHidden) { _ in hiddenTicks += 1; return true }
+        shownClient.activate()
+        hiddenClient.activate()
+
+        for frame in 0..<12 {
+            displays.displayDidFire(1, timestamp: 1 + Double(frame) / 120, refreshInterval: 1.0 / 120)
+        }
+        #expect(shownTicks == 12)
+        #expect(hiddenTicks == 1, "the occluded window ticked \(hiddenTicks) times in 92 ms of 120 Hz frames")
+        displays.displayDidFire(1, timestamp: 1.1, refreshInterval: 1.0 / 120)
+        #expect(hiddenTicks == 2, "a stall timeout after its last tick it ticks again")
+
+        shownClient.deactivate()
+        media.now = 1.1
+        displays.displayDidFire(1, timestamp: 1.1 + 1.0 / 120, refreshInterval: 1.0 / 120)
+        #expect(links.made.first?.isPaused == true, "only an occluded window is left: the link stops")
+        let before = hiddenTicks
+        media.now += 0.2
+        displays.stallTimerFired(1)
+        #expect(hiddenTicks == before + 1, "the stall deadline ticks it")
+        #expect(displays.lastStall(on: 1) == nil, "a stopped link is not a stall")
+        #expect(links.made.count == 1, "and not rebuilt")
+
+        hiddenIsVisible = true
+        media.now += 0.2
+        displays.stallTimerFired(1)
+        #expect(links.made.first?.isPaused == false, "it can be seen again: the link runs")
+        hiddenClient.deactivate()
+        #expect(displays.liveLinks == 0)
+    }
 }
 
 /// Four schedulers on one display clock: two windows, the app's and the budget holder's.
@@ -159,6 +300,13 @@ private struct Fixture {
     func clients(_ onFrame: @escaping @MainActor (FrameTick) -> Bool) -> [FrameClient] {
         schedulers.map { FrameClient(owner: $0.name, on: $0, onFrame: onFrame) }
     }
+}
+
+/// `CACurrentMediaTime` for the stall checks.
+@MainActor
+private final class TestMediaTime {
+    var now: CFTimeInterval = 1000
+    var read: @MainActor () -> CFTimeInterval { { [self] in now } }
 }
 
 @MainActor

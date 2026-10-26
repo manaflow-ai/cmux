@@ -21,9 +21,11 @@ public import QuartzCore
 /// task it runs.
 ///
 /// ```swift
-/// // The composition root:
+/// // The composition root, with the app's one display clock:
+/// let displays = DisplayClock()
+/// FrameScheduler.install(displays: displays)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
-///                                  displays: FrameScheduler.appDisplays)
+///                                  displays: displays)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
@@ -51,17 +53,18 @@ public final class MainWorkScheduler {
     ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
     ///     while it ticks and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    ///   - displays: The display clock it shares with ``FrameScheduler/app`` and the windows
-    ///     (``FrameScheduler/appDisplays``).
+    ///   - displays: The composition root's display clock, which it shares with ``FrameScheduler/app``
+    ///     and the windows (``FrameScheduler/install(displays:)``).
     public convenience init(budget: MainFrameBudget, displays: DisplayClock) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   renderPasses: meter)
     }
 
-    /// A scheduler on ``FrameScheduler/appDisplays``.
+    /// A scheduler on a display clock of its own (tests and fixtures; the app passes its one clock),
+    /// so two of them never tick each other.
     public convenience init(budget: MainFrameBudget) {
-        self.init(budget: budget, displays: FrameScheduler.appDisplays)
+        self.init(budget: budget, displays: DisplayClock())
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {

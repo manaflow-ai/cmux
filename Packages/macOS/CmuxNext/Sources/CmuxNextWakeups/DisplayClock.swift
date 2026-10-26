@@ -13,18 +13,27 @@ public import QuartzCore
 ///
 /// Each tick goes out in one order: the budget holder's frame-locked clients (its input stage and the
 /// daemon drains), then every other scheduler on the display (windows, app), then the budget holder's
-/// budgeted classes, which get what is left of the frame.
+/// budgeted classes, which get what is left of the frame. A window that is occluded or miniaturized
+/// gets a link tick only once per ``stallTimeout``, and a display whose subscribers are all such
+/// windows stops its link and ticks them on the stall deadline (Chrome stops BeginFrames to an
+/// occluded window: `content/browser/renderer_host/render_widget_host_view_mac.mm`, `WasOccluded`).
 ///
-/// A display link stops firing while the displays sleep, when its screen goes away, and for some
-/// occluded windows, yet clients such as the daemon mirror must keep moving. So while a display has
-/// subscribers one stall deadline runs for it: when no frame came in time its subscribers tick
-/// anyway, and after repeated stalls the link is rebuilt. Frames do not touch the deadline (a new
-/// timer task per frame cost two cooperative-pool wakes a frame): when it fires after a frame came,
-/// it is armed again for the rest of the timeout from that frame.
+/// A display link stops firing while the displays sleep and when its screen goes away, yet clients
+/// such as the daemon mirror must keep moving. So while a display has subscribers one stall deadline
+/// runs for it: when no frame came in time its subscribers tick anyway, and after repeated stalls the
+/// link is rebuilt. Frames do not touch the deadline (a new timer task per frame cost two
+/// cooperative-pool wakes a frame): when it fires after a frame came, it is armed again for the rest
+/// of the timeout from that frame. Each time the deadline fires, every subscriber of the display
+/// resolves its display again and moves there when it changed: a window dragged to another screen,
+/// a screen unplugged, the main display changed (Chrome's `DisplayLinkMac` consumers register on the
+/// link of the display they are on now, `ui/display/mac/display_link_mac.h`). So a display whose
+/// screen went away never keeps its subscribers on the deadline's 10 Hz.
 ///
 /// ```swift
-/// // FrameScheduler.app owns the app's clock; the composition root shares it:
-/// let mainWork = MainWorkScheduler(budget: budget, displays: FrameScheduler.appDisplays)
+/// // The composition root builds the app's clock and installs it:
+/// let displays = DisplayClock()
+/// FrameScheduler.install(displays: displays)
+/// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
 ///
 /// // A test counts links with a fake factory and fires frames by hand:
 /// let displays = DisplayClock(makeLink: { _, _ in FakeLink() }, displayOf: { _ in 1 })
@@ -37,6 +46,8 @@ public final class DisplayClock {
     public typealias LinkFactory = @MainActor (_ display: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)?
     /// The display a window is on (nil: the main display); nil when there is no screen at all.
     public typealias DisplayResolver = @MainActor (_ window: NSWindow?) -> CGDirectDisplayID?
+    /// Whether a person can see any of `window` (not occluded, not miniaturized).
+    public typealias VisibilityResolver = @MainActor (_ window: NSWindow) -> Bool
 
     /// Longest wait for a frame while a display has subscribers.
     public static let stallTimeout: Duration = .milliseconds(100)
@@ -45,6 +56,7 @@ public final class DisplayClock {
 
     private let makeLink: LinkFactory
     private let displayOf: DisplayResolver
+    private let isVisible: VisibilityResolver
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
     private let mediaTime: @MainActor () -> CFTimeInterval
@@ -57,14 +69,17 @@ public final class DisplayClock {
     ///   - makeLink: Makes a display's link; nil: a `CADisplayLink` of the `NSScreen` with that number
     ///     on the main run loop.
     ///   - displayOf: Resolves a window's display; nil: the window's screen, else the main screen.
+    ///   - isVisible: Whether a window can be seen; nil: not miniaturized, the app not hidden, and,
+    ///     while the window is on screen, some part of it visible.
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
-    public init(makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
+    public init(makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil, isVisible: VisibilityResolver? = nil,
                 clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() }) {
         self.makeLink = makeLink ?? { display, clock in DisplayClock.systemLink(display, clock) }
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
+        self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
@@ -94,24 +109,49 @@ public final class DisplayClock {
 
     // MARK: Subscribers
 
-    /// Subscribes `scheduler` to the display of `window` (the main display for nil; ``noDisplay``
-    /// when there is no screen) and makes sure that display's link runs. Without a link (no screen,
-    /// a headless launch) its subscribers tick once on the next turn, then on the stall deadline,
-    /// which retries the link each time.
-    func subscribe(_ scheduler: FrameScheduler, window: NSWindow?) -> CGDirectDisplayID {
-        let id = displayOf(window) ?? Self.noDisplay
-        let display = record(id)
+    /// Subscribes `scheduler` to the display of its window (the main display for a screen host;
+    /// ``noDisplay`` when there is no screen) and makes sure that display's link runs. Without a link
+    /// (no screen, a headless launch) its subscribers tick once on the next turn, then on the stall
+    /// deadline, which retries the link and the display each time.
+    func subscribe(_ scheduler: FrameScheduler) -> CGDirectDisplayID {
+        let id = resolve(scheduler)
+        join(scheduler, record(id))
+        return id
+    }
+
+    /// The display `scheduler` is on now (``noDisplay`` when there is no screen).
+    private func resolve(_ scheduler: FrameScheduler) -> CGDirectDisplayID {
+        displayOf(scheduler.hostWindow) ?? Self.noDisplay
+    }
+
+    private func join(_ scheduler: FrameScheduler, _ display: Display) {
         if !display.subscribers.contains(where: { $0 === scheduler }) { display.subscribers.append(scheduler) }
         if !display.stall.isScheduled { display.lastFrame = mediaTime() }
         if let link = display.link ?? make(display) {
             if link.isPaused { link.isPaused = false }
         } else if !display.linklessTickQueued {
             display.linklessTickQueued = true
+            let id = display.id
             // task-owner: one hop; the subscribers leave or keep ticking on the stall deadline
             Task { @MainActor [weak self] in self?.linklessTick(id) }
         }
         arm(display)
-        return id
+    }
+
+    /// Moves `scheduler`, subscribed to `id`, to the display it is on now if that changed (its window
+    /// went to another screen, or its screen went away), and tells it.
+    func resubscribe(_ scheduler: FrameScheduler, from id: CGDirectDisplayID) {
+        let now = resolve(scheduler)
+        guard now != id, let old = displays[id], old.subscribers.contains(where: { $0 === scheduler }) else { return }
+        old.subscribers.removeAll { $0 === scheduler }
+        join(scheduler, record(now))
+        scheduler.displayDidChange(to: now, hasLink: hasLink(now))
+        if old.subscribers.isEmpty { idle(old) }
+    }
+
+    /// Every subscriber of `display` resolves its display again and moves to it.
+    private func relocate(_ display: Display) {
+        for scheduler in display.subscribers { resubscribe(scheduler, from: display.id) }
     }
 
     /// The display id of "no screen": its subscribers tick on the stall deadline only.
@@ -133,19 +173,31 @@ public final class DisplayClock {
 
     // MARK: Frames
 
-    /// One frame of `display` (its link's tick; tests call it directly).
+    /// One frame of `display` (its link's tick; tests call it directly). A window nobody can see
+    /// ticks only once its last tick is a ``stallTimeout`` old.
     public func displayDidFire(_ id: CGDirectDisplayID, timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         guard let display = displays[id] else { return }
-        display.lastFrame = timestamp ?? mediaTime()
+        let now = timestamp ?? mediaTime()
+        display.lastFrame = now
         display.stalls = 0
-        deliver(display, timestamp: timestamp, refreshInterval: refreshInterval)
-        if display.subscribers.isEmpty { idle(display) } else { arm(display) }
+        deliver(display, timestamp: timestamp, refreshInterval: refreshInterval, hiddenUntil: now - Self.stallSeconds)
+        guard !display.subscribers.isEmpty else { return idle(display) }
+        // Only windows nobody can see are left: the link stops, they tick on the stall deadline.
+        if allHidden(display) { display.link?.isPaused = true }
+        arm(display)
     }
 
-    private func deliver(_ display: Display, timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
+    /// ``stallTimeout`` in seconds.
+    private static let stallSeconds = Double(stallTimeout.components.seconds) + Double(stallTimeout.components.attoseconds) / 1e18
+
+    /// - Parameter hiddenUntil: A window nobody can see ticks only if its last tick is at or before
+    ///   this time; nil: every subscriber ticks (the stall deadline).
+    private func deliver(_ display: Display, timestamp: CFTimeInterval?, refreshInterval: Double?,
+                         hiddenUntil: CFTimeInterval?) { // perf-hot: 0.5ms frame-tick (every frame)
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
-        let ticking = display.subscribers.map { ($0, $0.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)) }
+        let ticking = display.subscribers.filter { mayTick($0, hiddenUntil: hiddenUntil) }
+            .map { ($0, $0.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)) }
         func subscribed(_ scheduler: FrameScheduler) -> Bool { display.subscribers.contains { $0 === scheduler } }
         for (scheduler, tick) in ticking where scheduler.holdsBudget && subscribed(scheduler) {
             scheduler.deliverFrameLocked(tick)
@@ -161,6 +213,18 @@ public final class DisplayClock {
         }
     }
 
+    /// A window nobody can see ticks at the stall rate, not the display's (R6: hidden and occluded
+    /// cost nothing); the app and budgeted schedulers always tick.
+    private func mayTick(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Bool {
+        guard let hiddenUntil, let window = scheduler.hostWindow, !isVisible(window) else { return true }
+        return scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
+    }
+
+    /// Every subscriber of `display` is a window nobody can see.
+    private func allHidden(_ display: Display) -> Bool {
+        !display.subscribers.isEmpty && display.subscribers.allSatisfy { $0.hostWindow.map { !isVisible($0) } ?? false }
+    }
+
     private func record(_ id: CGDirectDisplayID) -> Display {
         if let display = displays[id] { return display }
         let display = Display(id: id, stall: DemandTimer(owner: "DisplayClock.stall", clock: clock, ledger: ledger))
@@ -171,14 +235,20 @@ public final class DisplayClock {
     private func make(_ display: Display) -> (any FrameLink)? {
         let made = makeLink(display.id, self)
         if made != nil { linksMade += 1 }
-        display.link = made
+        setLink(display, made)
         return made
+    }
+
+    /// Sets `display`'s link and tells its subscribers whether a link ticks them now.
+    private func setLink(_ display: Display, _ link: (any FrameLink)?) {
+        display.link = link
+        for scheduler in display.subscribers { scheduler.displayLinkDidChange(exists: link != nil) }
     }
 
     /// Drops `display`'s link while nobody subscribes: no link, no stall deadline, no wakeups.
     private func idle(_ display: Display) {
         display.link?.invalidate()
-        display.link = nil
+        setLink(display, nil)
         display.stall.cancel()
         display.stalls = 0
     }
@@ -195,26 +265,42 @@ public final class DisplayClock {
     /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.
     private static let stallSlack: CFTimeInterval = 0.0005
 
-    private func stallTimerFired(_ id: CGDirectDisplayID) {
+    /// `id`'s stall deadline passed (its timer; tests call it directly). Its subscribers that are on
+    /// another display now move there first.
+    func stallTimerFired(_ id: CGDirectDisplayID) {
         guard let display = displays[id], !display.subscribers.isEmpty else { return }
+        relocate(display)
+        guard !display.subscribers.isEmpty else { return }
         let sinceFrame = mediaTime() - display.lastFrame
-        let timeout = Double(Self.stallTimeout.components.seconds) + Double(Self.stallTimeout.components.attoseconds) / 1e18
-        guard sinceFrame + Self.stallSlack >= timeout else {
+        guard sinceFrame + Self.stallSlack >= Self.stallSeconds else {
             // A frame came since the timer was armed: wait out the rest of the timeout from it.
-            arm(display, after: .seconds(timeout - sinceFrame))
+            arm(display, after: .seconds(Self.stallSeconds - sinceFrame))
+            return
+        }
+        if let link = display.link, link.isPaused {
+            // The link was stopped because nobody could see this display's windows: they tick on the
+            // deadline, and the link runs again once one of them can be seen.
+            deliver(display, timestamp: nil, refreshInterval: nil, hiddenUntil: nil)
+            guard !display.subscribers.isEmpty else { return idle(display) }
+            if !allHidden(display) {
+                link.isPaused = false
+                display.lastFrame = mediaTime()
+            }
+            arm(display)
             return
         }
         display.stalls += 1
-        if display.stalls >= Self.stallsBeforeRebuild {
+        let rebuild = display.stalls >= Self.stallsBeforeRebuild
+        if rebuild {
             display.stalls = 0
             display.link?.invalidate()
-            display.link = nil
         }
         display.lastStall = FrameStall(startedAt: display.lastFrame, detectedAt: mediaTime())
         for scheduler in display.subscribers { ledger.record("FrameScheduler.\(scheduler.name)", reason: "stalled frame") }
-        deliver(display, timestamp: nil, refreshInterval: nil)
+        deliver(display, timestamp: nil, refreshInterval: nil, hiddenUntil: nil)
         guard !display.subscribers.isEmpty else { return idle(display) }
-        (display.link ?? make(display))?.isPaused = false
+        // No link (the display has no screen yet): its subscribers tick on the deadline and retry.
+        (rebuild || display.link == nil ? make(display) : display.link)?.isPaused = false
         arm(display)
     }
 
@@ -231,6 +317,14 @@ public final class DisplayClock {
         link.preferredFrameRateRange = motionRange
         link.add(to: .main, forMode: .common)
         return link
+    }
+
+    /// A window can be seen unless it is miniaturized, the app is hidden, or it is on screen with no
+    /// visible part. A window not ordered in (still being built) has no occlusion state yet and counts
+    /// as seen.
+    private static func systemIsVisible(_ window: NSWindow) -> Bool {
+        if window.isMiniaturized || NSApp?.isHidden == true { return false }
+        return !window.isVisible || window.occlusionState.contains(.visible)
     }
 
     private static func systemDisplay(_ window: NSWindow?) -> CGDirectDisplayID? {

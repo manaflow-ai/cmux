@@ -21,7 +21,8 @@ extension CADisplayLink: FrameLink {}
 /// ``MainWorkScheduler``, the only scheduler that holds a ``MainFrameBudget``. All of them share one
 /// link per display (``DisplayClock``, the only code that creates one, as
 /// `scripts/cmux-next/check-concurrency.sh` enforces), which also runs the display's stall deadline.
-/// ``app`` owns that clock; the composition root passes it to its ``MainWorkScheduler``.
+/// The composition root builds that clock, installs it here (``install(displays:)``) and passes it to
+/// its ``MainWorkScheduler``.
 @MainActor
 public final class FrameScheduler: NSObject {
     /// Makes a test scheduler's fake link (``testing(clock:ledger:mediaTime:makeLink:)``).
@@ -33,14 +34,22 @@ public final class FrameScheduler: NSObject {
     public static let stallsBeforeRebuild = DisplayClock.stallsBeforeRebuild
 
     /// The scheduler for window-less frame work, on the main display (no budget: budgeted batches
-    /// tick on the injected ``MainWorkScheduler``). It owns the app's ``DisplayClock``, which every
-    /// window scheduler subscribes to and the composition root passes to its ``MainWorkScheduler``.
-    public static let app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
+    /// tick on the injected ``MainWorkScheduler``), on the clock the composition root installed
+    /// (``install(displays:)``; a clock of its own before that, in tests).
+    public private(set) static var app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
 
     private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
 
-    /// The display clock ``app`` and the window schedulers subscribe to (``app``'s).
+    /// The display clock ``app`` and the window schedulers subscribe to.
     public static var appDisplays: DisplayClock { app.displayClock }
+
+    /// Puts ``app`` and the window schedulers made from now on onto `displays`, the composition root's
+    /// one clock. Called once at launch, before any window has a scheduler.
+    public static func install(displays: DisplayClock) {
+        guard displays !== appDisplays else { return }
+        app.invalidate()
+        app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil)
+    }
 
     /// `window`'s scheduler, created on first use and dropped with the window.
     public static func forWindow(_ window: NSWindow) -> FrameScheduler {
@@ -89,7 +98,8 @@ public final class FrameScheduler: NSObject {
     /// ``isSubscribed`` says whether it ticks on that display now.
     private var displayID: CGDirectDisplayID?
     private var isSubscribed = false
-    /// It subscribed to a display that has a link (a headless one ticks on the stall deadline only).
+    /// Its display has a link now (a headless one ticks on the stall deadline only); the clock says
+    /// when the link comes or goes (``displayLinkDidChange(exists:)``).
     private var ticksOnLink = false {
         didSet { if oldValue != ticksOnLink { onLinkChange?(ticksOnLink) } }
     }
@@ -179,6 +189,12 @@ public final class FrameScheduler: NSObject {
     /// The display it ticks on now.
     private var subscribed: CGDirectDisplayID? { isSubscribed ? displayID : nil }
 
+    /// The window whose display it ticks on (nil: a screen host, on the main display).
+    var hostWindow: NSWindow? { isScreenHost ? nil : window }
+
+    /// The timestamp of its last tick while subscribed (nil before the first one).
+    var lastTickTimestamp: CFTimeInterval? { lastTimestamp }
+
     /// True for the ``MainWorkScheduler``'s scheduler: its budgeted classes tick last on its display.
     var holdsBudget: Bool { budget != nil }
 
@@ -191,11 +207,30 @@ public final class FrameScheduler: NSObject {
         guard !isSubscribed else { return }
         let linksBefore = displayClock.linksMade
         lastTimestamp = nil
-        let id = displayClock.subscribe(self, window: isScreenHost ? nil : window)
+        let id = displayClock.subscribe(self)
         displayID = id
         isSubscribed = true
         if displayClock.linksMade != linksBefore { linksMade += 1 }
         ticksOnLink = displayClock.hasLink(id)
+    }
+
+    /// Its display's link was made or dropped (the clock, on a stall rebuild or a failed one).
+    func displayLinkDidChange(exists: Bool) {
+        guard isSubscribed else { return }
+        ticksOnLink = exists
+    }
+
+    /// The clock moved it to `id` (its screen changed or went away).
+    func displayDidChange(to id: CGDirectDisplayID, hasLink: Bool) {
+        displayID = id
+        ticksOnLink = hasLink
+    }
+
+    /// Its window moved to another screen: tick on that screen's link now (the display's stall
+    /// deadline also moves it, within a ``stallTimeout``).
+    func screenDidChange() {
+        guard let subscribed else { return }
+        displayClock.resubscribe(self, from: subscribed)
     }
 
     func deactivate(_ client: FrameClient) {
